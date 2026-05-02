@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Cpu,
@@ -24,6 +25,7 @@ import {
   terminateInstance,
   updateInstanceResources,
 } from '../services/api'
+import { buildInventorySummary, getInstanceOperationalSignals } from '../utils/inventorySummary'
 
 const naturalCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -36,6 +38,31 @@ function naturalCompare(left, right) {
 
 function normalizeInstanceStatus(status) {
   return String(status ?? '').trim().toLowerCase()
+}
+
+function formatNumber(value, digits = 0) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '-'
+  return parsed.toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+  })
+}
+
+function InventoryMetricCard({ label, value, hint, icon: Icon, toneClass }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-950">{value}</div>
+          <div className="mt-1 text-xs text-gray-500">{hint}</div>
+        </div>
+        <div className={`rounded-lg p-2 ${toneClass}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function InstanceList({ onLogsUpdate, onStatusChange }) {
@@ -316,6 +343,12 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
     )
   }
 
+  const allInstances = useMemo(
+    () => Object.values(groupedInstances).flatMap((group) => group.instances || []),
+    [groupedInstances]
+  )
+  const inventorySummary = useMemo(() => buildInventorySummary(allInstances), [allInstances])
+
   const toggleServer = (serverId) => {
     setExpandedServers((prev) => {
       const next = new Set(prev)
@@ -414,6 +447,39 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
           Refresh
         </button>
       </div>
+
+      {!loading && Object.keys(groupedInstances).length > 0 ? (
+        <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <InventoryMetricCard
+            label="VM 상태"
+            value={`${inventorySummary.running} running / ${inventorySummary.total} total`}
+            hint={`${inventorySummary.stopped} stopped · ${inventorySummary.unknown} unknown`}
+            icon={Server}
+            toneClass="bg-blue-50 text-blue-700"
+          />
+          <InventoryMetricCard
+            label="IP 가시성"
+            value={`${inventorySummary.visibleIpCount} visible`}
+            hint={`${inventorySummary.missingIpCount} VM without discovered IP`}
+            icon={AlertTriangle}
+            toneClass={inventorySummary.missingIpCount > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}
+          />
+          <InventoryMetricCard
+            label="할당 CPU"
+            value={`${formatNumber(inventorySummary.cpuCores)} cores`}
+            hint="Inventory 기준 vCPU 합계"
+            icon={Cpu}
+            toneClass="bg-slate-100 text-slate-700"
+          />
+          <InventoryMetricCard
+            label="할당 메모리/디스크"
+            value={`${formatNumber(inventorySummary.memoryGb, 1)} GB RAM`}
+            hint={`${formatNumber(inventorySummary.diskGb, 1)} GB disk`}
+            icon={HardDrive}
+            toneClass="bg-slate-100 text-slate-700"
+          />
+        </div>
+      ) : null}
 
       <div>
         {loading ? (
@@ -537,6 +603,7 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
                                   const isEditing = editingInstanceKey === instanceKey
                                   const isStopped =
                                     normalizeInstanceStatus(instance.status) === 'stopped'
+                                  const operationalSignals = getInstanceOperationalSignals(instance)
 
                                   return (
                                     <Fragment key={instance.id || instance.vm_id || index}>
@@ -597,9 +664,22 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
                                           ) : null}
                                           {instance.vmid && (
                                             <div className="text-xs text-gray-500 mt-0.5 truncate">
-                                              ID: {instance.vmid}
+                                              ID: {instance.vmid} · Node: {instance.node || serverId}
                                             </div>
                                           )}
+                                          {operationalSignals.length > 0 ? (
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                              {operationalSignals.map((signal) => (
+                                                <span
+                                                  key={signal.label}
+                                                  className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+                                                  title={signal.detail}
+                                                >
+                                                  {signal.label}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          ) : null}
                                         </td>
                                         <td className="py-4 px-4">
                                           <div className="flex-shrink-0">

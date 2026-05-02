@@ -79,10 +79,19 @@ class TerraformService:
             value = str(proxmox_tls_insecure).strip().lower() in ["1", "true", "yes", "on"]
             os.environ["TF_VAR_proxmox_tls_insecure"] = "true" if value else "false"
 
-        # 디버깅: 환경변수 확인
-        print(f"[TerraformService] TF_VAR_proxmox_api_url: {os.getenv('TF_VAR_proxmox_api_url', 'NOT SET')}")
-        print(f"[TerraformService] TF_VAR_proxmox_api_token_id: {os.getenv('TF_VAR_proxmox_api_token_id', 'NOT SET')}")
-        print(f"[TerraformService] TF_VAR_proxmox_api_token_secret: {'SET' if os.getenv('TF_VAR_proxmox_api_token_secret') else 'NOT SET'}")
+        # 디버깅: 민감한 Proxmox URL/token 값은 로그에 남기지 않는다.
+        print(
+            "[TerraformService] TF_VAR_proxmox_api_url: "
+            f"{'[REDACTED]' if os.getenv('TF_VAR_proxmox_api_url') else 'NOT SET'}"
+        )
+        print(
+            "[TerraformService] TF_VAR_proxmox_api_token_id: "
+            f"{'[REDACTED]' if os.getenv('TF_VAR_proxmox_api_token_id') else 'NOT SET'}"
+        )
+        print(
+            "[TerraformService] TF_VAR_proxmox_api_token_secret: "
+            f"{'[REDACTED]' if os.getenv('TF_VAR_proxmox_api_token_secret') else 'NOT SET'}"
+        )
 
         self.proxmox_service = ProxmoxService()
         self._percent_pattern = re.compile(r"\((\d+(?:[.,]\d+)?)%\)")
