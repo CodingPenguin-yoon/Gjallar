@@ -95,23 +95,3 @@ infra/**/*.tfvars.json
 
 
 env
-
-# Local secrets / runtime state
-*.env
-*.env.*
-!.env.example
-*.crt
-*.p12
-*.db
-*.sqlite
-*.sqlite3
-backend/venv/
-frontend/node_modules/
-node_modules/
-data/platform_state.db
-__pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-dist/
-build/
