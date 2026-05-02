@@ -27,6 +27,7 @@ import {
   updateInstanceResources,
 } from '../services/api'
 import { buildInventorySummary, getInstanceOperationalSignals } from '../utils/inventorySummary'
+import { buildLifecycleConfirmation, getInstanceDisplayName } from '../utils/lifecycleSafety'
 
 const naturalCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -204,8 +205,20 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
     })
   }
 
+  const confirmLifecycleAction = (instance, action) => {
+    const confirmation = buildLifecycleConfirmation({ instance, action })
+    const baseMessage = `${confirmation.title}\n\n${confirmation.message}`
+
+    if (confirmation.requiredTypedValue) {
+      const typedValue = window.prompt(baseMessage)
+      return typedValue === confirmation.requiredTypedValue
+    }
+
+    return window.confirm(baseMessage)
+  }
+
   const handleDestroy = async (instance) => {
-    const serverName = instance?.name || instance?.server_name || `VM ${instance?.vmid || ''}`
+    const serverName = getInstanceDisplayName(instance)
     const node = instance?.node
     const vmid = instance?.vmid
     const instanceKey = getInstanceKey(instance)
@@ -215,10 +228,8 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
       return
     }
 
-    if (!confirm(`"${serverName}" 인스턴스를 종료 후 삭제하시겠습니까?\n(1차 확인)`)) {
-      return
-    }
-    if (!confirm(`마지막 확인입니다.\n"${serverName}" 인스턴스를 정말 종료/삭제할까요?`)) {
+    if (!confirmLifecycleAction(instance, 'terminate')) {
+      addLog(`Terminate cancelled for "${serverName}".`, 'info')
       return
     }
 
@@ -242,7 +253,7 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
   }
 
   const handleLifecycleAction = async (instance, action) => {
-    const serverName = instance?.name || instance?.server_name || `VM ${instance?.vmid || ''}`
+    const serverName = getInstanceDisplayName(instance)
     const node = instance?.node
     const vmid = instance?.vmid
     const instanceKey = getInstanceKey(instance)
@@ -255,6 +266,11 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
 
     if (!node || vmid === undefined || vmid === null) {
       addLog(`Cannot ${action} instance "${serverName}": missing node/vmid`, 'error')
+      return
+    }
+
+    if (!confirmLifecycleAction(instance, action)) {
+      addLog(`${action} cancelled for "${serverName}".`, 'info')
       return
     }
 

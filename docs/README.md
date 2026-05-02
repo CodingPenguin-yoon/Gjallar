@@ -41,6 +41,7 @@ Current non-goals:
 
 - `architecture/VM_OPERATIONS_ARCHITECTURE.md`
 - `architecture/VM_PROVISIONING_CONTRACT.md`
+- `features/VM_lifecycle_action_safety.md`
 - `operations/RUNBOOK.md`
 - `roadmap/NEXT_WORK.md`
 
