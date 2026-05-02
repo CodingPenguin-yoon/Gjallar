@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cpu,
+  Eye,
   HardDrive,
   Loader2,
   Pencil,
@@ -72,6 +73,7 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
   const [editingInstanceKey, setEditingInstanceKey] = useState(null)
   const [editForm, setEditForm] = useState({ cpuCores: '', memoryGb: '' })
   const [openIpPopoverKey, setOpenIpPopoverKey] = useState(null)
+  const [selectedInstanceKey, setSelectedInstanceKey] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -348,6 +350,10 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
     [groupedInstances]
   )
   const inventorySummary = useMemo(() => buildInventorySummary(allInstances), [allInstances])
+  const selectedInstance = useMemo(
+    () => allInstances.find((instance) => getInstanceKey(instance) === selectedInstanceKey) || null,
+    [allInstances, selectedInstanceKey]
+  )
 
   const toggleServer = (serverId) => {
     setExpandedServers((prev) => {
@@ -406,6 +412,14 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
             Start
           </button>
         )}
+        <button
+          onClick={() => setSelectedInstanceKey(instanceKey)}
+          disabled={isPending}
+          className={`${sharedClassName} text-slate-700 hover:bg-slate-100`}
+        >
+          <Eye className="w-3.5 h-3.5" />
+          Details
+        </button>
         <button
           onClick={() => beginEditing(instance)}
           disabled={isPending}
@@ -482,6 +496,84 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
       ) : null}
 
       <div>
+        {selectedInstance ? (
+          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/40 p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">VM Detail</div>
+                <h3 className="mt-1 text-xl font-semibold text-slate-950">
+                  {selectedInstance.name || selectedInstance.server_name || `VM ${selectedInstance.vmid || ''}`}
+                </h3>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">Node: {selectedInstance.node || '-'}</span>
+                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">VMID: {selectedInstance.vmid || '-'}</span>
+                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">Status: {selectedInstance.status || 'unknown'}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {renderActionButtons(selectedInstance, getInstanceKey(selectedInstance), Boolean(pendingInstanceActions[getInstanceKey(selectedInstance)]))}
+                <button
+                  type="button"
+                  onClick={() => setSelectedInstanceKey(null)}
+                  className="rounded-md border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-50"
+                  title="Close detail"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-4">
+              <div className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-xs font-medium text-slate-500">Resources</div>
+                <div className="mt-2 text-sm text-slate-700">
+                  {selectedInstance.cpu_cores || selectedInstance.cpu || '-'} cores · {selectedInstance.memory_gb || selectedInstance.memory || '-'} GB RAM
+                </div>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-xs font-medium text-slate-500">Primary IP</div>
+                <div className="mt-2 font-mono text-sm text-slate-700">
+                  {selectedInstance.primary_ip || selectedInstance.ip_addresses?.[0] || '-'}
+                </div>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-xs font-medium text-slate-500">Disk</div>
+                <div className="mt-2 text-sm text-slate-700">
+                  {selectedInstance.disk_gb || selectedInstance.disks?.reduce((sum, disk) => sum + Number(disk.size_gb || 0), 0).toFixed(1) || '-'} GB
+                </div>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-xs font-medium text-slate-500">Signals</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {getInstanceOperationalSignals(selectedInstance).length > 0 ? (
+                    getInstanceOperationalSignals(selectedInstance).map((signal) => (
+                      <span key={signal.label} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                        {signal.label}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">No signal</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {Array.isArray(selectedInstance.disks) && selectedInstance.disks.length > 0 ? (
+              <div className="mt-4 rounded-xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="mb-2 text-xs font-medium text-slate-500">Disks</div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {selectedInstance.disks.map((disk, index) => (
+                    <div key={`${disk.device || 'disk'}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      {disk.device || `disk-${index + 1}`}: {disk.size_gb || '-'} GB
+                      {disk.storage && disk.storage !== 'unknown' ? <span className="text-slate-400"> · {disk.storage}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
