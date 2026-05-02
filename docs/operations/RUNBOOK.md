@@ -73,6 +73,43 @@ git diff --check
 
 ## 6. Safety notes
 
-- Do not commit `.env`, `data/`, tokens, keysHsecrets, or local runtime artifacts.
+- Do not commit `.env`, `data/`, tokens, keys/secrets, or local runtime artifacts.
 - Use `/api/provision` for new VM provisioning calls. Treat `/api/deploy` as a compatibility endpoint only.
 - Proxmox inventory calls are cached briefly; use manual refresh or wait for TTL expiry when checking recent changes.
+
+
+## Provisioning runtime prerequisites
+
+VM provisioning runs Terraform and Ansible from the backend process environment.
+The host running the backend must have these executables on `PATH`:
+
+```bash
+command -v terraform && terraform version
+command -v ansible-playbook && ansible-playbook --version
+terraform -chdir=infra/terraform init -input=false
+terraform -chdir=infra/terraform validate
+```
+
+Current Codex VM runtime verification:
+
+```text
+Terraform: v1.15.1
+Ansible: 2.10.8
+ansible-playbook: 2.10.8
+terraform init/validate: pass
+```
+
+If missing on Ubuntu 22.04:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y gnupg software-properties-common curl ca-certificates lsb-release
+wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
+sudo apt-get update
+sudo apt-get install -y terraform ansible
+```
+
+Note: Terraform/Ansible being installed only clears the local runtime prerequisite.
+Provisioning can still fail later if Proxmox API credentials, template IDs, storage IDs,
+cloud-init, or guest SSH readiness are wrong.
