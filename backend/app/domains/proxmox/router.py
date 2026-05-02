@@ -104,7 +104,7 @@ class UpdateInstanceResourcesResponse(BaseModel):
 
 
 @router.get("/servers", response_model=ServerResponse)
-async def get_servers():
+def get_servers():
     """
     Proxmox 노드(서버) 목록 조회
     """
@@ -125,7 +125,7 @@ async def get_servers():
 
 
 @router.get("/templates", response_model=TemplateResponse)
-async def get_templates():
+def get_templates():
     """
     Proxmox 템플릿 목록 조회
     """
@@ -140,7 +140,7 @@ async def get_templates():
 
 
 @router.get("/vms", response_model=VMResponse)
-async def get_vms():
+def get_vms():
     """
     Proxmox VM 목록 조회 (템플릿 제외)
     """
@@ -155,7 +155,7 @@ async def get_vms():
 
 
 @router.get("/instances")
-async def get_instances():
+def get_instances():
     """
     인스턴스 목록 조회 (VM 목록과 동일, 프론트 호환용)
     """
@@ -193,7 +193,7 @@ async def get_instances():
 
 
 @router.post("/instances/terminate", response_model=TerminateInstanceResponse)
-async def terminate_instance(request: TerminateInstanceRequest):
+def terminate_instance(request: TerminateInstanceRequest):
     """
     인스턴스 종료 후 삭제
     순서: graceful shutdown -> (타임아웃 시 force stop) -> delete
@@ -265,7 +265,7 @@ async def instance_action(request: InstanceActionRequest):
 
 
 @router.patch("/instances/resources", response_model=UpdateInstanceResourcesResponse)
-async def update_instance_resources(request: UpdateInstanceResourcesRequest):
+def update_instance_resources(request: UpdateInstanceResourcesRequest):
     """
     정지된 인스턴스의 CPU/메모리 설정 수정
     """
@@ -301,7 +301,7 @@ async def update_instance_resources(request: UpdateInstanceResourcesRequest):
 
 
 @router.get("/servers/{server_id}/storage", response_model=StorageResponse)
-async def get_server_storage(server_id: str):
+def get_server_storage(server_id: str):
     """
     특정 서버의 스토리지 목록 조회
     """
@@ -316,7 +316,7 @@ async def get_server_storage(server_id: str):
 
 
 @router.get("/servers/{server_id}/networks", response_model=NetworkResponse)
-async def get_server_networks(server_id: str):
+def get_server_networks(server_id: str):
     """
     특정 서버의 네트워크 목록 조회
     """
@@ -331,7 +331,7 @@ async def get_server_networks(server_id: str):
 
 
 @router.get("/servers/{server_id}/vms", response_model=VMResponse)
-async def get_server_vms(server_id: str):
+def get_server_vms(server_id: str):
     """
     특정 서버의 VM 목록 조회 (템플릿 제외)
     """
@@ -346,7 +346,7 @@ async def get_server_vms(server_id: str):
 
 
 @router.get("/monitoring/nodes")
-async def get_nodes_monitoring():
+def get_nodes_monitoring():
     """
     모든 노드의 모니터링 정보 조회
     """
@@ -361,7 +361,7 @@ async def get_nodes_monitoring():
 
 
 @router.get("/monitoring/nodes/{node_id}")
-async def get_node_monitoring(node_id: str):
+def get_node_monitoring(node_id: str):
     """
     특정 노드의 상세 모니터링 정보 조회
     """
@@ -382,7 +382,7 @@ async def get_node_monitoring(node_id: str):
 
 
 @router.get("/monitoring/vms/{node_id}/{vmid}")
-async def get_vm_monitoring(node_id: str, vmid: int):
+def get_vm_monitoring(node_id: str, vmid: int):
     """
     특정 VM의 모니터링 정보 조회
     """
@@ -406,7 +406,7 @@ async def get_vm_monitoring(node_id: str, vmid: int):
 # ============ IP Pool 관련 엔드포인트 ============
 
 @router.get("/network/ip-pool/config")
-async def get_ip_pool_config():
+def get_ip_pool_config():
     """
     IP 풀 설정 조회
     """
@@ -420,7 +420,7 @@ async def get_ip_pool_config():
 
 
 @router.get("/network/ip-pool/available")
-async def get_available_ips(limit: int = 10):
+def get_available_ips(limit: int = 10):
     """
     사용 가능한 IP 목록 조회 (ping으로 확인)
     """
@@ -440,7 +440,7 @@ async def get_available_ips(limit: int = 10):
 
 
 @router.get("/network/ip-pool/next")
-async def get_next_available_ip():
+def get_next_available_ip():
     """
     다음 사용 가능한 IP 반환
     """
@@ -462,7 +462,7 @@ async def get_next_available_ip():
 
 
 @router.get("/network/ip-pool/check/{ip}")
-async def check_ip_availability(ip: str):
+def check_ip_availability(ip: str):
     """
     특정 IP의 사용 가능 여부 확인
     """

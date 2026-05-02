@@ -1,4 +1,4 @@
-"""배포 API 라우트 (deploy 도메인)."""
+"""VM provisioning API routes. The deploy domain/route is kept for compatibility."""
 
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ class DeployRequest(BaseModel):
     # 옵션 플래그
     skip_terraform: Optional[bool] = False
     skip_ansible: Optional[bool] = False
-    create_as_staging_host: Optional[bool] = False
 
 
 class DeployResponse(BaseModel):
@@ -63,7 +62,7 @@ def _validate_static_network(request: DeployRequest) -> None:
     if not vm_ip or not vm_gateway:
         raise HTTPException(
             status_code=400,
-            detail="Static IP deploys require both vm_ip (CIDR) and vm_gateway.",
+            detail="Static IP provisioning requires both vm_ip (CIDR) and vm_gateway.",
         )
 
     if "/" not in vm_ip:

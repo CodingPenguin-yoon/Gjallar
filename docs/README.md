@@ -1,27 +1,47 @@
-# Documentation Index
+# Gjallar Documentation Index
 
-This is the active documentation set for the current staging slice.
+Gjallar is being realigned from the old Heimdall staging/GitLab deployment codebase into a Proxmox VM operations and monitoring console.
 
-## Read in this order
+## Current documentation rule
 
-1. [updates/2026-05-02_COMPLETED_WORK_SUMMARY.md](updates/2026-05-02_COMPLETED_WORK_SUMMARY.md)
-2. [architecture/STAGING_ARCHITECTURE.md](architecture/STAGING_ARCHITECTURE.md)
-3. [architecture/STAGING_CONTRACT.md](architecture/STAGING_CONTRACT.md)
-4. [operations/STAGING_RUNBOOK.md](operations/STAGING_RUNBOOK.md)
-5. [roadmap/NEXT_WORK.md](roadmap/NEXT_WORK.md)
-6. [updates/2026-04-27_ENVIRONMENT_CONTRACT_SLICE.md](updates/2026-04-27_ENVIRONMENT_CONTRACT_SLICE.md)
+The shared storage project folder is the source of truth for product direction and active state:
 
-## Service docs
+```text
+/mnt/hermes_data/프로젝트/Gjallar
+```
 
-- [../backend/README.md](../backend/README.md)
-- [../frontend/README.md](../frontend/README.md)
+Read that folder first, especially:
 
-## Scope rule
+1. `README.md`
+2. `CURRENT_STATE.md`
+3. `TASKS.md`
+4. `DECISIONS.md`
+5. `RUNBOOK.md`
 
-- `Create Instance` can provision and auto-register a staging host
-- `Instance List` shows staging host registry membership and VM IPs
-- `GitLab Workspace` stores an environment contract and previews pool / port availability
-- `Deploy Staging` uses the selected staging host pool
-- `production` contract storage exists, but production execution does not
+## Active scope
 
-If code and docs disagree, trust the code.
+Current Gjallar scope:
+
+- Proxmox inventory
+- VM creation from templates
+- basic VM lifecycle management
+- instance/node/storage monitoring
+- task and log tracking for long-running operations
+
+Current non-goals:
+
+- GitLab integration
+- CI/CD orchestration
+- staging host pools
+- Deploy Staging
+- app deployment from repositories
+- webhook-driven deployment automation
+
+## Active repo docs
+
+- `architecture/VM_OPERATIONS_ARCHITECTURE.md`
+- `architecture/VM_PROVISIONING_CONTRACT.md`
+- `operations/RUNBOOK.md`
+- `roadmap/NEXT_WORK.md`
+
+Old staging/GitLab documents were removed from active docs. If this repo's docs and shared storage disagree, follow shared storage.

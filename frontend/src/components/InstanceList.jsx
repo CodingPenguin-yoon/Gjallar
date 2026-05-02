@@ -18,7 +18,6 @@ import {
   X,
 } from 'lucide-react'
 import {
-  getStagingHosts,
   getInstances,
   getServers,
   performInstanceAction,
@@ -45,7 +44,6 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
   const [pendingInstanceActions, setPendingInstanceActions] = useState({})
   const [editingInstanceKey, setEditingInstanceKey] = useState(null)
   const [editForm, setEditForm] = useState({ cpuCores: '', memoryGb: '' })
-  const [stagingHostsByKey, setStagingHostsByKey] = useState({})
   const [openIpPopoverKey, setOpenIpPopoverKey] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -74,10 +72,9 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
     try {
       setRefreshing(true)
 
-      const [instancesResponse, serversResponse, stagingHostsResponse] = await Promise.allSettled([
+      const [instancesResponse, serversResponse] = await Promise.allSettled([
         getInstances(),
         getServers(),
-        getStagingHosts(),
       ])
 
       if (instancesResponse.status !== 'fulfilled' || serversResponse.status !== 'fulfilled') {
@@ -92,11 +89,6 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
         instancesPayload ||
         []
       const serversList = serversPayload?.servers || serversPayload || []
-      const stagingHosts =
-        stagingHostsResponse.status === 'fulfilled'
-          ? stagingHostsResponse.value.data?.hosts || []
-          : []
-
       const sortedServers = [...serversList].sort((a, b) => {
         const nameA = a.name || a.server_name || a.server_id || a.id || ''
         const nameB = b.name || b.server_name || b.server_id || b.id || ''
@@ -136,16 +128,7 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
         })
       })
 
-      const nextStagingHostsByKey = {}
-      stagingHosts.forEach((host) => {
-        if (!host?.node || host?.vmid == null) {
-          return
-        }
-        nextStagingHostsByKey[`${host.node}:${host.vmid}`] = host
-      })
-
       setGroupedInstances(grouped)
-      setStagingHostsByKey(nextStagingHostsByKey)
 
       if (expandedServers.size === 0) {
         setExpandedServers(new Set(Object.keys(grouped)))
@@ -539,14 +522,12 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
                                     instance.server_name ||
                                     `VM ${instance.vmid || ''}`
                                   const instanceKey = getInstanceKey(instance)
-                                  const stagingHost = stagingHostsByKey[instanceKey]
                                   const instanceIpAddresses = Array.isArray(instance.ip_addresses)
                                     ? instance.ip_addresses.filter(Boolean)
                                     : []
                                   const displayIp =
                                     instance.primary_ip ||
                                     instanceIpAddresses[0] ||
-                                    stagingHost?.host_ip ||
                                     ''
                                   const extraIpAddresses = displayIp
                                     ? instanceIpAddresses.filter((ip) => ip !== displayIp)
@@ -567,15 +548,8 @@ function InstanceList({ onLogsUpdate, onStatusChange }) {
                                           >
                                             {instanceName}
                                           </div>
-                                          {stagingHost || displayIp ? (
+                                          {displayIp ? (
                                             <div className="mt-2 space-y-1.5">
-                                              {stagingHost ? (
-                                                <div>
-                                                  <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                                                    Staging Host
-                                                  </span>
-                                                </div>
-                                              ) : null}
                                               {displayIp ? (
                                                 <div className="relative inline-flex items-center gap-1">
                                                   <span

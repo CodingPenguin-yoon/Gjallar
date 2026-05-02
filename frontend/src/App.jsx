@@ -1,17 +1,16 @@
 import { useState } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import CreateInstanceWizard from './components/CreateInstanceWizard'
-import GitLabWorkspace from './components/GitLabWorkspace'
 import InstanceList from './components/InstanceList'
 import MonitoringDashboard from './components/MonitoringDashboard'
 import LlmInfraChat from './components/LlmInfraChat'
 import TaskBoard from './components/TaskBoard'
 import OverviewDashboard from './components/OverviewDashboard'
-import { Server, List, Plus, Activity, Sparkles, Clock3, GitBranch, LayoutDashboard } from 'lucide-react'
-import { deployInfrastructure, checkIpAvailability } from './services/api'
+import { Server, List, Plus, Activity, Sparkles, Clock3, LayoutDashboard } from 'lucide-react'
+import { provisionInstance, checkIpAvailability } from './services/api'
 import { validateStaticNetworkConfig } from './utils/ipValidation'
 
-const createInitialDeployConfig = () => ({
+const createInitialProvisioningConfig = () => ({
   selectedServerId: '',
   selectedTemplateId: '',
   cpuCores: '',
@@ -21,7 +20,6 @@ const createInitialDeployConfig = () => ({
   serverName: '',
   selectedPackages: [],
   selectedRoles: [],
-  createAsStagingHost: false,
   ipMode: 'dhcp',
   vmIp: '',
   vmGateway: '',
@@ -33,7 +31,6 @@ const getActiveTab = (pathname) => {
   if (pathname.startsWith('/list')) return 'list'
   if (pathname.startsWith('/create')) return 'create'
   if (pathname.startsWith('/tasks')) return 'tasks'
-  if (pathname.startsWith('/gitlab')) return 'gitlab'
   if (pathname.startsWith('/monitoring')) return 'monitoring'
   if (pathname.startsWith('/assistant')) return 'assistant'
   return 'overview'
@@ -43,29 +40,29 @@ function App() {
   const navigate = useNavigate()
   const location = useLocation()
   const activeTab = getActiveTab(location.pathname)
-  const [deployConfig, setDeployConfig] = useState(createInitialDeployConfig)
-  const [status, setStatus] = useState('idle')
-  const [logs, setLogs] = useState([])
+  const [provisioningConfig, setProvisioningConfig] = useState(createInitialProvisioningConfig)
+  const [, setStatus] = useState('idle')
+  const [, setLogs] = useState([])
   const [createMessage, setCreateMessage] = useState(null)
-  const [deployingRequest, setDeployingRequest] = useState(false)
+  const [provisioningRequest, setProvisioningRequest] = useState(false)
 
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString()
     setLogs((prev) => [...prev, { timestamp, message, type }])
   }
 
-  const handleDeploy = async () => {
-    if (deployingRequest) {
+  const handleProvision = async () => {
+    if (provisioningRequest) {
       return
     }
 
     setCreateMessage(null)
 
     if (
-      !deployConfig.selectedServerId ||
-      !deployConfig.selectedTemplateId ||
-      !deployConfig.selectedStorageId ||
-      !deployConfig.selectedNetworkIds?.length
+      !provisioningConfig.selectedServerId ||
+      !provisioningConfig.selectedTemplateId ||
+      !provisioningConfig.selectedStorageId ||
+      !provisioningConfig.selectedNetworkIds?.length
     ) {
       setCreateMessage({
         type: 'error',
@@ -74,13 +71,13 @@ function App() {
       return
     }
 
-    setDeployingRequest(true)
-    setStatus('deploying')
-    addLog('Starting deployment request...', 'info')
+    setProvisioningRequest(true)
+    setStatus('provisioning')
+    addLog('Starting VM provisioning request...', 'info')
 
     try {
-      if (deployConfig.ipMode === 'static') {
-        const validationMessage = validateStaticNetworkConfig(deployConfig.vmIp, deployConfig.vmGateway)
+      if (provisioningConfig.ipMode === 'static') {
+        const validationMessage = validateStaticNetworkConfig(provisioningConfig.vmIp, provisioningConfig.vmGateway)
         if (validationMessage) {
           setStatus('error')
           setCreateMessage({
@@ -90,7 +87,7 @@ function App() {
           return
         }
 
-        const ipOnly = deployConfig.vmIp.split('/')[0]
+        const ipOnly = provisioningConfig.vmIp.split('/')[0]
         const ipCheckResponse = await checkIpAvailability(ipOnly)
 
         if (ipCheckResponse.data?.in_use) {
@@ -103,22 +100,19 @@ function App() {
         }
       }
 
-      const response = await deployInfrastructure({
-        server_id: deployConfig.selectedServerId,
-        template_id: deployConfig.selectedTemplateId || undefined,
-        cpu_cores: deployConfig.cpuCores ? parseInt(deployConfig.cpuCores) : undefined,
-        memory_gb: deployConfig.memory ? parseInt(deployConfig.memory) : undefined,
-        storage_id: deployConfig.selectedStorageId,
-        network_ids: deployConfig.selectedNetworkIds,
-        server_name:
-          deployConfig.serverName ||
-          (deployConfig.createAsStagingHost ? `staging-host-${Date.now()}` : `instance-${Date.now()}`),
-        ansible_packages: deployConfig.selectedPackages || [],
-        ansible_roles: deployConfig.selectedRoles || [],
-        create_as_staging_host: deployConfig.createAsStagingHost,
+      const response = await provisionInstance({
+        server_id: provisioningConfig.selectedServerId,
+        template_id: provisioningConfig.selectedTemplateId || undefined,
+        cpu_cores: provisioningConfig.cpuCores ? parseInt(provisioningConfig.cpuCores) : undefined,
+        memory_gb: provisioningConfig.memory ? parseInt(provisioningConfig.memory) : undefined,
+        storage_id: provisioningConfig.selectedStorageId,
+        network_ids: provisioningConfig.selectedNetworkIds,
+        server_name: provisioningConfig.serverName || `instance-${Date.now()}`,
+        ansible_packages: provisioningConfig.selectedPackages || [],
+        ansible_roles: provisioningConfig.selectedRoles || [],
         // Static IP 모드일 때만 IP 전달
-        vm_ip: deployConfig.ipMode === 'static' ? deployConfig.vmIp : undefined,
-        vm_gateway: deployConfig.ipMode === 'static' ? deployConfig.vmGateway : undefined,
+        vm_ip: provisioningConfig.ipMode === 'static' ? provisioningConfig.vmIp : undefined,
+        vm_gateway: provisioningConfig.ipMode === 'static' ? provisioningConfig.vmGateway : undefined,
       })
       const taskId = response.data?.task_id || response.data?.id
 
@@ -126,13 +120,13 @@ function App() {
         throw new Error('Task ID를 받지 못했습니다.')
       }
 
-      addLog(`Deployment initiated. Task ID: ${taskId}`, 'success')
+      addLog(`VM provisioning initiated. Task ID: ${taskId}`, 'success')
       setCreateMessage({
         type: 'success',
         text: '배포 작업이 시작되었습니다. Task Board에서 실시간 진행 상태를 확인하세요.',
       })
       // Task Board로 이동한 뒤 다음 생성을 바로 할 수 있도록 폼 상태를 초기화
-      setDeployConfig(createInitialDeployConfig())
+      setProvisioningConfig(createInitialProvisioningConfig())
       setCreateMessage(null)
 
       navigate('/tasks', {
@@ -143,13 +137,13 @@ function App() {
     } catch (error) {
       setStatus('error')
       const errorMessage = error.response?.data?.detail || error.message || '알 수 없는 오류가 발생했습니다.'
-      addLog(`Deployment error: ${errorMessage}`, 'error')
+      addLog(`VM provisioning error: ${errorMessage}`, 'error')
       setCreateMessage({
         type: 'error',
         text: errorMessage,
       })
     } finally {
-      setDeployingRequest(false)
+      setProvisioningRequest(false)
     }
   }
 
@@ -214,17 +208,6 @@ function App() {
               Task Board
             </button>
             <button
-              onClick={() => navigate('/gitlab')}
-              className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
-                activeTab === 'gitlab'
-                  ? 'text-blue-600 border-blue-600 bg-blue-50'
-                  : 'text-gray-600 border-transparent hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <GitBranch className="w-5 h-5" />
-              GitLab
-            </button>
-            <button
               onClick={() => navigate('/monitoring')}
               className={`flex shrink-0 items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
                 activeTab === 'monitoring'
@@ -277,12 +260,6 @@ function App() {
             }
           />
 
-          {/* GitLab Workspace Route */}
-          <Route
-            path="/gitlab"
-            element={<GitLabWorkspace />}
-          />
-
           {/* Monitoring Dashboard Route */}
           <Route
             path="/monitoring"
@@ -311,10 +288,10 @@ function App() {
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
                   <div className="p-6">
                     <CreateInstanceWizard
-                      config={deployConfig}
-                      onConfigChange={setDeployConfig}
-                      onDeploy={handleDeploy}
-                      isDeploying={deployingRequest}
+                      config={provisioningConfig}
+                      onConfigChange={setProvisioningConfig}
+                      onProvision={handleProvision}
+                      isProvisioning={provisioningRequest}
                     />
                   </div>
                 </div>

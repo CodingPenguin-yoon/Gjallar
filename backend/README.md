@@ -1,103 +1,58 @@
-# Backend
+# Gjallar Backend
 
-The backend is a FastAPI control plane for Heimdall staging operations.
+The backend is a FastAPI API server for Proxmox VM operations, inventory, monitoring, and task/log tracking.
 
 ## Main domains
 
-- `app/domains/deploy`
-  - Terraform apply
-  - post-clone VM adjustment
-  - Ansible bootstrap
-  - optional staging-host auto-registration
-- `app/domains/staging`
-  - staging host registry list and register APIs
-  - pool grouping and live port preview
-- `app/domains/gitlab`
-  - inventory sync
-  - project creation
-  - environment-contract settings
-  - `.heimdall/project.yaml` validation
-  - manual `Deploy Staging` wrapper
 - `app/domains/proxmox`
-  - Proxmox inventory and lifecycle operations
+  - Proxmox node, VM/LXC, template, storage, and network inventory
+  - VM lifecycle operations
+  - short TTL inventory caching
+- `app/domains/deploy`
+  - legacy domain name for the current VM provisioning endpoint
+  - `POST /api/deploy` should be treated as VM provisioning, not app deployment
 - `app/domains/task`
-  - task persistence, logs, SSE
-- `app/domains/webhooks`
-  - GitLab system hook ingress
+  - task persistence, logs, progress, and SSE
+- `app/domains/llm`
+  - assistant/chat support
 
-## Current backend behavior
+Removed legacy domains:
 
-### Create Instance path
+- GitLab project inventory/API
+- GitLab webhooks
+- staging host registry/pools
+- Deploy Staging application deployment
 
-`POST /api/deploy` can provision a VM from the current wizard inputs.
-
-If `create_as_staging_host=true`:
-
-- task metadata records the preset
-- the backend requires VM IP resolution
-- the backend requires Ansible bootstrap to run successfully
-- only then is the VM registered into `staging_hosts`
-- the current registration default is `environment=staging`, `pool_key=default`
-
-Main files:
-
-- `app/domains/deploy/router.py`
-- `app/domains/deploy/service.py`
-- `app/domains/staging/router.py`
-- `app/domains/staging/service.py`
-
-### GitLab deploy path
-
-`POST /api/gitlab/projects/{project_id}/deploy/staging` now resolves a staging target from the saved environment contract.
-
-Current contract fields:
-
-- `deployment_environment`
-- `deployment_pool_key`
-- `requested_app_port`
-- `database_required`
-
-Current execution behavior:
-
-- staging deploy rebuilds a live pool preview
-- it selects a ready host from the chosen pool
-- it skips Terraform for the app deploy path
-- it deploys with the GitLab source archive + remote Docker Compose
-
-Current limitation:
-
-- production contracts can be stored, but production execution does not exist yet
-
-## State and migration
-
-- platform DB: `data/platform_state.db`
-- task history import source: `data/task_history.json`
-- migrations:
+## Run
 
 ```bash
 cd backend
-. venv/bin/activate
-alembic upgrade head
+. .venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
-Current migration head:
+## Smoke checks
 
-- `20260426_0010`
+```bash
+cd backend
+.venv/bin/python -c 'from app.main import app; print(app.title)'
+```
 
-## Run
+Expected:
+
+```text
+Gjallar VM Operations API
+```
 
 From repo root:
 
 ```bash
-pnpm backend
+python3 -m compileall backend
+git diff --check
 ```
 
-Directly:
+## Notes
 
-```bash
-cd backend
-. venv/bin/activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-The app loads the repo root `.env`.
+- The app loads the repo root `.env`.
+- Do not commit `.env`, tokens, secrets, `data/`, or local runtime artifacts.
+- Redis connection warnings during import are acceptable in local development if Redis is not running; chat/session persistence may be disabled.

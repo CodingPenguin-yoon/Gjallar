@@ -45,7 +45,7 @@ apiClient.interceptors.response.use(
 )
 
 // 배포 시작 API
-export const deployInfrastructure = async (config) => {
+export const provisionInstance = async (config) => {
   try {
     // 새로운 마법사 스타일 config 또는 기존 config 모두 지원
     const payload = config.server_id
@@ -63,7 +63,6 @@ export const deployInfrastructure = async (config) => {
           ansible_roles: config.ansible_roles || [],
           vm_ip: config.vm_ip,
           vm_gateway: config.vm_gateway,
-          create_as_staging_host: Boolean(config.create_as_staging_host),
         }
       : {
           server_id: config.selectedServerId,
@@ -76,12 +75,11 @@ export const deployInfrastructure = async (config) => {
           network_ids: config.selectedNetworkIds || [],
           ansible_packages: config.selectedPackages || [],
           ansible_roles: config.selectedRoles || [],
-          create_as_staging_host: Boolean(config.createAsStagingHost),
         }
     const response = await apiClient.post('/deploy', payload)
     return response
   } catch (error) {
-    console.error('Deploy API error:', error)
+    console.error('Provision API error:', error)
     throw error
   }
 }
@@ -169,16 +167,6 @@ export const getLogs = async (taskId) => {
   }
 }
 
-export const requestGitLabStagingDeploy = async (projectId) => {
-  try {
-    const response = await apiClient.post(`/gitlab/projects/${projectId}/deploy/staging`)
-    return response
-  } catch (error) {
-    console.error('GitLab staging deploy request API error:', error)
-    throw error
-  }
-}
-
 // 작업 목록 조회 API (최신순)
 // 사용 예:
 // - getTasks(200)
@@ -253,16 +241,6 @@ export const getInstances = async () => {
     return response
   } catch (error) {
     console.error('Get instances API error:', error)
-    throw error
-  }
-}
-
-export const getStagingHosts = async () => {
-  try {
-    const response = await apiClient.get('/staging-hosts')
-    return response
-  } catch (error) {
-    console.error('Get staging hosts API error:', error)
     throw error
   }
 }
@@ -430,108 +408,6 @@ export const getAvailableIps = async (limit = 10) => {
   }
 }
 
-export const getGitLabProjects = async () => {
-  try {
-    const response = await apiClient.get('/gitlab/projects')
-    return response
-  } catch (error) {
-    console.error('Get GitLab projects API error:', error)
-    throw error
-  }
-}
-
-export const getGitLabNamespaces = async () => {
-  try {
-    const response = await apiClient.get('/gitlab/namespaces')
-    return response
-  } catch (error) {
-    console.error('Get GitLab namespaces API error:', error)
-    throw error
-  }
-}
-
-export const createGitLabProject = async (payload) => {
-  try {
-    const response = await apiClient.post('/gitlab/projects', payload)
-    return response
-  } catch (error) {
-    console.error('Create GitLab project API error:', error)
-    throw error
-  }
-}
-
-export const getGitLabProjectSettings = async (projectId) => {
-  try {
-    const response = await apiClient.get(`/gitlab/projects/${projectId}/settings`)
-    return response
-  } catch (error) {
-    console.error('Get GitLab project settings API error:', error)
-    throw error
-  }
-}
-
-export const previewGitLabProjectSettings = async (projectId, payload) => {
-  try {
-    const response = await apiClient.post(`/gitlab/projects/${projectId}/settings/preview`, payload)
-    return response
-  } catch (error) {
-    console.error('Preview GitLab project settings API error:', error)
-    throw error
-  }
-}
-
-export const getGitLabProjectManifest = async (projectId, ref = null) => {
-  try {
-    const response = await apiClient.get(`/gitlab/projects/${projectId}/manifest`, {
-      params: ref ? { ref } : undefined,
-    })
-    return response
-  } catch (error) {
-    console.error('Get GitLab project manifest API error:', error)
-    throw error
-  }
-}
-
-export const updateGitLabProjectManifest = async (projectId, payload) => {
-  try {
-    const response = await apiClient.put(`/gitlab/projects/${projectId}/manifest`, payload)
-    return response
-  } catch (error) {
-    console.error('Update GitLab project manifest API error:', error)
-    throw error
-  }
-}
-
-export const previewGitLabProjectManifest = async (projectId, payload) => {
-  try {
-    const response = await apiClient.post(`/gitlab/projects/${projectId}/manifest/preview`, payload)
-    return response
-  } catch (error) {
-    console.error('Preview GitLab project manifest API error:', error)
-    throw error
-  }
-}
-
-export const updateGitLabProjectSettings = async (projectId, payload) => {
-  try {
-    const response = await apiClient.put(`/gitlab/projects/${projectId}/settings`, payload)
-    return response
-  } catch (error) {
-    console.error('Update GitLab project settings API error:', error)
-    throw error
-  }
-}
-
-export const syncGitLabProjects = async () => {
-  try {
-    const response = await apiClient.post('/gitlab/projects/sync')
-    return response
-  } catch (error) {
-    console.error('Sync GitLab projects API error:', error)
-    throw error
-  }
-}
-
 // 다음 사용 가능한 IP 조회 API
 export const getNextAvailableIp = async () => {
   try {
@@ -555,3 +431,5 @@ export const checkIpAvailability = async (ip) => {
 }
 
 export default apiClient
+
+export const deployInfrastructure = provisionInstance

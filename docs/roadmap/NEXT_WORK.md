@@ -1,84 +1,53 @@
-# Next Work
+# Gjallar Next Work
 
-This document lists the next work after the current environment-contract slice.
+## 1. Finish legacy cleanup
 
-## 1. Add capacity-aware pool scheduling
+- remove or archive old Heimdall staging/GitLab documents
+- finish replacing user-facing `deploy` wording with `provision` / `VM operation`
+- keep `/api/deploy` only as a compatibility endpoint until a migration is planned
 
-The current scheduler only proves that a ready host and free port exist.
+## 2. Improve VM provisioning UX
 
-Needed work:
+- clarify each wizard step
+- show selected node/template/storage/network summary before launch
+- improve validation errors for static IP and missing fields
+- rename Launch/Deploy copy to Provision/Create VM where appropriate
 
-- rank hosts by real capacity, not just port availability
-- track CPU, memory, disk, and app-density signals
-- avoid repeatedly placing everything on the first ready host
-- define saturation thresholds clearly
+## 3. Strengthen lifecycle safety
 
-## 2. Add host-pool operations
+- add confirmation for destructive actions
+- add clearer task logs for start/shutdown/stop/reboot/delete
+- verify final VM state after each lifecycle operation
 
-The registry exists, but pool lifecycle is still minimal.
+## 4. Improve inventory performance model
 
-Needed work:
+Current state:
 
-- edit `environment` and `pool_key` after registration
-- operator controls for `enabled` and `drain_mode`
-- sync registry state with VM lifecycle automatically
-- expose bootstrap / inspection failures more clearly
+- blocking Proxmox inventory handlers run as sync `def`
+- VM inventory uses a short TTL cache
 
-## 3. Add automatic host creation for saturated pools
+Next steps:
 
-The intended operating model is:
+- add singleflight-style request coalescing for duplicate refreshes
+- add background inventory collection
+- serve UI from cached inventory snapshots
+- add per-node concurrency/rate limits
 
-- create a shared staging host
-- deploy multiple apps with Docker
-- add another host when the pool is saturated
+## 5. Monitoring and risk baseline
 
-Needed work:
+After the VM operations baseline is stable, add first risk views:
 
-- define when a pool is considered full
-- trigger new VM creation from that signal
-- attach new VMs to the correct pool automatically
-- keep host sizing standardized
+- backup missing/failed signals
+- old snapshot detection
+- guest agent missing/not responding
+- storage usage risk
+- stopped/unused VM candidates
 
-## 4. Add DB automation
+## 6. Later integrations
 
-Required to support `database_required=true` projects.
+Only after the core VM operations product is stable:
 
-Needed work:
-
-- Postgres resource provisioning
-- `DATABASE_URL` injection
-- migration command execution rules
-- resource state tracking
-
-## 5. Add redeploy automation
-
-Only for already-prepared staging environments.
-
-Needed work:
-
-- webhook or merge trigger rules
-- redeploy-only flow for existing targets
-- separation between first deploy and redeploy
-
-## 6. Add snapshot and rollback
-
-Current releases stay on disk, but rollback is still manual.
-
-Needed work:
-
-- release retention policy
-- snapshot strategy
-- rollback trigger
-- rollback API or operator action
-- failure recovery behavior
-
-## 7. Add production execution flow
-
-Production should not inherit staging rules by default.
-
-Needed work:
-
-- separate approval rules
-- separate host pools and port policy
-- separate deployment safety model
-- production-specific rollback and validation
+- backup/report exports
+- policy checks
+- approval-based remediation
+- Ansible/Terraform/OpenTofu integration where it supports VM operations directly

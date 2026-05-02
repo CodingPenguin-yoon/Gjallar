@@ -596,13 +596,13 @@ function OverviewDashboard({ onNavigate }) {
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">CI / Delivery</h3>
+                <h3 className="text-lg font-semibold text-slate-950">Deployment Activity</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  현재 배포 엔진 상태와 향후 GitLab runner 연동 지점을 함께 보여줍니다.
+                  현재 배포 엔진 상태와 최근 작업 흐름을 함께 보여줍니다.
                 </p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                GitLab pending
+                Tasks visible
               </span>
             </div>
 
@@ -610,13 +610,13 @@ function OverviewDashboard({ onNavigate }) {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">Runner Telemetry</div>
+                    <div className="text-sm font-semibold text-slate-900">Task Telemetry</div>
                     <div className="mt-1 text-sm text-slate-600">
-                      GitLab runner / pipeline queue 데이터 소스는 아직 연결되지 않았습니다.
+                      작업 보드와 배포 엔진 기준으로 현재 실행 흐름을 요약합니다.
                     </div>
                   </div>
                   <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClass('planned')}`}>
-                    Planned
+                    Live
                   </span>
                 </div>
               </div>

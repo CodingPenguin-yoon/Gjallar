@@ -9,7 +9,10 @@ import os
 import re
 import time
 import ipaddress
+import copy
+import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -57,6 +60,13 @@ class ProxmoxService:
             self.api_connect_timeout_seconds,
             self.api_read_timeout_seconds,
         )
+        self.vm_inventory_cache_ttl_seconds = self._read_float_env(
+            "PROXMOX_VM_INVENTORY_CACHE_TTL_SECONDS",
+            10.0,
+            minimum=0.0,
+        )
+        self._vm_inventory_cache: Dict[str, Dict[str, Any]] = {}
+        self._vm_inventory_cache_lock = threading.Lock()
         
         # 디버깅: 설정 확인
         if not self.api_url:
@@ -478,126 +488,158 @@ class ProxmoxService:
         except Exception:
             return []
     
-    def get_vms(self, node: Optional[str] = None) -> List[Dict]:
-        """
-        Proxmox VM 목록 조회 (템플릿 제외)
-        
-        Args:
-            node: 특정 노드에서만 조회 (None이면 모든 노드)
-            
-        Returns:
-            VM 정보 리스트
-        """
+    def _get_vm_inventory_workers(self) -> int:
+        raw_value = os.getenv("PROXMOX_VM_INVENTORY_WORKERS", "8")
         try:
-            vms = []
-            
-            # 노드 목록 가져오기
+            return max(1, int(raw_value))
+        except (TypeError, ValueError):
+            return 8
+
+    def _build_vm_inventory_item(self, node_name: str, vm: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if vm.get("template") == 1:
+            return None
+
+        vmid = vm.get("vmid")
+        config_data: Dict[str, Any] = {}
+        disks = []
+        total_disk_gb = 0
+
+        try:
+            config_result = self._make_request(f"/nodes/{node_name}/qemu/{vmid}/config")
+            config_payload = config_result.get("data", {})
+            if isinstance(config_payload, dict):
+                config_data = config_payload
+
+            for key, value in config_data.items():
+                if any(key.startswith(prefix) for prefix in ["scsi", "virtio", "ide", "sata"]):
+                    if isinstance(value, str) and "media=cdrom" not in value:
+                        size_str = None
+                        for param in value.split(","):
+                            if param.startswith("size="):
+                                size_str = param.split("=")[1]
+                                break
+
+                        if size_str:
+                            size_gb = 0
+                            if size_str.endswith("G"):
+                                size_gb = float(size_str[:-1])
+                            elif size_str.endswith("M"):
+                                size_gb = float(size_str[:-1]) / 1024
+                            elif size_str.endswith("K"):
+                                size_gb = float(size_str[:-1]) / 1024 / 1024
+                            else:
+                                try:
+                                    size_gb = float(size_str) / 1024 / 1024 / 1024
+                                except Exception:
+                                    pass
+
+                            if size_gb > 0:
+                                disks.append({
+                                    "device": key,
+                                    "size_gb": round(size_gb, 2),
+                                    "storage": value.split(":")[0] if ":" in value else "unknown"
+                                })
+                                total_disk_gb += size_gb
+        except Exception:
+            pass
+
+        if not disks:
+            maxdisk_gb = round(vm.get("maxdisk", 0) / 1024 / 1024 / 1024, 2) if vm.get("maxdisk") else 0
+            if maxdisk_gb > 0:
+                disks.append({
+                    "device": "unknown",
+                    "size_gb": maxdisk_gb,
+                    "storage": "unknown"
+                })
+                total_disk_gb = maxdisk_gb
+
+        configured_ip_addresses = self._extract_configured_ipv4_addresses(config_data)
+        guest_ip_addresses = (
+            self.get_vm_ip_addresses(node_name, vmid)
+            if str(vm.get("status", "")).strip().lower() == "running"
+            else []
+        )
+        ip_addresses = self._merge_ip_addresses(configured_ip_addresses, guest_ip_addresses)
+
+        return {
+            "id": f"{node_name}/{vmid}",
+            "vm_id": f"{node_name}/{vmid}",
+            "vmid": vmid,
+            "name": vm.get("name", f"vm-{vmid}"),
+            "node": node_name,
+            "status": vm.get("status", "unknown"),
+            "cpu_cores": vm.get("cpus", 0),
+            "memory_gb": round(vm.get("maxmem", 0) / 1024 / 1024 / 1024, 2) if vm.get("maxmem") else 0,
+            "disk_gb": round(total_disk_gb, 2),
+            "disks": disks,
+            "uptime": vm.get("uptime", 0),
+            "primary_ip": ip_addresses[0] if ip_addresses else None,
+            "ip_addresses": ip_addresses,
+        }
+
+    def _get_cached_vm_inventory(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        if self.vm_inventory_cache_ttl_seconds <= 0:
+            return None
+        now = time.monotonic()
+        with self._vm_inventory_cache_lock:
+            cached = self._vm_inventory_cache.get(cache_key)
+            if not cached:
+                return None
+            age = now - float(cached.get("cached_at", 0.0))
+            if age > self.vm_inventory_cache_ttl_seconds:
+                return None
+            return copy.deepcopy(cached.get("items", []))
+
+    def _set_cached_vm_inventory(self, cache_key: str, items: List[Dict[str, Any]]) -> None:
+        if self.vm_inventory_cache_ttl_seconds <= 0:
+            return
+        with self._vm_inventory_cache_lock:
+            self._vm_inventory_cache[cache_key] = {
+                "cached_at": time.monotonic(),
+                "items": copy.deepcopy(items),
+            }
+
+    def get_vms(self, node: Optional[str] = None) -> List[Dict]:
+        try:
+            cache_key = node or "__all__"
+            cached_vms = self._get_cached_vm_inventory(cache_key)
+            if cached_vms is not None:
+                return cached_vms
+
             if node:
                 nodes = [{"node": node}]
             else:
                 nodes_result = self._make_request("/nodes")
                 nodes = nodes_result.get("data", [])
-            
-            # 각 노드에서 VM 조회
+
+            vm_jobs = []
             for node_info in nodes:
                 node_name = node_info.get("node")
                 if not node_name:
                     continue
-                
-                # VM 목록 조회
+
                 vms_result = self._make_request(f"/nodes/{node_name}/qemu")
                 vm_list = vms_result.get("data", [])
-                
-                # 템플릿이 아닌 VM만 필터링
                 for vm in vm_list:
-                    if vm.get("template") != 1:  # 템플릿이 아닌 것만
-                        vmid = vm.get("vmid")
-                        config_data: Dict[str, Any] = {}
-                        
-                        # VM 상세 설정 조회 (디스크 정보 포함)
-                        disks = []
-                        total_disk_gb = 0
-                        try:
-                            config_result = self._make_request(f"/nodes/{node_name}/qemu/{vmid}/config")
-                            config_payload = config_result.get("data", {})
-                            if isinstance(config_payload, dict):
-                                config_data = config_payload
-                            
-                            # 디스크 필드 파싱 (scsi0, scsi1, virtio0, ide0, sata0 등)
-                            for key, value in config_data.items():
-                                if any(key.startswith(prefix) for prefix in ["scsi", "virtio", "ide", "sata"]):
-                                    # value 형식: "storage:vm-xxx-disk-0,size=50G" 또는 "storage:iso/image.iso,media=cdrom"
-                                    if isinstance(value, str) and "media=cdrom" not in value:
-                                        # size 파라미터 추출
-                                        size_str = None
-                                        for param in value.split(","):
-                                            if param.startswith("size="):
-                                                size_str = param.split("=")[1]
-                                                break
-                                        
-                                        if size_str:
-                                            # GB로 변환 (G, M, K 단위 지원)
-                                            size_gb = 0
-                                            if size_str.endswith("G"):
-                                                size_gb = float(size_str[:-1])
-                                            elif size_str.endswith("M"):
-                                                size_gb = float(size_str[:-1]) / 1024
-                                            elif size_str.endswith("K"):
-                                                size_gb = float(size_str[:-1]) / 1024 / 1024
-                                            else:
-                                                # 숫자만 있으면 바이트로 가정하고 GB로 변환
-                                                try:
-                                                    size_gb = float(size_str) / 1024 / 1024 / 1024
-                                                except:
-                                                    pass
-                                            
-                                            if size_gb > 0:
-                                                disks.append({
-                                                    "device": key,
-                                                    "size_gb": round(size_gb, 2),
-                                                    "storage": value.split(":")[0] if ":" in value else "unknown"
-                                                })
-                                                total_disk_gb += size_gb
-                        except Exception:
-                            # 상세 정보 조회 실패 시 기본값 사용
-                            pass
-                        
-                        # 디스크 정보가 없으면 maxdisk 사용
-                        if not disks:
-                            maxdisk_gb = round(vm.get("maxdisk", 0) / 1024 / 1024 / 1024, 2) if vm.get("maxdisk") else 0
-                            if maxdisk_gb > 0:
-                                disks.append({
-                                    "device": "unknown",
-                                    "size_gb": maxdisk_gb,
-                                    "storage": "unknown"
-                                })
-                                total_disk_gb = maxdisk_gb
+                    if vm.get("template") != 1:
+                        vm_jobs.append((node_name, vm))
 
-                        configured_ip_addresses = self._extract_configured_ipv4_addresses(config_data)
-                        guest_ip_addresses = (
-                            self.get_vm_ip_addresses(node_name, vmid)
-                            if str(vm.get("status", "")).strip().lower() == "running"
-                            else []
-                        )
-                        ip_addresses = self._merge_ip_addresses(configured_ip_addresses, guest_ip_addresses)
-                        
-                        vms.append({
-                            "id": f"{node_name}/{vmid}",
-                            "vm_id": f"{node_name}/{vmid}",
-                            "vmid": vmid,
-                            "name": vm.get("name", f"vm-{vmid}"),
-                            "node": node_name,
-                            "status": vm.get("status", "unknown"),
-                            "cpu_cores": vm.get("cpus", 0),
-                            "memory_gb": round(vm.get("maxmem", 0) / 1024 / 1024 / 1024, 2) if vm.get("maxmem") else 0,
-                            "disk_gb": round(total_disk_gb, 2),  # 총 디스크 크기
-                            "disks": disks,  # 디스크 목록
-                            "uptime": vm.get("uptime", 0),
-                            "primary_ip": ip_addresses[0] if ip_addresses else None,
-                            "ip_addresses": ip_addresses,
-                        })
-            
-            return sorted(
+            if not vm_jobs:
+                return []
+
+            vms = []
+            workers = min(self._get_vm_inventory_workers(), len(vm_jobs))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(self._build_vm_inventory_item, node_name, vm)
+                    for node_name, vm in vm_jobs
+                ]
+                for future in as_completed(futures):
+                    item = future.result()
+                    if item:
+                        vms.append(item)
+
+            sorted_vms = sorted(
                 vms,
                 key=lambda item: (
                     self._natural_sort_key(item.get("node") or ""),
@@ -605,9 +647,11 @@ class ProxmoxService:
                     self._natural_sort_key(item.get("name") or item.get("server_name") or ""),
                 ),
             )
+            self._set_cached_vm_inventory(cache_key, sorted_vms)
+            return sorted_vms
         except Exception:
             return []
-    
+
     def get_networks(self, node: Optional[str] = None) -> List[Dict]:
         """
         Proxmox 네트워크 목록 조회

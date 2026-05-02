@@ -1,62 +1,33 @@
-# Frontend
+# Gjallar Frontend
 
-The frontend is the React + Vite operator UI for Heimdall.
+The frontend is a React + Vite operator UI for Gjallar.
 
 ## Main screens
 
-- `Create Instance`
-- `Instance List`
-- `Task Board`
-- `Monitoring`
-- `GitLab Workspace`
-- `LLM Assistant`
+- `Overview`: Proxmox and instance summary
+- `Create Instance`: VM provisioning from template
+- `Instance List`: VM/LXC inventory and lifecycle actions
+- `Task Board`: long-running operation progress/logs
+- `Monitoring`: operational visibility
+- `LLM Assistant`: operational assistant UI
 
-## Current screen behavior
+Removed legacy screen:
 
-### Create Instance
-
-- provisions a VM from the current wizard inputs
-- supports `Create as staging host`
-- that preset keeps the current server/template/storage/network flow
-- the preset auto-includes `base` and `docker` roles
-
-### Instance List
-
-- loads Proxmox VM inventory
-- loads staging host registry entries
-- marks matching VMs as `Staging Host`
-- shows resolved VM IPs when they can be discovered
-
-### GitLab Workspace
-
-- supports inventory sync
-- supports GitLab project creation
-- supports `.heimdall/project.yaml` read/create/update inside `Project Setup`
-- generates manifest YAML from guided setup fields before save
-- supports project environment-contract editing in the same setup flow
-- shows manifest validation state
-- previews environment pool state and port availability
-- supports manual `Deploy Staging`
-
-Current limitation:
-
-- only `staging` contracts are executable today
-- `production` can be selected and saved, but not deployed yet
+- GitLab Workspace
 
 ## Run
 
-From repo root:
-
 ```bash
-pnpm frontend
+cd frontend
+npm run dev -- --host 0.0.0.0 --port 5174
 ```
 
-Directly:
+## Validate
 
 ```bash
 cd frontend
-pnpm dev
-pnpm build
+npm run lint
+npm run build
 ```
 
-The frontend talks to the backend through `/api`.
+The frontend talks to the backend through `/api`. The current VM provisioning client still calls `/api/deploy` for compatibility, but UI copy should describe the action as VM provisioning or VM creation.

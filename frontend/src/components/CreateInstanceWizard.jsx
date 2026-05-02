@@ -65,29 +65,13 @@ function sortTemplatesAscending(list) {
   })
 }
 
-function CreateInstanceWizard({ config, onConfigChange, onDeploy, isDeploying = false }) {
+function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvisioning = false }) {
   const [currentStep, setCurrentStep] = useState(1)
   const [servers, setServers] = useState([])
   const [templates, setTemplates] = useState([])
   const [storages, setStorages] = useState([])
   const [networks, setNetworks] = useState([])
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!config.createAsStagingHost) {
-      return
-    }
-    const currentRoles = Array.isArray(config.selectedRoles) ? config.selectedRoles : []
-    const requiredRoles = ['base', 'docker']
-    const missingRoles = requiredRoles.filter((role) => !currentRoles.includes(role))
-    if (missingRoles.length === 0) {
-      return
-    }
-    onConfigChange((prev) => ({
-      ...prev,
-      selectedRoles: [...new Set([...(prev.selectedRoles || []), ...requiredRoles])],
-    }))
-  }, [config.createAsStagingHost, config.selectedRoles, onConfigChange])
 
   // 서버 목록 로드
   useEffect(() => {
@@ -235,16 +219,6 @@ function CreateInstanceWizard({ config, onConfigChange, onDeploy, isDeploying = 
     })
   }
 
-  const handleStagingHostPresetToggle = (enabled) => {
-    onConfigChange((prev) => ({
-      ...prev,
-      createAsStagingHost: enabled,
-      selectedRoles: enabled
-        ? [...new Set([...(prev.selectedRoles || []), 'base', 'docker'])]
-        : prev.selectedRoles || [],
-    }))
-  }
-
   const canProceed = () => {
     let result = false
     switch (currentStep) {
@@ -255,12 +229,13 @@ function CreateInstanceWizard({ config, onConfigChange, onDeploy, isDeploying = 
       case 2:
         result = !!config.selectedTemplateId && !!config.selectedStorageId
         return result
-      case 3:
+      case 3: {
         // DHCP면 IP 입력 불필요, Static이면 IP/Gateway + 체크 완료 필수
         const ipOk = config.ipMode === 'static'
           ? (config.vmIp && config.vmGateway && config.ipChecked === 'available')
           : true
         return config.selectedNetworkIds?.length > 0 && ipOk
+      }
       case 4:
         // Step 4는 선택 사항이므로 항상 진행 가능
         return true
@@ -278,7 +253,6 @@ function CreateInstanceWizard({ config, onConfigChange, onDeploy, isDeploying = 
             templates={templates}
             selectedServerId={config.selectedServerId}
             selectedTemplateId={config.selectedTemplateId}
-            createAsStagingHost={Boolean(config.createAsStagingHost)}
             serverName={config.serverName || ''}
             onServerSelect={handleServerSelect}
             onTemplateSelect={handleTemplateSelect}
@@ -339,28 +313,6 @@ function CreateInstanceWizard({ config, onConfigChange, onDeploy, isDeploying = 
 
   return (
     <div className="w-full max-w-full overflow-hidden">
-      <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <label className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={Boolean(config.createAsStagingHost)}
-            onChange={(event) => handleStagingHostPresetToggle(event.target.checked)}
-            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-gray-900">Create as staging host</span>
-            <span className="mt-1 block text-sm text-gray-600">
-              성공적으로 프로비저닝되면 이 VM을 staging host registry에 자동 등록합니다.
-              staging host baseline으로 `base`, `docker` role이 자동 포함됩니다.
-            </span>
-            <span className="mt-2 block text-xs text-gray-500">
-              이 첫 슬라이스에서는 기존 server/template/storage/network 선택은 유지합니다.
-              staging host registry가 추가되더라도 GitLab staging deploy가 아직 pool 배치까지 사용하지는 않습니다.
-            </span>
-          </span>
-        </label>
-      </div>
-
       {/* Progress Steps - 탭 영역과 동일한 좌우 간격으로 맞춤, 클릭 가능 */}
       <div className="mb-6 w-full">
         <div className="flex items-center justify-between w-full gap-1">
@@ -484,17 +436,17 @@ function CreateInstanceWizard({ config, onConfigChange, onDeploy, isDeploying = 
           ) : (
             <button
               type="button"
-              onClick={onDeploy}
-              disabled={!canProceed() || isDeploying}
+              onClick={onProvision}
+              disabled={!canProceed() || isProvisioning}
               className="px-6 py-2.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
-              {isDeploying ? (
+              {isProvisioning ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  {config.createAsStagingHost ? 'Provisioning Staging Host...' : 'Launching...'}
+                  Launching...
                 </>
               ) : (
-                config.createAsStagingHost ? 'Launch Staging Host' : 'Launch Instance'
+                'Launch Instance'
               )}
             </button>
           )}
@@ -510,7 +462,6 @@ function ServerSelectionStep({
   templates,
   selectedServerId,
   selectedTemplateId,
-  createAsStagingHost,
   serverName,
   onServerSelect,
   onTemplateSelect,
@@ -537,13 +488,11 @@ function ServerSelectionStep({
             type="text"
             value={serverName}
             onChange={(e) => onNameChange(e.target.value)}
-            placeholder={createAsStagingHost ? 'e.g., staging-host-01' : 'e.g., web-server-01'}
+            placeholder="e.g., web-server-01"
             className="w-full max-w-full px-2 md:px-3 py-1.5 md:py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 placeholder-gray-400 transition-colors"
           />
           <p className="mt-1 text-[10px] md:text-xs text-gray-500">
-            {createAsStagingHost
-              ? 'Leave empty to auto-generate a staging-host name'
-              : 'Leave empty to auto-generate a name'}
+            Leave empty to auto-generate a name
           </p>
         </div>
       </div>
@@ -683,7 +632,6 @@ function SpecStorageSelectionStep({
       onSpecChange('cpuCores', selectedTemplate.cpu_cores?.toString() || '')
       onSpecChange('memory', selectedTemplate.memory_gb?.toString() || '')
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTemplateId])
 
   return (
@@ -1102,7 +1050,7 @@ function AnsibleSetupStep({
     <div className="w-full max-w-full min-w-0">
       <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-1">Ansible Configuration</h3>
       <p className="text-xs md:text-sm text-gray-500 mb-2 md:mb-3">
-        Select packages and roles to install and configure on your instance after deployment
+        Select packages and roles to install and configure on your instance after VM provisioning
       </p>
 
       {/* Packages Section */}

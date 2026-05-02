@@ -1,84 +1,134 @@
-# Heimdall
+# Gjallar
 
-Heimdall is a staging-first deployment control plane for GitLab projects on Proxmox.
+Gjallar is a Proxmox operations console for small teams and homelab-to-business environments.
 
-## What works now
+It is **not** a GitLab CI/CD or staging deployment tool. The current direction is a focused Proxmox control and visibility layer:
 
-- `Create Instance` can provision a VM from a template through Terraform and Ansible.
-- `Create as staging host` can auto-register a successfully bootstrapped VM into the staging host registry.
-- `Instance List` reads the staging host registry, marks registered hosts, and shows VM IPs when they can be resolved.
-- the staging host registry groups hosts by `environment` and `pool_key`
-- `GitLab Workspace` now edits `.heimdall/project.yaml` inside the `Project Setup` flow
-- `GitLab Workspace` stores a project-side environment contract:
-  - `deployment_environment`
-  - `deployment_pool_key`
-  - `requested_app_port`
-  - `database_required`
-  - `deploy_branch`
-- `Deploy Staging` re-validates that contract, picks a ready host from the selected staging pool, skips Terraform, and runs app deploy directly on that host.
-- app deploy still uses the GitLab source archive, remote `docker compose up -d --build`, and typed healthcheck verification.
-- task tracking exists for both wrapper tasks and linked deploy tasks.
+```text
+VM create/manage + instance inventory + monitoring
+```
 
-## Current staging model
+## Product direction
 
-There are three connected layers right now.
+Gjallar helps operators see and manage their Proxmox environment without jumping between scattered scripts, dashboards, and manual checks.
 
-### 1. Staging host provisioning
+Primary goals:
 
-- operators create a VM in `Create Instance`
-- enabling `Create as staging host` keeps the current server/template/storage/network flow, but auto-adds the `base` and `docker` Ansible roles
-- the VM is registered into `staging_hosts` only when:
-  - Terraform returns a VM IP
-  - Ansible bootstrap actually runs
-  - Ansible finishes successfully
-- the current preset registers hosts into `environment=staging`, `pool_key=default`
-- `Instance List` shows which VMs are already in the staging host registry
+- show Proxmox nodes, VMs/LXCs, templates, storage, and networks
+- create VMs from known templates
+- perform basic VM lifecycle actions safely
+- monitor instance status and resource usage
+- keep long-running operations visible through task/log tracking
 
-### 2. Staging pool preview
+Out of scope for the current product direction:
 
-- the backend exposes pool inventory and per-pool live preview
-- live preview inspects each ready host over SSH
-- the preview reports:
-  - ready vs blocked host counts
-  - available ports in the configured environment range
-  - requested-port availability
-  - a selected host candidate
+- GitLab project inventory
+- CI/CD pipeline management
+- staging host pools
+- application deployment from source repositories
+- webhook-driven auto deploy
+- production release automation
 
-### 3. GitLab project deploy
+## Current cleanup status
 
-- `Project Setup` now includes both:
-  - a repo-side manifest step for `.heimdall/project.yaml`
-  - a platform-side environment contract step
-- if the file exists, it can be read and updated
-- if the file is missing, a draft can be generated and committed
-- project settings now store an environment contract instead of user-facing staging flags
-- the main user choices are `Environment`, `Host pool`, `App port`, and `Database required`
-- current execution is staging-only:
-  - `deployment_environment=staging` is deployable
-  - `deployment_environment=production` can be saved, but `Deploy Staging` will refuse to run
-- GitLab deploy now schedules from the staging host registry and selected pool
+This repository started as a copy of Heimdall, which was a staging-first GitLab deployment control plane.
 
-## Repository contract
+The repo is being realigned into Gjallar. During this cleanup, some old files may still exist, but they are considered legacy unless they support the Proxmox VM/inventory/monitoring direction.
 
-- the repo must contain `.heimdall/project.yaml`
-- the code expects `.heimdall/project.yaml`, not `.heimdal`
-- current deploy fields used from the manifest:
-  - `deploy.compose_file`
-  - `deploy.healthcheck`
-  - optional fallback: `deploy.app_port`
+Keep:
 
-## Not implemented yet
+- Proxmox inventory and VM operations
+- instance list and monitoring UI
+- task board / task logs for long-running operations
+- minimal VM creation flow, after removing staging-specific behavior
 
-- Postgres provisioning and `DATABASE_URL` injection
-- capacity-aware pool balancing
-- automatic new host creation when pools are saturated
-- webhook or merge driven auto redeploy
-- release snapshot automation
-- rollback automation
-- production execution flow
+Remove or ignore:
 
-## Documentation
+- GitLab workspace and GitLab API integration
+- GitLab webhooks
+- staging host registry / staging pool concepts
+- Deploy Staging and application deployment flow
+- CI/CD-oriented documentation
 
-Start at [docs/README.md](docs/README.md).
+## Working scope
 
-For the current implementation snapshot, read [docs/updates/2026-05-02_COMPLETED_WORK_SUMMARY.md](docs/updates/2026-05-02_COMPLETED_WORK_SUMMARY.md).
+### 1. Proxmox inventory
+
+Gjallar should show the current Proxmox environment:
+
+- nodes
+- VM/LXC instances
+- templates
+- storage
+- networks / bridges
+- IP and guest-agent-derived information when available
+
+### 2. VM creation
+
+Gjallar should support controlled VM creation from Proxmox templates.
+
+The first useful flow is:
+
+```text
+select node/template/storage/network
+→ choose CPU/RAM/disk/name
+→ create VM
+→ track progress as a task
+→ show the VM in the instance list
+```
+
+This is infrastructure management, not app deployment.
+
+### 3. Instance management
+
+Gjallar should support basic VM operations:
+
+- start
+- shutdown
+- stop when needed
+- reboot
+- delete/terminate with safeguards
+- resource adjustment where safe
+
+### 4. Monitoring
+
+Gjallar should provide operational visibility:
+
+- node status
+- instance status
+- CPU/RAM/disk usage
+- uptime and power state
+- storage usage
+- task history and logs
+
+## Near-term plan
+
+1. Rewrite project documentation around Gjallar.
+2. Remove GitLab and staging deployment entrypoints.
+3. Keep Proxmox inventory, instance management, monitoring, and task tracking.
+4. Rename/refactor remaining Heimdall deployment concepts into Proxmox VM operations.
+5. Add risk/reporting features later, after the VM management baseline is clean.
+
+## Repository layout
+
+```text
+backend/       FastAPI backend
+frontend/      React/Vite frontend
+infra/         Legacy Terraform/Ansible assets; review before reuse
+backend/app/domains/proxmox/  Proxmox API integration
+backend/app/domains/task/     Task status/log APIs
+```
+
+## Documentation source of truth
+
+Project planning and operating notes are kept in shared storage:
+
+```text
+/mnt/hermes_data/프로젝트/Gjallar
+```
+
+Start there before making product or architecture changes.
+
+## Development note
+
+Until the cleanup is complete, treat GitLab/staging/deploy references as legacy Heimdall residue. Do not extend those paths for new Gjallar work.
