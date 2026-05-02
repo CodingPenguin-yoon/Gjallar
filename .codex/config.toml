@@ -1,0 +1,31 @@
+model = "gpt-5.4"
+personality = "pragmatic"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "medium"
+
+[features]
+multi_agent = true
+
+[sandbox_workspace_write]
+network_access = false
+
+[agents]
+max_threads = 4
+max_depth = 1
+
+[agents.explorer]
+description = "Read-only codebase explorer for Argus. Scope the real code path and affected files before any edit."
+config_file = "agents/explorer.toml"
+
+[agents.reviewer]
+description = "Read-only reviewer for correctness, regressions, security, and missing tests."
+config_file = "agents/reviewer.toml"
+
+[agents.docs_researcher]
+description = "Read-only docs verifier for local docs and framework/API behavior."
+config_file = "agents/docs-researcher.toml"
+
+[agents.worker]
+description = "Single implementation agent for the smallest coherent change after scope is clear."
+config_file = "agents/worker.toml"

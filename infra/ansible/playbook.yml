@@ -1,0 +1,674 @@
+---
+# Ansible Playbook
+#
+# 이 Playbook은 Terraform으로 생성된 인프라에 대한 추가 설정을 수행합니다.
+# 프론트엔드에서 선택한 패키지와 역할을 설치합니다.
+#
+# 실행 방법:
+#   ansible-playbook -i inventory.yml playbook.yml -e '{"packages_to_install": ["curl", "git"], "roles_to_apply": ["docker"]}'
+
+- name: Infrastructure Configuration Playbook
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  vars:
+    # extra_vars로 전달된 변수를 로컬 변수로 매핑 (순환 참조 방지)
+    pkg_list: "{{ packages_to_install | default([]) }}"
+    role_list: "{{ roles_to_apply | default([]) }}"
+    deploy_app_requested: "{{ deploy_app_enabled | default(false) | bool }}"
+    deploy_project_slug_value: "{{ deploy_project_slug | default('heimdall-app') }}"
+    deploy_release_id_value: "{{ deploy_release_id | default('manual') }}"
+    deploy_root_dir: "/opt/heimdall/apps/{{ deploy_project_slug_value }}"
+    deploy_release_dir: "{{ deploy_root_dir }}/releases/{{ deploy_release_id_value }}"
+    deploy_current_dir: "{{ deploy_root_dir }}/current"
+    cloud_init_wait_timeout_seconds_value: "{{ cloud_init_wait_timeout_seconds | default(300) | int }}"
+
+  pre_tasks:
+    - name: Wait for SSH to become ready
+      wait_for_connection:
+        timeout: 300
+        sleep: 5
+        delay: 5
+
+    - name: Wait for cloud-init to finish when present (initial attempt)
+      shell: |
+        if command -v cloud-init >/dev/null 2>&1; then
+          timeout {{ cloud_init_wait_timeout_seconds_value }}s cloud-init status --wait
+        fi
+      args:
+        executable: /bin/bash
+      ignore_unreachable: true
+      register: cloud_init_initial_wait
+      changed_when: false
+      failed_when: false
+
+    - name: Show cloud-init diagnostic when initial wait does not finish cleanly
+      shell: |
+        if command -v cloud-init >/dev/null 2>&1; then
+          cloud-init status --long || true
+        else
+          echo "cloud-init not installed"
+        fi
+      args:
+        executable: /bin/bash
+      when: cloud_init_initial_wait.rc | default(0) != 0
+      changed_when: false
+      failed_when: false
+
+    - name: Print cloud-init diagnostic after initial wait when needed
+      debug:
+        var: cloud_init_initial_wait.stdout_lines
+      when:
+        - cloud_init_initial_wait is defined
+        - (cloud_init_initial_wait.stdout | default('') | trim) != ''
+
+    - name: Give the guest a short recovery window after cloud-init network changes
+      pause:
+        seconds: 10
+
+    - name: Reset SSH connection after initial cloud-init wait
+      meta: reset_connection
+
+    - name: Wait for SSH to become ready again after cloud-init
+      wait_for_connection:
+        timeout: 300
+        sleep: 5
+        delay: 0
+
+    - name: Wait for cloud-init to finish when present (final attempt)
+      shell: |
+        if command -v cloud-init >/dev/null 2>&1; then
+          timeout {{ cloud_init_wait_timeout_seconds_value }}s cloud-init status --wait
+        fi
+      args:
+        executable: /bin/bash
+      register: cloud_init_final_wait
+      changed_when: false
+      failed_when: false
+
+    - name: Show cloud-init diagnostic when final wait does not finish cleanly
+      shell: |
+        if command -v cloud-init >/dev/null 2>&1; then
+          cloud-init status --long || true
+        else
+          echo "cloud-init not installed"
+        fi
+      args:
+        executable: /bin/bash
+      when: cloud_init_final_wait.rc | default(0) != 0
+      changed_when: false
+      failed_when: false
+
+    - name: Print cloud-init diagnostic after final wait when needed
+      debug:
+        var: cloud_init_final_wait.stdout_lines
+      when:
+        - cloud_init_final_wait is defined
+        - (cloud_init_final_wait.stdout | default('') | trim) != ''
+
+    - name: Fail when cloud-init is still not ready after both waits
+      fail:
+        msg: >-
+          cloud-init did not finish within {{ cloud_init_wait_timeout_seconds_value }} seconds.
+          Check cloud-init status on the guest before retrying this deployment.
+      when:
+        - cloud_init_final_wait.rc | default(0) != 0
+
+    - name: Reset SSH connection before gathering facts
+      meta: reset_connection
+
+    - name: Gather facts after first-boot readiness checks
+      setup:
+
+  tasks:
+    - name: Display host information
+      debug:
+        msg: "Configuring host {{ inventory_hostname }}"
+
+    # 패키지 캐시 업데이트
+    - name: Update package cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        lock_timeout: 600
+      when: ansible_os_family == "Debian"
+
+    - name: Update package cache (RedHat/CentOS)
+      yum:
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+
+    # 선택한 패키지 설치
+    - name: Install selected packages (Debian/Ubuntu)
+      apt:
+        name: "{{ pkg_list }}"
+        state: present
+        lock_timeout: 600
+      when:
+        - pkg_list | length > 0
+        - ansible_os_family == "Debian"
+
+    - name: Install selected packages (RedHat/CentOS)
+      package:
+        name: "{{ pkg_list }}"
+        state: present
+      when:
+        - pkg_list | length > 0
+        - ansible_os_family == "RedHat"
+
+    # 특수 패키지 처리 (Docker, Node.js 등)
+    - name: Install Docker (Debian/Ubuntu)
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        lock_timeout: 600
+      when:
+        - ansible_os_family == "Debian"
+        - "'docker' in pkg_list or 'docker-compose' in pkg_list"
+
+    - name: Install Docker (RedHat/CentOS)
+      yum:
+        name:
+          - docker
+          - docker-compose
+        state: present
+      when:
+        - ansible_os_family == "RedHat"
+        - "'docker' in pkg_list or 'docker-compose' in pkg_list"
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      when: "'docker' in pkg_list or 'docker-compose' in pkg_list"
+
+    - name: Ensure Docker runtime for app deploy (Debian/Ubuntu)
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        lock_timeout: 600
+      when:
+        - deploy_app_requested
+        - ansible_os_family == "Debian"
+
+    - name: Ensure Docker runtime for app deploy (RedHat/CentOS)
+      yum:
+        name:
+          - docker
+          - docker-compose
+        state: present
+      when:
+        - deploy_app_requested
+        - ansible_os_family == "RedHat"
+
+    - name: Ensure Docker service for app deploy
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      when: deploy_app_requested
+
+    # Node.js 설치 (특수 처리)
+    - name: Install Node.js via NodeSource (Debian/Ubuntu)
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs
+      when:
+        - ansible_os_family == "Debian"
+        - "'nodejs' in pkg_list"
+
+    # Nginx 설치 및 설정
+    - name: Install and configure Nginx
+      block:
+        - name: Install Nginx
+          package:
+            name: nginx
+            state: present
+
+        - name: Start and enable Nginx
+          systemd:
+            name: nginx
+            state: started
+            enabled: yes
+      when: "'nginx' in pkg_list"
+
+    # PostgreSQL 설치
+    - name: Install PostgreSQL (Debian/Ubuntu)
+      apt:
+        name: postgresql
+        state: present
+        lock_timeout: 600
+      when:
+        - ansible_os_family == "Debian"
+        - "'postgresql' in pkg_list"
+
+    # Redis 설치
+    - name: Install Redis
+      package:
+        name: redis-server
+        state: present
+      when: "'redis' in pkg_list"
+
+    # Certbot 설치
+    - name: Install Certbot
+      package:
+        name: certbot
+        state: present
+      when: "'certbot' in pkg_list"
+
+    # Fail2ban 설치 및 설정
+    - name: Install and configure Fail2ban
+      block:
+        - name: Install Fail2ban
+          package:
+            name: fail2ban
+            state: present
+
+        - name: Start and enable Fail2ban
+          systemd:
+            name: fail2ban
+            state: started
+            enabled: yes
+      when: "'fail2ban' in pkg_list"
+
+    # Ansible 역할 적용 (역할이 정의되어 있는 경우)
+    - name: Apply Ansible roles
+      debug:
+        msg: "Roles to apply: {{ role_list }}"
+      when: role_list | length > 0
+
+    # 역할별 작업 (향후 확장 가능)
+    - name: Base role setup
+      block:
+        - name: Install base operational packages (Debian/Ubuntu)
+          apt:
+            name:
+              - ca-certificates
+              - curl
+              - wget
+              - git
+              - vim
+              - htop
+              - jq
+              - net-tools
+              - rsync
+              - unzip
+              - zip
+              - python3-pip
+              - python3-venv
+            state: present
+            lock_timeout: 600
+          when: ansible_os_family == "Debian"
+
+        - name: Install base operational packages (non-Debian)
+          package:
+            name:
+              - ca-certificates
+              - curl
+              - wget
+              - git
+              - vim
+              - htop
+              - jq
+              - net-tools
+              - rsync
+              - unzip
+              - zip
+              - python3-pip
+              - python3-venv
+            state: present
+          when: ansible_os_family != "Debian"
+      when: "'base' in role_list"
+
+    - name: Docker role setup
+      block:
+        - name: Ensure Docker is installed
+          apt:
+            name: docker.io
+            state: present
+            lock_timeout: 600
+          when: ansible_os_family == "Debian"
+
+        - name: Start Docker service
+          systemd:
+            name: docker
+            state: started
+            enabled: yes
+      when: "'docker' in role_list"
+
+    - name: Python runtime role setup
+      block:
+        - name: Install Python runtime packages (Debian/Ubuntu)
+          apt:
+            name:
+              - python3
+              - python3-pip
+              - python3-venv
+            state: present
+            lock_timeout: 600
+          when: ansible_os_family == "Debian"
+
+        - name: Install Python runtime packages (non-Debian)
+          package:
+            name:
+              - python3
+              - python3-pip
+              - python3-venv
+            state: present
+          when: ansible_os_family != "Debian"
+      when: "'python' in role_list"
+
+    - name: Node.js role setup (Debian/Ubuntu)
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs
+      args:
+        executable: /bin/bash
+      when:
+        - ansible_os_family == "Debian"
+        - "'nodejs' in role_list"
+
+    - name: Node.js role setup (RedHat/CentOS)
+      yum:
+        name:
+          - nodejs
+          - npm
+        state: present
+      when:
+        - ansible_os_family == "RedHat"
+        - "'nodejs' in role_list"
+
+    - name: Nginx role setup
+      block:
+        - name: Install Nginx
+          package:
+            name: nginx
+            state: present
+
+        - name: Start and enable Nginx
+          systemd:
+            name: nginx
+            state: started
+            enabled: yes
+      when: "'nginx' in role_list"
+
+    - name: PostgreSQL role setup
+      block:
+        - name: Install PostgreSQL
+          package:
+            name: postgresql
+            state: present
+
+        - name: Start and enable PostgreSQL service
+          systemd:
+            name: postgresql
+            state: started
+            enabled: yes
+      when: "'postgresql' in role_list"
+
+    - name: MySQL role setup
+      block:
+        - name: Install MySQL server (Debian/Ubuntu)
+          package:
+            name: mysql-server
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Install MySQL server (RedHat/CentOS)
+          package:
+            name: mariadb-server
+            state: present
+          when: ansible_os_family == "RedHat"
+
+        - name: Start and enable MySQL service (Debian/Ubuntu)
+          systemd:
+            name: mysql
+            state: started
+            enabled: yes
+          when: ansible_os_family == "Debian"
+
+        - name: Start and enable MySQL service (RedHat/CentOS)
+          systemd:
+            name: mysqld
+            state: started
+            enabled: yes
+          when: ansible_os_family == "RedHat"
+      when: "'mysql' in role_list"
+
+    - name: Redis role setup
+      block:
+        - name: Install Redis server
+          package:
+            name: redis-server
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Install Redis server (RedHat/CentOS)
+          package:
+            name: redis
+            state: present
+          when: ansible_os_family == "RedHat"
+
+        - name: Start and enable Redis service (Debian/Ubuntu)
+          systemd:
+            name: redis-server
+            state: started
+            enabled: yes
+          when: ansible_os_family == "Debian"
+
+        - name: Start and enable Redis service (RedHat/CentOS)
+          systemd:
+            name: redis
+            state: started
+            enabled: yes
+          when: ansible_os_family == "RedHat"
+      when: "'redis' in role_list"
+
+    - name: NFS client role setup
+      block:
+        - name: Install NFS client utilities (Debian/Ubuntu)
+          package:
+            name: nfs-common
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Install NFS client utilities (RedHat/CentOS)
+          package:
+            name: nfs-utils
+            state: present
+          when: ansible_os_family == "RedHat"
+      when: "'nfs' in role_list"
+
+    - name: SSL/TLS setup role
+      block:
+        - name: Install Certbot
+          package:
+            name: certbot
+            state: present
+      when: "'ssl' in role_list"
+
+    - name: Firewall configuration role
+      block:
+        - name: Install UFW (Debian/Ubuntu)
+          apt:
+            name: ufw
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Install firewalld (RedHat/CentOS)
+          yum:
+            name: firewalld
+            state: present
+          when: ansible_os_family == "RedHat"
+      when: "'firewall' in role_list"
+
+    - name: Manual staging app deploy
+      block:
+        - name: Validate app deploy inputs
+          assert:
+            that:
+              - deploy_bundle_local_path is defined
+              - (deploy_bundle_local_path | string | trim) != ""
+              - deploy_compose_file is defined
+              - (deploy_compose_file | string | trim) != ""
+              - deploy_app_port is defined
+              - (deploy_app_port | int) > 0
+              - deploy_healthcheck_type is defined
+              - deploy_healthcheck_type in ['http', 'tcp', 'command', 'none']
+              - deploy_healthcheck_type != 'http' or ((deploy_healthcheck_path | default('') | string | regex_search('^/')) is not none)
+              - deploy_healthcheck_type not in ['http', 'tcp'] or ((deploy_healthcheck_port | default(0) | int) > 0)
+              - deploy_healthcheck_type != 'command' or ((deploy_healthcheck_command | default('') | string | trim) != "")
+            fail_msg: "App deploy extra vars are incomplete."
+
+        - name: Ensure deployment directories exist
+          file:
+            path: "{{ item }}"
+            state: directory
+            mode: "0755"
+          loop:
+            - "{{ deploy_root_dir }}"
+            - "{{ deploy_root_dir }}/releases"
+            - "{{ deploy_release_dir }}"
+
+        - name: Extract GitLab archive into release directory
+          unarchive:
+            src: "{{ deploy_bundle_local_path }}"
+            dest: "{{ deploy_release_dir }}"
+            remote_src: false
+            extra_opts:
+              - --strip-components=1
+
+        - name: Check compose file exists in extracted release
+          stat:
+            path: "{{ deploy_release_dir }}/{{ deploy_compose_file }}"
+          register: deploy_compose_file_stat
+
+        - name: Fail if compose file is missing
+          fail:
+            msg: "Compose file was not found after archive extraction: {{ deploy_compose_file }}"
+          when: not deploy_compose_file_stat.stat.exists
+
+        - name: Point current release symlink at extracted release
+          file:
+            src: "{{ deploy_release_dir }}"
+            dest: "{{ deploy_current_dir }}"
+            state: link
+            force: true
+
+        - name: Detect docker compose command
+          shell: |
+            if docker compose version >/dev/null 2>&1; then
+              echo "docker compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              echo "docker-compose"
+            else
+              exit 1
+            fi
+          args:
+            executable: /bin/bash
+          register: deploy_compose_command
+          changed_when: false
+
+        - name: Detect conflicting containers publishing requested app port
+          shell: |
+            set -euo pipefail
+            project_slug="{{ deploy_project_slug_value }}"
+            target_port="{{ deploy_app_port }}"
+
+            while IFS= read -r container_id; do
+              [ -n "$container_id" ] || continue
+              project_label=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$container_id" 2>/dev/null || true)
+              if [ "$project_label" = "$project_slug" ]; then
+                continue
+              fi
+
+              published_ports=$(docker inspect --format '{{range $p, $conf := .NetworkSettings.Ports}}{{if $conf}}{{range $conf}}{{println .HostPort}}{{end}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
+              if printf '%s\n' "$published_ports" | grep -qx "$target_port"; then
+                container_name=$(docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null | sed 's#^/##')
+                printf '%s\n' "${container_name:-$container_id}"
+              fi
+            done < <(docker ps -q)
+          args:
+            executable: /bin/bash
+          register: deploy_port_conflicts
+          changed_when: false
+
+        - name: Fail if requested app port is already used by another compose project
+          fail:
+            msg: >-
+              Requested app port {{ deploy_app_port }} is already published by
+              {{ deploy_port_conflicts.stdout_lines | join(', ') }}.
+          when: (deploy_port_conflicts.stdout_lines | default([])) | length > 0
+
+        - name: Run docker compose app deployment
+          shell: >
+            {{ deploy_compose_command.stdout | trim }}
+            -p {{ deploy_project_slug_value | quote }}
+            -f {{ deploy_compose_file | quote }}
+            up -d --build
+          args:
+            chdir: "{{ deploy_current_dir }}"
+            executable: /bin/bash
+          register: deploy_compose_up
+          changed_when: >-
+            'Creating' in (deploy_compose_up.stdout | default(''))
+            or 'Recreating' in (deploy_compose_up.stdout | default(''))
+            or 'Starting' in (deploy_compose_up.stdout | default(''))
+            or 'Building' in (deploy_compose_up.stdout | default(''))
+
+        - name: Wait for HTTP app healthcheck endpoint
+          uri:
+            url: "http://127.0.0.1:{{ deploy_healthcheck_port }}{{ deploy_healthcheck_path }}"
+            method: GET
+            status_code:
+              - 200
+              - 204
+          register: deploy_healthcheck
+          retries: 24
+          delay: 5
+          until: deploy_healthcheck.status in [200, 204]
+          when: deploy_healthcheck_type == 'http'
+
+        - name: Wait for TCP app healthcheck port
+          wait_for:
+            host: "127.0.0.1"
+            port: "{{ deploy_healthcheck_port }}"
+            timeout: 5
+            sleep: 2
+          register: deploy_healthcheck_tcp
+          retries: 24
+          delay: 5
+          until: deploy_healthcheck_tcp is succeeded
+          when: deploy_healthcheck_type == 'tcp'
+
+        - name: Wait for command-based app healthcheck
+          shell: "{{ deploy_healthcheck_command }}"
+          args:
+            chdir: "{{ deploy_current_dir }}"
+            executable: /bin/bash
+          register: deploy_healthcheck_command_result
+          changed_when: false
+          retries: 24
+          delay: 5
+          until: deploy_healthcheck_command_result.rc == 0
+          when: deploy_healthcheck_type == 'command'
+
+        - name: Skip app healthcheck by contract
+          debug:
+            msg: "App deploy healthcheck skipped because deploy.healthcheck.type=none"
+          when: deploy_healthcheck_type == 'none'
+      when: deploy_app_requested
+
+    - name: Playbook execution completed
+      debug:
+        msg: >-
+          Playbook execution completed successfully.
+          Installed packages: {{ pkg_list }},
+          Applied roles: {{ role_list }},
+          App deploy requested: {{ deploy_app_requested }}

@@ -1,0 +1,9 @@
+{
+  "name": "proxmox-web",
+  "private": true,
+  "scripts": {
+    "frontend": "pnpm --dir frontend dev -- --port ${FRONTEND_PORT:-5173}",
+    "backend": "sh -c 'cd backend && . venv/bin/activate && exec uvicorn app.main:app --reload --host 0.0.0.0 --port ${BACKEND_PORT:-8000}'",
+    "dev": "sh -c 'trap \"kill 0\" EXIT INT TERM; pnpm run backend & pnpm run frontend & wait'"
+  }
+}

@@ -1,0 +1,117 @@
+# [필수] 민감한 파일 Git 제외
+
+# Terraform 관련 파일
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+infra/terraform/.state-migration-backups/
+
+# 환경 변수 파일
+.env
+.env.local
+.env.*.local
+
+# 로컬 Python 가상환경
+.venv/
+venv/
+*/venv/
+
+# SSH 키 파일
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+*.ppk
+
+# 운영체제 관련
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE 관련
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+.ansible/
+
+# 로그 파일
+*.log
+
+# 런타임 태스크 히스토리 캐시
+data/task_history.json
+data/task_history.tmp
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# 백업 파일
+*.bak
+*.backup
+*.tmp
+
+# 문서 로컬 워크스페이스 상태
+docs/.obsidian/
+
+# Infra 로컬 운영값
+infra/**/inventory.yml
+infra/**/*.retry
+infra/**/.vault_pass
+infra/**/ansible.log
+infra/**/.terraform/
+infra/**/.terraform.lock.hcl
+infra/**/terraform.tfstate.d/
+infra/**/*.tfstate
+infra/**/*.tfstate.*
+infra/**/*.tfvars
+infra/**/*.tfvars.json
+
+# 기타
+*.zip
+*.tar.gz
+
+/terraform_test
+/ansible_test
+/key
+
+
+env
+
+# Local secrets / runtime state
+*.env
+*.env.*
+!.env.example
+*.crt
+*.p12
+*.db
+*.sqlite
+*.sqlite3
+backend/venv/
+frontend/node_modules/
+node_modules/
+data/platform_state.db
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+dist/
+build/

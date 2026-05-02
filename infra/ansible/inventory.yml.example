@@ -1,0 +1,26 @@
+# Ansible Inventory 예제 파일
+#
+# 이 파일을 inventory.yml로 복사하여 사용하세요.
+# Terraform으로 생성된 VM의 IP 주소를 여기에 추가합니다.
+#
+# 사용 방법:
+#   cp inventory.yml.example inventory.yml
+#   # inventory.yml을 편집하여 실제 호스트 정보 입력
+
+all:
+  children:
+    proxmox_vms:
+      hosts:
+        # 예제: Terraform으로 생성된 VM
+        # <vm-name-1>:
+        #   ansible_host: <vm-ip-or-dns>
+        #   ansible_user: <ssh-user>
+        #   ansible_ssh_private_key_file: ~/.ssh/<private-key>
+        #
+        # <vm-name-2>:
+        #   ansible_host: <vm-ip-or-dns>
+        #   ansible_user: <ssh-user>
+        #   ansible_ssh_private_key_file: ~/.ssh/<private-key>
+      vars:
+        # 공통 변수
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
