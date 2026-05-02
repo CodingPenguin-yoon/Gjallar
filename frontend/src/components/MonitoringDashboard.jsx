@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Activity, Server, Cpu, HardDrive, TrendingUp, RefreshCw, Loader2, AlertCircle, Database } from 'lucide-react'
 import { getNodesMonitoring } from '../services/api'
+import { buildMonitoringSummary, getResourceTone, toNumber } from '../utils/monitoringSignals'
 
 const naturalCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -47,11 +48,9 @@ function MonitoringDashboard() {
     return `${minutes}m`
   }
 
-  const getUsageColor = (percent) => {
-    if (percent >= 90) return 'bg-red-500'
-    if (percent >= 70) return 'bg-yellow-500'
-    return 'bg-green-500'
-  }
+  const monitoringSummary = buildMonitoringSummary(nodes)
+
+  const getUsageColor = (percent) => getResourceTone(percent).barClass
 
   const getStatusBadge = (status) => {
     const isOnline = status === 'online'
@@ -84,6 +83,43 @@ function MonitoringDashboard() {
           Refresh
         </button>
       </div>
+
+
+      {!loading && nodes.length > 0 && (
+        <div className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Nodes Online</div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900">
+              {monitoringSummary.onlineNodes}/{monitoringSummary.totalNodes}
+            </div>
+          </div>
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <div className="text-xs text-red-600 uppercase tracking-wide">Critical Signals</div>
+            <div className="mt-1 text-2xl font-semibold text-red-700">{monitoringSummary.criticalSignals}</div>
+          </div>
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+            <div className="text-xs text-yellow-700 uppercase tracking-wide">Warnings</div>
+            <div className="mt-1 text-2xl font-semibold text-yellow-700">{monitoringSummary.warningSignals}</div>
+          </div>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="text-xs text-blue-700 uppercase tracking-wide">Refresh</div>
+            <div className="mt-1 text-sm font-medium text-blue-800">Every 30 seconds</div>
+          </div>
+        </div>
+      )}
+
+      {!loading && monitoringSummary.signals.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="text-sm font-semibold text-amber-900">Node/Storage Signals</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {monitoringSummary.signals.slice(0, 8).map((signal) => (
+              <span key={signal.label} className={`rounded-full px-2 py-1 text-xs font-medium ${signal.level === 'critical' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                {signal.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div>
@@ -130,13 +166,13 @@ function MonitoringDashboard() {
                         <span className="text-sm font-medium text-gray-700">CPU Usage</span>
                       </div>
                       <span className="text-sm font-semibold text-gray-900">
-                        {(typeof node.cpu_usage_percent === 'number' ? node.cpu_usage_percent : parseFloat(node.cpu_usage_percent || 0)).toFixed(1)}%
+                        {toNumber(node.cpu_usage_percent).toFixed(1)}%
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2.5">
                       <div
                         className={`h-full rounded-full transition-all ${getUsageColor(typeof node.cpu_usage_percent === 'number' ? node.cpu_usage_percent : parseFloat(node.cpu_usage_percent || 0))}`}
-                        style={{ width: `${Math.min(typeof node.cpu_usage_percent === 'number' ? node.cpu_usage_percent : parseFloat(node.cpu_usage_percent || 0), 100)}%` }}
+                        style={{ width: `${Math.min(toNumber(node.cpu_usage_percent), 100)}%` }}
                       />
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
@@ -152,17 +188,17 @@ function MonitoringDashboard() {
                         <span className="text-sm font-medium text-gray-700">Memory Usage</span>
                       </div>
                       <span className="text-sm font-semibold text-gray-900">
-                        {(typeof node.memory_usage_percent === 'number' ? node.memory_usage_percent : parseFloat(node.memory_usage_percent || 0)).toFixed(1)}%
+                        {toNumber(node.memory_usage_percent).toFixed(1)}%
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2.5">
                       <div
                         className={`h-full rounded-full transition-all ${getUsageColor(typeof node.memory_usage_percent === 'number' ? node.memory_usage_percent : parseFloat(node.memory_usage_percent || 0))}`}
-                        style={{ width: `${Math.min(typeof node.memory_usage_percent === 'number' ? node.memory_usage_percent : parseFloat(node.memory_usage_percent || 0), 100)}%` }}
+                        style={{ width: `${Math.min(toNumber(node.memory_usage_percent), 100)}%` }}
                       />
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      {((typeof node.memory_used_gb === 'number' ? node.memory_used_gb : parseFloat(node.memory_used_gb || 0))).toFixed(2)} GB / {((typeof node.memory_total_gb === 'number' ? node.memory_total_gb : parseFloat(node.memory_total_gb || 0))).toFixed(2)} GB
+                      {toNumber(node.memory_used_gb).toFixed(2)} GB / {toNumber(node.memory_total_gb).toFixed(2)} GB
                     </p>
                   </div>
 
@@ -186,19 +222,19 @@ function MonitoringDashboard() {
                                 <span className="text-xs text-gray-500">({storage.type})</span>
                               </div>
                               <span className="text-xs font-semibold text-gray-900">
-                                {(typeof storage.usage_percent === 'number' ? storage.usage_percent : parseFloat(storage.usage_percent || 0)).toFixed(1)}%
+                                {toNumber(storage.usage_percent).toFixed(1)}%
                               </span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-1.5">
                               <div
                                 className={`h-full rounded-full transition-all ${getUsageColor(typeof storage.usage_percent === 'number' ? storage.usage_percent : parseFloat(storage.usage_percent || 0))}`}
-                                style={{ width: `${Math.min(typeof storage.usage_percent === 'number' ? storage.usage_percent : parseFloat(storage.usage_percent || 0), 100)}%` }}
+                                style={{ width: `${Math.min(toNumber(storage.usage_percent), 100)}%` }}
                               />
                             </div>
                             <p className="text-xs text-gray-500 mt-1">
-                              {((typeof storage.used_gb === 'number' ? storage.used_gb : parseFloat(storage.used_gb || 0))).toFixed(2)} GB / {((typeof storage.total_gb === 'number' ? storage.total_gb : parseFloat(storage.total_gb || 0))).toFixed(2)} GB
+                              {toNumber(storage.used_gb).toFixed(2)} GB / {toNumber(storage.total_gb).toFixed(2)} GB
                               <span className="ml-2 text-gray-400">
-                                ({((typeof storage.available_gb === 'number' ? storage.available_gb : parseFloat(storage.available_gb || 0))).toFixed(2)} GB available)
+                                ({toNumber(storage.available_gb).toFixed(2)} GB available)
                               </span>
                             </p>
                           </div>

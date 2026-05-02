@@ -74,5 +74,5 @@ git diff --check
 ## 6. Safety notes
 
 - Do not commit `.env`, `data/`, tokens, keysHsecrets, or local runtime artifacts.
-- Treat `/api/deploy` as a compatibility endpoint for VM provisioning until renamed with a migration plan.
+- Use `/api/provision` for new VM provisioning calls. Treat `/api/deploy` as a compatibility endpoint only.
 - Proxmox inventory calls are cached briefly; use manual refresh or wait for TTL expiry when checking recent changes.

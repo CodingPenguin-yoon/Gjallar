@@ -19,6 +19,7 @@ import {
   getTaskDetail,
   getTasks,
 } from '../services/api'
+import { buildTaskBoardSummary, describeTaskTarget, pickProvisioningMetadata } from '../utils/taskBoardSummary'
 
 const LIVE_STATUS = new Set(['pending', 'running', 'deploying', 'in_progress', 'processing'])
 const DONE_STATUS = new Set(['success', 'completed', 'failed', 'error'])
@@ -144,8 +145,7 @@ function toProgress(value) {
 }
 
 function displayName(task) {
-  const metadata = task?.metadata || {}
-  return metadata.server_name || `instance-${task.task_id?.slice(0, 8) || 'unknown'}`
+  return describeTaskTarget(task)
 }
 
 function statusBadge(status) {
@@ -288,6 +288,7 @@ function TaskDetailPanel({ taskDetail, onArchiveToggle, archivePending }) {
   const taskLogs = taskDetail?.logs || []
   const metadata = taskDetail?.metadata || {}
   const metadataEntries = useMemo(() => Object.entries(metadata), [metadata])
+  const provisioningMetadata = useMemo(() => pickProvisioningMetadata(metadata), [metadata])
   const badge = statusBadge(taskDetail?.status)
   const BadgeIcon = badge.icon
   const progress = toProgress(taskDetail?.progress)
@@ -429,7 +430,22 @@ function TaskDetailPanel({ taskDetail, onArchiveToggle, archivePending }) {
             )}
           </div>
           <div className="pt-2 border-t border-gray-200">
-            <div className="text-sm font-semibold text-gray-800 mb-2">Metadata</div>
+            <div className="text-sm font-semibold text-gray-800 mb-2">Provisioning Target</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-700">
+              <div>Requested Name: {provisioningMetadata.requestedName}</div>
+              <div>Node: {provisioningMetadata.node}</div>
+              <div>VMID: {provisioningMetadata.vmid}</div>
+              <div>VM Name: {provisioningMetadata.vmName}</div>
+              <div>Template: {provisioningMetadata.template}</div>
+              <div>Storage: {provisioningMetadata.storage}</div>
+              <div>Networks: {provisioningMetadata.networks.join(', ') || '-'}</div>
+              <div>Requested IP: {provisioningMetadata.requestedIp}</div>
+              <div>Packages: {provisioningMetadata.packages.length}</div>
+              <div>Roles: {provisioningMetadata.roles.length}</div>
+            </div>
+          </div>
+          <div className="pt-2 border-t border-gray-200">
+            <div className="text-sm font-semibold text-gray-800 mb-2">Raw Metadata</div>
             {metadataEntries.length === 0 ? (
               <div className="text-sm text-gray-500">No metadata</div>
             ) : (
@@ -775,6 +791,8 @@ function TaskBoard({ focusTaskId }) {
 
   const historyTasks = useMemo(() => filteredTasks, [filteredTasks])
 
+  const taskSummary = useMemo(() => buildTaskBoardSummary(tasks), [tasks])
+
   const handleRefresh = async () => {
     setRefreshing(true)
     await Promise.all([
@@ -919,6 +937,22 @@ function TaskBoard({ focusTaskId }) {
           />
           Show archived tasks
         </label>
+      </div>
+
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {[
+          { label: 'Total', value: taskSummary.total, tone: 'border-slate-200 bg-white text-slate-900' },
+          { label: 'Live', value: taskSummary.live, tone: 'border-blue-200 bg-blue-50 text-blue-700' },
+          { label: 'Done', value: taskSummary.done, tone: 'border-green-200 bg-green-50 text-green-700' },
+          { label: 'Failed', value: taskSummary.failed, tone: 'border-red-200 bg-red-50 text-red-700' },
+          { label: 'Archived', value: taskSummary.archived, tone: 'border-gray-200 bg-gray-50 text-gray-700' },
+        ].map((item) => (
+          <div key={item.label} className={`rounded-lg border p-4 ${item.tone}`}>
+            <div className="text-xs font-medium uppercase tracking-wide opacity-70">{item.label}</div>
+            <div className="mt-1 text-2xl font-semibold">{item.value}</div>
+          </div>
+        ))}
       </div>
 
       {errorMessage && (

@@ -596,7 +596,7 @@ function OverviewDashboard({ onNavigate }) {
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">Deployment Activity</h3>
+                <h3 className="text-lg font-semibold text-slate-950">Provisioning Activity</h3>
                 <p className="mt-1 text-sm text-slate-500">
                   현재 배포 엔진 상태와 최근 작업 흐름을 함께 보여줍니다.
                 </p>
@@ -624,7 +624,7 @@ function OverviewDashboard({ onNavigate }) {
               <div className="rounded-2xl border border-slate-200 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">Deployment Engine</div>
+                    <div className="text-sm font-semibold text-slate-900">Provisioning Engine</div>
                     <div className="mt-1 text-sm text-slate-600">
                       {derived.runningTasks.length > 0
                         ? `${derived.runningTasks.length}개 작업이 현재 실행 중입니다.`

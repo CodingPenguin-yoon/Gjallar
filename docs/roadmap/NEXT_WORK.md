@@ -3,8 +3,8 @@
 ## 1. Finish legacy cleanup
 
 - remove or archive old Heimdall staging/GitLab documents
-- finish replacing user-facing `deploy` wording with `provision` / `VM operation`
-- keep `/api/deploy` only as a compatibility endpoint until a migration is planned
+- keep user-facing copy aligned to `provision` / `VM operation`
+- keep `/api/deploy` only as a compatibility endpoint; new calls should use `/api/provision`
 
 ## 2. Improve VM provisioning UX
 

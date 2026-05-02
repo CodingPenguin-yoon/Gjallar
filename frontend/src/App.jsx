@@ -123,7 +123,7 @@ function App() {
       addLog(`VM provisioning initiated. Task ID: ${taskId}`, 'success')
       setCreateMessage({
         type: 'success',
-        text: '배포 작업이 시작되었습니다. Task Board에서 실시간 진행 상태를 확인하세요.',
+        text: 'VM provisioning 작업이 시작되었습니다. Task Board에서 실시간 진행 상태를 확인하세요.',
       })
       // Task Board로 이동한 뒤 다음 생성을 바로 할 수 있도록 폼 상태를 초기화
       setProvisioningConfig(createInitialProvisioningConfig())
@@ -154,7 +154,7 @@ function App() {
         <div className="container mx-auto px-8 py-5">
           <div className="flex items-center gap-3">
             <Server className="w-8 h-8 text-blue-600" />
-            <h1 className="text-2xl font-semibold text-gray-900">Infrastructure Control Plane</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Gjallar VM Operations Console</h1>
           </div>
         </div>
       </header>

@@ -32,7 +32,7 @@ Main domains:
 - `app/domains/task`: task persistence, progress, logs, and SSE
 - `app/domains/llm`: assistant/chat support
 
-The `deploy` domain name is legacy. New code and UI copy should describe this path as VM provisioning or VM operations. The route can remain `/api/deploy` until an API compatibility migration is planned.
+The `deploy` domain name is legacy. New code and UI copy should describe this path as VM provisioning or VM operations. New UI calls `/api/provision`; `/api/deploy` remains only as a compatibility alias.
 
 ### 3. Proxmox integration
 

@@ -7,7 +7,7 @@ This document defines the active VM provisioning contract.
 The current API endpoint is still:
 
 ```text
-POST /api/deploy
+POST /api/provision
 ```
 
 This name is legacy from Heimdall. Semantically, the endpoint now represents VM provisioning.

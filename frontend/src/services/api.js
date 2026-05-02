@@ -44,7 +44,7 @@ apiClient.interceptors.response.use(
   }
 )
 
-// 배포 시작 API
+// VM provisioning 시작 API
 export const provisionInstance = async (config) => {
   try {
     // 새로운 마법사 스타일 config 또는 기존 config 모두 지원
@@ -76,7 +76,7 @@ export const provisionInstance = async (config) => {
           ansible_packages: config.selectedPackages || [],
           ansible_roles: config.selectedRoles || [],
         }
-    const response = await apiClient.post('/deploy', payload)
+    const response = await apiClient.post('/provision', payload)
     return response
   } catch (error) {
     console.error('Provision API error:', error)

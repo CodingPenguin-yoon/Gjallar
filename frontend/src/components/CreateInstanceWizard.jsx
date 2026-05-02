@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { Server, Cpu, Network, ChevronRight, CheckCircle2, Loader2, HardDrive, Package, XCircle, Search } from 'lucide-react'
 import { getServers, getTemplates, getServerStorage, getServerNetworks, checkIpAvailability } from '../services/api'
 import { validateStaticNetworkConfig } from '../utils/ipValidation'
+import { buildProvisioningSummary, formatProvisioningMissingFields } from '../utils/provisioningSummary'
 
 const STEPS = [
   { id: 1, name: 'Server & Template', icon: Server },
   { id: 2, name: 'Spec & Storage', icon: Cpu },
   { id: 3, name: 'Network', icon: Network },
-  { id: 4, name: 'Ansible Setup', icon: Package },
+  { id: 4, name: 'Bootstrap & Review', icon: Package },
 ]
 
 const naturalCollator = new Intl.Collator(undefined, {
@@ -155,6 +156,8 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
       fetchNetworks()
     }
   }, [config.selectedServerId])
+
+  const provisioningSummary = buildProvisioningSummary(config)
 
   const handleNext = () => {
     if (currentStep < STEPS.length) {
@@ -409,6 +412,10 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
         )}
       </div>
 
+      {currentStep === STEPS.length && (
+        <ProvisioningReviewPanel summary={provisioningSummary} />
+      )}
+
       {/* Navigation Buttons */}
       <div className="mt-6 flex justify-between">
         <button
@@ -443,10 +450,10 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
               {isProvisioning ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Launching...
+                  Provisioning...
                 </>
               ) : (
-                'Launch Instance'
+                'Provision VM'
               )}
             </button>
           )}
@@ -457,6 +464,53 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
 }
 
 // Step 1: Server Selection + Template Selection
+function ProvisioningReviewPanel({ summary }) {
+  return (
+    <div className={`mt-4 rounded-lg border p-4 ${summary.ready ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Provisioning Review</h3>
+          <p className="text-xs text-gray-600 mt-1">
+            {formatProvisioningMissingFields(summary.missingRequiredFields)}
+          </p>
+        </div>
+        <span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${summary.ready ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+          {summary.ready ? 'Ready' : 'Needs input'}
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+        <div className="bg-white/80 rounded-md border border-white p-3">
+          <div className="font-semibold text-gray-700 mb-1">Target</div>
+          <div>Name: {summary.title}</div>
+          <div>Node: {summary.target.node}</div>
+          <div>Template: {summary.target.template}</div>
+        </div>
+        <div className="bg-white/80 rounded-md border border-white p-3">
+          <div className="font-semibold text-gray-700 mb-1">Resources</div>
+          <div>CPU: {summary.resources.cpuCores}</div>
+          <div>Memory: {summary.resources.memoryGb} GB</div>
+          <div>Storage: {summary.target.storage}</div>
+        </div>
+        <div className="bg-white/80 rounded-md border border-white p-3">
+          <div className="font-semibold text-gray-700 mb-1">Network</div>
+          <div>Mode: {summary.network.mode.toUpperCase()}</div>
+          <div>Bridge: {summary.network.networks.join(', ') || '-'}</div>
+          <div>IP: {summary.network.vmIp}</div>
+        </div>
+        <div className="bg-white/80 rounded-md border border-white p-3">
+          <div className="font-semibold text-gray-700 mb-1">Bootstrap</div>
+          <div>{summary.bootstrap.enabled ? 'Enabled' : 'None selected'}</div>
+          <div>Packages: {summary.bootstrap.packages.length}</div>
+          <div>Roles: {summary.bootstrap.roles.length}</div>
+        </div>
+      </div>
+      <p className="mt-3 text-[11px] text-gray-600">
+        Provision VM을 누르면 background task가 생성되고 Task Board에서 진행률과 로그를 추적합니다.
+      </p>
+    </div>
+  )
+}
+
 function ServerSelectionStep({
   servers,
   templates,
@@ -1048,9 +1102,9 @@ function AnsibleSetupStep({
 
   return (
     <div className="w-full max-w-full min-w-0">
-      <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-1">Ansible Configuration</h3>
+      <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-1">Bootstrap & Final Review</h3>
       <p className="text-xs md:text-sm text-gray-500 mb-2 md:mb-3">
-        Select packages and roles to install and configure on your instance after VM provisioning
+        Optionally select bootstrap packages/roles, then review the VM provisioning request below
       </p>
 
       {/* Packages Section */}

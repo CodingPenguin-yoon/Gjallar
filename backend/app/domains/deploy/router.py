@@ -131,7 +131,7 @@ async def deploy(
 
         return DeployResponse(
             task_id=task_id,
-            message="배포 작업이 시작되었습니다.",
+            message="VM provisioning 작업이 시작되었습니다.",
             status="pending",
         )
     except HTTPException:
@@ -141,6 +141,20 @@ async def deploy(
             status_code=500,
             detail=f"배포 시작 실패: {str(e)}",
         )
+
+
+@router.post("/provision", response_model=DeployResponse)
+async def provision(
+    request: DeployRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    VM provisioning 시작
+
+    `/deploy`는 과거 호환용으로 유지하고, 신규 프론트엔드/문서는
+    Gjallar 제품 방향에 맞는 `/provision` 엔드포인트를 사용합니다.
+    """
+    return await deploy(request=request, background_tasks=background_tasks)
 
 
 __all__ = ["router"]
