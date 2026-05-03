@@ -69,10 +69,13 @@ class OperationalVMState(Base):
     vmid: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     first_seen_at: Mapped[float] = mapped_column(Float, nullable=False)
     last_seen_at: Mapped[float] = mapped_column(Float, nullable=False)
+    missing_since_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     status_since_at: Mapped[float] = mapped_column(Float, nullable=False)
     last_running_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_observed_payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 

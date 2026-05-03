@@ -2,10 +2,17 @@ import time
 import unittest
 
 from app.domains.proxmox.risk import build_operational_risk_dashboard
-from app.domains.proxmox.service import ProxmoxService
+from app.domains.proxmox.service import ProxmoxService, VMInventorySnapshot
 
 
 class OperationalRiskDashboardTest(unittest.TestCase):
+    def _set_cluster_snapshot(self, service, vms, *, complete=True):
+        service._get_all_vms_inventory_snapshot = lambda: VMInventorySnapshot(
+            items=vms,
+            complete=complete,
+            scope="cluster",
+        )
+
     def test_builds_read_only_operational_risk_summary(self):
         now = 1_700_000_000
         vms = [
@@ -115,7 +122,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         service.get_all_nodes_monitoring = lambda: [
             {"node": "node-a", "status": "online", "storages": []}
         ]
-        service.get_vms = lambda: [
+        self._set_cluster_snapshot(service, [
             {
                 "node": "node-a",
                 "vmid": 101,
@@ -124,7 +131,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "tags": ["owner:yoon"],
                 "guest_agent_ipv4_addresses": ["192.0.2.101"],
             }
-        ]
+        ])
         service.get_vm_snapshots = lambda node, vmid: []
         service.get_node_tasks = lambda node, limit=200, vmid=None: [
             {"type": "vzdump", "status": "OK", "endtime": time.time()}
@@ -157,7 +164,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         service = ProxmoxService()
         calls = []
         service.get_all_nodes_monitoring = lambda: []
-        service.get_vms = lambda: [
+        self._set_cluster_snapshot(service, [
             {
                 "node": "node-a",
                 "vmid": 101,
@@ -166,7 +173,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "tags": ["owner:yoon"],
                 "guest_agent_ipv4_addresses": ["192.0.2.10"],
             }
-        ]
+        ])
         service.get_vm_snapshots = lambda node, vmid: []
         service.get_node_tasks = lambda node, limit=200, vmid=None: []
 
@@ -207,7 +214,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
     def test_service_marks_backup_schedule_uncollected_when_evidence_requests_fail(self):
         service = ProxmoxService()
         service.get_all_nodes_monitoring = lambda: []
-        service.get_vms = lambda: [
+        self._set_cluster_snapshot(service, [
             {
                 "node": "node-a",
                 "vmid": 101,
@@ -216,7 +223,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "tags": ["owner:yoon"],
                 "guest_agent_ipv4_addresses": ["192.0.2.10"],
             }
-        ]
+        ])
         service.get_vm_snapshots = lambda node, vmid: []
         service.get_node_tasks = lambda node, limit=200, vmid=None: []
         service._make_request = lambda endpoint, method="GET", params=None: {
@@ -236,7 +243,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         service = ProxmoxService()
         service.api_url = ""
         service.get_all_nodes_monitoring = lambda: []
-        service.get_vms = lambda: [
+        self._set_cluster_snapshot(service, [
             {
                 "node": "node-a",
                 "vmid": 101,
@@ -245,7 +252,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "tags": ["owner:yoon"],
                 "guest_agent_ipv4_addresses": ["192.0.2.10"],
             }
-        ]
+        ])
         service.get_vm_snapshots = lambda node, vmid: []
         service.get_node_tasks = lambda node, limit=200, vmid=None: []
 
@@ -333,8 +340,8 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 ],
             }
         ]
-        service.get_vms = lambda: []
-        service.get_vm_state_history = lambda vms, now_epoch=None: {}
+        self._set_cluster_snapshot(service, [])
+        service.get_vm_state_history = lambda vms, **kwargs: {}
         service.get_backup_jobs = lambda: []
         service.get_vms_without_backup_jobs = lambda: []
         service.get_operational_risk_thresholds = lambda: {

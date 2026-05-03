@@ -65,6 +65,14 @@ operational_vm_state
 operational_risk_thresholds
 ```
 
+`operational_vm_state` lifecycle columns:
+
+```text
+active
+missing_since_at
+lifecycle_generation
+```
+
 Quick DB smoke for VM state history:
 
 ```bash
@@ -295,4 +303,63 @@ Expected final reset result:
 ```text
 after_reset_source: default
 after_reset_storage_warning: 80.0
+```
+
+
+## 13. VM state lifecycle hardening validation
+
+Use this after changing Operational Risk Dashboard VM state persistence, stale
+cleanup, or VMID reuse handling. The dashboard must remain Proxmox read-only;
+only Gjallar's local platform-state DB may be updated.
+
+```bash
+cd /home/yoon/projects/Gjallar
+git diff --check
+
+cd backend
+.venv/bin/python -m alembic upgrade head
+PYTHONPATH=. .venv/bin/python -m unittest discover -s tests -v
+PYTHONPATH=. .venv/bin/python -m compileall app tests
+
+cd ../frontend
+node tests/operationalRisk.test.mjs
+npm run lint
+npm run build
+
+cd ../infra/terraform
+terraform validate
+
+cd /home/yoon/projects/Gjallar
+python3 /tmp/gjallar_state_cleanup_static_scan.py /home/yoon/projects/Gjallar
+```
+
+Backend restart and live smoke after service changes:
+
+```bash
+python3 /tmp/gjallar_kill_backend_port.py || true
+cd /home/yoon/projects/Gjallar/backend
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+# separate shell
+cd /home/yoon/projects/Gjallar/backend
+.venv/bin/python /tmp/gjallar_state_cleanup_live_smoke.py
+```
+
+Expected smoke fields:
+
+```text
+health_code=200
+risk_code=200
+vm_state_history_collected=true
+required_columns_present=true
+```
+
+Lifecycle reconciliation rules:
+
+```text
+- complete cluster snapshot: may reconcile missing VMs
+- partial cluster snapshot: do not mark omitted VMs missing
+- node-scoped inventory: do not perform cluster-wide missing reconciliation
+- empty snapshot: do not mark all active VMs missing
+- same node+vmid reappears after inactive: increment lifecycle_generation and reset stale stopped history
 ```

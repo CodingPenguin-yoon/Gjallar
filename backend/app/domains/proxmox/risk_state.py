@@ -21,6 +21,8 @@ from app.shared.platform_db import (
 from app.shared.platform_models import OperationalVMState
 
 SECONDS_PER_DAY = 86_400
+INACTIVE_VM_STATE_RETENTION_DAYS = 30
+INACTIVE_VM_STATE_RETENTION_SECONDS = INACTIVE_VM_STATE_RETENTION_DAYS * SECONDS_PER_DAY
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -49,8 +51,9 @@ def _now_epoch(now: Any | None = None) -> float:
 class OperationalRiskStateStore:
     """Persist VM observation state for operational risk calculations."""
 
-    def __init__(self, database_url: str | None = None):
+    def __init__(self, database_url: str | None = None, *, inactive_retention_days: int = INACTIVE_VM_STATE_RETENTION_DAYS):
         self._database_url = database_url or resolve_platform_state_database_url()
+        self._inactive_retention_seconds = max(0, int(inactive_retention_days)) * SECONDS_PER_DAY
         self._engine = create_platform_engine(self._database_url)
         self._session_factory = create_session_factory(self._engine)
         self._ensure_required_schema()
@@ -62,6 +65,19 @@ class OperationalRiskStateStore:
             raise RuntimeError(
                 "Platform state DB schema is missing required table "
                 "(operational_vm_state). Run `cd backend && alembic upgrade head`."
+            )
+
+        existing_columns = {column["name"] for column in inspector.get_columns("operational_vm_state")}
+        required_columns = {
+            "active",
+            "missing_since_at",
+            "lifecycle_generation",
+        }
+        missing_columns = sorted(required_columns - existing_columns)
+        if missing_columns:
+            raise RuntimeError(
+                "Platform state DB schema is missing required operational_vm_state columns "
+                f"({', '.join(missing_columns)}). Run `cd backend && alembic upgrade head`."
             )
 
     def _resource_type(self, vm: Mapping[str, Any]) -> str:
@@ -95,6 +111,7 @@ class OperationalRiskStateStore:
         if stopped_since is not None:
             stopped_days = round(max(0.0, (observed_at - stopped_since) / SECONDS_PER_DAY), 1)
 
+        missing_since = getattr(record, "missing_since_at", None)
         return {
             "resource_key": record.resource_key,
             "resource_type": record.resource_type,
@@ -102,42 +119,81 @@ class OperationalRiskStateStore:
             "vmid": record.vmid,
             "name": record.name,
             "status": status,
+            "active": bool(getattr(record, "active", True)),
             "first_seen_at": int(record.first_seen_at),
             "last_seen_at": int(record.last_seen_at),
+            "missing_since": int(missing_since) if missing_since is not None else None,
             "status_since": int(status_since),
             "last_running_at": int(record.last_running_at) if record.last_running_at is not None else None,
             "stopped_since": int(stopped_since) if stopped_since is not None else None,
             "stopped_days": stopped_days,
+            "lifecycle_generation": _safe_int(getattr(record, "lifecycle_generation", 1), 1),
             "source": "gjallar_db",
         }
+
+    def _purge_inactive_records(self, session: Any, *, observed_epoch: float) -> None:
+        if self._inactive_retention_seconds <= 0:
+            return
+        cutoff = observed_epoch - self._inactive_retention_seconds
+        inactive_records = (
+            session.query(OperationalVMState)
+            .filter(OperationalVMState.active.is_(False))
+            .all()
+        )
+        for record in inactive_records:
+            missing_since = _safe_float(record.missing_since_at, observed_epoch)
+            if missing_since <= cutoff:
+                session.delete(record)
+
 
     def observe_vms(
         self,
         vms: Sequence[Mapping[str, Any]],
         *,
         observed_at: Any | None = None,
+        reconcile_missing: bool = True,
     ) -> Dict[str, Dict[str, Any]]:
-        """Persist latest VM observations and return dashboard-keyed history evidence."""
+        """Persist latest VM observations and return dashboard-keyed history evidence.
+
+        A non-empty valid inventory snapshot can also be used as a
+        reconciliation point: VMs that disappeared from a complete current
+        snapshot are marked inactive in Gjallar's local DB, and inactive rows
+        older than the retention window are purged. An empty snapshot is
+        treated conservatively as possibly uncollected evidence and does not
+        mark every known VM missing. Callers that know they have only a partial
+        snapshot must pass ``reconcile_missing=False``.
+        """
 
         observed_epoch = _now_epoch(observed_at)
         history: Dict[str, Dict[str, Any]] = {}
+        observations: list[tuple[Mapping[str, Any], str, int, str, str, str, str]] = []
+        seen_resource_keys: set[str] = set()
+
+        for vm in vms or []:
+            if not isinstance(vm, Mapping):
+                continue
+            node = str(vm.get("node") or "").strip()
+            vmid = _safe_int(vm.get("vmid"), 0)
+            if not node or vmid <= 0:
+                continue
+
+            resource_key = self._resource_key(vm)
+            if not resource_key:
+                continue
+
+            status = str(vm.get("status") or "unknown").strip().lower() or "unknown"
+            name = str(vm.get("name") or vm.get("server_name") or f"vm-{vmid}")
+            resource_type = self._resource_type(vm)
+            observations.append((vm, node, vmid, resource_key, status, name, resource_type))
+            seen_resource_keys.add(resource_key)
+
+        if not observations:
+            with self._session_factory.begin() as session:
+                self._purge_inactive_records(session, observed_epoch=observed_epoch)
+            return history
 
         with self._session_factory.begin() as session:
-            for vm in vms or []:
-                if not isinstance(vm, Mapping):
-                    continue
-                node = str(vm.get("node") or "").strip()
-                vmid = _safe_int(vm.get("vmid"), 0)
-                if not node or vmid <= 0:
-                    continue
-
-                resource_key = self._resource_key(vm)
-                if not resource_key:
-                    continue
-
-                status = str(vm.get("status") or "unknown").strip().lower() or "unknown"
-                name = str(vm.get("name") or vm.get("server_name") or f"vm-{vmid}")
-                resource_type = self._resource_type(vm)
+            for vm, node, vmid, resource_key, status, name, resource_type in observations:
                 record = session.get(OperationalVMState, resource_key)
                 if record is None:
                     record = OperationalVMState(
@@ -147,22 +203,34 @@ class OperationalRiskStateStore:
                         vmid=vmid,
                         name=name,
                         status=status,
+                        active=True,
                         first_seen_at=observed_epoch,
                         last_seen_at=observed_epoch,
+                        missing_since_at=None,
                         status_since_at=observed_epoch,
                         last_running_at=observed_epoch if status == "running" else None,
+                        lifecycle_generation=1,
                         last_observed_payload_json=self._safe_payload(vm),
                     )
                     session.add(record)
                 else:
+                    was_inactive = not bool(getattr(record, "active", True))
                     previous_status = str(record.status or "unknown").strip().lower()
-                    if previous_status != status:
+                    if was_inactive:
+                        record.first_seen_at = observed_epoch
                         record.status_since_at = observed_epoch
+                        record.last_running_at = observed_epoch if status == "running" else None
+                        record.lifecycle_generation = _safe_int(getattr(record, "lifecycle_generation", 1), 1) + 1
+                    elif previous_status != status:
+                        record.status_since_at = observed_epoch
+
                     record.resource_type = resource_type
                     record.node = node
                     record.vmid = vmid
                     record.name = name
                     record.status = status
+                    record.active = True
+                    record.missing_since_at = None
                     record.last_seen_at = observed_epoch
                     if status == "running":
                         record.last_running_at = observed_epoch
@@ -170,5 +238,20 @@ class OperationalRiskStateStore:
 
                 session.flush()
                 history[self._dashboard_key(record)] = self._history_for_record(record, observed_at=observed_epoch)
+
+            if reconcile_missing:
+                active_records = (
+                    session.query(OperationalVMState)
+                    .filter(OperationalVMState.active.is_(True))
+                    .all()
+                )
+                for record in active_records:
+                    if record.resource_key in seen_resource_keys:
+                        continue
+                    record.active = False
+                    if record.missing_since_at is None:
+                        record.missing_since_at = observed_epoch
+
+            self._purge_inactive_records(session, observed_epoch=observed_epoch)
 
         return history

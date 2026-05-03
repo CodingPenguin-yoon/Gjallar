@@ -13,7 +13,8 @@ import copy
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Literal, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import urllib3
@@ -31,6 +32,15 @@ project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
 env_path = project_root / ".env"
 if env_path.exists():
     load_dotenv(env_path, override=True)
+
+
+@dataclass(frozen=True)
+class VMInventorySnapshot:
+    """VM inventory items bundled with collection completeness and scope."""
+
+    items: List[Dict[str, Any]]
+    complete: bool
+    scope: Literal["cluster", "node"]
 
 
 class ProxmoxService:
@@ -600,7 +610,7 @@ class ProxmoxService:
             "description": description,
         }
 
-    def _get_cached_vm_inventory(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+    def _get_cached_vm_inventory_snapshot(self, cache_key: str) -> Optional[VMInventorySnapshot]:
         if self.vm_inventory_cache_ttl_seconds <= 0:
             return None
         now = time.monotonic()
@@ -611,67 +621,105 @@ class ProxmoxService:
             age = now - float(cached.get("cached_at", 0.0))
             if age > self.vm_inventory_cache_ttl_seconds:
                 return None
-            return copy.deepcopy(cached.get("items", []))
+            scope = cached.get("scope")
+            if scope not in {"cluster", "node"}:
+                scope = "node" if cache_key != "__all__" else "cluster"
+            return VMInventorySnapshot(
+                items=copy.deepcopy(cached.get("items", [])),
+                complete=bool(cached.get("complete", True)),
+                scope=scope,
+            )
 
-    def _set_cached_vm_inventory(self, cache_key: str, items: List[Dict[str, Any]]) -> None:
+    def _set_cached_vm_inventory_snapshot(self, cache_key: str, snapshot: VMInventorySnapshot) -> None:
         if self.vm_inventory_cache_ttl_seconds <= 0:
             return
         with self._vm_inventory_cache_lock:
             self._vm_inventory_cache[cache_key] = {
                 "cached_at": time.monotonic(),
-                "items": copy.deepcopy(items),
+                "items": copy.deepcopy(snapshot.items),
+                "complete": bool(snapshot.complete),
+                "scope": snapshot.scope,
             }
+
+    def _get_vm_inventory_snapshot(self, node: Optional[str] = None) -> VMInventorySnapshot:
+        cache_key = node or "__all__"
+        cached_snapshot = self._get_cached_vm_inventory_snapshot(cache_key)
+        if cached_snapshot is not None:
+            return cached_snapshot
+
+        scope: Literal["cluster", "node"] = "node" if node else "cluster"
+        inventory_complete = True
+        if node:
+            nodes = [{"node": node}]
+        else:
+            nodes_result = self._make_request("/nodes")
+            if not isinstance(nodes_result, dict) or nodes_result.get("error"):
+                return VMInventorySnapshot(items=[], complete=False, scope=scope)
+            nodes = nodes_result.get("data", [])
+            if not isinstance(nodes, list):
+                return VMInventorySnapshot(items=[], complete=False, scope=scope)
+
+        vm_jobs = []
+        for node_info in nodes:
+            if not isinstance(node_info, dict):
+                inventory_complete = False
+                continue
+            node_name = node_info.get("node")
+            if not node_name:
+                inventory_complete = False
+                continue
+
+            vms_result = self._make_request(f"/nodes/{node_name}/qemu")
+            if not isinstance(vms_result, dict) or vms_result.get("error"):
+                inventory_complete = False
+                continue
+            vm_list = vms_result.get("data", [])
+            if not isinstance(vm_list, list):
+                inventory_complete = False
+                continue
+            for vm in vm_list:
+                if isinstance(vm, dict) and vm.get("template") != 1:
+                    vm_jobs.append((node_name, vm))
+
+        if not vm_jobs:
+            snapshot = VMInventorySnapshot(items=[], complete=inventory_complete, scope=scope)
+            self._set_cached_vm_inventory_snapshot(cache_key, snapshot)
+            return snapshot
+
+        vms = []
+        workers = min(self._get_vm_inventory_workers(), len(vm_jobs))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(self._build_vm_inventory_item, node_name, vm)
+                for node_name, vm in vm_jobs
+            ]
+            for future in as_completed(futures):
+                try:
+                    item = future.result()
+                except Exception:
+                    inventory_complete = False
+                    continue
+                if item:
+                    vms.append(item)
+
+        sorted_vms = sorted(
+            vms,
+            key=lambda item: (
+                self._natural_sort_key(item.get("node") or ""),
+                self._safe_int(item.get("vmid"), 10**9),
+                self._natural_sort_key(item.get("name") or item.get("server_name") or ""),
+            ),
+        )
+        snapshot = VMInventorySnapshot(items=sorted_vms, complete=inventory_complete, scope=scope)
+        self._set_cached_vm_inventory_snapshot(cache_key, snapshot)
+        return snapshot
+
+    def _get_all_vms_inventory_snapshot(self) -> VMInventorySnapshot:
+        return self._get_vm_inventory_snapshot(node=None)
 
     def get_vms(self, node: Optional[str] = None) -> List[Dict]:
         try:
-            cache_key = node or "__all__"
-            cached_vms = self._get_cached_vm_inventory(cache_key)
-            if cached_vms is not None:
-                return cached_vms
-
-            if node:
-                nodes = [{"node": node}]
-            else:
-                nodes_result = self._make_request("/nodes")
-                nodes = nodes_result.get("data", [])
-
-            vm_jobs = []
-            for node_info in nodes:
-                node_name = node_info.get("node")
-                if not node_name:
-                    continue
-
-                vms_result = self._make_request(f"/nodes/{node_name}/qemu")
-                vm_list = vms_result.get("data", [])
-                for vm in vm_list:
-                    if vm.get("template") != 1:
-                        vm_jobs.append((node_name, vm))
-
-            if not vm_jobs:
-                return []
-
-            vms = []
-            workers = min(self._get_vm_inventory_workers(), len(vm_jobs))
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = [
-                    executor.submit(self._build_vm_inventory_item, node_name, vm)
-                    for node_name, vm in vm_jobs
-                ]
-                for future in as_completed(futures):
-                    item = future.result()
-                    if item:
-                        vms.append(item)
-
-            sorted_vms = sorted(
-                vms,
-                key=lambda item: (
-                    self._natural_sort_key(item.get("node") or ""),
-                    self._safe_int(item.get("vmid"), 10**9),
-                    self._natural_sort_key(item.get("name") or item.get("server_name") or ""),
-                ),
-            )
-            self._set_cached_vm_inventory(cache_key, sorted_vms)
-            return sorted_vms
+            return self._get_vm_inventory_snapshot(node=node).items
         except Exception:
             return []
 
@@ -814,15 +862,22 @@ class ProxmoxService:
         vms: List[Dict[str, Any]],
         *,
         now_epoch: Optional[float] = None,
+        reconcile_missing: bool = False,
     ) -> Optional[Dict[str, Dict[str, Any]]]:
         """Persist Gjallar-owned VM observation history for risk checks.
 
         This writes only to Gjallar's local platform-state DB. It does not call
         Proxmox mutation APIs. If the DB schema is not migrated yet, the risk
-        dashboard continues with this evidence marked as uncollected.
+        dashboard continues with this evidence marked as uncollected. Missing-VM
+        reconciliation is opt-in and should only use a complete cluster-wide
+        inventory snapshot.
         """
         try:
-            return self._get_risk_state_store().observe_vms(vms, observed_at=now_epoch)
+            return self._get_risk_state_store().observe_vms(
+                vms,
+                observed_at=now_epoch,
+                reconcile_missing=bool(reconcile_missing),
+            )
         except Exception as exc:
             print("Gjallar VM state history persistence unavailable")
             print(f"에러: {exc}")
@@ -840,8 +895,13 @@ class ProxmoxService:
         """Build a read-only operational risk dashboard from Proxmox evidence."""
         now_epoch = time.time()
         nodes_monitoring = self.get_all_nodes_monitoring()
-        vms = self.get_vms()
-        vm_state_history = self.get_vm_state_history(vms, now_epoch=now_epoch)
+        vm_inventory_snapshot = self._get_all_vms_inventory_snapshot()
+        vms = vm_inventory_snapshot.items
+        vm_state_history = self.get_vm_state_history(
+            vms,
+            now_epoch=now_epoch,
+            reconcile_missing=vm_inventory_snapshot.scope == "cluster" and vm_inventory_snapshot.complete is True,
+        )
         threshold_config = self.get_operational_risk_thresholds()
         backup_jobs = self.get_backup_jobs()
         vms_without_backup_jobs = self.get_vms_without_backup_jobs()

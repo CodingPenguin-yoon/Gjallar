@@ -53,6 +53,7 @@ Read these before implementation work:
 - storage capacity risk
 - owner/environment/tag governance risk
 - long-stopped VM risk with Gjallar-local state history
+- lifecycle hardening for stale VM state and VMID reuse
 - configurable operational risk thresholds stored in Gjallar DB
 
 ### Act
@@ -143,6 +144,7 @@ Roadmap:
 - Gjallar DB-backed VM state history
 - Long-stopped VM risk foundation
 - DB-backed operational risk threshold configuration and UI
+- VM state lifecycle hardening for stale cleanup and VMID reuse guard
 
 Recent verified commits:
 
@@ -150,16 +152,18 @@ Recent verified commits:
 05f0f41 Add operational risk dashboard
 7c2ca71 Add backup schedule risk evidence
 854cd15 [verified] Add VM state history risk evidence
+a473dc8 [verified] Add operational risk threshold configuration
+[current] [verified] Harden VM state lifecycle tracking
 ```
 
 ---
 
 ## Next work
 
-1. stale `operational_vm_state` cleanup + VMID reuse guard
-2. risk acknowledge/suppress
-3. owner/tag taxonomy check
-4. PBS direct API / restore readiness
-5. optional read-only SSH collector for evidence gaps
+1. risk acknowledge/suppress
+2. owner/tag taxonomy check
+3. PBS direct API / restore readiness
+4. optional read-only SSH collector for evidence gaps
+5. optional lower-level fail-closed reconciliation API cleanup
 
 If repo docs and shared storage disagree, follow shared storage first and update both.

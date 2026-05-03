@@ -32,26 +32,31 @@ Completed:
 - threshold API: `GET/PUT/DELETE /api/operations/risks/thresholds`
 - `/api/operations/risks` response `threshold_config`
 - `/risks` frontend Risk Dashboard and Risk Thresholds editor
+- stale `operational_vm_state` cleanup/reconciliation and VMID reuse guard
+- inventory completeness/scope guard for lifecycle reconciliation
 - frontend risk utility tests
 
 ## Immediate next recommendations
 
-1. Add stale `operational_vm_state` cleanup/reconciliation and VMID reuse guard.
-2. Add risk suppress/acknowledge state.
-3. Add owner/tag taxonomy instead of treating any tag as governance evidence.
-4. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
-5. Add safe action suggestion links that still require explicit approval.
+1. Add risk suppress/acknowledge state.
+2. Add owner/tag taxonomy instead of treating any tag as governance evidence.
+3. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
+4. Add safe action suggestion links that still require explicit approval.
+5. Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.
 
-## Why stale cleanup / VMID reuse guard is next
+## Why risk acknowledge/suppress is next
 
-Gjallar now stores historical VM state in its own DB. That is the right foundation
-for time-based risks, but long-lived state needs lifecycle hygiene:
+The dashboard now detects infrastructure risks, keeps local history, and protects
+VM lifecycle state from stale/deleted/reused IDs. The next operator-facing gap is
+intent: some risks are known exceptions, maintenance windows, or accepted debt.
 
-- deleted VMs should not stay as active risk candidates forever;
-- recreated VMs with reused VMIDs should not inherit stale stopped history;
-- reconciliation should be conservative and evidence-based.
+Risk acknowledge/suppress should add controlled local Gjallar state so operators
+can record:
 
-This is the most natural next hardening step before adding more policy layers.
+- who acknowledged or suppressed a risk;
+- why it is acceptable;
+- when suppression expires;
+- whether the underlying evidence changed enough to require re-review.
 
 ## Later integrations
 
