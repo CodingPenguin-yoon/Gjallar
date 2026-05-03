@@ -55,6 +55,30 @@ export const getProvisioningReadiness = async () => {
   }
 }
 
+
+export const checkProvisioningResourcePreflight = async (config) => {
+  try {
+    const payload = config.server_id
+      ? {
+          server_id: config.server_id,
+          template_id: config.template_id,
+          storage_id: config.storage_id,
+          network_ids: config.network_ids || [],
+        }
+      : {
+          server_id: config.selectedServerId,
+          template_id: config.selectedTemplateId,
+          storage_id: config.selectedStorageId,
+          network_ids: config.selectedNetworkIds || [],
+        }
+    const response = await apiClient.post('/provision/preflight', payload)
+    return response
+  } catch (error) {
+    console.error('Provision resource preflight API error:', error)
+    throw error
+  }
+}
+
 // VM provisioning 시작 API
 export const provisionInstance = async (config) => {
   try {
@@ -84,6 +108,8 @@ export const provisionInstance = async (config) => {
           disk_size_gb: parseInt(config.diskSize) || 50,
           storage_id: config.selectedStorageId,
           network_ids: config.selectedNetworkIds || [],
+          vm_ip: config.vmIp,
+          vm_gateway: config.vmGateway,
           ansible_packages: config.selectedPackages || [],
           ansible_roles: config.selectedRoles || [],
         }

@@ -47,3 +47,5 @@ Current non-goals:
 - `roadmap/NEXT_WORK.md`
 
 Old staging/GitLab documents were removed from active docs. If this repo's docs and shared storage disagree, follow shared storage.
+
+- `features/Provisioning_Resource_Preflight.md` — selected Proxmox node/template/storage/network preflight before VM creation.

@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field
 
 from app.domains.deploy.service import DeploymentService
 from app.domains.deploy.readiness import ProvisioningReadinessService
+from app.domains.deploy.resource_preflight import ProvisioningResourcePreflightService
 
 
 router = APIRouter()
 deployment_service = DeploymentService()
 readiness_service = ProvisioningReadinessService()
+resource_preflight_service = ProvisioningResourcePreflightService()
 
 
 class DeployRequest(BaseModel):
@@ -106,6 +108,12 @@ def _validate_static_network(request: DeployRequest) -> None:
 def provision_readiness():
     """Return non-secret provisioning runtime readiness checks."""
     return readiness_service.check()
+
+
+@router.post("/provision/preflight")
+def provision_resource_preflight(request: DeployRequest):
+    """Validate selected Proxmox node/template/storage/network before provisioning."""
+    return resource_preflight_service.check(request.model_dump(exclude_none=True))
 
 
 @router.post("/deploy", response_model=DeployResponse)

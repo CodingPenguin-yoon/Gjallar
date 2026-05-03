@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Server, Cpu, Network, ChevronRight, CheckCircle2, Loader2, HardDrive, Package, XCircle, Search } from 'lucide-react'
-import { getServers, getTemplates, getServerStorage, getServerNetworks, checkIpAvailability, getProvisioningReadiness } from '../services/api'
+import { getServers, getTemplates, getServerStorage, getServerNetworks, checkIpAvailability, getProvisioningReadiness, checkProvisioningResourcePreflight } from '../services/api'
 import { validateStaticNetworkConfig } from '../utils/ipValidation'
 import { buildProvisioningSummary, formatProvisioningMissingFields } from '../utils/provisioningSummary'
 import { summarizeProvisioningReadiness } from '../utils/provisioningReadiness'
+import { summarizeResourcePreflight } from '../utils/resourcePreflight'
 
 const STEPS = [
   { id: 1, name: 'Server & Template', icon: Server },
@@ -77,6 +78,9 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
   const [readiness, setReadiness] = useState(null)
   const [readinessLoading, setReadinessLoading] = useState(false)
   const [readinessError, setReadinessError] = useState(null)
+  const [resourcePreflight, setResourcePreflight] = useState(null)
+  const [resourcePreflightLoading, setResourcePreflightLoading] = useState(false)
+  const [resourcePreflightError, setResourcePreflightError] = useState(null)
 
   const refreshProvisioningReadiness = useCallback(async () => {
     try {
@@ -96,6 +100,35 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
   useEffect(() => {
     refreshProvisioningReadiness()
   }, [refreshProvisioningReadiness])
+
+
+  const refreshResourcePreflight = useCallback(async () => {
+    const hasRequiredSelection = config.selectedServerId && config.selectedTemplateId && config.selectedStorageId && (config.selectedNetworkIds || []).length > 0
+    if (!hasRequiredSelection) {
+      setResourcePreflight(null)
+      setResourcePreflightError(null)
+      return
+    }
+
+    try {
+      setResourcePreflightLoading(true)
+      setResourcePreflightError(null)
+      const response = await checkProvisioningResourcePreflight(config)
+      setResourcePreflight(response.data)
+    } catch (error) {
+      console.error('Failed to fetch provisioning resource preflight:', error)
+      setResourcePreflight(null)
+      setResourcePreflightError(error.response?.data?.detail || error.message || 'Resource preflight failed')
+    } finally {
+      setResourcePreflightLoading(false)
+    }
+  }, [config])
+
+  useEffect(() => {
+    if (currentStep === STEPS.length) {
+      refreshResourcePreflight()
+    }
+  }, [currentStep, refreshResourcePreflight])
 
   // 서버 목록 로드
   useEffect(() => {
@@ -182,6 +215,7 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
 
   const provisioningSummary = buildProvisioningSummary(config)
   const readinessSummary = summarizeProvisioningReadiness(readiness)
+  const resourcePreflightSummary = summarizeResourcePreflight(resourcePreflight)
 
   const handleNext = () => {
     if (currentStep < STEPS.length) {
@@ -444,6 +478,12 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
             error={readinessError}
             onRefresh={refreshProvisioningReadiness}
           />
+          <ResourcePreflightPanel
+            summary={resourcePreflightSummary}
+            loading={resourcePreflightLoading}
+            error={resourcePreflightError}
+            onRefresh={refreshResourcePreflight}
+          />
           <ProvisioningReviewPanel summary={provisioningSummary} />
         </>
       )}
@@ -518,6 +558,90 @@ function ProvisioningReadinessPanel({ summary, loading, error, onRefresh }) {
           <h3 className="text-sm font-semibold">Provisioning Readiness</h3>
           <p className="text-xs mt-1 opacity-80">
             {error || summary.summary || 'Terraform, Ansible, Proxmox API 설정을 생성 전에 확인합니다.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${badgeClass}`}>
+            {loading ? 'Checking...' : summary.label}
+          </span>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="px-2 py-1 text-[11px] font-semibold bg-white/80 border border-white rounded-md hover:bg-white disabled:opacity-60"
+          >
+            {loading ? 'Refreshing' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <div className="bg-white/80 rounded-md border border-white p-2">
+          <div className="font-semibold text-gray-700">OK</div>
+          <div>{summary.counts.ok}</div>
+        </div>
+        <div className="bg-white/80 rounded-md border border-white p-2">
+          <div className="font-semibold text-gray-700">Warning</div>
+          <div>{summary.counts.warning}</div>
+        </div>
+        <div className="bg-white/80 rounded-md border border-white p-2">
+          <div className="font-semibold text-gray-700">Error</div>
+          <div>{summary.counts.error}</div>
+        </div>
+      </div>
+
+      {summary.checks.length > 0 && (
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+          {summary.checks.map((check) => (
+            <div key={check.id} className="bg-white/80 rounded-md border border-white p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-gray-800">{check.label}</span>
+                <span className="uppercase text-[10px] font-bold text-gray-600">{check.status}</span>
+              </div>
+              <div className="mt-1 text-gray-600">{check.message}</div>
+              {check.detail && <div className="mt-1 text-[10px] text-gray-500 break-all">{check.detail}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {summary.nextActions.length > 0 && (
+        <div className="mt-3 bg-white/80 rounded-md border border-white p-3 text-xs text-gray-700">
+          <div className="font-semibold mb-1">Next actions</div>
+          <ul className="list-disc pl-4 space-y-1">
+            {summary.nextActions.map((action, index) => (
+              <li key={`${action}-${index}`}>{action}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+function ResourcePreflightPanel({ summary, loading, error, onRefresh }) {
+  const toneClass = {
+    green: 'border-green-200 bg-green-50 text-green-800',
+    yellow: 'border-amber-200 bg-amber-50 text-amber-800',
+    red: 'border-red-200 bg-red-50 text-red-800',
+    gray: 'border-gray-200 bg-gray-50 text-gray-700',
+  }[summary.tone] || 'border-gray-200 bg-gray-50 text-gray-700'
+
+  const badgeClass = {
+    green: 'bg-green-100 text-green-700',
+    yellow: 'bg-amber-100 text-amber-700',
+    red: 'bg-red-100 text-red-700',
+    gray: 'bg-gray-100 text-gray-700',
+  }[summary.tone] || 'bg-gray-100 text-gray-700'
+
+  return (
+    <div className={`mt-4 rounded-lg border p-4 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Resource Preflight</h3>
+          <p className="text-xs mt-1 opacity-80">
+            {error || summary.summary || '선택한 node/template/storage/network가 실제 Proxmox에서 유효한지 확인합니다.'}
           </p>
         </div>
         <div className="flex items-center gap-2">

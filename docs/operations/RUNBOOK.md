@@ -135,3 +135,22 @@ Credential values are intentionally hidden and must not be logged or committed.
 
 If the endpoint reports `error`, fix the listed blocker before attempting VM provisioning.
 If it reports `warning`, provisioning may still run, but review the shown next actions first.
+
+## Provisioning resource preflight smoke
+
+Use this after backend route changes or before Create VM smoke tests.
+
+```bash
+curl -sS -X POST http://127.0.0.1:8001/api/provision/preflight \
+  -H 'Content-Type: application/json' \
+  -d '{"server_id":"yoonmanserver","template_id":"yoonmanserver/118","storage_id":"machine-mainnode","network_ids":["vmbr0"]}'
+```
+
+Expected result for a valid local environment:
+
+```text
+HTTP 200
+status: ready
+```
+
+If `storage_id` or `network_ids` do not belong to the selected node, the endpoint should return `status: error` with next actions instead of starting Terraform.
