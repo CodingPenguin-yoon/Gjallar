@@ -49,3 +49,4 @@ Current non-goals:
 Old staging/GitLab documents were removed from active docs. If this repo's docs and shared storage disagree, follow shared storage.
 
 - `features/Provisioning_Resource_Preflight.md` — selected Proxmox node/template/storage/network preflight before VM creation.
+- `features/Template_Readiness_Preflight.md` — cloud-init and qemu guest agent readiness signals for selected VM templates.

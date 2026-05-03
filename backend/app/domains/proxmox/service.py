@@ -718,6 +718,16 @@ class ProxmoxService:
         except Exception:
             return []
     
+
+    def get_vm_config(self, node: str, vmid: int) -> Dict[str, Any]:
+        """Return raw Proxmox QEMU VM/template config for readiness checks."""
+        try:
+            result = self._make_request(f"/nodes/{node}/qemu/{int(vmid)}/config")
+            data = result.get("data", {})
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
     def get_node_status(self, node: str) -> Optional[Dict]:
         """
         노드 상태 정보 조회

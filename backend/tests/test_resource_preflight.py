@@ -9,6 +9,13 @@ class FakeProxmoxService:
         self.templates = [{"id": "pve1/9000", "template_id": "pve1/9000", "vmid": 9000, "node": "pve1"}]
         self.storages = [{"id": "local-lvm", "storage_id": "local-lvm", "content": ["images"], "available_gb": 128}]
         self.networks = [{"id": "vmbr0", "network_id": "vmbr0", "type": "bridge"}]
+        self.template_configs = {
+            ("pve1", 9000): {
+                "agent": "enabled=1",
+                "ide2": "local-lvm:cloudinit,media=cdrom",
+                "ipconfig0": "ip=dhcp",
+            }
+        }
 
     def get_nodes(self):
         return self.nodes
@@ -21,6 +28,9 @@ class FakeProxmoxService:
 
     def get_networks(self, node=None):
         return self.networks if node == "pve1" else []
+
+    def get_vm_config(self, node, vmid):
+        return self.template_configs.get((node, int(vmid)), {})
 
 
 class CountingFakeProxmoxService(FakeProxmoxService):
@@ -50,7 +60,7 @@ class ProvisioningResourcePreflightServiceTest(unittest.TestCase):
         })
 
         self.assertEqual(result["status"], "ready")
-        self.assertEqual([check["status"] for check in result["checks"]], ["ok", "ok", "ok", "ok"])
+        self.assertEqual([check["status"] for check in result["checks"]], ["ok", "ok", "ok", "ok", "ok"])
         self.assertEqual(result["next_actions"], [])
 
     def test_error_when_template_is_missing(self):
@@ -69,6 +79,25 @@ class ProvisioningResourcePreflightServiceTest(unittest.TestCase):
         template_check = next(check for check in result["checks"] if check["id"] == "template")
         self.assertEqual(template_check["status"], "error")
         self.assertIn("was not found", template_check["message"])
+
+
+    def test_template_readiness_warns_when_guest_agent_or_cloud_init_is_missing(self):
+        fake = FakeProxmoxService()
+        fake.template_configs = {("pve1", 9000): {"agent": "0"}}
+        service = ProvisioningResourcePreflightService(fake)
+
+        result = service.check({
+            "server_id": "pve1",
+            "template_id": "pve1/9000",
+            "storage_id": "local-lvm",
+            "network_ids": ["vmbr0"],
+        })
+
+        self.assertEqual(result["status"], "warning")
+        readiness_check = next(check for check in result["checks"] if check["id"] == "template_readiness")
+        self.assertEqual(readiness_check["status"], "warning")
+        self.assertIn("guest agent", readiness_check["message"])
+        self.assertIn("cloud-init", readiness_check["message"])
 
     def test_error_when_storage_is_not_available_on_target_node(self):
         fake = FakeProxmoxService()

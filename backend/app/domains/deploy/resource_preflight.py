@@ -23,6 +23,7 @@ class ProxmoxResourceReader(Protocol):
     def get_templates(self, node: str | None = None) -> list[dict[str, Any]]: ...
     def get_storages(self, node: str | None = None) -> list[dict[str, Any]]: ...
     def get_networks(self, node: str | None = None) -> list[dict[str, Any]]: ...
+    def get_vm_config(self, node: str, vmid: int) -> dict[str, Any]: ...
 
 
 class ProvisioningResourcePreflightService:
@@ -45,9 +46,11 @@ class ProvisioningResourcePreflightService:
         storages = self.proxmox_service.get_storages(target_node) if target_node and node_is_valid else []
         networks = self.proxmox_service.get_networks(target_node) if target_node and node_is_valid else []
 
+        template_match = self._find_template(template_id, templates)
         checks = [
             node_check,
-            self._check_template(template_id, templates),
+            self._check_template(template_id, template_match),
+            self._check_template_readiness(template_id, template_match),
             self._check_storage(storage_id, storages, target_node),
             self._check_networks(network_ids, networks, target_node),
         ]
@@ -123,17 +126,10 @@ class ProvisioningResourcePreflightService:
             detail=f"status={node_status or 'unknown'}",
         )
 
-    def _check_template(self, template_id: str, templates: list[dict[str, Any]]) -> ResourceCheck:
+    def _find_template(self, template_id: str, templates: list[dict[str, Any]]) -> dict[str, Any] | None:
         if not template_id:
-            return ResourceCheck(
-                id="template",
-                label="Template",
-                status="error",
-                message="No template selected.",
-                next_action="Select a VM template before provisioning.",
-            )
-
-        match = next(
+            return None
+        return next(
             (
                 template for template in templates
                 if template_id in {
@@ -144,6 +140,17 @@ class ProvisioningResourcePreflightService:
             ),
             None,
         )
+
+    def _check_template(self, template_id: str, match: dict[str, Any] | None) -> ResourceCheck:
+        if not template_id:
+            return ResourceCheck(
+                id="template",
+                label="Template",
+                status="error",
+                message="No template selected.",
+                next_action="Select a VM template before provisioning.",
+            )
+
         if not match:
             return ResourceCheck(
                 id="template",
@@ -161,6 +168,86 @@ class ProvisioningResourcePreflightService:
             message=f"Template '{template_id}' exists.",
             detail=f"source_node={template_node or 'unknown'}",
         )
+
+    def _check_template_readiness(self, template_id: str, match: dict[str, Any] | None) -> ResourceCheck:
+        if not template_id or not match:
+            return ResourceCheck(
+                id="template_readiness",
+                label="Template readiness",
+                status="error",
+                message="Template readiness cannot be checked without a valid template.",
+                next_action="Select an existing VM template before provisioning.",
+            )
+
+        node = self._resource_id(match, "node")
+        raw_vmid = match.get("vmid")
+        try:
+            vmid = int(raw_vmid)
+        except (TypeError, ValueError):
+            return ResourceCheck(
+                id="template_readiness",
+                label="Template readiness",
+                status="warning",
+                message="Template VMID could not be parsed for config readiness checks.",
+                detail=f"template_id={template_id}",
+                next_action="Confirm the selected template has cloud-init and qemu guest agent enabled.",
+            )
+
+        config = self.proxmox_service.get_vm_config(node, vmid) if node else {}
+        if not config:
+            return ResourceCheck(
+                id="template_readiness",
+                label="Template readiness",
+                status="warning",
+                message="Template config could not be loaded for cloud-init/guest agent checks.",
+                detail=f"template={node or 'unknown'}/{vmid}",
+                next_action="Confirm the template config is readable and prepared for cloud-init provisioning.",
+            )
+
+        agent_ready = self._guest_agent_enabled(config.get("agent"))
+        cloud_init_ready = self._has_cloud_init_config(config)
+        missing = []
+        if not agent_ready:
+            missing.append("qemu guest agent")
+        if not cloud_init_ready:
+            missing.append("cloud-init")
+
+        detail = f"agent={config.get('agent', '-')}; cloud_init={cloud_init_ready}"
+        if missing:
+            return ResourceCheck(
+                id="template_readiness",
+                label="Template readiness",
+                status="warning",
+                message=f"Template exists but {' and '.join(missing)} readiness was not detected.",
+                detail=detail,
+                next_action="Prepare the template with cloud-init and qemu guest agent before relying on automatic IP/Ansible handoff.",
+            )
+
+        return ResourceCheck(
+            id="template_readiness",
+            label="Template readiness",
+            status="ok",
+            message="Template has cloud-init and qemu guest agent readiness signals.",
+            detail=detail,
+        )
+
+    @staticmethod
+    def _guest_agent_enabled(value: Any) -> bool:
+        if value is None:
+            return False
+        normalized = str(value).strip().lower()
+        return normalized in {"1", "true", "yes", "enabled=1"} or "enabled=1" in normalized
+
+    @staticmethod
+    def _has_cloud_init_config(config: dict[str, Any]) -> bool:
+        for key, value in config.items():
+            key_text = str(key).lower()
+            value_text = str(value).lower()
+            if key_text.startswith("ipconfig"):
+                return True
+            if "cloudinit" in value_text or "cloud-init" in value_text:
+                return True
+        return False
 
     def _check_storage(self, storage_id: str, storages: list[dict[str, Any]], target_node: str) -> ResourceCheck:
         if not storage_id:

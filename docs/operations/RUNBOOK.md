@@ -154,3 +154,14 @@ status: ready
 ```
 
 If `storage_id` or `network_ids` do not belong to the selected node, the endpoint should return `status: error` with next actions instead of starting Terraform.
+
+### Interpreting template readiness warnings
+
+If `/api/provision/preflight` returns:
+
+```text
+template_readiness: warning
+cloud_init=False
+```
+
+then the selected template may still clone successfully, but cloud-init/IP discovery/Ansible handoff can be unreliable. Check the Proxmox template config for cloud-init disk (`cloudinit`) and guest agent (`agent=1`).

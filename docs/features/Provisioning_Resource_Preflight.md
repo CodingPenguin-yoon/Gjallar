@@ -120,3 +120,11 @@ payload: yoonmanserver / yoonmanserver/118 / machine-mainnode / vmbr0
 HTTP 200
 status: ready
 ```
+
+## Template readiness extension
+
+Resource preflight also includes `template_readiness`.
+
+It checks selected template config for qemu guest agent and cloud-init readiness signals. Missing signals return `warning`, not `error`, because template conventions differ by environment.
+
+See: `docs/features/Template_Readiness_Preflight.md`.
