@@ -113,3 +113,25 @@ sudo apt-get install -y terraform ansible
 Note: Terraform/Ansible being installed only clears the local runtime prerequisite.
 Provisioning can still fail later if Proxmox API credentials, template IDs, storage IDs,
 cloud-init, or guest SSH readiness are wrong.
+
+## 7. Provisioning readiness check
+
+Before using `Create Instance`, verify the backend can see the required provisioning runtime/config:
+
+```bash
+curl http://127.0.0.1:8001/api/provision/readiness
+```
+
+Expected healthy result:
+
+```text
+HTTP 200
+status: ready
+```
+
+The readiness endpoint checks Terraform, ansible-playbook, Terraform config, Ansible playbook,
+required Proxmox API environment key presence, and `terraform validate`.
+Credential values are intentionally hidden and must not be logged or committed.
+
+If the endpoint reports `error`, fix the listed blocker before attempting VM provisioning.
+If it reports `warning`, provisioning may still run, but review the shown next actions first.

@@ -9,10 +9,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from app.domains.deploy.service import DeploymentService
+from app.domains.deploy.readiness import ProvisioningReadinessService
 
 
 router = APIRouter()
 deployment_service = DeploymentService()
+readiness_service = ProvisioningReadinessService()
 
 
 class DeployRequest(BaseModel):
@@ -98,6 +100,12 @@ def _validate_static_network(request: DeployRequest) -> None:
             status_code=400,
             detail="vm_gateway must be a valid IPv4 address like 192.168.2.1.",
         )
+
+
+@router.get("/provision/readiness")
+def provision_readiness():
+    """Return non-secret provisioning runtime readiness checks."""
+    return readiness_service.check()
 
 
 @router.post("/deploy", response_model=DeployResponse)

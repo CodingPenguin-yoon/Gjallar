@@ -44,6 +44,17 @@ apiClient.interceptors.response.use(
   }
 )
 
+// VM provisioning readiness/preflight API
+export const getProvisioningReadiness = async () => {
+  try {
+    const response = await apiClient.get('/provision/readiness')
+    return response
+  } catch (error) {
+    console.error('Get provisioning readiness API error:', error)
+    throw error
+  }
+}
+
 // VM provisioning 시작 API
 export const provisionInstance = async (config) => {
   try {
