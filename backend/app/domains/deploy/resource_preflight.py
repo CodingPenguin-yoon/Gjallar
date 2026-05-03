@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from ipaddress import IPv4Address, IPv4Interface, ip_address, ip_interface
 from typing import Any, Iterable, Protocol
 
@@ -31,6 +32,8 @@ class ProxmoxResourceReader(Protocol):
 class ProvisioningResourcePreflightService:
     """Validates user-selected Proxmox resources before Terraform apply."""
 
+    DEFAULT_DISK_SIZE_GB = 50
+
     def __init__(self, proxmox_service: ProxmoxResourceReader | None = None):
         self.proxmox_service = proxmox_service or ProxmoxService()
 
@@ -41,7 +44,10 @@ class ProvisioningResourcePreflightService:
         network_ids = self._normalize_string_list(request.get("network_ids"))
         server_name = str(request.get("server_name") or request.get("vm_name") or "").strip()
         requested_vmid = request.get("vmid") or request.get("vm_id")
-        disk_size_gb = request.get("disk_size_gb") or request.get("disk_size")
+        disk_size_gb = self._requested_disk_size_gb(
+            request.get("disk_size_gb"),
+            request.get("disk_size"),
+        )
         vm_ip = str(request.get("vm_ip") or "").strip()
         vm_gateway = str(request.get("vm_gateway") or "").strip()
 
@@ -60,6 +66,7 @@ class ProvisioningResourcePreflightService:
             node_check,
             self._check_template(template_id, template_match),
             self._check_template_readiness(template_id, template_match),
+            self._check_template_disk_size(template_id, template_match, disk_size_gb),
             self._check_storage(storage_id, storage_match, target_node),
             self._check_storage_capacity(storage_id, storage_match, disk_size_gb),
             self._check_networks(network_ids, networks, target_node),
@@ -85,6 +92,13 @@ class ProvisioningResourcePreflightService:
                 "vm_gateway": vm_gateway or None,
             },
         }
+
+    @classmethod
+    def _requested_disk_size_gb(cls, disk_size_gb: Any, disk_size: Any) -> Any:
+        for value in (disk_size_gb, disk_size):
+            if value is not None and value != "":
+                return value
+        return cls.DEFAULT_DISK_SIZE_GB
 
     @staticmethod
     def _normalize_string_list(value: Any) -> list[str]:
@@ -247,6 +261,105 @@ class ProvisioningResourcePreflightService:
             message="Template has cloud-init and qemu guest agent readiness signals.",
             detail=detail,
         )
+
+    def _check_template_disk_size(self, template_id: str, match: dict[str, Any] | None, disk_size_gb: Any) -> ResourceCheck:
+        requested_gb = self._to_float(disk_size_gb)
+        if requested_gb is None or requested_gb <= 0:
+            return ResourceCheck(
+                id="template_disk_size",
+                label="Template disk size",
+                status="ok",
+                message="No explicit disk size requested for template disk-size preflight.",
+            )
+        if not template_id or not match:
+            return ResourceCheck(
+                id="template_disk_size",
+                label="Template disk size",
+                status="ok",
+                message="Template disk-size check skipped until a valid template is selected.",
+            )
+
+        config = self._load_template_config(match)
+        if not config:
+            return ResourceCheck(
+                id="template_disk_size",
+                label="Template disk size",
+                status="warning",
+                message="Template disk size could not be checked because template config was not available.",
+                next_action="Confirm the requested disk size is not smaller than the template disk before provisioning.",
+            )
+
+        template_disk_gb = self._max_template_disk_size_gb(config)
+        if template_disk_gb is None:
+            return ResourceCheck(
+                id="template_disk_size",
+                label="Template disk size",
+                status="warning",
+                message="Template disk size could not be detected from template config.",
+                next_action="Confirm the requested disk size is not smaller than the template disk before provisioning.",
+            )
+
+        if requested_gb < template_disk_gb:
+            return ResourceCheck(
+                id="template_disk_size",
+                label="Template disk size",
+                status="error",
+                message=(
+                    f"Requested disk size {requested_gb:g}GB is lower than template disk size "
+                    f"{template_disk_gb:g}GB. Proxmox/Terraform cannot shrink cloned disks."
+                ),
+                detail=f"requested_gb={requested_gb:g}; template_disk_gb={template_disk_gb:g}",
+                next_action=f"Set disk_size_gb to at least {template_disk_gb:g}GB or choose a smaller template.",
+            )
+
+        return ResourceCheck(
+            id="template_disk_size",
+            label="Template disk size",
+            status="ok",
+            message="Requested disk size is not smaller than the template disk.",
+            detail=f"requested_gb={requested_gb:g}; template_disk_gb={template_disk_gb:g}",
+        )
+
+    def _load_template_config(self, match: dict[str, Any]) -> dict[str, Any]:
+        node = self._resource_id(match, "node")
+        raw_vmid = match.get("vmid")
+        try:
+            vmid = int(raw_vmid)
+        except (TypeError, ValueError):
+            return {}
+        return self.proxmox_service.get_vm_config(node, vmid) if node else {}
+
+    @staticmethod
+    def _max_template_disk_size_gb(config: dict[str, Any]) -> float | None:
+        sizes: list[float] = []
+        for key, value in config.items():
+            key_text = str(key).lower()
+            value_text = str(value).lower()
+            if not key_text.startswith(("scsi", "sata", "virtio", "ide")):
+                continue
+            if "cloudinit" in value_text or "cloud-init" in value_text or "media=cdrom" in value_text:
+                continue
+            size_gb = ProvisioningResourcePreflightService._parse_proxmox_disk_size_gb(value_text)
+            if size_gb is not None:
+                sizes.append(size_gb)
+        return max(sizes) if sizes else None
+
+    @staticmethod
+    def _parse_proxmox_disk_size_gb(value: str) -> float | None:
+        match = re.search(r"(?:^|,)size=(\d+(?:\.\d+)?)([kmgt]?)i?b?", str(value).lower())
+        if not match:
+            return None
+        number = float(match.group(1))
+        unit = match.group(2) or "g"
+        if unit == "t":
+            return number * 1024
+        if unit == "g":
+            return number
+        if unit == "m":
+            return number / 1024
+        if unit == "k":
+            return number / (1024 * 1024)
+        return number
 
     @staticmethod
     def _guest_agent_enabled(value: Any) -> bool:

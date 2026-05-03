@@ -172,3 +172,17 @@ cloud_init=False
 ```
 
 then the selected template may still clone successfully, but cloud-init/IP discovery/Ansible handoff can be unreliable. Check the Proxmox template config for cloud-init disk (`cloudinit`) and guest agent (`agent=1`).
+
+
+## Template disk-size safety
+
+Before running actual Create VM smoke, check `POST /api/provision/preflight`. If the selected template disk is larger than requested `disk_size_gb`, preflight returns `template_disk_size=error` because Proxmox/Terraform cannot shrink cloned disks.
+
+The 2026-05-03 smoke verified this with `yoonmanserver2/107`:
+
+```text
+50GB request  -> failed shrink path, VM yoonmanserver2/122 left stopped
+200GB request -> successful provisioning, VM yoonmanserver2/123 gracefully shut down
+```
+
+Do not use `/api/instances/terminate` for smoke cleanup unless explicitly approved. Stop/shutdown test VMs only.

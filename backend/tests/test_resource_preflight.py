@@ -13,6 +13,7 @@ class FakeProxmoxService:
         self.template_configs = {
             ("pve1", 9000): {
                 "agent": "enabled=1",
+                "scsi0": "local-lvm:base-9000-disk-0,size=40G",
                 "ide2": "local-lvm:cloudinit,media=cdrom",
                 "ipconfig0": "ip=dhcp",
             }
@@ -72,6 +73,7 @@ class ProvisioningResourcePreflightServiceTest(unittest.TestCase):
         self.assertEqual(check_status["target_node"], "ok")
         self.assertEqual(check_status["template"], "ok")
         self.assertEqual(check_status["template_readiness"], "ok")
+        self.assertEqual(check_status["template_disk_size"], "ok")
         self.assertEqual(check_status["storage"], "ok")
         self.assertEqual(check_status["storage_capacity"], "ok")
         self.assertEqual(check_status["networks"], "ok")
@@ -235,6 +237,47 @@ class ProvisioningResourcePreflightServiceTest(unittest.TestCase):
         self.assertIn("Proxmox cluster", identity_check["message"])
         self.assertIn("existing_node=pve2", identity_check["detail"])
 
+
+    def test_error_when_requested_disk_size_is_smaller_than_template_disk(self):
+        fake = FakeProxmoxService()
+        fake.template_configs[("pve1", 9000)]["scsi0"] = "local-lvm:base-9000-disk-0,size=200G"
+        service = ProvisioningResourcePreflightService(fake)
+
+        result = service.check({
+            "server_id": "pve1",
+            "template_id": "pve1/9000",
+            "storage_id": "local-lvm",
+            "network_ids": ["vmbr0"],
+            "server_name": "new-vm",
+            "disk_size_gb": 50,
+        })
+
+        self.assertEqual(result["status"], "error")
+        disk_check = next(check for check in result["checks"] if check["id"] == "template_disk_size")
+        self.assertEqual(disk_check["status"], "error")
+        self.assertIn("cannot shrink", disk_check["message"])
+        self.assertIn("template_disk_gb=200", disk_check["detail"])
+
+    def test_error_when_default_disk_size_is_smaller_than_template_disk(self):
+        fake = FakeProxmoxService()
+        fake.template_configs[("pve1", 9000)]["scsi0"] = "local-lvm:base-9000-disk-0,size=200G"
+        service = ProvisioningResourcePreflightService(fake)
+
+        result = service.check({
+            "server_id": "pve1",
+            "template_id": "pve1/9000",
+            "storage_id": "local-lvm",
+            "network_ids": ["vmbr0"],
+            "server_name": "new-vm",
+        })
+
+        self.assertEqual(result["target"]["disk_size_gb"], 50)
+        self.assertEqual(result["status"], "error")
+        disk_check = next(check for check in result["checks"] if check["id"] == "template_disk_size")
+        self.assertEqual(disk_check["status"], "error")
+        self.assertIn("Requested disk size 50GB", disk_check["message"])
+        self.assertIn("template_disk_gb=200", disk_check["detail"])
+
     def test_error_when_requested_disk_size_exceeds_storage_free_space(self):
         service = ProvisioningResourcePreflightService(FakeProxmoxService())
 
@@ -251,6 +294,25 @@ class ProvisioningResourcePreflightServiceTest(unittest.TestCase):
         capacity_check = next(check for check in result["checks"] if check["id"] == "storage_capacity")
         self.assertEqual(capacity_check["status"], "error")
         self.assertIn("exceeds", capacity_check["message"])
+
+    def test_error_when_default_disk_size_exceeds_storage_free_space(self):
+        fake = FakeProxmoxService()
+        fake.storages[0]["available_gb"] = 40
+        service = ProvisioningResourcePreflightService(fake)
+
+        result = service.check({
+            "server_id": "pve1",
+            "template_id": "pve1/9000",
+            "storage_id": "local-lvm",
+            "network_ids": ["vmbr0"],
+            "server_name": "new-vm",
+        })
+
+        self.assertEqual(result["target"]["disk_size_gb"], 50)
+        self.assertEqual(result["status"], "error")
+        capacity_check = next(check for check in result["checks"] if check["id"] == "storage_capacity")
+        self.assertEqual(capacity_check["status"], "error")
+        self.assertIn("50GB", capacity_check["message"])
 
     def test_warning_when_storage_free_space_is_unknown(self):
         fake = FakeProxmoxService()

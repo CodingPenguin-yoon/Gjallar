@@ -76,6 +76,8 @@ Response shape:
 
 ## Checks
 
+- `template_disk_size` — blocks provisioning when requested `disk_size_gb` is lower than the selected template disk size. Proxmox/Terraform cannot shrink cloned disks.
+
 ### Target node
 
 - Selected node exists in Proxmox inventory.
@@ -199,3 +201,11 @@ POST /api/provision/preflight with invalid storage
 status: error
 storage: local-lvm is not available on node yoonmanserver
 ```
+
+
+## Smoke evidence
+
+- `docs/operations/Create_VM_End_to_End_Smoke_2026-05-03.md` — actual Create VM smoke on `yoonmanserver2`, including failed shrink path and successful `disk_size_gb=200` path.
+
+
+Default disk-size handling: if `disk_size_gb` is omitted, backend preflight evaluates it as `50GB`, matching `DeploymentService` and Terraform defaults.

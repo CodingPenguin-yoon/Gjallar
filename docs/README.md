@@ -50,3 +50,8 @@ Old staging/GitLab documents were removed from active docs. If this repo's docs 
 
 - `features/Provisioning_Resource_Preflight.md` — selected Proxmox node/template/storage/network/identity/static-IP preflight before VM creation.
 - `features/Template_Readiness_Preflight.md` — cloud-init and qemu guest agent readiness signals for selected VM templates.
+
+
+## Smoke / evidence
+
+- [Create VM End-to-End Smoke — 2026-05-03](operations/Create_VM_End_to_End_Smoke_2026-05-03.md)
