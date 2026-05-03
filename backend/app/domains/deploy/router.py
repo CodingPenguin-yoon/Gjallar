@@ -36,6 +36,7 @@ class DeployRequest(BaseModel):
 
     # 인스턴스 이름
     server_name: Optional[str] = None
+    vmid: Optional[int] = Field(default=None, ge=1)
     vm_ip: Optional[str] = None
     vm_gateway: Optional[str] = None
 
@@ -101,6 +102,24 @@ def _validate_static_network(request: DeployRequest) -> None:
         raise HTTPException(
             status_code=400,
             detail="vm_gateway must be a valid IPv4 address like 192.168.2.1.",
+        )
+
+    if parsed_ip.network.prefixlen < 31 and parsed_ip.ip in {parsed_ip.network.network_address, parsed_ip.network.broadcast_address}:
+        raise HTTPException(
+            status_code=400,
+            detail="vm_ip host address must not be the subnet network or broadcast address.",
+        )
+
+    if parsed_gateway not in parsed_ip.network:
+        raise HTTPException(
+            status_code=400,
+            detail="vm_gateway must be in the same subnet as vm_ip.",
+        )
+
+    if parsed_ip.ip == parsed_gateway:
+        raise HTTPException(
+            status_code=400,
+            detail="vm_ip host address must not equal vm_gateway.",
         )
 
 

@@ -216,7 +216,6 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
   const provisioningSummary = buildProvisioningSummary(config)
   const readinessSummary = summarizeProvisioningReadiness(readiness)
   const resourcePreflightSummary = summarizeResourcePreflight(resourcePreflight)
-
   const handleNext = () => {
     if (currentStep < STEPS.length) {
       setCurrentStep(currentStep + 1)
@@ -304,6 +303,16 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
         return false
     }
   }
+
+
+  const canLaunchProvisioning =
+    canProceed() &&
+    readinessSummary.canProvision &&
+    resourcePreflightSummary.canProvision &&
+    !readinessLoading &&
+    !resourcePreflightLoading &&
+    !readinessError &&
+    !resourcePreflightError
 
   const renderStepContent = () => {
     switch (currentStep) {
@@ -516,7 +525,7 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
             <button
               type="button"
               onClick={onProvision}
-              disabled={!canProceed() || isProvisioning}
+              disabled={!canLaunchProvisioning || isProvisioning}
               className="px-6 py-2.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               {isProvisioning ? (
@@ -528,6 +537,11 @@ function CreateInstanceWizard({ config, onConfigChange, onProvision, isProvision
                 'Provision VM'
               )}
             </button>
+          )}
+          {currentStep === STEPS.length && !canLaunchProvisioning && !isProvisioning && (
+            <div className="self-center text-xs text-red-600 max-w-xs">
+              Provisioning is blocked until readiness and resource preflight checks pass. Warnings are allowed; errors are blocked.
+            </div>
           )}
         </div>
       </div>

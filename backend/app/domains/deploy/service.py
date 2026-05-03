@@ -162,7 +162,12 @@ class DeploymentService:
                 text="배포 시작",
                 source="phase",
             )
-            task_manager.append_log(task_id, "=== 배포 작업 시작 ===")
+            task_manager.append_log(task_id, "=== VM provisioning 작업 시작 ===")
+            task_manager.append_log(
+                task_id,
+                "Provisioning boundary: readiness/resource preflight should pass before Terraform; "
+                "this task tracks Terraform apply, IP discovery, and Ansible handoff.",
+            )
 
             # 배포 요청 정보 로깅
             if deploy_request:
@@ -374,7 +379,9 @@ class DeploymentService:
                     task_manager.update_metadata(task_id, {"vm_ip": str(vm_ip)})
                 else:
                     task_manager.append_log(
-                        task_id, "경고: Terraform Output에서 IP 주소를 찾을 수 없습니다."
+                            task_id,
+                        "IP discovery pending: Terraform output did not include a VM IP. "
+                        "VM may be created, but guest-agent/DHCP/cloud-init may not be ready yet."
                     )
 
                 self._maybe_adjust_cloned_vm_resources(
@@ -390,8 +397,8 @@ class DeploymentService:
             if not skip_ansible and not vm_ip:
                 task_manager.append_log(
                     task_id,
-                    "\n[5/5] Ansible 건너뛰기: VM IP 주소를 가져올 수 없습니다. "
-                    "(VM에 qemu-guest-agent가 설치되어 있는지 확인하세요)"
+                    "\n[5/5] Ansible skipped because VM IP is missing. "
+                    "Check qemu guest agent, DHCP, cloud-init, or static IP settings before retrying Ansible."
                 )
                 skip_ansible = True
                 ansible_skipped_due_to_missing_ip = True
@@ -455,7 +462,7 @@ class DeploymentService:
                     source="phase",
                 )
             else:
-                task_manager.append_log(task_id, "Ansible 단계 건너뛰기")
+                task_manager.append_log(task_id, "Ansible handoff skipped")
                 task_manager.update_progress(
                     task_id,
                     98.0,
@@ -465,7 +472,7 @@ class DeploymentService:
 
             # 배포 성공
             task_manager.update_status(task_id, TaskStatus.SUCCESS)
-            task_manager.append_log(task_id, "\n=== 배포 작업 완료 ===")
+            task_manager.append_log(task_id, "\n=== VM provisioning 작업 완료 ===")
 
         except Exception as e:
             # 예외 발생 시 실패 처리

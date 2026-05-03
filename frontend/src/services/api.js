@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { buildProvisioningPayload, buildProvisioningResourcePreflightPayload } from '../utils/provisioningPayload'
 
 // API 기본 URL 설정 (프록시를 통해 /api로 요청)
 const API_BASE_URL = '/api'
@@ -58,19 +59,7 @@ export const getProvisioningReadiness = async () => {
 
 export const checkProvisioningResourcePreflight = async (config) => {
   try {
-    const payload = config.server_id
-      ? {
-          server_id: config.server_id,
-          template_id: config.template_id,
-          storage_id: config.storage_id,
-          network_ids: config.network_ids || [],
-        }
-      : {
-          server_id: config.selectedServerId,
-          template_id: config.selectedTemplateId,
-          storage_id: config.selectedStorageId,
-          network_ids: config.selectedNetworkIds || [],
-        }
+    const payload = buildProvisioningResourcePreflightPayload(config)
     const response = await apiClient.post('/provision/preflight', payload)
     return response
   } catch (error) {
@@ -82,37 +71,7 @@ export const checkProvisioningResourcePreflight = async (config) => {
 // VM provisioning 시작 API
 export const provisionInstance = async (config) => {
   try {
-    // 새로운 마법사 스타일 config 또는 기존 config 모두 지원
-    const payload = config.server_id
-      ? {
-          server_id: config.server_id,
-          template_id: config.template_id,
-          storage_id: config.storage_id,
-          storage_type: config.storage_type,
-          network_ids: config.network_ids,
-          server_name: config.server_name,
-          cpu_cores: config.cpu_cores,
-          memory_gb: config.memory_gb,
-          disk_size_gb: config.disk_size_gb || 50,
-          ansible_packages: config.ansible_packages || [],
-          ansible_roles: config.ansible_roles || [],
-          vm_ip: config.vm_ip,
-          vm_gateway: config.vm_gateway,
-        }
-      : {
-          server_id: config.selectedServerId,
-          template_id: config.selectedTemplateId,
-          server_name: config.serverName || `instance-${Date.now()}`,
-          cpu_cores: config.cpuCores ? parseInt(config.cpuCores) : undefined,
-          memory_gb: config.memory ? parseInt(config.memory) : undefined,
-          disk_size_gb: parseInt(config.diskSize) || 50,
-          storage_id: config.selectedStorageId,
-          network_ids: config.selectedNetworkIds || [],
-          vm_ip: config.vmIp,
-          vm_gateway: config.vmGateway,
-          ansible_packages: config.selectedPackages || [],
-          ansible_roles: config.selectedRoles || [],
-        }
+    const payload = buildProvisioningPayload(config)
     const response = await apiClient.post('/provision', payload)
     return response
   } catch (error) {

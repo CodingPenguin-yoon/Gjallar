@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ipaddress import IPv4Address, IPv4Interface, ip_address, ip_interface
 from typing import Any, Iterable, Protocol
 
 from app.domains.proxmox.service import ProxmoxService
@@ -24,6 +25,7 @@ class ProxmoxResourceReader(Protocol):
     def get_storages(self, node: str | None = None) -> list[dict[str, Any]]: ...
     def get_networks(self, node: str | None = None) -> list[dict[str, Any]]: ...
     def get_vm_config(self, node: str, vmid: int) -> dict[str, Any]: ...
+    def get_vms(self, node: str | None = None) -> list[dict[str, Any]]: ...
 
 
 class ProvisioningResourcePreflightService:
@@ -37,6 +39,11 @@ class ProvisioningResourcePreflightService:
         template_id = str(request.get("template_id") or "").strip()
         storage_id = str(request.get("storage_id") or "").strip()
         network_ids = self._normalize_string_list(request.get("network_ids"))
+        server_name = str(request.get("server_name") or request.get("vm_name") or "").strip()
+        requested_vmid = request.get("vmid") or request.get("vm_id")
+        disk_size_gb = request.get("disk_size_gb") or request.get("disk_size")
+        vm_ip = str(request.get("vm_ip") or "").strip()
+        vm_gateway = str(request.get("vm_gateway") or "").strip()
 
         nodes = self.proxmox_service.get_nodes()
         node_check = self._check_node(target_node, nodes)
@@ -45,14 +52,19 @@ class ProvisioningResourcePreflightService:
         templates = self.proxmox_service.get_templates()
         storages = self.proxmox_service.get_storages(target_node) if target_node and node_is_valid else []
         networks = self.proxmox_service.get_networks(target_node) if target_node and node_is_valid else []
+        vms = self.proxmox_service.get_vms() if target_node and node_is_valid else []
 
         template_match = self._find_template(template_id, templates)
+        storage_match = self._find_storage(storage_id, storages)
         checks = [
             node_check,
             self._check_template(template_id, template_match),
             self._check_template_readiness(template_id, template_match),
-            self._check_storage(storage_id, storages, target_node),
+            self._check_storage(storage_id, storage_match, target_node),
+            self._check_storage_capacity(storage_id, storage_match, disk_size_gb),
             self._check_networks(network_ids, networks, target_node),
+            self._check_vm_identity(server_name, requested_vmid, vms, target_node),
+            self._check_static_network(vm_ip, vm_gateway),
         ]
         status = self._overall_status(checks)
 
@@ -66,6 +78,11 @@ class ProvisioningResourcePreflightService:
                 "template_id": template_id or None,
                 "storage_id": storage_id or None,
                 "network_ids": network_ids,
+                "server_name": server_name or None,
+                "vmid": requested_vmid,
+                "disk_size_gb": disk_size_gb,
+                "vm_ip": vm_ip or None,
+                "vm_gateway": vm_gateway or None,
             },
         }
 
@@ -249,7 +266,12 @@ class ProvisioningResourcePreflightService:
                 return True
         return False
 
-    def _check_storage(self, storage_id: str, storages: list[dict[str, Any]], target_node: str) -> ResourceCheck:
+    def _find_storage(self, storage_id: str, storages: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not storage_id:
+            return None
+        return next((storage for storage in storages if self._resource_id(storage, "id", "storage_id", "name") == storage_id), None)
+
+    def _check_storage(self, storage_id: str, match: dict[str, Any] | None, target_node: str) -> ResourceCheck:
         if not storage_id:
             return ResourceCheck(
                 id="storage",
@@ -267,7 +289,6 @@ class ProvisioningResourcePreflightService:
                 next_action="Select a target node before choosing storage.",
             )
 
-        match = next((storage for storage in storages if self._resource_id(storage, "id", "storage_id", "name") == storage_id), None)
         if not match:
             return ResourceCheck(
                 id="storage",
@@ -298,6 +319,214 @@ class ProvisioningResourcePreflightService:
             message=f"Storage '{storage_id}' is available on node '{target_node}'.",
             detail=detail,
         )
+
+
+    def _check_storage_capacity(self, storage_id: str, match: dict[str, Any] | None, disk_size_gb: Any) -> ResourceCheck:
+        requested_gb = self._to_float(disk_size_gb)
+        if requested_gb is None or requested_gb <= 0:
+            return ResourceCheck(
+                id="storage_capacity",
+                label="Storage capacity",
+                status="ok",
+                message="No explicit disk size requested for capacity preflight.",
+            )
+        if not storage_id or not match:
+            return ResourceCheck(
+                id="storage_capacity",
+                label="Storage capacity",
+                status="error",
+                message="Storage capacity cannot be checked without a valid storage target.",
+                next_action="Select a valid storage target before provisioning.",
+            )
+
+        available_gb = self._to_float(match.get("available_gb"))
+        if available_gb is None:
+            return ResourceCheck(
+                id="storage_capacity",
+                label="Storage capacity",
+                status="warning",
+                message=f"Storage '{storage_id}' free space is unknown; requested disk is {requested_gb:g}GB.",
+                next_action="Confirm storage free space in Proxmox before provisioning.",
+            )
+        if requested_gb > available_gb:
+            return ResourceCheck(
+                id="storage_capacity",
+                label="Storage capacity",
+                status="error",
+                message=f"Requested disk size {requested_gb:g}GB exceeds storage '{storage_id}' free space {available_gb:g}GB.",
+                detail=f"requested_gb={requested_gb:g}; available_gb={available_gb:g}",
+                next_action="Choose a storage with enough free space or reduce disk_size_gb.",
+            )
+        return ResourceCheck(
+            id="storage_capacity",
+            label="Storage capacity",
+            status="ok",
+            message=f"Storage '{storage_id}' has enough free space for the requested disk.",
+            detail=f"requested_gb={requested_gb:g}; available_gb={available_gb:g}",
+        )
+
+    def _check_vm_identity(self, server_name: str, requested_vmid: Any, vms: list[dict[str, Any]], target_node: str) -> ResourceCheck:
+        normalized_name = server_name.strip().lower()
+        normalized_vmid = self._to_int(requested_vmid)
+        if not normalized_name and normalized_vmid is None:
+            return ResourceCheck(
+                id="vm_identity",
+                label="VM identity",
+                status="warning",
+                message="No VM name or VMID provided for duplicate preflight.",
+                next_action="Set a VM name before provisioning so duplicates can be detected.",
+            )
+
+        for vm in vms:
+            vm_name = str(vm.get("name") or vm.get("server_name") or "").strip()
+            vmid = self._to_int(vm.get("vmid") or vm.get("vm_id"))
+            vm_node = str(vm.get("node") or vm.get("node_name") or vm.get("server_id") or "").strip()
+            same_target_node = vm_node == target_node if vm_node else True
+
+            if normalized_name and same_target_node and vm_name.lower() == normalized_name:
+                return ResourceCheck(
+                    id="vm_identity",
+                    label="VM identity",
+                    status="error",
+                    message=f"VM name '{server_name}' already exists on node '{target_node}'.",
+                    detail=f"existing_vmid={vmid if vmid is not None else '-'}",
+                    next_action="Choose a unique VM name before provisioning.",
+                )
+            if normalized_vmid is not None and vmid == normalized_vmid:
+                return ResourceCheck(
+                    id="vm_identity",
+                    label="VM identity",
+                    status="error",
+                    message=f"VMID {normalized_vmid} already exists in the Proxmox cluster.",
+                    detail=f"existing_node={vm_node or '-'}; existing_name={vm_name or '-'}",
+                    next_action="Choose an unused VMID cluster-wide or let Proxmox allocate one.",
+                )
+
+        detail_parts = []
+        if server_name:
+            detail_parts.append(f"name={server_name}")
+        if normalized_vmid is not None:
+            detail_parts.append(f"vmid={normalized_vmid}")
+        return ResourceCheck(
+            id="vm_identity",
+            label="VM identity",
+            status="ok",
+            message="Requested VM identity is not already present on the target node/cluster.",
+            detail="; ".join(detail_parts) if detail_parts else None,
+        )
+
+    def _check_static_network(self, vm_ip: str, vm_gateway: str) -> ResourceCheck:
+        if not vm_ip and not vm_gateway:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="ok",
+                message="No static IP requested; VM will use DHCP/default provisioning policy.",
+            )
+        if not vm_ip or not vm_gateway:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="Static IP provisioning requires both vm_ip CIDR and vm_gateway.",
+                next_action="Provide both vm_ip, for example 192.168.2.50/24, and vm_gateway.",
+            )
+        if "/" not in vm_ip:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_ip must include CIDR prefix, for example 192.168.2.50/24.",
+                next_action="Add a CIDR prefix to vm_ip before provisioning.",
+            )
+        try:
+            parsed_ip = ip_interface(vm_ip)
+        except ValueError:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_ip must be a valid IPv4 host CIDR, for example 192.168.2.50/24.",
+                next_action="Fix the static VM IP address format.",
+            )
+        if not isinstance(parsed_ip, IPv4Interface):
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_ip must be an IPv4 host CIDR.",
+                next_action="Use an IPv4 CIDR such as 192.168.2.50/24.",
+            )
+        try:
+            parsed_gateway = ip_address(vm_gateway)
+        except ValueError:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_gateway must be a valid IPv4 address, for example 192.168.2.1.",
+                next_action="Fix the static gateway address format.",
+            )
+        if not isinstance(parsed_gateway, IPv4Address):
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_gateway must be an IPv4 address.",
+                next_action="Use an IPv4 gateway such as 192.168.2.1.",
+            )
+        if parsed_ip.network.prefixlen < 31 and parsed_ip.ip in {parsed_ip.network.network_address, parsed_ip.network.broadcast_address}:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_ip host address must not be the subnet network or broadcast address.",
+                detail=f"vm_network={parsed_ip.network}; vm_ip={parsed_ip.ip}",
+                next_action="Choose a usable host IP inside the subnet.",
+            )
+
+        if parsed_gateway not in parsed_ip.network:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_gateway must be in the same subnet as vm_ip.",
+                detail=f"vm_network={parsed_ip.network}; gateway={parsed_gateway}",
+                next_action="Choose a gateway address inside the vm_ip subnet.",
+            )
+        if parsed_ip.ip == parsed_gateway:
+            return ResourceCheck(
+                id="static_network",
+                label="Static network",
+                status="error",
+                message="vm_ip host address must not equal vm_gateway.",
+                next_action="Choose a unique host IP that differs from the gateway.",
+            )
+        return ResourceCheck(
+            id="static_network",
+            label="Static network",
+            status="ok",
+            message="Static IP and gateway are valid and in the same subnet.",
+            detail=f"vm_ip={parsed_ip}; gateway={parsed_gateway}",
+        )
+
+    @staticmethod
+    def _to_float(value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _to_int(value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _normalize_content(content: Any) -> list[str]:

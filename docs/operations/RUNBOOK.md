@@ -143,17 +143,24 @@ Use this after backend route changes or before Create VM smoke tests.
 ```bash
 curl -sS -X POST http://127.0.0.1:8001/api/provision/preflight \
   -H 'Content-Type: application/json' \
-  -d '{"server_id":"yoonmanserver","template_id":"yoonmanserver/118","storage_id":"machine-mainnode","network_ids":["vmbr0"]}'
+  -d '{"server_id":"yoonmanserver","template_id":"yoonmanserver/118","storage_id":"machine-mainnode","network_ids":["vmbr0"],"server_name":"gjallar-smoke-preflight","disk_size_gb":50}'
 ```
 
-Expected result for a valid local environment:
+Expected result for the current local environment:
 
 ```text
 HTTP 200
-status: ready
+status: warning
 ```
 
-If `storage_id` or `network_ids` do not belong to the selected node, the endpoint should return `status: error` with next actions instead of starting Terraform.
+Known current warnings:
+
+```text
+template_readiness: cloud-init not detected on yoonmanserver/118
+storage_capacity: storage free space unknown for machine-mainnode
+```
+
+If `storage_id`, `network_ids`, VM identity, or static IP/gateway values are invalid, the endpoint should return `status: error` with next actions instead of starting Terraform. The Create VM wizard blocks Launch on readiness/resource-preflight errors and allows warnings after operator review.
 
 ### Interpreting template readiness warnings
 
