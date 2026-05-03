@@ -74,3 +74,13 @@ class OperationalVMState(Base):
     status_since_at: Mapped[float] = mapped_column(Float, nullable=False)
     last_running_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_observed_payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class OperationalRiskThresholds(Base):
+    """Local risk threshold policy for the operations dashboard."""
+
+    __tablename__ = "operational_risk_thresholds"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    thresholds_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[float] = mapped_column(Float, nullable=False)

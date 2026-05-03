@@ -322,6 +322,44 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         self.assertEqual(dashboard["evidence"]["vm_state_history_collected"], True)
 
 
+    def test_service_dashboard_uses_configured_thresholds(self):
+        service = ProxmoxService()
+        service.get_all_nodes_monitoring = lambda: [
+            {
+                "node": "node-a",
+                "status": "online",
+                "storages": [
+                    {"name": "vm-storage", "usage_percent": 92.0, "available_gb": 80, "total_gb": 1000}
+                ],
+            }
+        ]
+        service.get_vms = lambda: []
+        service.get_vm_state_history = lambda vms, now_epoch=None: {}
+        service.get_backup_jobs = lambda: []
+        service.get_vms_without_backup_jobs = lambda: []
+        service.get_operational_risk_thresholds = lambda: {
+            "thresholds": {
+                "storage_warning_percent": 95.0,
+                "storage_critical_percent": 98.0,
+                "snapshot_warning_days": 14.0,
+                "snapshot_critical_days": 30.0,
+                "backup_warning_days": 7.0,
+                "stopped_warning_days": 30.0,
+                "stopped_critical_days": 90.0,
+            },
+            "source": "database",
+        }
+
+        dashboard = service.get_operational_risk_dashboard()
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("storage:node-a:vm-storage:capacity", risk_ids)
+        self.assertEqual(dashboard["thresholds"]["storage_warning_percent"], 95.0)
+        self.assertEqual(dashboard["threshold_config"]["source"], "database")
+        self.assertEqual(dashboard["threshold_config"]["thresholds"]["storage_warning_percent"], 95.0)
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

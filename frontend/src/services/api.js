@@ -318,6 +318,36 @@ export const getOperationalRisks = async () => {
   }
 }
 
+export const getOperationalRiskThresholds = async () => {
+  try {
+    const response = await apiClient.get('/operations/risks/thresholds')
+    return response
+  } catch (error) {
+    console.error('Get operational risk thresholds API error:', error)
+    throw error
+  }
+}
+
+export const updateOperationalRiskThresholds = async (thresholds) => {
+  try {
+    const response = await apiClient.put('/operations/risks/thresholds', thresholds)
+    return response
+  } catch (error) {
+    console.error('Update operational risk thresholds API error:', error)
+    throw error
+  }
+}
+
+export const resetOperationalRiskThresholds = async () => {
+  try {
+    const response = await apiClient.delete('/operations/risks/thresholds')
+    return response
+  } catch (error) {
+    console.error('Reset operational risk thresholds API error:', error)
+    throw error
+  }
+}
+
 // 모니터링 API
 export const getNodesMonitoring = async () => {
   try {

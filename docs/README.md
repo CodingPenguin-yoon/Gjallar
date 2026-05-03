@@ -1,31 +1,31 @@
 # Gjallar Documentation Index
 
-> Gjallar는 Proxmox용 Operations & Risk Console이다.
+> Gjallar is a Proxmox Operations & Risk Console.
 
-제품 방향:
+Product direction:
 
 ```text
 Gjallar = Observe / Govern / Act for Proxmox
 ```
 
-짧게 말하면:
+Short positioning:
 
 ```text
-Proxmox용 vCenter 보조 레이어 + 운영 리스크 대시보드
+vCenter-like auxiliary operations layer + operational risk dashboard for Proxmox
 ```
 
 ---
 
 ## Source of truth
 
-제품 방향과 현재 상태는 repo 문서보다 shared storage를 우선한다.
+Product direction and current project state are tracked first in shared storage:
 
 ```text
 /mnt/hermes_data/프로젝트/Gjallar
 /mnt/hermes_data/프로젝트/AI_Homelab_Control_Plane_방향성.md
 ```
 
-먼저 읽을 문서:
+Read these before implementation work:
 
 1. `/mnt/hermes_data/프로젝트/Gjallar/README.md`
 2. `/mnt/hermes_data/프로젝트/Gjallar/CURRENT_STATE.md`
@@ -41,9 +41,9 @@ Proxmox용 vCenter 보조 레이어 + 운영 리스크 대시보드
 ### Observe
 
 - Proxmox node / VM / LXC / template / storage / network inventory
-- VM 상태, IP, guest agent signal
-- resource usage summary
+- VM state, IP, guest-agent signal, resource usage summary
 - task/log tracking
+- dashboard summaries for daily operations
 
 ### Govern
 
@@ -53,10 +53,11 @@ Proxmox용 vCenter 보조 레이어 + 운영 리스크 대시보드
 - storage capacity risk
 - owner/environment/tag governance risk
 - long-stopped VM risk with Gjallar-local state history
+- configurable operational risk thresholds stored in Gjallar DB
 
 ### Act
 
-- VM provisioning via `/api/provision`
+- VM provisioning through `/api/provision`
 - readiness/resource/template preflight
 - lifecycle action safeguards
 - task-based execution and verification
@@ -66,7 +67,7 @@ Proxmox용 vCenter 보조 레이어 + 운영 리스크 대시보드
 
 ## Non-goals
 
-아래는 Gjallar의 핵심 범위가 아니다.
+The following are not Gjallar's core scope:
 
 - GitLab/GitHub project inventory
 - CI/CD pipeline orchestration
@@ -74,27 +75,27 @@ Proxmox용 vCenter 보조 레이어 + 운영 리스크 대시보드
 - source repository app deploy
 - webhook-driven deployment automation
 - Codex/Claude/OpenCode worker task orchestration
-- 자체 LLM provider/context/memory/agent loop
+- LLM provider/context/memory/agent loop ownership
 
-이 범위는 Heimdall 또는 Hermes의 책임이다.
+Those belong to Heimdall or Hermes.
 
 ---
 
 ## Relationship with Heimdall
 
 ```text
-Gjallar provides infrastructure.
-Heimdall executes DevOps and agent work on that infrastructure.
+Gjallar provides Proxmox state, risk evidence, policy, and safe VM operations.
+Heimdall executes DevOps and agent work on prepared infrastructure.
 Hermes coordinates both.
 ```
 
 Target flow:
 
 ```text
-Hermes → Gjallar provision plan → user approval → Gjallar VM bootstrap → Heimdall worker/staging registration → Heimdall task execution
+Hermes → Gjallar provision/risk plan → user approval → Gjallar VM operation/bootstrap → Heimdall worker/staging registration → Heimdall task execution
 ```
 
-소유권 경계:
+Ownership boundary:
 
 ```text
 VM/Proxmox/Terraform state/risk evidence → Gjallar
@@ -119,6 +120,7 @@ Features:
 - [features/Template_Readiness_Preflight.md](features/Template_Readiness_Preflight.md)
 - [features/Operational_Risk_Dashboard.md](features/Operational_Risk_Dashboard.md)
 - [features/Operational_VM_State_History.md](features/Operational_VM_State_History.md)
+- [features/Operational_Risk_Thresholds.md](features/Operational_Risk_Thresholds.md)
 - [features/Phase1_VM_Operations_MVP_completion.md](features/Phase1_VM_Operations_MVP_completion.md)
 
 Operations:
@@ -140,6 +142,7 @@ Roadmap:
 - Backup schedule coverage evidence
 - Gjallar DB-backed VM state history
 - Long-stopped VM risk foundation
+- DB-backed operational risk threshold configuration and UI
 
 Recent verified commits:
 
@@ -153,10 +156,10 @@ Recent verified commits:
 
 ## Next work
 
-1. threshold config/UI
-2. stale `operational_vm_state` cleanup + VMID reuse guard
-3. risk acknowledge/suppress
-4. owner/tag taxonomy check
-5. PBS direct API / restore readiness
+1. stale `operational_vm_state` cleanup + VMID reuse guard
+2. risk acknowledge/suppress
+3. owner/tag taxonomy check
+4. PBS direct API / restore readiness
+5. optional read-only SSH collector for evidence gaps
 
 If repo docs and shared storage disagree, follow shared storage first and update both.

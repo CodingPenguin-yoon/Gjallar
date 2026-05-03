@@ -1,41 +1,24 @@
 # Gjallar Next Work
 
-## 1. Finish legacy cleanup
+## Completed baseline
 
-- remove or archive old Heimdall staging/GitLab documents
-- keep user-facing copy aligned to `provision` / `VM operation`
-- keep `/api/deploy` only as a compatibility endpoint; new calls should use `/api/provision`
+### Phase 1 — VM Operations Console MVP
 
-## 2. Improve VM provisioning UX
+Completed:
 
-- clarify each wizard step
-- show selected node/template/storage/network summary before launch
-- improve validation errors for static IP and missing fields
-- rename Launch/Deploy copy to Provision/Create VM where appropriate
+- Proxmox inventory screen information structure
+- VM detail drawer/page
+- lifecycle action safety guardrails
+- VM provisioning UX cleanup around `/api/provision`
+- task/log UX cleanup
+- node/storage monitoring signals
+- provisioning readiness/resource/template preflight
+- template disk-size preflight
+- actual Create VM end-to-end smoke
 
-## 3. Strengthen lifecycle safety
+### Phase 2 — Operational Risk Dashboard
 
-- add confirmation for destructive actions
-- add clearer task logs for start/shutdown/stop/reboot/delete
-- verify final VM state after each lifecycle operation
-
-## 4. Improve inventory performance model
-
-Current state:
-
-- blocking Proxmox inventory handlers run as sync `def`
-- VM inventory uses a short TTL cache
-
-Next steps:
-
-- add singleflight-style request coalescing for duplicate refreshes
-- add background inventory collection
-- serve UI from cached inventory snapshots
-- add per-node concurrency/rate limits
-
-## 5. Phase 2 current state — Operational Risk Dashboard
-
-Completed in the read-only dashboard slices:
+Completed:
 
 - `GET /api/operations/risks` backend endpoint
 - pure risk calculation module and tests
@@ -45,24 +28,37 @@ Completed in the read-only dashboard slices:
 - Proxmox backup schedule coverage evidence through `/cluster/backup` and `/cluster/backup-info/not-backed-up`
 - Gjallar-local `operational_vm_state` persistence for VM status history
 - `long_stopped` risk category using persisted stopped history
-- `/risks` frontend route and Risk Dashboard navigation tab
+- DB-backed configurable thresholds for backup/snapshot/storage/stopped policies
+- threshold API: `GET/PUT/DELETE /api/operations/risks/thresholds`
+- `/api/operations/risks` response `threshold_config`
+- `/risks` frontend Risk Dashboard and Risk Thresholds editor
 - frontend risk utility tests
 
-Next Phase 2 improvements:
+## Immediate next recommendations
 
-1. Add configurable thresholds for backup/snapshot/storage/stopped policies.
-2. Add stale `operational_vm_state` cleanup/reconciliation and VMID reuse guard.
-3. Add risk suppress/acknowledge state.
-4. Add owner/tag taxonomy instead of treating any tag as governance evidence.
-5. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
-6. Add safe action suggestion links that still require explicit approval.
+1. Add stale `operational_vm_state` cleanup/reconciliation and VMID reuse guard.
+2. Add risk suppress/acknowledge state.
+3. Add owner/tag taxonomy instead of treating any tag as governance evidence.
+4. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
+5. Add safe action suggestion links that still require explicit approval.
 
-## 6. Later integrations
+## Why stale cleanup / VMID reuse guard is next
+
+Gjallar now stores historical VM state in its own DB. That is the right foundation
+for time-based risks, but long-lived state needs lifecycle hygiene:
+
+- deleted VMs should not stay as active risk candidates forever;
+- recreated VMs with reused VMIDs should not inherit stale stopped history;
+- reconciliation should be conservative and evidence-based.
+
+This is the most natural next hardening step before adding more policy layers.
+
+## Later integrations
 
 Only after the core VM operations product is stable:
 
 - backup/report exports
-- policy checks
+- policy/compliance checks
 - approval-based remediation
 - Ansible/Terraform/OpenTofu integration where it supports VM operations directly
 - optional read-only SSH collector for evidence unavailable through Proxmox/PBS APIs

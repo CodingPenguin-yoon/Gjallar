@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Literal
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -101,6 +101,25 @@ class UpdateInstanceResourcesResponse(BaseModel):
     vmid: int
     message: str
     details: dict
+
+class OperationalRiskThresholdUpdateRequest(BaseModel):
+    """Local Gjallar risk threshold update request."""
+
+    storage_warning_percent: Optional[float] = Field(default=None, gt=0, le=100)
+    storage_critical_percent: Optional[float] = Field(default=None, gt=0, le=100)
+    snapshot_warning_days: Optional[float] = Field(default=None, ge=1, le=3650)
+    snapshot_critical_days: Optional[float] = Field(default=None, ge=1, le=3650)
+    backup_warning_days: Optional[float] = Field(default=None, ge=1, le=3650)
+    stopped_warning_days: Optional[float] = Field(default=None, ge=1, le=3650)
+    stopped_critical_days: Optional[float] = Field(default=None, ge=1, le=3650)
+
+    class Config:
+        extra = "forbid"
+
+    def to_updates(self) -> dict[str, Any]:
+        if hasattr(self, "model_dump"):
+            return self.model_dump(exclude_none=True)
+        return self.dict(exclude_none=True)
 
 
 @router.get("/servers", response_model=ServerResponse)
@@ -356,6 +375,44 @@ def get_operational_risks():
         raise HTTPException(
             status_code=500,
             detail=f"운영 리스크 조회 실패: {str(e)}",
+        )
+
+
+@router.get("/operations/risks/thresholds")
+def get_operational_risk_thresholds():
+    """운영 리스크 threshold 설정 조회 (Gjallar local policy)."""
+    try:
+        return proxmox_service.get_operational_risk_thresholds()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 threshold 조회 실패: {str(e)}",
+        )
+
+
+@router.put("/operations/risks/thresholds")
+def update_operational_risk_thresholds(request: OperationalRiskThresholdUpdateRequest):
+    """운영 리스크 threshold 설정 저장 (Gjallar DB only)."""
+    try:
+        return proxmox_service.update_operational_risk_thresholds(request.to_updates())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 threshold 저장 실패: {str(e)}",
+        )
+
+
+@router.delete("/operations/risks/thresholds")
+def reset_operational_risk_thresholds():
+    """운영 리스크 threshold 설정을 기본값으로 초기화."""
+    try:
+        return proxmox_service.reset_operational_risk_thresholds()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 threshold 초기화 실패: {str(e)}",
         )
 
 

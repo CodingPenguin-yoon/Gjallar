@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import urllib3
-from app.domains.proxmox.risk import build_operational_risk_dashboard
+from app.domains.proxmox.risk import DEFAULT_THRESHOLDS, build_operational_risk_dashboard
+from app.domains.proxmox.risk_config import OperationalRiskThresholdStore
 from app.domains.proxmox.risk_state import OperationalRiskStateStore
 
 # SSL 경고 비활성화 (자체 서명 인증서 사용 시)
@@ -70,6 +71,7 @@ class ProxmoxService:
         self._vm_inventory_cache: Dict[str, Dict[str, Any]] = {}
         self._vm_inventory_cache_lock = threading.Lock()
         self._risk_state_store: Optional[OperationalRiskStateStore] = None
+        self._risk_threshold_store: Optional[OperationalRiskThresholdStore] = None
         
         # 디버깅: 설정 확인
         if not self.api_url:
@@ -779,6 +781,34 @@ class ProxmoxService:
             self._risk_state_store = OperationalRiskStateStore()
         return self._risk_state_store
 
+    def _get_risk_threshold_store(self) -> OperationalRiskThresholdStore:
+        if self._risk_threshold_store is None:
+            self._risk_threshold_store = OperationalRiskThresholdStore()
+        return self._risk_threshold_store
+
+    def get_operational_risk_thresholds(self) -> Dict[str, Any]:
+        """Return Gjallar-owned risk threshold policy, falling back to defaults if DB is unavailable."""
+        try:
+            return self._get_risk_threshold_store().get_thresholds()
+        except Exception as exc:
+            print("Gjallar operational risk threshold store unavailable")
+            print(f"에러: {exc}")
+            return {
+                "thresholds": dict(DEFAULT_THRESHOLDS),
+                "defaults": dict(DEFAULT_THRESHOLDS),
+                "source": "default",
+                "updated_at": None,
+                "database_available": False,
+            }
+
+    def update_operational_risk_thresholds(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist Gjallar-owned risk threshold policy."""
+        return self._get_risk_threshold_store().update_thresholds(updates)
+
+    def reset_operational_risk_thresholds(self) -> Dict[str, Any]:
+        """Reset local risk threshold policy to defaults."""
+        return self._get_risk_threshold_store().reset_thresholds()
+
     def get_vm_state_history(
         self,
         vms: List[Dict[str, Any]],
@@ -812,6 +842,7 @@ class ProxmoxService:
         nodes_monitoring = self.get_all_nodes_monitoring()
         vms = self.get_vms()
         vm_state_history = self.get_vm_state_history(vms, now_epoch=now_epoch)
+        threshold_config = self.get_operational_risk_thresholds()
         backup_jobs = self.get_backup_jobs()
         vms_without_backup_jobs = self.get_vms_without_backup_jobs()
         backup_schedule_collected = backup_jobs is not None and vms_without_backup_jobs is not None
@@ -850,7 +881,7 @@ class ProxmoxService:
                     snapshots_by_vm[key] = snapshots
                     backup_tasks_by_vm[key] = tasks
 
-        return build_operational_risk_dashboard(
+        dashboard = build_operational_risk_dashboard(
             vms,
             nodes_monitoring,
             snapshots_by_vm=snapshots_by_vm,
@@ -858,8 +889,11 @@ class ProxmoxService:
             backup_not_backed_up_by_vmid=backup_not_backed_up_by_vmid,
             backup_jobs=backup_jobs if backup_schedule_collected else None,
             vm_state_history=vm_state_history,
+            thresholds=threshold_config.get("thresholds", {}),
             now=now_epoch,
         )
+        dashboard["threshold_config"] = threshold_config
+        return dashboard
 
     def get_node_status(self, node: str) -> Optional[Dict]:
         """

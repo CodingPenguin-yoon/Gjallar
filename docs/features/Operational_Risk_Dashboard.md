@@ -2,17 +2,18 @@
 
 ## Purpose
 
-Phase 2 builds a read-only Operational Risk Dashboard for Proxmox operations.
-Gjallar reads Proxmox/PBS evidence, stores Gjallar-owned observation history in
-its local platform-state database, and calculates operational risks without
+Phase 2 builds an Operational Risk Dashboard for Proxmox operations. Gjallar
+reads Proxmox/PBS evidence, stores Gjallar-owned observation/configuration state
+in its local platform-state database, and calculates operational risks without
 mutating Proxmox resources.
 
 ```text
 Observe → Govern → Act
 ```
 
-The current implementation is still `Observe + Govern`. It recommends actions,
-but does not stop, start, reboot, delete, or reconfigure VMs.
+The current implementation is still primarily `Observe + Govern`. It recommends
+actions and lets operators tune Gjallar-owned policy thresholds, but it does not
+stop, start, reboot, delete, or reconfigure Proxmox VMs from the dashboard.
 
 ## API
 
@@ -21,7 +22,8 @@ GET /api/operations/risks
 ```
 
 The endpoint collects read-only evidence and returns a normalized dashboard
-payload.
+payload. The response now includes `threshold_config`, which shows the currently
+applied Gjallar policy thresholds and whether they came from defaults or the DB.
 
 Read-only Proxmox evidence includes:
 
@@ -34,17 +36,21 @@ GET /cluster/backup
 GET /cluster/backup-info/not-backed-up
 ```
 
-Gjallar-local evidence includes:
+Gjallar-local evidence/configuration includes:
 
 ```text
 platform_state.db / operational_vm_state
+platform_state.db / operational_risk_thresholds
 ```
 
-This local table stores the latest observed VM state and timestamps such as
+`operational_vm_state` stores observed VM state timestamps such as
 `status_since_at` and `last_running_at`. These values survive backend restarts
 and make time-based risks possible even when Proxmox only exposes current state.
 
-Example top-level shape from the current lab:
+`operational_risk_thresholds` stores operator-configurable risk policy values.
+This is a Gjallar-local policy mutation, not a Proxmox mutation.
+
+Example top-level shape from the current lab after threshold integration:
 
 ```json
 {
@@ -72,6 +78,18 @@ Example top-level shape from the current lab:
     "vm_state_history_collected": true,
     "vm_state_history_vms": 21
   },
+  "threshold_config": {
+    "source": "default",
+    "thresholds": {
+      "storage_warning_percent": 80.0,
+      "storage_critical_percent": 90.0,
+      "snapshot_warning_days": 14,
+      "snapshot_critical_days": 30,
+      "backup_warning_days": 7,
+      "stopped_warning_days": 30,
+      "stopped_critical_days": 90
+    }
+  },
   "risk_items": []
 }
 ```
@@ -84,8 +102,12 @@ Example top-level shape from the current lab:
 
 ### Storage capacity
 
+Default thresholds:
+
 - warning if storage usage is at or above 80%.
 - critical if storage usage is at or above 90%.
+
+These values are now configurable through Gjallar threshold policy.
 
 ### Guest agent signal
 
@@ -100,9 +122,13 @@ Example top-level shape from the current lab:
 
 ### Snapshot age
 
+Default thresholds:
+
 - warning if a snapshot is older than 14 days.
 - critical if a snapshot is older than 30 days.
 - `current` pseudo-snapshot is ignored.
+
+These values are now configurable through Gjallar threshold policy.
 
 ### Backup coverage
 
@@ -112,49 +138,37 @@ Example top-level shape from the current lab:
 
 ### Backup recency fallback
 
+Default threshold:
+
 - warning if no successful `vzdump`/backup task evidence is found within 7 days.
-- This remains useful when schedule coverage evidence exists but the VM is not reported as uncovered, or when schedule evidence is unavailable.
+
+This remains useful when schedule coverage evidence exists but the VM is not
+reported as uncovered, or when schedule evidence is unavailable. The days value
+is now configurable through Gjallar threshold policy.
 
 ### Long stopped VM
 
+Default thresholds:
+
 - warning if Gjallar has observed a VM stopped for at least 30 days.
 - critical if Gjallar has observed a VM stopped for at least 90 days.
-- Proxmox supplies the current VM status. Gjallar's local DB supplies the time history.
-- A newly observed stopped VM starts with `stopped_days = 0.0` and becomes a risk only after the configured threshold is reached.
 
-## State persistence model
+Proxmox supplies the current VM status. Gjallar's local DB supplies the time
+history. A newly observed stopped VM starts with `stopped_days = 0.0` and becomes
+a risk only after the configured threshold is reached.
 
-Table:
+## Threshold policy
 
-```text
-operational_vm_state
-```
+Threshold details are documented in
+[Operational_Risk_Thresholds.md](Operational_Risk_Thresholds.md).
 
-Important columns:
+High-level behavior:
 
-```text
-resource_key               qemu:<vmid> by default
-node
-vmid
-name
-status
-first_seen_at
-last_seen_at
-status_since_at
-last_running_at
-last_observed_payload_json
-```
-
-Current behavior:
-
-1. `/api/operations/risks` reads VM inventory from Proxmox.
-2. Gjallar upserts the latest VM status into `operational_vm_state`.
-3. If status changed, `status_since_at` resets to the current observation time.
-4. If status is `running`, `last_running_at` is updated.
-5. Risk calculation uses the returned state evidence for `long_stopped` checks.
-
-If the DB schema has not been migrated yet, the endpoint continues without VM
-state evidence and sets `vm_state_history_collected=false`.
+1. Gjallar starts with built-in defaults.
+2. If `operational_risk_thresholds` has saved overrides, Gjallar merges them over defaults.
+3. Invalid threshold writes are rejected with HTTP 422.
+4. If the DB/table is unavailable during risk calculation, Gjallar falls back to defaults rather than failing the dashboard.
+5. `DELETE /api/operations/risks/thresholds` resets policy to defaults.
 
 ## Frontend
 
@@ -177,7 +191,12 @@ The screen shows:
 - affected VM/node counts
 - category counts, including `Backup coverage` and `Long stopped VM`
 - risk item cards with evidence and recommendation
+- current threshold source/defaults
+- Risk Thresholds editor for storage/snapshot/backup/stopped policies
 - manual refresh and 60-second auto refresh
+
+The threshold editor changes only Gjallar-local policy. It does not mutate
+Proxmox resources.
 
 ## Safety boundary
 
@@ -194,6 +213,7 @@ Allowed Proxmox/PBS data sources:
 Allowed Gjallar-local writes:
 
 - upsert current VM observation state into `operational_vm_state`
+- store/reset operator threshold policy in `operational_risk_thresholds`
 
 Forbidden from this dashboard:
 
@@ -205,12 +225,13 @@ Forbidden from this dashboard:
 
 ## Validation
 
-Last validation for this feature:
+Last validation after threshold configuration integration:
 
 ```text
-backend unittest discover -s tests: 42 tests passed
+backend targeted threshold/risk tests: passed
+backend unittest discover -s tests: 46 tests passed
 python compileall app tests: passed
-frontend utility tests: passed
+frontend operationalRisk tests: passed
 frontend lint: passed
 frontend build: passed
 alembic upgrade head: passed
@@ -219,14 +240,38 @@ git diff --check: passed
 static security scan: passed
 independent code review: passed
 live smoke: /health HTTP 200
-live smoke: /api/operations/risks HTTP 200
-live smoke: operational_vm_state rows = 21
+live smoke: invalid threshold wrapper payload HTTP 422
+live smoke: PUT thresholds source=database
+live smoke: /api/operations/risks threshold_config source=database
+live smoke: DELETE reset source=default
+```
+
+Final smoke summary:
+
+```json
+{
+  "health_code": 200,
+  "invalid_payload_code": 422,
+  "put_code": 200,
+  "updated_source": "database",
+  "updated_storage_warning": 95.0,
+  "risk_code": 200,
+  "risk_total_nodes": 3,
+  "risk_total_vms": 21,
+  "risk_total_risks": 50,
+  "risk_threshold_source": "database",
+  "risk_threshold_storage_warning": 95.0,
+  "reset_code": 200,
+  "after_reset_code": 200,
+  "after_reset_source": "default",
+  "after_reset_storage_warning": 80.0
+}
 ```
 
 ## Known follow-ups
 
-- Add configurable thresholds UI/config for stopped/snapshot/backup/storage policies.
 - Add stale `operational_vm_state` cleanup/reconciliation for VMs no longer in inventory.
 - Add stronger guard for VMID reuse so deleted/recreated VMs do not inherit old stopped history.
 - Add risk acknowledge/suppress overlay state.
 - Add stricter owner/tag taxonomy checks.
+- Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.

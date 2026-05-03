@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Database, Info, Loader2, RefreshCw, Server, ShieldCheck } from 'lucide-react'
-import { getOperationalRisks } from '../services/api'
+import { AlertTriangle, Database, Info, Loader2, RefreshCw, Save, Server, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { getOperationalRisks, updateOperationalRiskThresholds } from '../services/api'
 import {
   formatGeneratedAt,
   formatRiskScope,
@@ -8,7 +8,10 @@ import {
   getRiskSeverityTone,
   groupRisksByCategory,
   normalizeRiskDashboard,
+  normalizeRiskThresholds,
+  serializeRiskThresholds,
   sortRiskItems,
+  validateRiskThresholdDraft,
 } from '../utils/operationalRisk'
 
 function RiskSummaryCard({ label, value, severity, description }) {
@@ -18,6 +21,80 @@ function RiskSummaryCard({ label, value, severity, description }) {
       <div className="text-xs uppercase tracking-wide opacity-80">{label}</div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
       {description && <div className="mt-1 text-xs opacity-80">{description}</div>}
+    </div>
+  )
+}
+
+function ThresholdInput({ label, name, unit, value, onChange }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-slate-600">{label}</span>
+      <div className="mt-1 flex overflow-hidden rounded-md border border-slate-300 bg-white focus-within:border-red-400 focus-within:ring-1 focus-within:ring-red-400">
+        <input
+          type="number"
+          min="1"
+          step="1"
+          value={value ?? ''}
+          onChange={(event) => onChange(name, event.target.value)}
+          className="w-full border-0 px-3 py-2 text-sm text-slate-900 outline-none"
+        />
+        <span className="flex items-center border-l border-slate-200 bg-slate-50 px-2 text-xs text-slate-500">{unit}</span>
+      </div>
+    </label>
+  )
+}
+
+function ThresholdEditor({ draft, onChange, onSave, saving, status }) {
+  const validation = validateRiskThresholdDraft(draft)
+  const fields = [
+    { label: 'Storage warning', name: 'storageWarningPercent', unit: '%' },
+    { label: 'Storage critical', name: 'storageCriticalPercent', unit: '%' },
+    { label: 'Snapshot warning', name: 'snapshotWarningDays', unit: 'days' },
+    { label: 'Snapshot critical', name: 'snapshotCriticalDays', unit: 'days' },
+    { label: 'Backup recency', name: 'backupWarningDays', unit: 'days' },
+    { label: 'Stopped warning', name: 'stoppedWarningDays', unit: 'days' },
+    { label: 'Stopped critical', name: 'stoppedCriticalDays', unit: 'days' },
+  ]
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <SlidersHorizontal className="h-4 w-4 text-slate-500" />
+            Risk thresholds
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Local Gjallar policy. Saving changes only updates Gjallar&apos;s DB; it does not mutate Proxmox resources.
+          </p>
+        </div>
+        <button
+          onClick={onSave}
+          disabled={saving || !validation.valid}
+          className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-red-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Save thresholds
+        </button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {fields.map((field) => (
+          <ThresholdInput
+            key={field.name}
+            label={field.label}
+            name={field.name}
+            unit={field.unit}
+            value={draft[field.name]}
+            onChange={onChange}
+          />
+        ))}
+      </div>
+      {!validation.valid && <div className="mt-3 text-xs font-medium text-red-700">{validation.message}</div>}
+      {status && (
+        <div className={`mt-3 text-xs font-medium ${status.kind === 'error' ? 'text-red-700' : 'text-green-700'}`}>
+          {status.message}
+        </div>
+      )}
     </div>
   )
 }
@@ -63,8 +140,11 @@ function RiskItemCard({ item }) {
 
 function OperationalRiskDashboard() {
   const [dashboard, setDashboard] = useState(null)
+  const [thresholdDraft, setThresholdDraft] = useState(normalizeRiskThresholds({}))
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [savingThresholds, setSavingThresholds] = useState(false)
+  const [thresholdStatus, setThresholdStatus] = useState(null)
   const [error, setError] = useState(null)
 
   const fetchRisks = async () => {
@@ -72,7 +152,9 @@ function OperationalRiskDashboard() {
       setRefreshing(true)
       setError(null)
       const response = await getOperationalRisks()
-      setDashboard(normalizeRiskDashboard(response.data || {}))
+      const payload = response.data || {}
+      setDashboard(normalizeRiskDashboard(payload))
+      setThresholdDraft(normalizeRiskThresholds(payload.thresholds || payload.threshold_config?.thresholds || {}))
     } catch (err) {
       console.error('Failed to fetch operational risks:', err)
       setError(err.response?.data?.detail || err.message || 'Failed to fetch operational risks')
@@ -88,6 +170,32 @@ function OperationalRiskDashboard() {
     const interval = setInterval(fetchRisks, 60000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleThresholdChange = (name, value) => {
+    setThresholdStatus(null)
+    setThresholdDraft((current) => ({ ...current, [name]: value }))
+  }
+
+  const saveThresholds = async () => {
+    const validation = validateRiskThresholdDraft(thresholdDraft)
+    if (!validation.valid) {
+      setThresholdStatus({ kind: 'error', message: validation.message })
+      return
+    }
+    try {
+      setSavingThresholds(true)
+      setThresholdStatus(null)
+      const response = await updateOperationalRiskThresholds(serializeRiskThresholds(thresholdDraft))
+      setThresholdDraft(normalizeRiskThresholds(response.data?.thresholds || {}))
+      setThresholdStatus({ kind: 'success', message: 'Thresholds saved to Gjallar DB.' })
+      await fetchRisks()
+    } catch (err) {
+      console.error('Failed to update risk thresholds:', err)
+      setThresholdStatus({ kind: 'error', message: err.response?.data?.detail || err.message || 'Failed to save thresholds' })
+    } finally {
+      setSavingThresholds(false)
+    }
+  }
 
   const normalized = dashboard || normalizeRiskDashboard({})
   const sortedRisks = useMemo(() => sortRiskItems(normalized.riskItems), [normalized.riskItems])
@@ -143,6 +251,14 @@ function OperationalRiskDashboard() {
             </div>
           </div>
 
+          <ThresholdEditor
+            draft={thresholdDraft}
+            onChange={handleThresholdChange}
+            onSave={saveThresholds}
+            saving={savingThresholds}
+            status={thresholdStatus}
+          />
+
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <RiskSummaryCard label="Critical" value={normalized.summary.critical} severity="critical" description="Immediate attention" />
             <RiskSummaryCard label="Warnings" value={normalized.summary.warning} severity="warning" description="Needs review" />
@@ -189,7 +305,7 @@ function OperationalRiskDashboard() {
               <Info className="h-4 w-4" />
               Safety note
             </div>
-            This dashboard only reads Proxmox/PBS evidence and stores Gjallar&apos;s local observations. It does not delete, stop, start, reboot, or modify VMs.
+            This dashboard only reads Proxmox/PBS evidence and stores Gjallar&apos;s local observations and policy. It does not delete, stop, start, reboot, or modify VMs.
           </div>
         </div>
       )}

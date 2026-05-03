@@ -9,8 +9,87 @@ export const riskCategoryLabels = {
   long_stopped: 'Long stopped VM',
 }
 
+export const defaultRiskThresholds = {
+  storageWarningPercent: 80,
+  storageCriticalPercent: 90,
+  snapshotWarningDays: 14,
+  snapshotCriticalDays: 30,
+  backupWarningDays: 7,
+  stoppedWarningDays: 30,
+  stoppedCriticalDays: 90,
+}
+
+const thresholdKeyMap = {
+  storage_warning_percent: 'storageWarningPercent',
+  storage_critical_percent: 'storageCriticalPercent',
+  snapshot_warning_days: 'snapshotWarningDays',
+  snapshot_critical_days: 'snapshotCriticalDays',
+  backup_warning_days: 'backupWarningDays',
+  stopped_warning_days: 'stoppedWarningDays',
+  stopped_critical_days: 'stoppedCriticalDays',
+}
+
+const reverseThresholdKeyMap = Object.fromEntries(
+  Object.entries(thresholdKeyMap).map(([snakeKey, camelKey]) => [camelKey, snakeKey]),
+)
+
+function toNumber(value, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
 export function getRiskCategoryLabel(category) {
   return riskCategoryLabels[category] || category || 'Unknown'
+}
+
+export function normalizeRiskThresholds(rawThresholds = {}) {
+  const source = rawThresholds.thresholds && typeof rawThresholds.thresholds === 'object'
+    ? rawThresholds.thresholds
+    : rawThresholds
+  const normalized = { ...defaultRiskThresholds }
+  Object.entries(thresholdKeyMap).forEach(([snakeKey, camelKey]) => {
+    normalized[camelKey] = toNumber(source?.[snakeKey] ?? source?.[camelKey], normalized[camelKey])
+  })
+  return normalized
+}
+
+export function serializeRiskThresholds(draft = {}) {
+  const normalized = normalizeRiskThresholds(draft)
+  return Object.fromEntries(
+    Object.entries(reverseThresholdKeyMap).map(([camelKey, snakeKey]) => [snakeKey, normalized[camelKey]]),
+  )
+}
+
+export function validateRiskThresholdDraft(draft = {}) {
+  const thresholds = normalizeRiskThresholds(draft)
+  const positiveKeys = [
+    'storageWarningPercent',
+    'storageCriticalPercent',
+    'snapshotWarningDays',
+    'snapshotCriticalDays',
+    'backupWarningDays',
+    'stoppedWarningDays',
+    'stoppedCriticalDays',
+  ]
+  if (positiveKeys.some((key) => !Number.isFinite(Number(thresholds[key])) || Number(thresholds[key]) <= 0)) {
+    return { valid: false, message: 'All threshold values must be positive numbers.' }
+  }
+  if (thresholds.storageWarningPercent > 100 || thresholds.storageCriticalPercent > 100) {
+    return { valid: false, message: 'Storage thresholds must be 100 percent or lower.' }
+  }
+  if ([thresholds.snapshotWarningDays, thresholds.snapshotCriticalDays, thresholds.backupWarningDays, thresholds.stoppedWarningDays, thresholds.stoppedCriticalDays].some((value) => Number(value) > 3650)) {
+    return { valid: false, message: 'Day-based thresholds must be 3650 days or lower.' }
+  }
+  if (thresholds.storageWarningPercent > thresholds.storageCriticalPercent) {
+    return { valid: false, message: 'Storage warning threshold must be lower than or equal to critical threshold.' }
+  }
+  if (thresholds.snapshotWarningDays > thresholds.snapshotCriticalDays) {
+    return { valid: false, message: 'Snapshot warning threshold must be lower than or equal to critical threshold.' }
+  }
+  if (thresholds.stoppedWarningDays > thresholds.stoppedCriticalDays) {
+    return { valid: false, message: 'Stopped VM warning threshold must be lower than or equal to critical threshold.' }
+  }
+  return { valid: true, message: '' }
 }
 
 const severityOrder = {
@@ -77,6 +156,7 @@ export function normalizeRiskDashboard(payload = {}) {
     },
     riskItems,
     thresholds: payload.thresholds || {},
+    thresholdConfig: payload.threshold_config || null,
   }
 }
 

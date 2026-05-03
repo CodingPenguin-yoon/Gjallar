@@ -40,8 +40,9 @@ run, but chat/session history may not persist.
 
 ## 3. Platform-state DB migrations
 
-Gjallar stores its own operational state in the platform-state SQLite DB. Apply
-migrations before running features that need DB-backed observations:
+Gjallar stores its own operational state and policy in the platform-state SQLite
+DB. Apply migrations before running features that need DB-backed observations or
+threshold configuration:
 
 ```bash
 cd /home/yoon/projects/Gjallar/backend
@@ -61,6 +62,7 @@ tasks
 task_logs
 platform_metadata
 operational_vm_state
+operational_risk_thresholds
 ```
 
 Quick DB smoke for VM state history:
@@ -104,6 +106,12 @@ cd infra/terraform && terraform validate
 git diff --check
 ```
 
+For pre-commit security review of the current diff:
+
+```bash
+bash ~/.hermes/skills/software-development/requesting-code-review/scripts/git_diff_static_scan.sh /home/yoon/projects/Gjallar
+```
+
 ## 6. VM provisioning smoke path
 
 1. Open frontend.
@@ -119,6 +127,7 @@ git diff --check
 - Do not commit `.env`, `data/`, tokens, keys/secrets, or local runtime artifacts.
 - Use `/api/provision` for new VM provisioning calls. Treat `/api/deploy` as a compatibility endpoint only.
 - Proxmox inventory calls are cached briefly; use manual refresh or wait for TTL expiry when checking recent changes.
+- Operational Risk Dashboard may write Gjallar-local observation/policy state, but must remain read-only with respect to Proxmox resources.
 
 ## 8. Provisioning runtime prerequisites
 
@@ -163,7 +172,9 @@ Credential values are intentionally hidden and must not be logged or committed.
 Use this after backend route changes or before Create VM smoke tests.
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8001/api/provision/preflight   -H 'Content-Type: application/json'   -d '{"server_id":"yoonmanserver","template_id":"yoonmanserver/118","storage_id":"machine-mainnode","network_ids":["vmbr0"],"server_name":"gjallar-smoke-preflight","disk_size_gb":50}'
+curl -sS -X POST http://127.0.0.1:8001/api/provision/preflight \
+  -H 'Content-Type: application/json' \
+  -d '{"server_id":"yoonmanserver","template_id":"yoonmanserver/118","storage_id":"machine-mainnode","network_ids":["vmbr0"],"server_name":"gjallar-smoke-preflight","disk_size_gb":50}'
 ```
 
 If `storage_id`, `network_ids`, VM identity, or static IP/gateway values are
@@ -184,7 +195,7 @@ approved. Stop/shutdown test VMs only.
 ## 12. Operational Risk Dashboard smoke
 
 After backend route/service changes, apply migrations, restart the backend dev
-server, and verify the read-only risk endpoint:
+server, and verify the risk endpoint:
 
 ```bash
 cd /home/yoon/projects/Gjallar/backend
@@ -198,6 +209,7 @@ Expected result:
 HTTP 200
 status: healthy | info | warning | critical
 summary.total_nodes and summary.total_vms are populated
+threshold_config.source is default or database
 ```
 
 Evidence fields:
@@ -211,9 +223,10 @@ evidence.vm_state_history_collected: true|false
 evidence.vm_state_history_vms: number|null
 summary.categories.backup_coverage: optional number
 summary.categories.long_stopped: optional number
+threshold_config.source: default|database|fallback
 ```
 
-Current lab smoke after VM state-history integration:
+Current lab smoke after threshold integration:
 
 ```text
 HTTP 200
@@ -230,6 +243,9 @@ evidence:
   backup_uncovered_vms: 23
   vm_state_history_collected: true
   vm_state_history_vms: 21
+threshold_config:
+  source: default after reset
+  storage_warning_percent: 80.0
 operational_vm_state rows: 21
 ```
 
@@ -238,5 +254,45 @@ Safety boundary:
 - This endpoint is read-only with respect to Proxmox.
 - It may call Proxmox GET endpoints such as `/cluster/backup` and `/cluster/backup-info/not-backed-up`.
 - It may write Gjallar-local observations to `operational_vm_state`.
+- It may read Gjallar-local threshold policy from `operational_risk_thresholds`.
 - It must not call terminate/delete/start/stop/shutdown/reboot, config mutation APIs, snapshot delete, or backup job create/update/delete.
 - Risk recommendations may mention manual actions, but the dashboard itself does not execute them.
+
+## 13. Operational Risk Thresholds smoke
+
+Threshold API changes Gjallar-local policy only.
+
+```bash
+curl -sS http://127.0.0.1:8001/api/operations/risks/thresholds
+```
+
+Invalid wrapper payload should fail with HTTP 422:
+
+```bash
+curl -sS -o /tmp/threshold_invalid.json -w '%{http_code}\n' \
+  -X PUT http://127.0.0.1:8001/api/operations/risks/thresholds \
+  -H 'Content-Type: application/json' \
+  -d '{"thresholds":{"storage_warning_percent":95}}'
+```
+
+Temporary update smoke:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:8001/api/operations/risks/thresholds \
+  -H 'Content-Type: application/json' \
+  -d '{"storage_warning_percent":95,"storage_critical_percent":99}'
+curl -sS http://127.0.0.1:8001/api/operations/risks
+```
+
+Always reset after smoke:
+
+```bash
+curl -sS -X DELETE http://127.0.0.1:8001/api/operations/risks/thresholds
+```
+
+Expected final reset result:
+
+```text
+after_reset_source: default
+after_reset_storage_warning: 80.0
+```
