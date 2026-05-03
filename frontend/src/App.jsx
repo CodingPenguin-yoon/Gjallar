@@ -3,10 +3,11 @@ import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import CreateInstanceWizard from './components/CreateInstanceWizard'
 import InstanceList from './components/InstanceList'
 import MonitoringDashboard from './components/MonitoringDashboard'
+import OperationalRiskDashboard from './components/OperationalRiskDashboard'
 import LlmInfraChat from './components/LlmInfraChat'
 import TaskBoard from './components/TaskBoard'
 import OverviewDashboard from './components/OverviewDashboard'
-import { Server, List, Plus, Activity, Sparkles, Clock3, LayoutDashboard } from 'lucide-react'
+import { Server, List, Plus, Activity, Sparkles, Clock3, LayoutDashboard, AlertTriangle } from 'lucide-react'
 import { provisionInstance, checkIpAvailability } from './services/api'
 import { validateStaticNetworkConfig } from './utils/ipValidation'
 
@@ -32,6 +33,7 @@ const getActiveTab = (pathname) => {
   if (pathname.startsWith('/create')) return 'create'
   if (pathname.startsWith('/tasks')) return 'tasks'
   if (pathname.startsWith('/monitoring')) return 'monitoring'
+  if (pathname.startsWith('/risks')) return 'risks'
   if (pathname.startsWith('/assistant')) return 'assistant'
   return 'overview'
 }
@@ -219,6 +221,17 @@ function App() {
               Monitoring
             </button>
             <button
+              onClick={() => navigate('/risks')}
+              className={`flex shrink-0 items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
+                activeTab === 'risks'
+                  ? 'text-red-600 border-red-600 bg-red-50'
+                  : 'text-gray-600 border-transparent hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              <AlertTriangle className="w-5 h-5" />
+              Risk Dashboard
+            </button>
+            <button
               onClick={() => navigate('/assistant')}
               className={`flex shrink-0 items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
                 activeTab === 'assistant'
@@ -266,6 +279,16 @@ function App() {
             element={
               <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
                 <MonitoringDashboard />
+              </div>
+            }
+          />
+
+          {/* Operational Risk Dashboard Route */}
+          <Route
+            path="/risks"
+            element={
+              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <OperationalRiskDashboard />
               </div>
             }
           />

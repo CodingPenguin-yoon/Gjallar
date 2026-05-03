@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import urllib3
+from app.domains.proxmox.risk import build_operational_risk_dashboard
 
 # SSL 경고 비활성화 (자체 서명 인증서 사용 시)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -127,6 +128,14 @@ class ProxmoxService:
                 seen.add(ip)
                 merged.append(ip)
         return merged
+
+    def _extract_tags(self, config_data: Dict[str, Any]) -> List[str]:
+        raw_tags = config_data.get("tags") if isinstance(config_data, dict) else None
+        if not raw_tags:
+            return []
+        if isinstance(raw_tags, list):
+            return [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+        return [tag.strip() for tag in re.split(r"[;,\s]+", str(raw_tags)) if tag.strip()]
 
     def _extract_configured_ipv4_addresses(self, config_data: Dict[str, Any]) -> List[str]:
         candidates: List[str] = []
@@ -560,6 +569,12 @@ class ProxmoxService:
             else []
         )
         ip_addresses = self._merge_ip_addresses(configured_ip_addresses, guest_ip_addresses)
+        tags = self._extract_tags(config_data)
+        description = str(
+            config_data.get("description")
+            or config_data.get("notes")
+            or ""
+        )
 
         return {
             "id": f"{node_name}/{vmid}",
@@ -575,6 +590,10 @@ class ProxmoxService:
             "uptime": vm.get("uptime", 0),
             "primary_ip": ip_addresses[0] if ip_addresses else None,
             "ip_addresses": ip_addresses,
+            "configured_ipv4_addresses": configured_ip_addresses,
+            "guest_agent_ipv4_addresses": guest_ip_addresses,
+            "tags": tags,
+            "description": description,
         }
 
     def _get_cached_vm_inventory(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
@@ -727,6 +746,51 @@ class ProxmoxService:
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
+
+    def get_vm_snapshots(self, node: str, vmid: int) -> List[Dict[str, Any]]:
+        """Return VM snapshots for read-only risk checks."""
+        try:
+            result = self._make_request(f"/nodes/{node}/qemu/{int(vmid)}/snapshot")
+            data = result.get("data", [])
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def get_operational_risk_dashboard(self) -> Dict[str, Any]:
+        """Build a read-only operational risk dashboard from Proxmox evidence."""
+        nodes_monitoring = self.get_all_nodes_monitoring()
+        vms = self.get_vms()
+        snapshots_by_vm: Dict[str, List[Dict[str, Any]]] = {}
+        backup_tasks_by_vm: Dict[str, List[Dict[str, Any]]] = {}
+
+        def collect_vm_evidence(vm: Dict[str, Any]):
+            node = vm.get("node")
+            vmid = vm.get("vmid")
+            key = f"{node}/{vmid}"
+            if not node or vmid is None:
+                return key, [], []
+            snapshots = self.get_vm_snapshots(str(node), int(vmid))
+            tasks = self.get_node_tasks(str(node), limit=200, vmid=int(vmid))
+            return key, snapshots, tasks
+
+        if vms:
+            workers = min(self._get_vm_inventory_workers(), len(vms))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(collect_vm_evidence, vm) for vm in vms]
+                for future in as_completed(futures):
+                    try:
+                        key, snapshots, tasks = future.result()
+                    except Exception:
+                        continue
+                    snapshots_by_vm[key] = snapshots
+                    backup_tasks_by_vm[key] = tasks
+
+        return build_operational_risk_dashboard(
+            vms,
+            nodes_monitoring,
+            snapshots_by_vm=snapshots_by_vm,
+            backup_tasks_by_vm=backup_tasks_by_vm,
+        )
 
     def get_node_status(self, node: str) -> Optional[Dict]:
         """

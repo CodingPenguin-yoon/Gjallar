@@ -27,6 +27,7 @@ Current Gjallar scope:
 - basic VM lifecycle management
 - instance/node/storage monitoring
 - task and log tracking for long-running operations
+- read-only operational risk dashboard
 
 Current non-goals:
 
@@ -50,6 +51,7 @@ Old staging/GitLab documents were removed from active docs. If this repo's docs 
 
 - `features/Provisioning_Resource_Preflight.md` — selected Proxmox node/template/storage/network/identity/static-IP preflight before VM creation.
 - `features/Template_Readiness_Preflight.md` — cloud-init and qemu guest agent readiness signals for selected VM templates.
+- `features/Operational_Risk_Dashboard.md` — read-only Phase 2 risk dashboard for guest agent, backup, snapshot, storage, and governance signals.
 
 
 ## Smoke / evidence

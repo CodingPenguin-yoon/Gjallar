@@ -186,3 +186,25 @@ The 2026-05-03 smoke verified this with `yoonmanserver2/107`:
 ```
 
 Do not use `/api/instances/terminate` for smoke cleanup unless explicitly approved. Stop/shutdown test VMs only.
+
+## Operational Risk Dashboard smoke
+
+After backend route changes, restart the backend dev server and verify the read-only risk endpoint:
+
+```bash
+curl -sS http://127.0.0.1:8001/api/operations/risks
+```
+
+Expected result:
+
+```text
+HTTP 200
+status: healthy | info | warning | critical
+summary.total_nodes and summary.total_vms are populated
+```
+
+Safety boundary:
+
+- This endpoint is read-only.
+- It must not call terminate/delete/start/stop/shutdown/reboot or config mutation APIs.
+- Risk recommendations may mention manual actions, but the dashboard itself does not execute them.

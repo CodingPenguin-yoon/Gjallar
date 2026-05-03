@@ -307,6 +307,17 @@ export const getServerVMs = async (serverId) => {
   }
 }
 
+// Operational risk API
+export const getOperationalRisks = async () => {
+  try {
+    const response = await apiClient.get('/operations/risks')
+    return response
+  } catch (error) {
+    console.error('Get operational risks API error:', error)
+    throw error
+  }
+}
+
 // 모니터링 API
 export const getNodesMonitoring = async () => {
   try {

@@ -51,3 +51,22 @@ Only after the core VM operations product is stable:
 - policy checks
 - approval-based remediation
 - Ansible/Terraform/OpenTofu integration where it supports VM operations directly
+
+## Phase 2 current state — Operational Risk Dashboard 1차
+
+Completed in the first read-only slice:
+
+- `GET /api/operations/risks` backend endpoint
+- pure risk calculation module and tests
+- VM metadata enrichment for guest-agent IP evidence and tags/description
+- snapshot age and backup task evidence checks
+- `/risks` frontend route and Risk Dashboard navigation tab
+- frontend risk utility tests
+
+Next Phase 2 improvements:
+
+1. Add configurable thresholds for backup/snapshot/storage policies.
+2. Add risk suppress/acknowledge state.
+3. Add owner/tag taxonomy instead of treating any tag as governance evidence.
+4. Integrate backup schedules/PBS data instead of relying only on task history.
+5. Add safe action suggestion links that still require explicit approval.

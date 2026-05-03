@@ -345,6 +345,20 @@ def get_server_vms(server_id: str):
         )
 
 
+@router.get("/operations/risks")
+def get_operational_risks():
+    """
+    운영 리스크 대시보드 조회 (read-only)
+    """
+    try:
+        return proxmox_service.get_operational_risk_dashboard()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 조회 실패: {str(e)}",
+        )
+
+
 @router.get("/monitoring/nodes")
 def get_nodes_monitoring():
     """
