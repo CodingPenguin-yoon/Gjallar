@@ -242,17 +242,26 @@ resource "proxmox_virtual_environment_vm" "instance" {
 }
 
 # VM 정보 출력
+locals {
+  # DHCP/guest-agent IP 조회 결과는 NIC별 list(list(string))이며,
+  # VM 부팅 직후에는 NIC list가 존재해도 내부 IP list가 비어 있을 수 있다.
+  # 따라서 특정 NIC/index를 가정하지 않고 flatten 후 첫 유효 IP만 사용한다.
+  reported_ipv4_addresses = length(proxmox_virtual_environment_vm.instance) > 0 ? flatten(proxmox_virtual_environment_vm.instance[0].ipv4_addresses) : []
+  guest_ipv4_addresses = [
+    for ip in local.reported_ipv4_addresses : ip
+    if trimspace(ip) != "" && !startswith(ip, "127.")
+  ]
+}
+
 output "vm_ip" {
   description = "생성된 VM의 IP 주소"
   value = var.vm_ip != "" ? (
     # 고정 IP 설정된 경우: CIDR에서 IP만 추출 (192.168.1.100/24 -> 192.168.1.100)
     split("/", var.vm_ip)[0]
     ) : (
-    # DHCP 사용 시: agent에서 가져온 IP
-    length(proxmox_virtual_environment_vm.instance) > 0 ? (
-      length(proxmox_virtual_environment_vm.instance[0].ipv4_addresses) > 1 ?
-      proxmox_virtual_environment_vm.instance[0].ipv4_addresses[1][0] : null
-    ) : null
+    # DHCP 사용 시: guest agent에서 보고된 첫 번째 유효 IPv4를 사용한다.
+    # 아직 IP가 없으면 null을 반환해 Terraform apply 자체가 실패하지 않게 한다.
+    try(local.guest_ipv4_addresses[0], null)
   )
 }
 
