@@ -78,6 +78,38 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         risk_ids = {item["id"] for item in dashboard["risk_items"]}
         self.assertNotIn("vm:node-a/101:backup-recency", risk_ids)
 
+    def test_backup_schedule_coverage_replaces_recency_warning_for_uncovered_vm(self):
+        now = 1_700_000_000
+
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 101,
+                    "name": "app-01",
+                    "status": "running",
+                    "tags": ["owner:yoon"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.10"],
+                }
+            ],
+            [],
+            backup_tasks_by_vm={"node-a/101": []},
+            backup_not_backed_up_by_vmid={
+                101: {"vmid": 101, "name": "app-01", "type": "qemu"},
+            },
+            backup_jobs=[],
+            now=now,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/101:backup-coverage", risk_ids)
+        self.assertNotIn("vm:node-a/101:backup-recency", risk_ids)
+        coverage = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/101:backup-coverage")
+        self.assertEqual(coverage["category"], "backup_coverage")
+        self.assertEqual(coverage["evidence"]["source"], "/cluster/backup-info/not-backed-up")
+        self.assertEqual(dashboard["evidence"]["backup_jobs_count"], 0)
+        self.assertEqual(dashboard["evidence"]["backup_uncovered_vms"], 1)
+
     def test_service_risk_dashboard_uses_read_only_evidence_helpers(self):
         service = ProxmoxService()
         service.get_all_nodes_monitoring = lambda: [
@@ -97,6 +129,8 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         service.get_node_tasks = lambda node, limit=200, vmid=None: [
             {"type": "vzdump", "status": "OK", "endtime": time.time()}
         ]
+        service.get_backup_jobs = lambda: []
+        service.get_vms_without_backup_jobs = lambda: []
 
         def forbidden_mutation(*args, **kwargs):
             raise AssertionError("risk dashboard must not call mutation helpers")
@@ -118,6 +152,111 @@ class OperationalRiskDashboardTest(unittest.TestCase):
 
         self.assertEqual(dashboard["summary"]["total_vms"], 1)
         self.assertEqual(dashboard["summary"]["total_nodes"], 1)
+
+    def test_service_collects_backup_schedule_evidence_read_only(self):
+        service = ProxmoxService()
+        calls = []
+        service.get_all_nodes_monitoring = lambda: []
+        service.get_vms = lambda: [
+            {
+                "node": "node-a",
+                "vmid": 101,
+                "name": "app-01",
+                "status": "running",
+                "tags": ["owner:yoon"],
+                "guest_agent_ipv4_addresses": ["192.0.2.10"],
+            }
+        ]
+        service.get_vm_snapshots = lambda node, vmid: []
+        service.get_node_tasks = lambda node, limit=200, vmid=None: []
+
+        def fake_make_request(endpoint, method="GET", params=None):
+            calls.append((endpoint, method))
+            if endpoint == "/cluster/backup":
+                return {"data": []}
+            if endpoint == "/cluster/backup-info/not-backed-up":
+                return {"data": [{"vmid": 101, "name": "app-01", "type": "qemu"}]}
+            return {"data": []}
+
+        service._make_request = fake_make_request
+
+        def forbidden_mutation(*args, **kwargs):
+            raise AssertionError("risk dashboard must not call mutation helpers")
+
+        for name in [
+            "shutdown_vm",
+            "stop_vm",
+            "start_vm",
+            "reboot_vm",
+            "delete_vm",
+            "terminate_vm",
+            "perform_vm_action",
+            "update_vm_resources",
+            "_make_write_request",
+        ]:
+            setattr(service, name, forbidden_mutation)
+
+        dashboard = service.get_operational_risk_dashboard()
+
+        self.assertIn(("/cluster/backup", "GET"), calls)
+        self.assertIn(("/cluster/backup-info/not-backed-up", "GET"), calls)
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/101:backup-coverage", risk_ids)
+        self.assertEqual(dashboard["evidence"]["backup_schedule_collected"], True)
+
+    def test_service_marks_backup_schedule_uncollected_when_evidence_requests_fail(self):
+        service = ProxmoxService()
+        service.get_all_nodes_monitoring = lambda: []
+        service.get_vms = lambda: [
+            {
+                "node": "node-a",
+                "vmid": 101,
+                "name": "app-01",
+                "status": "running",
+                "tags": ["owner:yoon"],
+                "guest_agent_ipv4_addresses": ["192.0.2.10"],
+            }
+        ]
+        service.get_vm_snapshots = lambda node, vmid: []
+        service.get_node_tasks = lambda node, limit=200, vmid=None: []
+        service._make_request = lambda endpoint, method="GET", params=None: {
+            "data": [],
+            "error": "permission denied" if endpoint.startswith("/cluster/backup") else None,
+        }
+
+        dashboard = service.get_operational_risk_dashboard()
+
+        self.assertEqual(dashboard["evidence"]["backup_schedule_collected"], False)
+        self.assertIsNone(dashboard["evidence"]["backup_uncovered_vms"])
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/101:backup-coverage", risk_ids)
+        self.assertIn("vm:node-a/101:backup-recency", risk_ids)
+
+    def test_service_marks_backup_schedule_uncollected_when_api_url_is_missing(self):
+        service = ProxmoxService()
+        service.api_url = ""
+        service.get_all_nodes_monitoring = lambda: []
+        service.get_vms = lambda: [
+            {
+                "node": "node-a",
+                "vmid": 101,
+                "name": "app-01",
+                "status": "running",
+                "tags": ["owner:yoon"],
+                "guest_agent_ipv4_addresses": ["192.0.2.10"],
+            }
+        ]
+        service.get_vm_snapshots = lambda node, vmid: []
+        service.get_node_tasks = lambda node, limit=200, vmid=None: []
+
+        dashboard = service.get_operational_risk_dashboard()
+
+        self.assertEqual(dashboard["evidence"]["backup_schedule_collected"], False)
+        self.assertIsNone(dashboard["evidence"]["backup_uncovered_vms"])
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/101:backup-coverage", risk_ids)
+        self.assertIn("vm:node-a/101:backup-recency", risk_ids)
+
 
 
 if __name__ == "__main__":

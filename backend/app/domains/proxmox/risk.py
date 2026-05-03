@@ -140,6 +140,26 @@ def _has_recent_successful_backup(tasks: Sequence[Mapping[str, Any]], *, now_epo
     return False
 
 
+def _normalize_backup_not_backed_up_by_vmid(
+    evidence: Optional[Mapping[Any, Mapping[str, Any]]],
+) -> Dict[int, Dict[str, Any]]:
+    normalized: Dict[int, Dict[str, Any]] = {}
+    if evidence is None:
+        return normalized
+    for key, record in evidence.items():
+        if isinstance(record, Mapping):
+            vmid = _safe_int(record.get("vmid", key), 0)
+            item = dict(record)
+        else:
+            vmid = _safe_int(key, 0)
+            item = {"vmid": vmid}
+        if vmid <= 0:
+            continue
+        item["vmid"] = vmid
+        normalized[vmid] = item
+    return normalized
+
+
 def _snapshot_age_days(snapshot: Mapping[str, Any], *, now_epoch: float) -> Optional[float]:
     snaptime = _safe_float(snapshot.get("snaptime") or snapshot.get("time"), 0.0)
     if snaptime <= 0:
@@ -153,6 +173,8 @@ def build_operational_risk_dashboard(
     *,
     snapshots_by_vm: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
     backup_tasks_by_vm: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
+    backup_not_backed_up_by_vmid: Optional[Mapping[Any, Mapping[str, Any]]] = None,
+    backup_jobs: Optional[Sequence[Mapping[str, Any]]] = None,
     now: Optional[Any] = None,
     thresholds: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, Any]:
@@ -163,6 +185,9 @@ def build_operational_risk_dashboard(
     vm_items = [dict(vm) for vm in (vms or [])]
     node_items = [dict(node) for node in (nodes_monitoring or [])]
     snapshots_by_vm = snapshots_by_vm or {}
+    backup_schedule_evidence_enabled = backup_not_backed_up_by_vmid is not None
+    backup_not_backed_up = _normalize_backup_not_backed_up_by_vmid(backup_not_backed_up_by_vmid)
+    backup_jobs_count = len([job for job in (backup_jobs or []) if isinstance(job, Mapping)])
 
     risks: List[Dict[str, Any]] = []
 
@@ -286,7 +311,33 @@ def build_operational_risk_dashboard(
                 )
             )
 
-        if backup_evidence_enabled and not _has_recent_successful_backup(
+        skip_backup_recency = False
+        if backup_schedule_evidence_enabled:
+            uncovered_backup_record = backup_not_backed_up.get(vmid)
+            if uncovered_backup_record:
+                skip_backup_recency = True
+                risks.append(
+                    _risk_item(
+                        item_id=f"vm:{key}:backup-coverage",
+                        severity="warning",
+                        category="backup_coverage",
+                        scope="vm",
+                        node=node,
+                        vmid=vmid,
+                        vm_name=vm_name,
+                        title=f"{vm_name} is not covered by a Proxmox backup job",
+                        detail="Proxmox reports this VM in the read-only not-backed-up list for configured backup jobs.",
+                        recommendation="Add the VM to a scheduled backup job or document why it is intentionally excluded.",
+                        evidence={
+                            "source": "/cluster/backup-info/not-backed-up",
+                            "reported_name": uncovered_backup_record.get("name"),
+                            "reported_type": uncovered_backup_record.get("type"),
+                            "backup_jobs_count": backup_jobs_count,
+                        },
+                    )
+                )
+
+        if backup_evidence_enabled and not skip_backup_recency and not _has_recent_successful_backup(
             backup_tasks_by_vm.get(key, []) or [],
             now_epoch=now_epoch,
             warning_days=effective_thresholds["backup_warning_days"],
@@ -355,4 +406,10 @@ def build_operational_risk_dashboard(
         },
         "risk_items": risks,
         "thresholds": effective_thresholds,
+        "evidence": {
+            "backup_task_history_collected": backup_evidence_enabled,
+            "backup_schedule_collected": backup_schedule_evidence_enabled,
+            "backup_jobs_count": backup_jobs_count if backup_schedule_evidence_enabled else None,
+            "backup_uncovered_vms": len(backup_not_backed_up) if backup_schedule_evidence_enabled else None,
+        },
     }

@@ -756,10 +756,46 @@ class ProxmoxService:
         except Exception:
             return []
 
+    def _get_read_only_list_endpoint(self, endpoint: str) -> Optional[List[Dict[str, Any]]]:
+        """Return a read-only list response, or None when collection failed."""
+        if not self.api_url:
+            return None
+        try:
+            result = self._make_request(endpoint, method="GET")
+        except Exception:
+            return None
+        if not isinstance(result, dict) or result.get("error"):
+            return None
+        data = result.get("data", [])
+        if not isinstance(data, list):
+            return None
+        return data
+
+    def get_backup_jobs(self) -> Optional[List[Dict[str, Any]]]:
+        """Return configured Proxmox backup jobs, or None when collection failed."""
+        return self._get_read_only_list_endpoint("/cluster/backup")
+
+    def get_vms_without_backup_jobs(self) -> Optional[List[Dict[str, Any]]]:
+        """Return Proxmox-reported VMs not covered by backup jobs, or None on failure."""
+        return self._get_read_only_list_endpoint("/cluster/backup-info/not-backed-up")
+
     def get_operational_risk_dashboard(self) -> Dict[str, Any]:
         """Build a read-only operational risk dashboard from Proxmox evidence."""
         nodes_monitoring = self.get_all_nodes_monitoring()
         vms = self.get_vms()
+        backup_jobs = self.get_backup_jobs()
+        vms_without_backup_jobs = self.get_vms_without_backup_jobs()
+        backup_schedule_collected = backup_jobs is not None and vms_without_backup_jobs is not None
+        backup_not_backed_up_by_vmid: Optional[Dict[int, Dict[str, Any]]] = None
+        if backup_schedule_collected:
+            backup_not_backed_up_by_vmid = {}
+            for item in vms_without_backup_jobs or []:
+                if not isinstance(item, dict):
+                    continue
+                vmid = self._safe_int(item.get("vmid"), 0)
+                if vmid <= 0:
+                    continue
+                backup_not_backed_up_by_vmid[vmid] = dict(item)
         snapshots_by_vm: Dict[str, List[Dict[str, Any]]] = {}
         backup_tasks_by_vm: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -790,6 +826,8 @@ class ProxmoxService:
             nodes_monitoring,
             snapshots_by_vm=snapshots_by_vm,
             backup_tasks_by_vm=backup_tasks_by_vm,
+            backup_not_backed_up_by_vmid=backup_not_backed_up_by_vmid,
+            backup_jobs=backup_jobs if backup_schedule_collected else None,
         )
 
     def get_node_status(self, node: str) -> Optional[Dict]:

@@ -189,7 +189,7 @@ Do not use `/api/instances/terminate` for smoke cleanup unless explicitly approv
 
 ## Operational Risk Dashboard smoke
 
-After backend route changes, restart the backend dev server and verify the read-only risk endpoint:
+After backend route/service changes, restart the backend dev server and verify the read-only risk endpoint:
 
 ```bash
 curl -sS http://127.0.0.1:8001/api/operations/risks
@@ -203,8 +203,36 @@ status: healthy | info | warning | critical
 summary.total_nodes and summary.total_vms are populated
 ```
 
+Backup schedule/evidence smoke fields:
+
+```text
+evidence.backup_task_history_collected: true|false
+evidence.backup_schedule_collected: true|false
+evidence.backup_jobs_count: number
+evidence.backup_uncovered_vms: number
+summary.categories.backup_coverage: optional number
+```
+
+Current lab smoke after backup schedule evidence integration:
+
+```text
+HTTP 200
+status: warning
+total_nodes: 3
+total_vms: 21
+total_risks: 50
+categories:
+  backup_coverage: 21
+  governance: 20
+  guest_agent: 9
+evidence:
+  backup_jobs_count: 0
+  backup_uncovered_vms: 23
+```
+
 Safety boundary:
 
 - This endpoint is read-only.
-- It must not call terminate/delete/start/stop/shutdown/reboot or config mutation APIs.
+- It may call Proxmox GET endpoints such as `/cluster/backup` and `/cluster/backup-info/not-backed-up`.
+- It must not call terminate/delete/start/stop/shutdown/reboot, config mutation APIs, snapshot delete, or backup job create/update/delete.
 - Risk recommendations may mention manual actions, but the dashboard itself does not execute them.

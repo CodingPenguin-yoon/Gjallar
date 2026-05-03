@@ -16,14 +16,20 @@ This feature is currently `Observe + Govern` only. It does not mutate, stop, sta
 GET /api/operations/risks
 ```
 
-The endpoint collects read-only Proxmox evidence through existing GET-style inventory, monitoring, snapshot, and task APIs, then returns a normalized dashboard payload.
+The endpoint collects read-only Proxmox evidence through existing GET-style inventory, monitoring, snapshot, task, and backup schedule APIs, then returns a normalized dashboard payload.
 
-Example top-level shape:
+Read-only backup evidence currently includes:
+
+```text
+GET /cluster/backup
+GET /cluster/backup-info/not-backed-up
+```
+
+Example top-level shape from the current lab:
 
 ```json
 {
   "status": "warning",
-  "generated_at": 1777785386,
   "summary": {
     "total_risks": 50,
     "critical": 0,
@@ -34,16 +40,22 @@ Example top-level shape:
     "total_nodes": 3,
     "total_vms": 21,
     "categories": {
-      "backup_recency": 21,
+      "backup_coverage": 21,
       "governance": 20,
       "guest_agent": 9
     }
+  },
+  "evidence": {
+    "backup_task_history_collected": true,
+    "backup_schedule_collected": true,
+    "backup_jobs_count": 0,
+    "backup_uncovered_vms": 23
   },
   "risk_items": []
 }
 ```
 
-## Risk checks in the first version
+## Risk checks
 
 ### Node status
 
@@ -71,10 +83,16 @@ Example top-level shape:
 - critical if a snapshot is older than 30 days.
 - `current` pseudo-snapshot is ignored.
 
-### Backup recency
+### Backup coverage
+
+- warning if Proxmox `not-backed-up` evidence reports that a VM is not covered by configured backup jobs.
+- This is stronger than task-history-only evidence because it checks schedule/job coverage directly.
+- If a VM is explicitly uncovered by backup jobs, the dashboard shows `backup_coverage` and suppresses the less-specific `backup_recency` warning for that VM.
+
+### Backup recency fallback
 
 - warning if no successful `vzdump`/backup task evidence is found within 7 days.
-- This uses available Proxmox task history; later versions should integrate backup schedules/PBS data directly.
+- This remains useful when schedule coverage evidence exists but the VM is not reported as uncovered, or when schedule evidence is unavailable.
 
 ## Frontend
 
@@ -95,7 +113,7 @@ The screen shows:
 - overall status
 - critical/warning/info counts
 - affected VM/node counts
-- category counts
+- category counts, including `Backup coverage`
 - risk item cards with evidence and recommendation
 - manual refresh and 60-second auto refresh
 
@@ -109,6 +127,7 @@ Allowed data sources:
 - node monitoring GET
 - snapshot list GET
 - task history GET
+- backup job/schedule coverage GET
 
 Forbidden from this dashboard:
 
@@ -116,14 +135,14 @@ Forbidden from this dashboard:
 - start/shutdown/stop/reboot
 - VM config PUT/POST
 - snapshot delete
-- backup job mutation
+- backup job create/update/delete
 
 ## Validation
 
 Last validation for this feature:
 
 ```text
-backend unittest discover: 34 tests passed
+backend unittest discover -s tests: 38 tests passed
 frontend utility tests: passed
 frontend lint: passed
 frontend build: passed

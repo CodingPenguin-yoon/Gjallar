@@ -52,14 +52,16 @@ Only after the core VM operations product is stable:
 - approval-based remediation
 - Ansible/Terraform/OpenTofu integration where it supports VM operations directly
 
-## Phase 2 current state — Operational Risk Dashboard 1차
+## Phase 2 current state — Operational Risk Dashboard
 
-Completed in the first read-only slice:
+Completed in the read-only dashboard slices:
 
 - `GET /api/operations/risks` backend endpoint
 - pure risk calculation module and tests
 - VM metadata enrichment for guest-agent IP evidence and tags/description
-- snapshot age and backup task evidence checks
+- snapshot age checks
+- backup task recency fallback checks
+- Proxmox backup schedule coverage evidence through `/cluster/backup` and `/cluster/backup-info/not-backed-up`
 - `/risks` frontend route and Risk Dashboard navigation tab
 - frontend risk utility tests
 
@@ -68,5 +70,6 @@ Next Phase 2 improvements:
 1. Add configurable thresholds for backup/snapshot/storage policies.
 2. Add risk suppress/acknowledge state.
 3. Add owner/tag taxonomy instead of treating any tag as governance evidence.
-4. Integrate backup schedules/PBS data instead of relying only on task history.
-5. Add safe action suggestion links that still require explicit approval.
+4. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
+5. Add stopped/unused VM detection when stopped-since evidence is available.
+6. Add safe action suggestion links that still require explicit approval.

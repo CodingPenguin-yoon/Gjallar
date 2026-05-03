@@ -16,6 +16,7 @@ const categoryLabels = {
   guest_agent: 'Guest agent',
   governance: 'Governance',
   snapshot_age: 'Snapshot age',
+  backup_coverage: 'Backup coverage',
   backup_recency: 'Backup recency',
 }
 
