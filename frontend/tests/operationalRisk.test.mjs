@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   formatRiskScope,
+  getRiskCategoryLabel,
   getRiskSeverityTone,
   groupRisksByCategory,
   normalizeRiskDashboard,
@@ -32,6 +33,7 @@ const dashboard = normalizeRiskDashboard(payload)
 assert.equal(dashboard.summary.totalRisks, 3)
 assert.equal(dashboard.summary.affectedNodes, 2)
 assert.equal(getRiskSeverityTone('critical').level, 'critical')
+assert.equal(getRiskCategoryLabel('long_stopped'), 'Long stopped VM')
 assert.equal(getRiskSeverityTone('unknown').level, 'info')
 assert.deepEqual(sortRiskItems(payload.risk_items).map((item) => item.id), ['critical', 'warning', 'info'])
 assert.equal(Object.keys(groupRisksByCategory(payload.risk_items)).length, 3)

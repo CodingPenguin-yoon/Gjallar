@@ -19,6 +19,8 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
     "snapshot_warning_days": 14.0,
     "snapshot_critical_days": 30.0,
     "backup_warning_days": 7.0,
+    "stopped_warning_days": 30.0,
+    "stopped_critical_days": 90.0,
 }
 
 SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2, "healthy": 3}
@@ -175,6 +177,7 @@ def build_operational_risk_dashboard(
     backup_tasks_by_vm: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
     backup_not_backed_up_by_vmid: Optional[Mapping[Any, Mapping[str, Any]]] = None,
     backup_jobs: Optional[Sequence[Mapping[str, Any]]] = None,
+    vm_state_history: Optional[Mapping[str, Mapping[str, Any]]] = None,
     now: Optional[Any] = None,
     thresholds: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, Any]:
@@ -185,6 +188,8 @@ def build_operational_risk_dashboard(
     vm_items = [dict(vm) for vm in (vms or [])]
     node_items = [dict(node) for node in (nodes_monitoring or [])]
     snapshots_by_vm = snapshots_by_vm or {}
+    vm_state_history_collected = vm_state_history is not None
+    vm_state_history = vm_state_history or {}
     backup_schedule_evidence_enabled = backup_not_backed_up_by_vmid is not None
     backup_not_backed_up = _normalize_backup_not_backed_up_by_vmid(backup_not_backed_up_by_vmid)
     backup_jobs_count = len([job for job in (backup_jobs or []) if isinstance(job, Mapping)])
@@ -284,6 +289,42 @@ def build_operational_risk_dashboard(
                     evidence={"tags": vm.get("tags", []), "description_present": bool(vm.get("description"))},
                 )
             )
+
+
+        if vm_state_history_collected and status == "stopped":
+            state_record = vm_state_history.get(key)
+            if isinstance(state_record, Mapping):
+                stopped_days = _safe_float(state_record.get("stopped_days"), 0.0)
+                if stopped_days >= effective_thresholds["stopped_warning_days"]:
+                    severity = (
+                        "critical"
+                        if stopped_days >= effective_thresholds["stopped_critical_days"]
+                        else "warning"
+                    )
+                    risks.append(
+                        _risk_item(
+                            item_id=f"vm:{key}:long-stopped",
+                            severity=severity,
+                            category="long_stopped",
+                            scope="vm",
+                            node=node,
+                            vmid=vmid,
+                            vm_name=vm_name,
+                            title=f"{vm_name} has been stopped for {stopped_days:.0f} days",
+                            detail="Gjallar has observed this VM in a stopped state beyond the configured threshold.",
+                            recommendation="Confirm whether the VM is intentionally retained; reclaim resources or document the exception if it is still needed.",
+                            evidence={
+                                "source": state_record.get("source", "gjallar_db"),
+                                "stopped_days": stopped_days,
+                                "stopped_since": state_record.get("stopped_since"),
+                                "status_since": state_record.get("status_since"),
+                                "first_seen_at": state_record.get("first_seen_at"),
+                                "last_seen_at": state_record.get("last_seen_at"),
+                                "warning_days": effective_thresholds["stopped_warning_days"],
+                                "critical_days": effective_thresholds["stopped_critical_days"],
+                            },
+                        )
+                    )
 
         for snapshot in snapshots_by_vm.get(key, []) or []:
             if not isinstance(snapshot, Mapping):
@@ -410,6 +451,8 @@ def build_operational_risk_dashboard(
             "backup_task_history_collected": backup_evidence_enabled,
             "backup_schedule_collected": backup_schedule_evidence_enabled,
             "backup_jobs_count": backup_jobs_count if backup_schedule_evidence_enabled else None,
+            "vm_state_history_collected": vm_state_history_collected,
+            "vm_state_history_vms": len(vm_state_history) if vm_state_history_collected else None,
             "backup_uncovered_vms": len(backup_not_backed_up) if backup_schedule_evidence_enabled else None,
         },
     }

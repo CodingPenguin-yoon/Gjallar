@@ -4,21 +4,12 @@ import { getOperationalRisks } from '../services/api'
 import {
   formatGeneratedAt,
   formatRiskScope,
+  getRiskCategoryLabel,
   getRiskSeverityTone,
   groupRisksByCategory,
   normalizeRiskDashboard,
   sortRiskItems,
 } from '../utils/operationalRisk'
-
-const categoryLabels = {
-  node_status: 'Node status',
-  storage_capacity: 'Storage capacity',
-  guest_agent: 'Guest agent',
-  governance: 'Governance',
-  snapshot_age: 'Snapshot age',
-  backup_coverage: 'Backup coverage',
-  backup_recency: 'Backup recency',
-}
 
 function RiskSummaryCard({ label, value, severity, description }) {
   const tone = getRiskSeverityTone(severity)
@@ -33,7 +24,7 @@ function RiskSummaryCard({ label, value, severity, description }) {
 
 function RiskItemCard({ item }) {
   const tone = getRiskSeverityTone(item.severity)
-  const category = categoryLabels[item.category] || item.category || 'Unknown'
+  const category = getRiskCategoryLabel(item.category)
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -168,7 +159,7 @@ function OperationalRiskDashboard() {
               <div className="flex flex-wrap gap-2">
                 {Object.entries(categoryGroups).map(([category, items]) => (
                   <span key={category} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
-                    {categoryLabels[category] || category}: {items.length}
+                    {getRiskCategoryLabel(category)}: {items.length}
                   </span>
                 ))}
               </div>
@@ -198,7 +189,7 @@ function OperationalRiskDashboard() {
               <Info className="h-4 w-4" />
               Safety note
             </div>
-            This dashboard only reads Proxmox evidence. It does not delete, stop, start, reboot, or modify VMs.
+            This dashboard only reads Proxmox/PBS evidence and stores Gjallar&apos;s local observations. It does not delete, stop, start, reboot, or modify VMs.
           </div>
         </div>
       )}

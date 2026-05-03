@@ -18,6 +18,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import urllib3
 from app.domains.proxmox.risk import build_operational_risk_dashboard
+from app.domains.proxmox.risk_state import OperationalRiskStateStore
 
 # SSL 경고 비활성화 (자체 서명 인증서 사용 시)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -68,6 +69,7 @@ class ProxmoxService:
         )
         self._vm_inventory_cache: Dict[str, Dict[str, Any]] = {}
         self._vm_inventory_cache_lock = threading.Lock()
+        self._risk_state_store: Optional[OperationalRiskStateStore] = None
         
         # 디버깅: 설정 확인
         if not self.api_url:
@@ -771,6 +773,31 @@ class ProxmoxService:
             return None
         return data
 
+
+    def _get_risk_state_store(self) -> OperationalRiskStateStore:
+        if self._risk_state_store is None:
+            self._risk_state_store = OperationalRiskStateStore()
+        return self._risk_state_store
+
+    def get_vm_state_history(
+        self,
+        vms: List[Dict[str, Any]],
+        *,
+        now_epoch: Optional[float] = None,
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Persist Gjallar-owned VM observation history for risk checks.
+
+        This writes only to Gjallar's local platform-state DB. It does not call
+        Proxmox mutation APIs. If the DB schema is not migrated yet, the risk
+        dashboard continues with this evidence marked as uncollected.
+        """
+        try:
+            return self._get_risk_state_store().observe_vms(vms, observed_at=now_epoch)
+        except Exception as exc:
+            print("Gjallar VM state history persistence unavailable")
+            print(f"에러: {exc}")
+            return None
+
     def get_backup_jobs(self) -> Optional[List[Dict[str, Any]]]:
         """Return configured Proxmox backup jobs, or None when collection failed."""
         return self._get_read_only_list_endpoint("/cluster/backup")
@@ -781,8 +808,10 @@ class ProxmoxService:
 
     def get_operational_risk_dashboard(self) -> Dict[str, Any]:
         """Build a read-only operational risk dashboard from Proxmox evidence."""
+        now_epoch = time.time()
         nodes_monitoring = self.get_all_nodes_monitoring()
         vms = self.get_vms()
+        vm_state_history = self.get_vm_state_history(vms, now_epoch=now_epoch)
         backup_jobs = self.get_backup_jobs()
         vms_without_backup_jobs = self.get_vms_without_backup_jobs()
         backup_schedule_collected = backup_jobs is not None and vms_without_backup_jobs is not None
@@ -828,6 +857,8 @@ class ProxmoxService:
             backup_tasks_by_vm=backup_tasks_by_vm,
             backup_not_backed_up_by_vmid=backup_not_backed_up_by_vmid,
             backup_jobs=backup_jobs if backup_schedule_collected else None,
+            vm_state_history=vm_state_history,
+            now=now_epoch,
         )
 
     def get_node_status(self, node: str) -> Optional[Dict]:

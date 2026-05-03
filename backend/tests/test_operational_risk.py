@@ -258,6 +258,70 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         self.assertIn("vm:node-a/101:backup-recency", risk_ids)
 
 
+    def test_long_stopped_vm_uses_persisted_state_history(self):
+        now = 1_700_000_000
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 101,
+                    "name": "old-stopped",
+                    "status": "stopped",
+                    "tags": ["owner:yoon"],
+                }
+            ],
+            [],
+            vm_state_history={
+                "node-a/101": {
+                    "status": "stopped",
+                    "status_since": now - 31 * 86400,
+                    "stopped_since": now - 31 * 86400,
+                    "stopped_days": 31.0,
+                    "source": "gjallar_db",
+                }
+            },
+            now=now,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/101:long-stopped", risk_ids)
+        long_stopped = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/101:long-stopped")
+        self.assertEqual(long_stopped["category"], "long_stopped")
+        self.assertEqual(long_stopped["severity"], "warning")
+        self.assertEqual(long_stopped["evidence"]["stopped_days"], 31.0)
+        self.assertEqual(dashboard["summary"]["categories"]["long_stopped"], 1)
+        self.assertEqual(dashboard["evidence"]["vm_state_history_collected"], True)
+
+    def test_recently_observed_stopped_vm_is_not_long_stopped_without_history(self):
+        now = 1_700_000_000
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 101,
+                    "name": "newly-stopped",
+                    "status": "stopped",
+                    "tags": ["owner:yoon"],
+                }
+            ],
+            [],
+            vm_state_history={
+                "node-a/101": {
+                    "status": "stopped",
+                    "status_since": now,
+                    "stopped_since": now,
+                    "stopped_days": 0.0,
+                    "source": "gjallar_db",
+                }
+            },
+            now=now,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/101:long-stopped", risk_ids)
+        self.assertEqual(dashboard["evidence"]["vm_state_history_collected"], True)
+
+
 
 if __name__ == "__main__":
     unittest.main()

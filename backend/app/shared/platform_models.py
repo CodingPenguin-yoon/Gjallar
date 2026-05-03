@@ -56,3 +56,21 @@ class PlatformTaskLog(Base):
     log_line: Mapped[str] = mapped_column(Text, nullable=False)
 
     task: Mapped[PlatformTask] = relationship(back_populates="logs")
+
+
+class OperationalVMState(Base):
+    """Latest observed VM state used by read-only operational risk checks."""
+
+    __tablename__ = "operational_vm_state"
+
+    resource_key: Mapped[str] = mapped_column(String(96), primary_key=True)
+    resource_type: Mapped[str] = mapped_column(String(32), nullable=False, default="qemu")
+    node: Mapped[str] = mapped_column(String(128), nullable=False)
+    vmid: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    first_seen_at: Mapped[float] = mapped_column(Float, nullable=False)
+    last_seen_at: Mapped[float] = mapped_column(Float, nullable=False)
+    status_since_at: Mapped[float] = mapped_column(Float, nullable=False)
+    last_running_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_observed_payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)

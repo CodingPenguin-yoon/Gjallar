@@ -1,3 +1,18 @@
+export const riskCategoryLabels = {
+  node_status: 'Node status',
+  storage_capacity: 'Storage capacity',
+  guest_agent: 'Guest agent',
+  governance: 'Governance',
+  snapshot_age: 'Snapshot age',
+  backup_coverage: 'Backup coverage',
+  backup_recency: 'Backup recency',
+  long_stopped: 'Long stopped VM',
+}
+
+export function getRiskCategoryLabel(category) {
+  return riskCategoryLabels[category] || category || 'Unknown'
+}
+
 const severityOrder = {
   critical: 0,
   warning: 1,

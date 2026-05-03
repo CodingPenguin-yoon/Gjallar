@@ -33,26 +33,7 @@ Next steps:
 - serve UI from cached inventory snapshots
 - add per-node concurrency/rate limits
 
-## 5. Monitoring and risk baseline
-
-After the VM operations baseline is stable, add first risk views:
-
-- backup missing/failed signals
-- old snapshot detection
-- guest agent missing/not responding
-- storage usage risk
-- stopped/unused VM candidates
-
-## 6. Later integrations
-
-Only after the core VM operations product is stable:
-
-- backup/report exports
-- policy checks
-- approval-based remediation
-- Ansible/Terraform/OpenTofu integration where it supports VM operations directly
-
-## Phase 2 current state — Operational Risk Dashboard
+## 5. Phase 2 current state — Operational Risk Dashboard
 
 Completed in the read-only dashboard slices:
 
@@ -62,14 +43,27 @@ Completed in the read-only dashboard slices:
 - snapshot age checks
 - backup task recency fallback checks
 - Proxmox backup schedule coverage evidence through `/cluster/backup` and `/cluster/backup-info/not-backed-up`
+- Gjallar-local `operational_vm_state` persistence for VM status history
+- `long_stopped` risk category using persisted stopped history
 - `/risks` frontend route and Risk Dashboard navigation tab
 - frontend risk utility tests
 
 Next Phase 2 improvements:
 
-1. Add configurable thresholds for backup/snapshot/storage policies.
-2. Add risk suppress/acknowledge state.
-3. Add owner/tag taxonomy instead of treating any tag as governance evidence.
-4. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
-5. Add stopped/unused VM detection when stopped-since evidence is available.
+1. Add configurable thresholds for backup/snapshot/storage/stopped policies.
+2. Add stale `operational_vm_state` cleanup/reconciliation and VMID reuse guard.
+3. Add risk suppress/acknowledge state.
+4. Add owner/tag taxonomy instead of treating any tag as governance evidence.
+5. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
 6. Add safe action suggestion links that still require explicit approval.
+
+## 6. Later integrations
+
+Only after the core VM operations product is stable:
+
+- backup/report exports
+- policy checks
+- approval-based remediation
+- Ansible/Terraform/OpenTofu integration where it supports VM operations directly
+- optional read-only SSH collector for evidence unavailable through Proxmox/PBS APIs
+- optional node agent only if API + DB + SSH collector cannot supply needed evidence safely
