@@ -31,7 +31,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "vmid": 102,
                 "name": "db-01",
                 "status": "running",
-                "tags": ["owner:yoon"],
+                "tags": ["owner:yoon", "env:prod"],
                 "guest_agent_ipv4_addresses": ["192.0.2.11"],
             },
         ]
@@ -75,6 +75,127 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         self.assertIn("vm:node-a/101:snapshot:before-upgrade", risk_ids)
         self.assertIn("vm:node-a/101:backup-recency", risk_ids)
         self.assertNotIn("vm:node-a/102:backup-recency", risk_ids)
+
+    def test_incidental_tag_without_owner_or_environment_still_reports_governance_risk(self):
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 201,
+                    "name": "tagged-but-unowned",
+                    "status": "running",
+                    "tags": ["linux", "docker"],
+                    "description": "",
+                    "guest_agent_ipv4_addresses": ["192.0.2.20"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/201": []},
+            backup_tasks_by_vm={
+                "node-a/201": [{"type": "vzdump", "status": "OK", "endtime": 1_700_000_000}]
+            },
+            now=1_700_000_000,
+        )
+
+        risk = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/201:owner-tag")
+        self.assertEqual(risk["category"], "governance")
+        self.assertEqual(risk["evidence"]["missing_metadata"], ["owner_or_team", "environment"])
+        self.assertEqual(risk["evidence"]["incidental_tags"], ["linux", "docker"])
+
+    def test_owner_and_environment_taxonomy_clears_governance_risk(self):
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 202,
+                    "name": "well-owned",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod", "linux"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.21"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/202": []},
+            backup_tasks_by_vm={
+                "node-a/202": [{"type": "vzdump", "status": "OK", "endtime": 1_700_000_000}]
+            },
+            now=1_700_000_000,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/202:owner-tag", risk_ids)
+
+    def test_description_owner_and_simple_environment_tag_clear_governance_risk(self):
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 203,
+                    "name": "described-owner",
+                    "status": "running",
+                    "tags": ["lab"],
+                    "description": "Owner: homelab",
+                    "guest_agent_ipv4_addresses": ["192.0.2.22"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/203": []},
+            backup_tasks_by_vm={
+                "node-a/203": [{"type": "vzdump", "status": "OK", "endtime": 1_700_000_000}]
+            },
+            now=1_700_000_000,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/203:owner-tag", risk_ids)
+
+    def test_notes_owner_marker_counts_even_when_description_is_generic(self):
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 204,
+                    "name": "notes-owned",
+                    "status": "running",
+                    "tags": ["env:prod"],
+                    "description": "General service notes without owner marker",
+                    "notes": "team:infra",
+                    "guest_agent_ipv4_addresses": ["192.0.2.23"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/204": []},
+            backup_tasks_by_vm={
+                "node-a/204": [{"type": "vzdump", "status": "OK", "endtime": 1_700_000_000}]
+            },
+            now=1_700_000_000,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/204:owner-tag", risk_ids)
+
+    def test_alternate_owner_and_environment_separators_clear_governance_risk(self):
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 205,
+                    "name": "alternate-separators",
+                    "status": "running",
+                    "tags": ["owned_by=platform", "env/prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.24"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/205": []},
+            backup_tasks_by_vm={
+                "node-a/205": [{"type": "vzdump", "status": "OK", "endtime": 1_700_000_000}]
+            },
+            now=1_700_000_000,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/205:owner-tag", risk_ids)
 
     def test_acknowledged_risk_remains_visible_with_override_metadata(self):
         dashboard = {
@@ -265,7 +386,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
 
     def test_backup_risk_is_skipped_when_backup_evidence_not_collected(self):
         dashboard = build_operational_risk_dashboard(
-            [{"node": "node-a", "vmid": 101, "name": "vm-101", "status": "stopped", "tags": ["owner:yoon"]}],
+            [{"node": "node-a", "vmid": 101, "name": "vm-101", "status": "stopped", "tags": ["owner:yoon", "env:prod"]}],
             [],
             now=time.time(),
         )
@@ -282,7 +403,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                     "vmid": 101,
                     "name": "app-01",
                     "status": "running",
-                    "tags": ["owner:yoon"],
+                    "tags": ["owner:yoon", "env:prod"],
                     "guest_agent_ipv4_addresses": ["192.0.2.10"],
                 }
             ],
@@ -315,7 +436,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "vmid": 101,
                 "name": "vm-101",
                 "status": "running",
-                "tags": ["owner:yoon"],
+                "tags": ["owner:yoon", "env:prod"],
                 "guest_agent_ipv4_addresses": ["192.0.2.101"],
             }
         ])
@@ -357,7 +478,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "vmid": 101,
                 "name": "app-01",
                 "status": "running",
-                "tags": ["owner:yoon"],
+                "tags": ["owner:yoon", "env:prod"],
                 "guest_agent_ipv4_addresses": ["192.0.2.10"],
             }
         ])
@@ -407,7 +528,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "vmid": 101,
                 "name": "app-01",
                 "status": "running",
-                "tags": ["owner:yoon"],
+                "tags": ["owner:yoon", "env:prod"],
                 "guest_agent_ipv4_addresses": ["192.0.2.10"],
             }
         ])
@@ -436,7 +557,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                 "vmid": 101,
                 "name": "app-01",
                 "status": "running",
-                "tags": ["owner:yoon"],
+                "tags": ["owner:yoon", "env:prod"],
                 "guest_agent_ipv4_addresses": ["192.0.2.10"],
             }
         ])
@@ -461,7 +582,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                     "vmid": 101,
                     "name": "old-stopped",
                     "status": "stopped",
-                    "tags": ["owner:yoon"],
+                    "tags": ["owner:yoon", "env:prod"],
                 }
             ],
             [],
@@ -495,7 +616,7 @@ class OperationalRiskDashboardTest(unittest.TestCase):
                     "vmid": 101,
                     "name": "newly-stopped",
                     "status": "stopped",
-                    "tags": ["owner:yoon"],
+                    "tags": ["owner:yoon", "env:prod"],
                 }
             ],
             [],

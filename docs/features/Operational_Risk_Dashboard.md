@@ -147,9 +147,10 @@ These values are configurable through Gjallar threshold policy.
 
 ### Governance metadata
 
-- info if a VM has no owner/team/tag/description signal.
-- The first version treats any explicit tag as a governance signal.
-- Stricter owner taxonomy can be added later.
+- info if a VM is missing required owner/team or environment taxonomy metadata.
+- Accepted ownership signals use keys such as `owner`, `owned-by`/`owned_by`, `team`, `app-owner`, or `service-owner` with `:`, `=`, or `/` separators, or an owner/team marker in description/notes.
+- Accepted environment signals use keys such as `env`, `environment`, or `stage`, or a simple environment tag such as `prod`, `dev`, `test`, `lab`, `infra`, `ops`, or `sandbox`.
+- Free-form/incidental tags such as `linux` or `docker` are reported in evidence when metadata is incomplete, but they no longer clear the governance risk by themselves.
 
 ### Snapshot age
 
@@ -300,7 +301,7 @@ LIVE_SMOKE_OK risks 50 suppressed 0
 
 ## Known follow-ups
 
-- Add stricter owner/tag taxonomy checks.
+- Add configurable taxonomy policy if the fixed defaults are not enough.
 - Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
 - Add safe action suggestion links that still require explicit approval.
 - Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.

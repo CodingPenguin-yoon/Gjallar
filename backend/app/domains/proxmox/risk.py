@@ -26,6 +26,32 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
 
 SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2, "healthy": 3}
 
+OWNER_TAXONOMY_TAG_KEYS = {
+    "owner",
+    "owned-by",
+    "team",
+    "app-owner",
+    "service-owner",
+}
+ENVIRONMENT_TAXONOMY_TAG_KEYS = {"env", "environment", "stage"}
+ENVIRONMENT_TAXONOMY_VALUES = {
+    "prod",
+    "production",
+    "stage",
+    "staging",
+    "dev",
+    "development",
+    "test",
+    "testing",
+    "qa",
+    "lab",
+    "homelab",
+    "infra",
+    "ops",
+    "sandbox",
+}
+TAG_TAXONOMY_SEPARATORS = (":", "=", "/")
+
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     if isinstance(value, bool):
@@ -66,21 +92,82 @@ def _split_tags(tags: Any) -> List[str]:
     return []
 
 
-def _has_owner_or_tag(vm: Mapping[str, Any]) -> bool:
-    tags = _split_tags(vm.get("tags"))
-    if tags:
-        lowered_tags = [tag.lower() for tag in tags]
-        if any(
-            tag.startswith(("owner=", "owner:", "owned-by=", "team=", "team:"))
-            for tag in lowered_tags
-        ):
-            return True
-        # For the first dashboard version, any explicit tag is treated as a
-        # governance signal. A stricter owner taxonomy can be added later.
-        return True
+def _normalize_taxonomy_token(value: Any) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower())
+    return normalized.strip("-")
 
-    description = str(vm.get("description") or vm.get("notes") or "").lower()
-    return any(marker in description for marker in ["owner:", "owner=", "owned by", "team:", "team="])
+
+def _split_taxonomy_tag(tag: str) -> tuple[str, str]:
+    raw = str(tag or "").strip()
+    for separator in TAG_TAXONOMY_SEPARATORS:
+        if separator in raw:
+            key, value = raw.split(separator, 1)
+            return _normalize_taxonomy_token(key), value.strip()
+    return "", raw
+
+
+def _description_has_owner_signal(vm: Mapping[str, Any]) -> bool:
+    markers = ["owner:", "owner=", "owned by", "team:", "team="]
+    text_fields = [str(vm.get("description") or ""), str(vm.get("notes") or "")]
+    return any(marker in field.lower() for field in text_fields for marker in markers)
+
+
+def _is_environment_taxonomy_value(value: Any) -> bool:
+    return _normalize_taxonomy_token(value) in ENVIRONMENT_TAXONOMY_VALUES
+
+
+def _evaluate_governance_metadata(vm: Mapping[str, Any]) -> Dict[str, Any]:
+    tags = _split_tags(vm.get("tags"))
+    owner_signal: Optional[str] = None
+    environment_signal: Optional[str] = None
+    incidental_tags: List[str] = []
+
+    for tag in tags:
+        key, value = _split_taxonomy_tag(tag)
+        if key in OWNER_TAXONOMY_TAG_KEYS and value.strip():
+            owner_signal = owner_signal or tag
+            continue
+        if key in ENVIRONMENT_TAXONOMY_TAG_KEYS and _is_environment_taxonomy_value(value):
+            environment_signal = environment_signal or tag
+            continue
+        if not key and _is_environment_taxonomy_value(value):
+            environment_signal = environment_signal or tag
+            continue
+        incidental_tags.append(tag)
+
+    if owner_signal is None and _description_has_owner_signal(vm):
+        owner_signal = "description"
+
+    missing_metadata: List[str] = []
+    if owner_signal is None:
+        missing_metadata.append("owner_or_team")
+    if environment_signal is None:
+        missing_metadata.append("environment")
+
+    return {
+        "complete": not missing_metadata,
+        "missing_metadata": missing_metadata,
+        "owner_signal": owner_signal,
+        "environment_signal": environment_signal,
+        "tags": tags,
+        "incidental_tags": incidental_tags,
+        "description_present": bool(vm.get("description") or vm.get("notes")),
+        "accepted_owner_keys": sorted(OWNER_TAXONOMY_TAG_KEYS),
+        "accepted_environment_keys": sorted(ENVIRONMENT_TAXONOMY_TAG_KEYS),
+        "accepted_environment_values": sorted(ENVIRONMENT_TAXONOMY_VALUES),
+    }
+
+
+def _governance_missing_detail(missing_metadata: Sequence[str], incidental_tags: Sequence[str]) -> str:
+    labels = {
+        "owner_or_team": "owner/team",
+        "environment": "environment",
+    }
+    missing = ", ".join(labels.get(item, item) for item in missing_metadata)
+    detail = f"Missing required governance metadata: {missing}."
+    if incidental_tags:
+        detail += " Incidental/free-form tags do not satisfy the taxonomy: " + ", ".join(incidental_tags) + "."
+    return detail
 
 
 def _risk_item(
@@ -405,7 +492,8 @@ def build_operational_risk_dashboard(
                 )
             )
 
-        if not _has_owner_or_tag(vm):
+        governance_metadata = _evaluate_governance_metadata(vm)
+        if not governance_metadata["complete"]:
             risks.append(
                 _risk_item(
                     item_id=f"vm:{key}:owner-tag",
@@ -415,10 +503,26 @@ def build_operational_risk_dashboard(
                     node=node,
                     vmid=vmid,
                     vm_name=vm_name,
-                    title=f"{vm_name} has no owner/tag signal",
-                    detail="No tag or description owner signal was found in VM config metadata.",
-                    recommendation="Add owner/team tags or a description so operational responsibility is clear.",
-                    evidence={"tags": vm.get("tags", []), "description_present": bool(vm.get("description"))},
+                    title=f"{vm_name} is missing owner/environment taxonomy metadata",
+                    detail=_governance_missing_detail(
+                        governance_metadata["missing_metadata"],
+                        governance_metadata["incidental_tags"],
+                    ),
+                    recommendation=(
+                        "Add accepted owner/team and environment metadata, for example "
+                        "owner:yoon + env:prod or team:infra + env:lab."
+                    ),
+                    evidence={
+                        "missing_metadata": governance_metadata["missing_metadata"],
+                        "tags": governance_metadata["tags"],
+                        "incidental_tags": governance_metadata["incidental_tags"],
+                        "owner_signal": governance_metadata["owner_signal"] or "missing",
+                        "environment_signal": governance_metadata["environment_signal"] or "missing",
+                        "description_present": governance_metadata["description_present"],
+                        "accepted_owner_keys": governance_metadata["accepted_owner_keys"],
+                        "accepted_environment_keys": governance_metadata["accepted_environment_keys"],
+                        "accepted_environment_values": governance_metadata["accepted_environment_values"],
+                    },
                 )
             )
 

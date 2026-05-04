@@ -38,32 +38,27 @@ Completed:
 - `/api/operations/risks?include_suppressed=true` suppressed review flow
 - `/risks` frontend Risk Dashboard, Risk Thresholds editor, and Acknowledge/Suppress/Clear controls
 - frontend risk utility tests
+- owner/team/environment taxonomy governance checks
 
 ## Immediate next recommendations
 
-1. Add owner/tag taxonomy instead of treating any tag as governance evidence.
-2. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
-3. Add safe action suggestion links that still require explicit approval.
-4. Add optional read-only SSH collector for evidence gaps.
-5. Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.
+1. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
+2. Add safe action suggestion links that still require explicit approval.
+3. Add optional read-only SSH collector for evidence gaps.
+4. Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.
 
-## Why owner/tag taxonomy is next
+## Owner/tag taxonomy baseline
 
 The dashboard now detects infrastructure risks, keeps local history, protects VM
 lifecycle state from stale/deleted/reused IDs, supports configurable thresholds,
-and lets operators acknowledge or suppress known exceptions in Gjallar-local DB
-state.
+lets operators acknowledge or suppress known exceptions in Gjallar-local DB
+state, and distinguishes required owner/team/environment metadata from incidental
+tags.
 
-The next governance gap is data quality: the current governance risk treats any
-explicit tag as a signal. Owner/team/environment taxonomy should make the policy
-more useful by distinguishing meaningful ownership metadata from incidental tags.
-
-Owner/tag taxonomy should define:
-
-- accepted owner/team/environment tag keys;
-- minimum metadata required before clearing a governance risk;
-- how unknown or free-form tags should be reported;
-- UI copy that explains exactly which metadata is missing.
+The fixed baseline policy is intentionally simple: a VM clears governance risk
+only when it has both an owner/team signal (for example `owner`, `owned-by`/`owned_by`, or `team`) and an environment signal. Unknown or
+free-form tags can remain on the VM, but they are treated as incidental evidence
+rather than ownership metadata.
 
 ## Later integrations
 
