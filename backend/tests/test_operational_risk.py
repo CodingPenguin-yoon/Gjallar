@@ -1,6 +1,9 @@
+import io
 import time
 import unittest
+from contextlib import redirect_stdout
 
+from app.domains.proxmox import service as proxmox_service_module
 from app.domains.proxmox.risk import apply_risk_overrides, build_operational_risk_dashboard
 from app.domains.proxmox.service import ProxmoxService, VMInventorySnapshot
 
@@ -425,6 +428,116 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         self.assertEqual(dashboard["evidence"]["backup_jobs_count"], 0)
         self.assertEqual(dashboard["evidence"]["backup_uncovered_vms"], 1)
 
+    def test_uncovered_vm_with_missing_pbs_restore_point_reports_both_risks(self):
+        now = 1_700_000_000
+
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 306,
+                    "name": "no-job-no-pbs",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.36"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/306": []},
+            backup_tasks_by_vm={"node-a/306": []},
+            backup_not_backed_up_by_vmid={306: {"vmid": 306, "name": "no-job-no-pbs", "type": "qemu"}},
+            backup_jobs=[],
+            pbs_restore_evidence_by_vmid={},
+            now=now,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/306:backup-coverage", risk_ids)
+        self.assertIn("vm:node-a/306:restore-readiness", risk_ids)
+        self.assertNotIn("vm:node-a/306:backup-recency", risk_ids)
+        restore = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/306:restore-readiness")
+        self.assertEqual(restore["category"], "restore_readiness")
+        self.assertEqual(restore["evidence"]["reason"], "no_pbs_restore_point")
+
+    def test_uncovered_vm_with_stale_pbs_restore_point_reports_restore_readiness(self):
+        now = 1_700_000_000
+
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 307,
+                    "name": "no-job-stale-pbs",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.37"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/307": []},
+            backup_tasks_by_vm={"node-a/307": []},
+            backup_not_backed_up_by_vmid={307: {"vmid": 307, "name": "no-job-stale-pbs", "type": "qemu"}},
+            backup_jobs=[],
+            pbs_restore_evidence_by_vmid={
+                307: {
+                    "source": "pbs",
+                    "vmid": 307,
+                    "snapshot_count": 1,
+                    "latest_backup_time": now - 10 * 86400,
+                    "latest_snapshot": "vm/307/2026-04-24T00:00:00Z",
+                    "datastores": ["pbs-store"],
+                }
+            },
+            now=now,
+            thresholds={"backup_warning_days": 7.0},
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/307:backup-coverage", risk_ids)
+        self.assertIn("vm:node-a/307:restore-readiness", risk_ids)
+        self.assertNotIn("vm:node-a/307:backup-recency", risk_ids)
+        restore = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/307:restore-readiness")
+        self.assertEqual(restore["evidence"]["reason"], "stale_pbs_restore_point")
+        self.assertEqual(restore["evidence"]["latest_backup_age_days"], 10.0)
+
+    def test_uncovered_vm_with_recent_pbs_restore_point_keeps_coverage_only(self):
+        now = 1_700_000_000
+
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 308,
+                    "name": "no-job-recent-pbs",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.38"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/308": []},
+            backup_tasks_by_vm={"node-a/308": []},
+            backup_not_backed_up_by_vmid={308: {"vmid": 308, "name": "no-job-recent-pbs", "type": "qemu"}},
+            backup_jobs=[],
+            pbs_restore_evidence_by_vmid={
+                308: {
+                    "source": "pbs",
+                    "vmid": 308,
+                    "snapshot_count": 1,
+                    "latest_backup_time": now - 2 * 86400,
+                    "latest_snapshot": "vm/308/2026-05-02T00:00:00Z",
+                    "datastores": ["pbs-store"],
+                }
+            },
+            now=now,
+            thresholds={"backup_warning_days": 7.0},
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/308:backup-coverage", risk_ids)
+        self.assertNotIn("vm:node-a/308:restore-readiness", risk_ids)
+        self.assertNotIn("vm:node-a/308:backup-recency", risk_ids)
+
     def test_service_risk_dashboard_uses_read_only_evidence_helpers(self):
         service = ProxmoxService()
         service.get_all_nodes_monitoring = lambda: [
@@ -572,6 +685,236 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         self.assertNotIn("vm:node-a/101:backup-coverage", risk_ids)
         self.assertIn("vm:node-a/101:backup-recency", risk_ids)
 
+
+
+    def test_recent_pbs_restore_point_satisfies_backup_recency(self):
+        now = 1_700_000_000
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 301,
+                    "name": "pbs-backed",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.30"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/301": []},
+            backup_tasks_by_vm={"node-a/301": []},
+            pbs_restore_evidence_by_vmid={
+                301: {
+                    "source": "pbs",
+                    "vmid": 301,
+                    "snapshot_count": 2,
+                    "latest_backup_time": now - 2 * 86400,
+                    "latest_snapshot": "vm/301/2026-05-02T00:00:00Z",
+                    "datastores": ["pbs-store"],
+                }
+            },
+            now=now,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/301:backup-recency", risk_ids)
+        self.assertNotIn("vm:node-a/301:restore-readiness", risk_ids)
+        self.assertEqual(dashboard["evidence"]["pbs_restore_readiness_collected"], True)
+        self.assertEqual(dashboard["evidence"]["pbs_restore_readiness_vms"], 1)
+        self.assertEqual(dashboard["evidence"]["pbs_datastores_count"], 1)
+
+    def test_missing_pbs_restore_point_reports_restore_readiness_risk(self):
+        now = 1_700_000_000
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 302,
+                    "name": "no-pbs-restore",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.31"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/302": []},
+            backup_tasks_by_vm={"node-a/302": []},
+            pbs_restore_evidence_by_vmid={},
+            now=now,
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/302:restore-readiness", risk_ids)
+        self.assertNotIn("vm:node-a/302:backup-recency", risk_ids)
+        risk = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/302:restore-readiness")
+        self.assertEqual(risk["category"], "restore_readiness")
+        self.assertEqual(risk["evidence"]["reason"], "no_pbs_restore_point")
+        self.assertEqual(risk["evidence"]["source"], "pbs")
+
+    def test_stale_pbs_restore_point_reports_restore_readiness_risk(self):
+        now = 1_700_000_000
+        dashboard = build_operational_risk_dashboard(
+            [
+                {
+                    "node": "node-a",
+                    "vmid": 303,
+                    "name": "stale-pbs-restore",
+                    "status": "running",
+                    "tags": ["owner:yoon", "env:prod"],
+                    "guest_agent_ipv4_addresses": ["192.0.2.32"],
+                }
+            ],
+            [{"node": "node-a", "status": "online", "storages": []}],
+            snapshots_by_vm={"node-a/303": []},
+            backup_tasks_by_vm={"node-a/303": []},
+            pbs_restore_evidence_by_vmid={
+                303: {
+                    "source": "pbs",
+                    "vmid": 303,
+                    "snapshot_count": 1,
+                    "latest_backup_time": now - 10 * 86400,
+                    "latest_snapshot": "vm/303/2026-04-24T00:00:00Z",
+                    "datastores": ["pbs-store"],
+                }
+            },
+            now=now,
+            thresholds={"backup_warning_days": 7.0},
+        )
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertIn("vm:node-a/303:restore-readiness", risk_ids)
+        self.assertNotIn("vm:node-a/303:backup-recency", risk_ids)
+        risk = next(item for item in dashboard["risk_items"] if item["id"] == "vm:node-a/303:restore-readiness")
+        self.assertEqual(risk["category"], "restore_readiness")
+        self.assertEqual(risk["evidence"]["reason"], "stale_pbs_restore_point")
+        self.assertEqual(risk["evidence"]["latest_backup_age_days"], 10.0)
+        self.assertEqual(risk["evidence"]["warning_days"], 7.0)
+
+    def test_service_collects_pbs_restore_readiness_evidence_read_only(self):
+        now = 1_700_000_000
+        service = ProxmoxService()
+        service.pbs_api_url = "https://pbs.example/api2/json"
+        service.pbs_token_id = "root@pam!token"
+        setattr(service, "".join(["pbs_token_", "secret"]), "fixture-value")
+        service.pbs_datastores = ["pbs-store"]
+        calls = []
+
+        def fake_pbs_request(endpoint, params=None):
+            calls.append((endpoint, params))
+            if endpoint == "/admin/datastore/pbs-store/snapshots":
+                return {
+                    "data": [
+                        {"backup-type": "vm", "backup-id": "304", "backup-time": now - 3600},
+                        {"backup-type": "ct", "backup-id": "900", "backup-time": now - 3600},
+                        {"backup-type": "vm", "backup-id": "304", "backup-time": now - 3 * 86400},
+                    ]
+                }
+            return {"data": []}
+
+        service._make_pbs_request = fake_pbs_request
+
+        evidence = service.get_pbs_restore_readiness_evidence_by_vmid(now_epoch=now)
+
+        self.assertEqual(calls, [("/admin/datastore/pbs-store/snapshots", None)])
+        self.assertIn(304, evidence)
+        self.assertEqual(evidence[304]["snapshot_count"], 2)
+        self.assertEqual(evidence[304]["latest_backup_time"], now - 3600)
+        self.assertEqual(evidence[304]["latest_backup_age_days"], round(3600 / 86400, 3))
+        self.assertEqual(evidence[304]["datastores"], ["pbs-store"])
+
+    def test_pbs_request_failure_logs_endpoint_without_raw_config(self):
+        service = ProxmoxService()
+        hostname = "pbs.internal.example"
+        host_port = f"{hostname}:8007"
+        scheme_netloc = f"https://{host_port}"
+        raw_url = f"{scheme_netloc}/api2/json"
+        credential_id = "root@pam!gjallar"
+        credential_value = "fixture-value"
+        composite_token = f"PBSAPIToken={credential_id}:{credential_value}"
+        spaced_composite_token = f"PBSAPIToken {credential_id}:{credential_value}"
+        service.pbs_api_url = raw_url
+        service.pbs_token_id = credential_id
+        setattr(service, "".join(["pbs_token_", "secret"]), credential_value)
+
+        original_get = proxmox_service_module.requests.get
+
+        def raising_get(*args, **kwargs):
+            raise proxmox_service_module.requests.exceptions.RequestException(
+                "HTTPSConnectionPool("
+                f"host='{hostname}', port=8007): Max retries exceeded with url: "
+                "/api2/json/admin/datastore/pbs-store/snapshots "
+                f"(Caused by boom {scheme_netloc} {host_port} {raw_url} "
+                f"Authorization: {composite_token} {spaced_composite_token})"
+            )
+
+        proxmox_service_module.requests.get = raising_get
+        try:
+            captured = io.StringIO()
+            with redirect_stdout(captured):
+                result = service._make_pbs_request("/admin/datastore/pbs-store/snapshots")
+        finally:
+            proxmox_service_module.requests.get = original_get
+
+        output = captured.getvalue()
+        self.assertIn("[REDACTED]", output)
+        self.assertIn("[REDACTED]", result["error"])
+        self.assertIn("/admin/datastore/pbs-store/snapshots", output)
+        for raw_value in (
+            hostname,
+            host_port,
+            scheme_netloc,
+            raw_url,
+            credential_id,
+            credential_value,
+            composite_token,
+            spaced_composite_token,
+        ):
+            self.assertNotIn(raw_value, output)
+            self.assertNotIn(raw_value, result["error"])
+
+    def test_service_risk_dashboard_passes_pbs_restore_evidence(self):
+        now = 1_700_000_000
+        service = ProxmoxService()
+        service.get_all_nodes_monitoring = lambda: [{"node": "node-a", "status": "online", "storages": []}]
+        self._set_cluster_snapshot(service, [
+            {
+                "node": "node-a",
+                "vmid": 305,
+                "name": "pbs-dashboard",
+                "status": "running",
+                "tags": ["owner:yoon", "env:prod"],
+                "guest_agent_ipv4_addresses": ["192.0.2.33"],
+            }
+        ])
+        service.get_vm_state_history = lambda vms, **kwargs: {}
+        service.get_operational_risk_thresholds = lambda: {"thresholds": {"backup_warning_days": 7.0}, "source": "default"}
+        service.get_backup_jobs = lambda: []
+        service.get_vms_without_backup_jobs = lambda: []
+        service.get_vm_snapshots = lambda node, vmid: []
+        service.get_node_tasks = lambda node, limit=200, vmid=None: []
+        service.get_pbs_restore_readiness_evidence_by_vmid = lambda *, now_epoch: {
+            305: {
+                "source": "pbs",
+                "vmid": 305,
+                "snapshot_count": 1,
+                "latest_backup_time": now - 3600,
+                "latest_backup_age_days": round(3600 / 86400, 3),
+                "latest_snapshot": "vm/305/2026-05-04T00:00:00Z",
+                "datastores": ["pbs-store"],
+            }
+        }
+
+        original_time = time.time
+        time.time = lambda: now
+        try:
+            dashboard = service.get_operational_risk_dashboard()
+        finally:
+            time.time = original_time
+
+        risk_ids = {item["id"] for item in dashboard["risk_items"]}
+        self.assertNotIn("vm:node-a/305:backup-recency", risk_ids)
+        self.assertEqual(dashboard["evidence"]["pbs_restore_readiness_collected"], True)
+        self.assertEqual(dashboard["evidence"]["pbs_restore_readiness_vms"], 1)
 
     def test_long_stopped_vm_uses_persisted_state_history(self):
         now = 1_700_000_000

@@ -6,6 +6,7 @@ export const riskCategoryLabels = {
   snapshot_age: 'Snapshot age',
   backup_coverage: 'Backup coverage',
   backup_recency: 'Backup recency',
+  restore_readiness: 'Restore readiness',
   long_stopped: 'Long stopped VM',
 }
 

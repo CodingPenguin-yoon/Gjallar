@@ -8,6 +8,7 @@ Proxmox API 연동 서비스 패키지
 import os
 import re
 import time
+import math
 import ipaddress
 import copy
 import threading
@@ -16,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 from dotenv import load_dotenv
 import urllib3
 from app.domains.proxmox.risk import DEFAULT_THRESHOLDS, apply_risk_overrides, build_operational_risk_dashboard
@@ -60,6 +62,11 @@ class ProxmoxService:
         self.token_id = os.getenv("PROXMOX_API_TOKEN_ID", "")
         self.token_secret = os.getenv("PROXMOX_API_TOKEN_SECRET", "")
         self.tls_insecure = os.getenv("PROXMOX_TLS_INSECURE", "false").lower() == "true"
+        self.pbs_api_url = self._normalize_optional_api_url(os.getenv("PBS_API_URL", ""))
+        self.pbs_token_id = os.getenv("PBS_API_TOKEN_ID", "")
+        self.pbs_token_secret = os.getenv("PBS_API_TOKEN_SECRET", "")
+        self.pbs_tls_insecure = os.getenv("PBS_TLS_INSECURE", "false").lower() == "true"
+        self.pbs_datastores = self._read_csv_env("PBS_DATASTORES")
         self.api_connect_timeout_seconds = self._read_float_env(
             "PROXMOX_API_CONNECT_TIMEOUT_SECONDS",
             5.0,
@@ -98,6 +105,16 @@ class ProxmoxService:
         if not self.api_url:
             self.api_url = None
 
+    def _normalize_optional_api_url(self, value: object) -> str:
+        text = str(value or "").strip().rstrip("/")
+        if text and not text.endswith("/api2/json"):
+            text = f"{text}/api2/json"
+        return text
+
+    def _read_csv_env(self, name: str) -> List[str]:
+        raw = os.getenv(name, "")
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
     def _read_float_env(self, name: str, default: float, *, minimum: float = 0.0) -> float:
         raw = os.getenv(name)
         if raw is None:
@@ -116,6 +133,13 @@ class ProxmoxService:
             return int(value)
         except (TypeError, ValueError):
             return int(default)
+
+    def _safe_float(self, value: object, default: float = 0.0) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return float(default)
+        return number if math.isfinite(number) else float(default)
 
     def _normalize_ipv4_address(self, value: object) -> Optional[str]:
         text = str(value or "").strip()
@@ -233,6 +257,75 @@ class ProxmoxService:
         return {
             "Authorization": f"PVEAPIToken={self.token_id}={self.token_secret}",
         }
+
+    def _pbs_configured(self) -> bool:
+        return bool(self.pbs_api_url and self.pbs_token_id and self.pbs_token_secret)
+
+    def _pbs_auth_headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"PBSAPIToken={self.pbs_token_id}:{self.pbs_token_secret}",
+        }
+
+    def _redact_pbs_log_message(self, message: object) -> str:
+        text = str(message)
+        sensitive_values = set()
+
+        configured_url = str(self.pbs_api_url or "").strip().rstrip("/")
+        if configured_url:
+            normalized_url = self._normalize_optional_api_url(configured_url)
+            sensitive_values.update({configured_url, normalized_url})
+            parsed = urlsplit(normalized_url)
+            if parsed.scheme and parsed.netloc:
+                sensitive_values.add(f"{parsed.scheme}://{parsed.netloc}")
+            if parsed.netloc:
+                sensitive_values.add(parsed.netloc)
+            if parsed.hostname:
+                sensitive_values.add(parsed.hostname)
+                if parsed.port:
+                    sensitive_values.add(f"{parsed.hostname}:{parsed.port}")
+
+        token_id = str(self.pbs_token_id or "")
+        token_secret = str(self.pbs_token_secret or "")
+        if token_id and token_secret:
+            sensitive_values.update(
+                {
+                    f"PBSAPIToken={token_id}:{token_secret}",
+                    f"PBSAPIToken {token_id}:{token_secret}",
+                    f"PBSAPIToken={token_id}={token_secret}",
+                    f"PBSAPIToken {token_id}={token_secret}",
+                }
+            )
+        sensitive_values.update(value for value in (token_id, token_secret) if value)
+
+        for sensitive_value in sorted(sensitive_values, key=len, reverse=True):
+            text = text.replace(sensitive_value, "[REDACTED]")
+        return text
+
+    def _make_pbs_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Execute one PBS read-only GET request."""
+        if not self._pbs_configured():
+            return {"data": [], "error": "PBS API is not configured"}
+        url = f"{self.pbs_api_url}{endpoint}"
+        try:
+            response = requests.get(
+                url,
+                headers=self._pbs_auth_headers(),
+                params=params,
+                verify=not self.pbs_tls_insecure,
+                timeout=self._request_timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as exc:
+            safe_error = self._redact_pbs_log_message(exc)
+            print(f"PBS API 요청 실패: {endpoint}")
+            print(f"에러: {safe_error}")
+            return {"data": [], "error": safe_error}
+        except Exception as exc:
+            safe_error = self._redact_pbs_log_message(exc)
+            print(f"PBS API 예외 발생: {endpoint}")
+            print(f"에러: {safe_error}")
+            return {"data": [], "error": safe_error}
 
     def _make_write_request(
         self,
@@ -923,6 +1016,108 @@ class ProxmoxService:
         """Return Proxmox-reported VMs not covered by backup jobs, or None on failure."""
         return self._get_read_only_list_endpoint("/cluster/backup-info/not-backed-up")
 
+    def get_pbs_datastores(self) -> Optional[List[str]]:
+        """Return configured/discovered PBS datastores, or None when collection failed/unconfigured."""
+        if not self._pbs_configured():
+            return None
+        if self.pbs_datastores:
+            return list(self.pbs_datastores)
+        result = self._make_pbs_request("/admin/datastore")
+        if not isinstance(result, dict) or result.get("error"):
+            return None
+        data = result.get("data", [])
+        if not isinstance(data, list):
+            return None
+        datastores: List[str] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("store") or item.get("datastore") or item.get("name") or "").strip()
+            if name and name not in datastores:
+                datastores.append(name)
+        return datastores
+
+    def get_pbs_datastore_snapshots(self, datastore: str) -> Optional[List[Dict[str, Any]]]:
+        """Return PBS snapshots in one datastore, or None when collection failed."""
+        datastore_name = str(datastore or "").strip()
+        if not datastore_name:
+            return None
+        endpoint = f"/admin/datastore/{quote(datastore_name, safe='')}/snapshots"
+        result = self._make_pbs_request(endpoint)
+        if not isinstance(result, dict) or result.get("error"):
+            return None
+        data = result.get("data", [])
+        if not isinstance(data, list):
+            return None
+        return [item for item in data if isinstance(item, dict)]
+
+    def get_pbs_restore_readiness_evidence_by_vmid(self, *, now_epoch: Optional[float] = None) -> Optional[Dict[int, Dict[str, Any]]]:
+        """Collect PBS VM restore point evidence keyed by VMID.
+
+        This is read-only PBS API evidence. ``None`` means evidence was not
+        collected, while an empty dict means PBS was collected and no VM restore
+        points were found.
+        """
+        datastores = self.get_pbs_datastores()
+        if datastores is None:
+            return None
+        now_value = float(now_epoch if now_epoch is not None else time.time())
+        evidence: Dict[int, Dict[str, Any]] = {}
+        for datastore in datastores:
+            snapshots = self.get_pbs_datastore_snapshots(datastore)
+            if snapshots is None:
+                return None
+            for snapshot in snapshots:
+                backup_type = str(
+                    snapshot.get("backup-type")
+                    or snapshot.get("backup_type")
+                    or snapshot.get("type")
+                    or ""
+                ).strip().lower()
+                if backup_type != "vm":
+                    continue
+                vmid = self._safe_int(
+                    snapshot.get("backup-id")
+                    or snapshot.get("backup_id"),
+                    0,
+                )
+                if vmid <= 0:
+                    continue
+                backup_time = self._safe_float(
+                    snapshot.get("backup-time")
+                    or snapshot.get("backup_time")
+                    or snapshot.get("time"),
+                    0.0,
+                )
+                if backup_time <= 0:
+                    continue
+                record = evidence.setdefault(
+                    vmid,
+                    {
+                        "source": "pbs",
+                        "vmid": vmid,
+                        "snapshot_count": 0,
+                        "latest_backup_time": None,
+                        "latest_backup_age_days": None,
+                        "latest_snapshot": None,
+                        "datastores": [],
+                    },
+                )
+                record["snapshot_count"] += 1
+                if datastore not in record["datastores"]:
+                    record["datastores"].append(datastore)
+                if record["latest_backup_time"] is None or backup_time > float(record["latest_backup_time"]):
+                    record["latest_backup_time"] = backup_time
+                    record["latest_backup_age_days"] = round(max(0.0, (now_value - backup_time) / 86400), 3)
+                    record["latest_snapshot"] = (
+                        snapshot.get("snapshot")
+                        or snapshot.get("backup")
+                        or f"vm/{vmid}/{int(backup_time)}"
+                    )
+        for record in evidence.values():
+            record["datastores"] = sorted(record.get("datastores", []))
+        return evidence
+
     def get_operational_risk_dashboard(self, *, include_suppressed: bool = False) -> Dict[str, Any]:
         """Build a read-only operational risk dashboard from Proxmox evidence."""
         now_epoch = time.time()
@@ -937,6 +1132,7 @@ class ProxmoxService:
         threshold_config = self.get_operational_risk_thresholds()
         backup_jobs = self.get_backup_jobs()
         vms_without_backup_jobs = self.get_vms_without_backup_jobs()
+        pbs_restore_evidence_by_vmid = self.get_pbs_restore_readiness_evidence_by_vmid(now_epoch=now_epoch)
         backup_schedule_collected = backup_jobs is not None and vms_without_backup_jobs is not None
         backup_not_backed_up_by_vmid: Optional[Dict[int, Dict[str, Any]]] = None
         if backup_schedule_collected:
@@ -980,6 +1176,7 @@ class ProxmoxService:
             backup_tasks_by_vm=backup_tasks_by_vm,
             backup_not_backed_up_by_vmid=backup_not_backed_up_by_vmid,
             backup_jobs=backup_jobs if backup_schedule_collected else None,
+            pbs_restore_evidence_by_vmid=pbs_restore_evidence_by_vmid,
             vm_state_history=vm_state_history,
             thresholds=threshold_config.get("thresholds", {}),
             now=now_epoch,

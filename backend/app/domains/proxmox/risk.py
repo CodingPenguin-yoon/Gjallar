@@ -252,6 +252,46 @@ def _normalize_backup_not_backed_up_by_vmid(
     return normalized
 
 
+
+def _normalize_pbs_restore_evidence_by_vmid(
+    evidence: Optional[Mapping[Any, Mapping[str, Any]]],
+    *,
+    now_epoch: float,
+) -> Dict[int, Dict[str, Any]]:
+    normalized: Dict[int, Dict[str, Any]] = {}
+    if evidence is None:
+        return normalized
+    for key, record in evidence.items():
+        if not isinstance(record, Mapping):
+            continue
+        vmid = _safe_int(record.get("vmid", key), 0)
+        if vmid <= 0:
+            continue
+        latest_backup_time = _safe_float(record.get("latest_backup_time"), 0.0)
+        if latest_backup_time > 0:
+            latest_backup_age_days = _safe_float(
+                record.get("latest_backup_age_days"),
+                max(0.0, (now_epoch - latest_backup_time) / SECONDS_PER_DAY),
+            )
+        else:
+            latest_backup_age_days = None
+        datastores: List[str] = []
+        for datastore in record.get("datastores") or []:
+            datastore_name = str(datastore or "").strip()
+            if datastore_name and datastore_name not in datastores:
+                datastores.append(datastore_name)
+        normalized[vmid] = {
+            "source": str(record.get("source") or "pbs"),
+            "vmid": vmid,
+            "snapshot_count": max(0, _safe_int(record.get("snapshot_count"), 0)),
+            "latest_backup_time": latest_backup_time or None,
+            "latest_backup_age_days": round(latest_backup_age_days, 3) if latest_backup_age_days is not None else None,
+            "latest_snapshot": record.get("latest_snapshot"),
+            "datastores": sorted(datastores),
+        }
+    return normalized
+
+
 def _snapshot_age_days(snapshot: Mapping[str, Any], *, now_epoch: float) -> Optional[float]:
     snaptime = _safe_float(snapshot.get("snaptime") or snapshot.get("time"), 0.0)
     if snaptime <= 0:
@@ -396,6 +436,7 @@ def build_operational_risk_dashboard(
     backup_tasks_by_vm: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
     backup_not_backed_up_by_vmid: Optional[Mapping[Any, Mapping[str, Any]]] = None,
     backup_jobs: Optional[Sequence[Mapping[str, Any]]] = None,
+    pbs_restore_evidence_by_vmid: Optional[Mapping[Any, Mapping[str, Any]]] = None,
     vm_state_history: Optional[Mapping[str, Mapping[str, Any]]] = None,
     now: Optional[Any] = None,
     thresholds: Optional[Mapping[str, float]] = None,
@@ -412,6 +453,19 @@ def build_operational_risk_dashboard(
     backup_schedule_evidence_enabled = backup_not_backed_up_by_vmid is not None
     backup_not_backed_up = _normalize_backup_not_backed_up_by_vmid(backup_not_backed_up_by_vmid)
     backup_jobs_count = len([job for job in (backup_jobs or []) if isinstance(job, Mapping)])
+    pbs_restore_evidence_collected = pbs_restore_evidence_by_vmid is not None
+    pbs_restore_evidence = _normalize_pbs_restore_evidence_by_vmid(
+        pbs_restore_evidence_by_vmid,
+        now_epoch=now_epoch,
+    )
+    pbs_datastores = sorted(
+        {
+            str(datastore)
+            for record in pbs_restore_evidence.values()
+            for datastore in record.get("datastores", [])
+            if str(datastore or "").strip()
+        }
+    )
 
     risks: List[Dict[str, Any]] = []
 
@@ -614,6 +668,58 @@ def build_operational_risk_dashboard(
                     )
                 )
 
+        if pbs_restore_evidence_collected:
+            skip_backup_recency = True
+            pbs_record = pbs_restore_evidence.get(vmid)
+            warning_days = effective_thresholds["backup_warning_days"]
+            if not pbs_record or _safe_int(pbs_record.get("snapshot_count"), 0) <= 0:
+                risks.append(
+                    _risk_item(
+                        item_id=f"vm:{key}:restore-readiness",
+                        severity="warning",
+                        category="restore_readiness",
+                        scope="vm",
+                        node=node,
+                        vmid=vmid,
+                        vm_name=vm_name,
+                        title=f"{vm_name} has no PBS restore point evidence",
+                        detail="PBS direct API evidence was collected, but no VM restore point was found for this VM.",
+                        recommendation="Confirm that the VM is backed up to PBS or document why restore readiness is intentionally unavailable.",
+                        evidence={
+                            "source": "pbs",
+                            "reason": "no_pbs_restore_point",
+                            "warning_days": warning_days,
+                        },
+                    )
+                )
+            else:
+                latest_age_days = _safe_float(pbs_record.get("latest_backup_age_days"), float("inf"))
+                if latest_age_days > warning_days:
+                    risks.append(
+                        _risk_item(
+                            item_id=f"vm:{key}:restore-readiness",
+                            severity="warning",
+                            category="restore_readiness",
+                            scope="vm",
+                            node=node,
+                            vmid=vmid,
+                            vm_name=vm_name,
+                            title=f"{vm_name} PBS restore point is {latest_age_days:.0f} days old",
+                            detail=f"Latest PBS restore point is older than the configured {warning_days:.0f}-day backup/restore readiness threshold.",
+                            recommendation="Run or schedule a fresh backup and consider a restore drill for important workloads.",
+                            evidence={
+                                "source": pbs_record.get("source", "pbs"),
+                                "reason": "stale_pbs_restore_point",
+                                "latest_backup_time": pbs_record.get("latest_backup_time"),
+                                "latest_backup_age_days": latest_age_days,
+                                "latest_snapshot": pbs_record.get("latest_snapshot"),
+                                "snapshot_count": pbs_record.get("snapshot_count"),
+                                "datastores": pbs_record.get("datastores", []),
+                                "warning_days": warning_days,
+                            },
+                        )
+                    )
+
         if backup_evidence_enabled and not skip_backup_recency and not _has_recent_successful_backup(
             backup_tasks_by_vm.get(key, []) or [],
             now_epoch=now_epoch,
@@ -687,6 +793,9 @@ def build_operational_risk_dashboard(
             "backup_task_history_collected": backup_evidence_enabled,
             "backup_schedule_collected": backup_schedule_evidence_enabled,
             "backup_jobs_count": backup_jobs_count if backup_schedule_evidence_enabled else None,
+            "pbs_restore_readiness_collected": pbs_restore_evidence_collected,
+            "pbs_restore_readiness_vms": len(pbs_restore_evidence) if pbs_restore_evidence_collected else None,
+            "pbs_datastores_count": len(pbs_datastores) if pbs_restore_evidence_collected else None,
             "vm_state_history_collected": vm_state_history_collected,
             "vm_state_history_vms": len(vm_state_history) if vm_state_history_collected else None,
             "backup_uncovered_vms": len(backup_not_backed_up) if backup_schedule_evidence_enabled else None,

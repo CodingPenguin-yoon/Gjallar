@@ -39,13 +39,23 @@ Completed:
 - `/risks` frontend Risk Dashboard, Risk Thresholds editor, and Acknowledge/Suppress/Clear controls
 - frontend risk utility tests
 - owner/team/environment taxonomy governance checks
+- PBS direct API restore readiness evidence and `restore_readiness` risk
 
 ## Immediate next recommendations
 
-1. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
+1. Add PBS datastore capacity/health evidence and restore drill records after the first restore-readiness slice.
 2. Add safe action suggestion links that still require explicit approval.
 3. Add optional read-only SSH collector for evidence gaps.
 4. Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.
+
+## PBS restore readiness baseline
+
+The dashboard can optionally collect PBS datastore snapshots through read-only API
+calls and correlate VM restore points by VMID. When PBS evidence is collected, a
+recent PBS restore point satisfies backup recency. Missing or stale PBS restore
+points produce `restore_readiness` warnings instead of relying only on Proxmox
+task-history fallback. Missing PBS configuration leaves the evidence uncollected
+rather than pretending the restore state is healthy.
 
 ## Owner/tag taxonomy baseline
 

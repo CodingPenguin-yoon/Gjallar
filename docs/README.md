@@ -147,6 +147,8 @@ Roadmap:
 - DB-backed operational risk threshold configuration and UI
 - VM state lifecycle hardening for stale cleanup and VMID reuse guard
 - operational risk acknowledge/suppress controls and local override API
+- owner/team/environment taxonomy governance checks
+- optional PBS direct API restore readiness evidence
 
 Recent verified commits:
 
@@ -156,17 +158,19 @@ Recent verified commits:
 854cd15 [verified] Add VM state history risk evidence
 a473dc8 [verified] Add operational risk threshold configuration
 30b983a [verified] Harden VM state lifecycle tracking
-[current] [verified] Add operational risk acknowledge and suppress controls
+8732663 [verified] Add operational risk acknowledge and suppress controls
+0428dfd [verified] Add owner taxonomy governance risk checks
+[current] [verified] Add PBS restore readiness risk evidence
 ```
 
 ---
 
 ## Next work
 
-1. owner/tag taxonomy check
-2. PBS direct API / restore readiness
-3. optional read-only SSH collector for evidence gaps
-4. safe action suggestion links that still require explicit approval
-5. optional lower-level fail-closed reconciliation API cleanup
+1. PBS datastore capacity/health and restore drill records
+2. optional read-only SSH collector for evidence gaps
+3. safe action suggestion links that still require explicit approval
+4. optional lower-level fail-closed reconciliation API cleanup
+5. naming/storage/bridge/template policy expansion
 
 If repo docs and shared storage disagree, follow shared storage first and update both.

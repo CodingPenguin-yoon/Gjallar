@@ -65,6 +65,8 @@ snapshot list GET
 task history GET
 GET /cluster/backup
 GET /cluster/backup-info/not-backed-up
+PBS GET /admin/datastore
+PBS GET /admin/datastore/{store}/snapshots
 ```
 
 Gjallar-local evidence/configuration/operator state includes:
@@ -168,15 +170,24 @@ These values are configurable through Gjallar threshold policy.
 - This is stronger than task-history-only evidence because it checks schedule/job coverage directly.
 - If a VM is explicitly uncovered by backup jobs, the dashboard shows `backup_coverage` and suppresses the less-specific `backup_recency` warning for that VM.
 
+### Restore readiness / PBS direct API
+
+- optional PBS evidence is collected through read-only PBS API calls when `PBS_API_URL`, `PBS_API_TOKEN_ID`, and `PBS_API_TOKEN_SECRET` are configured.
+- Gjallar lists configured/discovered datastores and reads datastore snapshots, then normalizes `vm/<vmid>/<backup-time>` restore points by VMID.
+- If PBS evidence is collected and a VM has no PBS restore point, the dashboard emits `restore_readiness` warning.
+- If the latest PBS restore point is older than the configured backup threshold, the dashboard emits `restore_readiness` warning.
+- If the latest PBS restore point is recent, PBS evidence satisfies backup recency and avoids a weaker task-history fallback warning.
+- PBS collection failures or missing PBS config are represented as uncollected evidence rather than a false healthy signal.
+
 ### Backup recency fallback
 
 Default threshold:
 
 - warning if no successful `vzdump`/backup task evidence is found within 7 days.
 
-This remains useful when schedule coverage evidence exists but the VM is not
-reported as uncovered, or when schedule evidence is unavailable. The days value
-is configurable through Gjallar threshold policy.
+This remains useful when schedule/PBS evidence exists but does not provide a
+stronger answer, or when schedule/PBS evidence is unavailable. The days value is
+configurable through Gjallar threshold policy.
 
 ### Long stopped VM
 
@@ -201,6 +212,21 @@ High-level behavior:
 3. Invalid threshold writes are rejected with HTTP 422.
 4. If the DB/table is unavailable during risk calculation, Gjallar falls back to defaults rather than failing the dashboard.
 5. `DELETE /api/operations/risks/thresholds` resets policy to defaults.
+
+## PBS restore readiness configuration
+
+Optional environment variables:
+
+```text
+PBS_API_URL=https://pbs.example:8007/api2/json
+PBS_API_TOKEN_ID=root@pam!gjallar
+PBS_API_TOKEN_SECRET=<secret>
+PBS_TLS_INSECURE=false
+PBS_DATASTORES=store-a,store-b
+```
+
+If `PBS_DATASTORES` is omitted, Gjallar attempts read-only datastore discovery
+through `GET /admin/datastore`. Secrets are never included in risk evidence.
 
 ## Risk acknowledge/suppress policy
 
