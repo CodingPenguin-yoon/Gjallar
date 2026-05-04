@@ -7,12 +7,27 @@ from typing import Any, List, Literal, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - compatibility for older local tooling
+    ConfigDict = None
+
 from app.domains.proxmox.service import ProxmoxService
 from app.shared.network import network_service
 
 
 router = APIRouter()
 proxmox_service = ProxmoxService()
+
+
+class ExtraForbidRequestModel(BaseModel):
+    """Request model base that forbids extra fields on Pydantic v1 and v2."""
+
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra="forbid")
+    else:  # pragma: no cover - exercised only on Pydantic v1
+        class Config:
+            extra = "forbid"
 
 
 class ServerResponse(BaseModel):
@@ -102,7 +117,7 @@ class UpdateInstanceResourcesResponse(BaseModel):
     message: str
     details: dict
 
-class OperationalRiskThresholdUpdateRequest(BaseModel):
+class OperationalRiskThresholdUpdateRequest(ExtraForbidRequestModel):
     """Local Gjallar risk threshold update request."""
 
     storage_warning_percent: Optional[float] = Field(default=None, gt=0, le=100)
@@ -113,13 +128,29 @@ class OperationalRiskThresholdUpdateRequest(BaseModel):
     stopped_warning_days: Optional[float] = Field(default=None, ge=1, le=3650)
     stopped_critical_days: Optional[float] = Field(default=None, ge=1, le=3650)
 
-    class Config:
-        extra = "forbid"
-
     def to_updates(self) -> dict[str, Any]:
         if hasattr(self, "model_dump"):
             return self.model_dump(exclude_none=True)
         return self.dict(exclude_none=True)
+
+
+class OperationalRiskOverrideRequest(ExtraForbidRequestModel):
+    """Local acknowledge/suppress request for a deterministic risk item."""
+
+    risk_id: str = Field(min_length=1, max_length=512)
+    status: Literal["acknowledged", "suppressed"]
+    reason: Optional[str] = Field(default=None, max_length=2000)
+    expires_at: Optional[float] = Field(default=None, gt=0)
+    def to_updates(self) -> dict[str, Any]:
+        if hasattr(self, "model_dump"):
+            return self.model_dump(exclude_none=True)
+        return self.dict(exclude_none=True)
+
+
+class OperationalRiskOverrideClearRequest(ExtraForbidRequestModel):
+    """Clear local acknowledge/suppress state for one risk item."""
+
+    risk_id: str = Field(min_length=1, max_length=512)
 
 
 @router.get("/servers", response_model=ServerResponse)
@@ -365,16 +396,56 @@ def get_server_vms(server_id: str):
 
 
 @router.get("/operations/risks")
-def get_operational_risks():
+def get_operational_risks(include_suppressed: bool = False):
     """
     운영 리스크 대시보드 조회 (read-only)
     """
     try:
-        return proxmox_service.get_operational_risk_dashboard()
+        return proxmox_service.get_operational_risk_dashboard(include_suppressed=include_suppressed)
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"운영 리스크 조회 실패: {str(e)}",
+        )
+
+
+@router.get("/operations/risks/overrides")
+def list_operational_risk_overrides():
+    """운영 리스크 acknowledge/suppress 상태 조회 (Gjallar DB only)."""
+    try:
+        return proxmox_service.list_operational_risk_overrides()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 override 조회 실패: {str(e)}",
+        )
+
+
+@router.put("/operations/risks/overrides")
+def update_operational_risk_override(request: OperationalRiskOverrideRequest):
+    """운영 리스크 acknowledge/suppress 상태 저장 (Gjallar DB only)."""
+    try:
+        return proxmox_service.update_operational_risk_override(request.to_updates())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 override 저장 실패: {str(e)}",
+        )
+
+
+@router.post("/operations/risks/overrides/clear")
+def clear_operational_risk_override(request: OperationalRiskOverrideClearRequest):
+    """운영 리스크 acknowledge/suppress 상태 제거 (Gjallar DB only)."""
+    try:
+        return proxmox_service.clear_operational_risk_override(request.risk_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"운영 리스크 override 삭제 실패: {str(e)}",
         )
 
 

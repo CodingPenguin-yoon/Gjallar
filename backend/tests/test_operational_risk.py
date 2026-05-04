@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from app.domains.proxmox.risk import build_operational_risk_dashboard
+from app.domains.proxmox.risk import apply_risk_overrides, build_operational_risk_dashboard
 from app.domains.proxmox.service import ProxmoxService, VMInventorySnapshot
 
 
@@ -75,6 +75,193 @@ class OperationalRiskDashboardTest(unittest.TestCase):
         self.assertIn("vm:node-a/101:snapshot:before-upgrade", risk_ids)
         self.assertIn("vm:node-a/101:backup-recency", risk_ids)
         self.assertNotIn("vm:node-a/102:backup-recency", risk_ids)
+
+    def test_acknowledged_risk_remains_visible_with_override_metadata(self):
+        dashboard = {
+            "status": "warning",
+            "generated_at": 1_700_000_000,
+            "summary": {
+                "total_risks": 1,
+                "critical": 0,
+                "warning": 1,
+                "info": 0,
+                "affected_nodes": 1,
+                "affected_vms": 1,
+                "total_nodes": 1,
+                "total_vms": 1,
+                "categories": {"backup_recency": 1},
+            },
+            "risk_items": [
+                {
+                    "id": "vm:node-a/101:backup-recency",
+                    "severity": "warning",
+                    "category": "backup_recency",
+                    "scope": "vm",
+                    "node": "node-a",
+                    "vmid": 101,
+                    "vm_name": "app-01",
+                }
+            ],
+        }
+
+        merged = apply_risk_overrides(
+            dashboard,
+            {
+                "vm:node-a/101:backup-recency": {
+                    "risk_id": "vm:node-a/101:backup-recency",
+                    "status": "acknowledged",
+                    "reason": "maintenance window accepted",
+                    "updated_at": 1_700_000_001,
+                    "updated_by": "local",
+                    "expires_at": None,
+                }
+            },
+            now=1_700_000_002,
+        )
+
+        self.assertEqual([item["id"] for item in merged["risk_items"]], ["vm:node-a/101:backup-recency"])
+        self.assertEqual(merged["risk_items"][0]["override"]["status"], "acknowledged")
+        self.assertEqual(merged["risk_items"][0]["override"]["reason"], "maintenance window accepted")
+        self.assertEqual(merged["summary"]["acknowledged"], 1)
+        self.assertEqual(merged["summary"]["suppressed"], 0)
+        self.assertEqual(merged["status"], "warning")
+
+    def test_suppressed_risk_is_hidden_by_default_and_counted(self):
+        dashboard = {
+            "status": "critical",
+            "generated_at": 1_700_000_000,
+            "summary": {
+                "total_risks": 2,
+                "critical": 1,
+                "warning": 1,
+                "info": 0,
+                "affected_nodes": 1,
+                "affected_vms": 1,
+                "total_nodes": 1,
+                "total_vms": 1,
+                "categories": {"storage_capacity": 1, "backup_recency": 1},
+            },
+            "risk_items": [
+                {"id": "storage:node-a:local:capacity", "severity": "critical", "category": "storage_capacity", "scope": "storage", "node": "node-a"},
+                {"id": "vm:node-a/101:backup-recency", "severity": "warning", "category": "backup_recency", "scope": "vm", "node": "node-a", "vmid": 101},
+            ],
+        }
+
+        merged = apply_risk_overrides(
+            dashboard,
+            {
+                "storage:node-a:local:capacity": {
+                    "risk_id": "storage:node-a:local:capacity",
+                    "status": "suppressed",
+                    "reason": "temporary lab storage pressure",
+                    "updated_at": 1_700_000_001,
+                    "updated_by": "local",
+                    "expires_at": None,
+                }
+            },
+            now=1_700_000_002,
+        )
+
+        self.assertEqual([item["id"] for item in merged["risk_items"]], ["vm:node-a/101:backup-recency"])
+        self.assertEqual(merged["summary"]["total_risks"], 1)
+        self.assertEqual(merged["summary"]["critical"], 0)
+        self.assertEqual(merged["summary"]["warning"], 1)
+        self.assertEqual(merged["summary"]["suppressed"], 1)
+        self.assertEqual(merged["status"], "warning")
+        self.assertNotIn("suppressed_risk_items", merged)
+
+    def test_suppressed_risk_can_be_returned_for_review(self):
+        dashboard = {
+            "status": "warning",
+            "generated_at": 1_700_000_000,
+            "summary": {
+                "total_risks": 1,
+                "critical": 0,
+                "warning": 1,
+                "info": 0,
+                "affected_nodes": 1,
+                "affected_vms": 1,
+                "total_nodes": 1,
+                "total_vms": 1,
+                "categories": {"backup_recency": 1},
+            },
+            "risk_items": [
+                {"id": "vm:node-a/101:backup-recency", "severity": "warning", "category": "backup_recency", "scope": "vm", "node": "node-a", "vmid": 101}
+            ],
+        }
+
+        merged = apply_risk_overrides(
+            dashboard,
+            {
+                "vm:node-a/101:backup-recency": {
+                    "risk_id": "vm:node-a/101:backup-recency",
+                    "status": "suppressed",
+                    "reason": "lab exception",
+                    "updated_at": 1_700_000_001,
+                    "updated_by": "local",
+                    "expires_at": None,
+                }
+            },
+            now=1_700_000_002,
+            include_suppressed=True,
+        )
+
+        self.assertEqual(merged["risk_items"], [])
+        self.assertEqual([item["id"] for item in merged["suppressed_risk_items"]], ["vm:node-a/101:backup-recency"])
+        self.assertEqual(merged["suppressed_risk_items"][0]["override"]["status"], "suppressed")
+        self.assertEqual(merged["summary"]["suppressed"], 1)
+        self.assertEqual(merged["status"], "healthy")
+
+    def test_router_forwards_risk_override_requests_to_service(self):
+        from app.domains.proxmox import router as proxmox_router
+
+        calls = []
+
+        class FakeService:
+            def get_operational_risk_dashboard(self, *, include_suppressed=False):
+                calls.append(("dashboard", include_suppressed))
+                return {"include_suppressed": include_suppressed}
+
+            def update_operational_risk_override(self, updates):
+                calls.append(("update", updates))
+                return {"risk_id": updates["risk_id"], "status": updates["status"]}
+
+            def clear_operational_risk_override(self, risk_id):
+                calls.append(("clear", risk_id))
+                return {"risk_id": risk_id, "cleared": True}
+
+        original_service = proxmox_router.proxmox_service
+        proxmox_router.proxmox_service = FakeService()
+        try:
+            self.assertEqual(proxmox_router.get_operational_risks(include_suppressed=True), {"include_suppressed": True})
+            request = proxmox_router.OperationalRiskOverrideRequest(
+                risk_id="vm:node-a/101:backup-recency",
+                status="acknowledged",
+                reason="accepted",
+            )
+            self.assertNotIn("model_config", request.to_updates())
+            with self.assertRaises(Exception):
+                proxmox_router.OperationalRiskOverrideRequest(
+                    risk_id="vm:node-a/101:backup-recency",
+                    status="acknowledged",
+                    updated_by="spoofed-client",
+                )
+            self.assertEqual(
+                proxmox_router.update_operational_risk_override(request),
+                {"risk_id": "vm:node-a/101:backup-recency", "status": "acknowledged"},
+            )
+            clear_request = proxmox_router.OperationalRiskOverrideClearRequest(risk_id="vm:node-a/101:backup-recency")
+            self.assertEqual(
+                proxmox_router.clear_operational_risk_override(clear_request),
+                {"risk_id": "vm:node-a/101:backup-recency", "cleared": True},
+            )
+        finally:
+            proxmox_router.proxmox_service = original_service
+
+        self.assertEqual(calls[0], ("dashboard", True))
+        self.assertEqual(calls[1][0], "update")
+        self.assertEqual(calls[1][1]["reason"], "accepted")
+        self.assertEqual(calls[2], ("clear", "vm:node-a/101:backup-recency"))
 
     def test_backup_risk_is_skipped_when_backup_evidence_not_collected(self):
         dashboard = build_operational_risk_dashboard(

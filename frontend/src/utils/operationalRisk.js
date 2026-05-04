@@ -137,8 +137,31 @@ export function getRiskSeverityTone(severity) {
   }
 }
 
+export function normalizeRiskOverride(rawOverride = null) {
+  if (!rawOverride || typeof rawOverride !== 'object') return null
+  return {
+    riskId: rawOverride.risk_id || rawOverride.riskId || '',
+    status: rawOverride.status || null,
+    reason: rawOverride.reason || '',
+    updatedAt: rawOverride.updated_at ?? rawOverride.updatedAt ?? null,
+    expiresAt: rawOverride.expires_at ?? rawOverride.expiresAt ?? null,
+    updatedBy: rawOverride.updated_by || rawOverride.updatedBy || '',
+  }
+}
+
+function normalizeRiskItem(item = {}) {
+  const normalized = { ...item }
+  if (item.override) {
+    normalized.override = normalizeRiskOverride(item.override)
+  }
+  return normalized
+}
+
 export function normalizeRiskDashboard(payload = {}) {
-  const riskItems = Array.isArray(payload.risk_items) ? payload.risk_items : []
+  const rawRiskItems = Array.isArray(payload.risk_items) ? payload.risk_items : []
+  const rawSuppressedRiskItems = Array.isArray(payload.suppressed_risk_items) ? payload.suppressed_risk_items : []
+  const riskItems = rawRiskItems.map(normalizeRiskItem)
+  const suppressedRiskItems = rawSuppressedRiskItems.map(normalizeRiskItem)
   const summary = payload.summary || {}
   return {
     status: payload.status || 'healthy',
@@ -152,9 +175,12 @@ export function normalizeRiskDashboard(payload = {}) {
       affectedVms: Number(summary.affected_vms || 0),
       totalNodes: Number(summary.total_nodes || 0),
       totalVms: Number(summary.total_vms || 0),
+      acknowledged: Number(summary.acknowledged || 0),
+      suppressed: Number(summary.suppressed ?? summary.suppressed_count ?? suppressedRiskItems.length ?? 0),
       categories: summary.categories || {},
     },
     riskItems,
+    suppressedRiskItems,
     thresholds: payload.thresholds || {},
     thresholdConfig: payload.threshold_config || null,
   }

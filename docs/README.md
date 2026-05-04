@@ -55,6 +55,7 @@ Read these before implementation work:
 - long-stopped VM risk with Gjallar-local state history
 - lifecycle hardening for stale VM state and VMID reuse
 - configurable operational risk thresholds stored in Gjallar DB
+- risk acknowledge/suppress overrides stored in Gjallar DB
 
 ### Act
 
@@ -145,6 +146,7 @@ Roadmap:
 - Long-stopped VM risk foundation
 - DB-backed operational risk threshold configuration and UI
 - VM state lifecycle hardening for stale cleanup and VMID reuse guard
+- operational risk acknowledge/suppress controls and local override API
 
 Recent verified commits:
 
@@ -153,17 +155,18 @@ Recent verified commits:
 7c2ca71 Add backup schedule risk evidence
 854cd15 [verified] Add VM state history risk evidence
 a473dc8 [verified] Add operational risk threshold configuration
-[current] [verified] Harden VM state lifecycle tracking
+30b983a [verified] Harden VM state lifecycle tracking
+[current] [verified] Add operational risk acknowledge and suppress controls
 ```
 
 ---
 
 ## Next work
 
-1. risk acknowledge/suppress
-2. owner/tag taxonomy check
-3. PBS direct API / restore readiness
-4. optional read-only SSH collector for evidence gaps
+1. owner/tag taxonomy check
+2. PBS direct API / restore readiness
+3. optional read-only SSH collector for evidence gaps
+4. safe action suggestion links that still require explicit approval
 5. optional lower-level fail-closed reconciliation API cleanup
 
 If repo docs and shared storage disagree, follow shared storage first and update both.

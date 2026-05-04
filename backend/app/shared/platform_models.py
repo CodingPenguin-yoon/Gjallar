@@ -87,3 +87,16 @@ class OperationalRiskThresholds(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     thresholds_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class OperationalRiskOverride(Base):
+    """Local acknowledge/suppress state for deterministic operational risk items."""
+
+    __tablename__ = "operational_risk_overrides"
+
+    risk_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[float] = mapped_column(Float, nullable=False)
+    expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_by: Mapped[str] = mapped_column(Text, nullable=False, default="local")

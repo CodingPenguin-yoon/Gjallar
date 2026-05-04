@@ -31,32 +31,39 @@ Completed:
 - DB-backed configurable thresholds for backup/snapshot/storage/stopped policies
 - threshold API: `GET/PUT/DELETE /api/operations/risks/thresholds`
 - `/api/operations/risks` response `threshold_config`
-- `/risks` frontend Risk Dashboard and Risk Thresholds editor
 - stale `operational_vm_state` cleanup/reconciliation and VMID reuse guard
 - inventory completeness/scope guard for lifecycle reconciliation
+- risk acknowledge/suppress local override store/API/merge flow
+- override API: `GET/PUT /api/operations/risks/overrides` and `POST /api/operations/risks/overrides/clear`
+- `/api/operations/risks?include_suppressed=true` suppressed review flow
+- `/risks` frontend Risk Dashboard, Risk Thresholds editor, and Acknowledge/Suppress/Clear controls
 - frontend risk utility tests
 
 ## Immediate next recommendations
 
-1. Add risk suppress/acknowledge state.
-2. Add owner/tag taxonomy instead of treating any tag as governance evidence.
-3. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
-4. Add safe action suggestion links that still require explicit approval.
+1. Add owner/tag taxonomy instead of treating any tag as governance evidence.
+2. Add PBS-specific capacity/restore assurance evidence if PBS API access is configured.
+3. Add safe action suggestion links that still require explicit approval.
+4. Add optional read-only SSH collector for evidence gaps.
 5. Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.
 
-## Why risk acknowledge/suppress is next
+## Why owner/tag taxonomy is next
 
-The dashboard now detects infrastructure risks, keeps local history, and protects
-VM lifecycle state from stale/deleted/reused IDs. The next operator-facing gap is
-intent: some risks are known exceptions, maintenance windows, or accepted debt.
+The dashboard now detects infrastructure risks, keeps local history, protects VM
+lifecycle state from stale/deleted/reused IDs, supports configurable thresholds,
+and lets operators acknowledge or suppress known exceptions in Gjallar-local DB
+state.
 
-Risk acknowledge/suppress should add controlled local Gjallar state so operators
-can record:
+The next governance gap is data quality: the current governance risk treats any
+explicit tag as a signal. Owner/team/environment taxonomy should make the policy
+more useful by distinguishing meaningful ownership metadata from incidental tags.
 
-- who acknowledged or suppressed a risk;
-- why it is acceptable;
-- when suppression expires;
-- whether the underlying evidence changed enough to require re-review.
+Owner/tag taxonomy should define:
+
+- accepted owner/team/environment tag keys;
+- minimum metadata required before clearing a governance risk;
+- how unknown or free-form tags should be reported;
+- UI copy that explains exactly which metadata is missing.
 
 ## Later integrations
 

@@ -18,8 +18,9 @@ from typing import Any, Dict, List, Literal, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import urllib3
-from app.domains.proxmox.risk import DEFAULT_THRESHOLDS, build_operational_risk_dashboard
+from app.domains.proxmox.risk import DEFAULT_THRESHOLDS, apply_risk_overrides, build_operational_risk_dashboard
 from app.domains.proxmox.risk_config import OperationalRiskThresholdStore
+from app.domains.proxmox.risk_overrides import OperationalRiskOverrideStore
 from app.domains.proxmox.risk_state import OperationalRiskStateStore
 
 # SSL 경고 비활성화 (자체 서명 인증서 사용 시)
@@ -82,6 +83,7 @@ class ProxmoxService:
         self._vm_inventory_cache_lock = threading.Lock()
         self._risk_state_store: Optional[OperationalRiskStateStore] = None
         self._risk_threshold_store: Optional[OperationalRiskThresholdStore] = None
+        self._risk_override_store: Optional[OperationalRiskOverrideStore] = None
         
         # 디버깅: 설정 확인
         if not self.api_url:
@@ -834,6 +836,11 @@ class ProxmoxService:
             self._risk_threshold_store = OperationalRiskThresholdStore()
         return self._risk_threshold_store
 
+    def _get_risk_override_store(self) -> OperationalRiskOverrideStore:
+        if self._risk_override_store is None:
+            self._risk_override_store = OperationalRiskOverrideStore()
+        return self._risk_override_store
+
     def get_operational_risk_thresholds(self) -> Dict[str, Any]:
         """Return Gjallar-owned risk threshold policy, falling back to defaults if DB is unavailable."""
         try:
@@ -856,6 +863,31 @@ class ProxmoxService:
     def reset_operational_risk_thresholds(self) -> Dict[str, Any]:
         """Reset local risk threshold policy to defaults."""
         return self._get_risk_threshold_store().reset_thresholds()
+
+    def list_operational_risk_overrides(self) -> Dict[str, Any]:
+        """Return active local acknowledge/suppress overrides."""
+        overrides = self._get_risk_override_store().list_active_overrides()
+        return {
+            "overrides": list(overrides.values()),
+            "count": len(overrides),
+            "database_available": True,
+        }
+
+    def update_operational_risk_override(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist a local acknowledge/suppress override for one risk item."""
+        return self._get_risk_override_store().update_override(updates)
+
+    def clear_operational_risk_override(self, risk_id: str) -> Dict[str, Any]:
+        """Clear a local acknowledge/suppress override for one risk item."""
+        return self._get_risk_override_store().clear_override(risk_id)
+
+    def _get_active_risk_overrides(self, *, now_epoch: float) -> Dict[str, Dict[str, Any]]:
+        try:
+            return self._get_risk_override_store().list_active_overrides(now=now_epoch)
+        except Exception as exc:
+            print("Gjallar operational risk override store unavailable")
+            print(f"에러: {exc}")
+            return {}
 
     def get_vm_state_history(
         self,
@@ -891,7 +923,7 @@ class ProxmoxService:
         """Return Proxmox-reported VMs not covered by backup jobs, or None on failure."""
         return self._get_read_only_list_endpoint("/cluster/backup-info/not-backed-up")
 
-    def get_operational_risk_dashboard(self) -> Dict[str, Any]:
+    def get_operational_risk_dashboard(self, *, include_suppressed: bool = False) -> Dict[str, Any]:
         """Build a read-only operational risk dashboard from Proxmox evidence."""
         now_epoch = time.time()
         nodes_monitoring = self.get_all_nodes_monitoring()
@@ -951,6 +983,12 @@ class ProxmoxService:
             vm_state_history=vm_state_history,
             thresholds=threshold_config.get("thresholds", {}),
             now=now_epoch,
+        )
+        dashboard = apply_risk_overrides(
+            dashboard,
+            self._get_active_risk_overrides(now_epoch=now_epoch),
+            now=now_epoch,
+            include_suppressed=bool(include_suppressed),
         )
         dashboard["threshold_config"] = threshold_config
         return dashboard

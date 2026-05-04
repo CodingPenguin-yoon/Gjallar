@@ -62,4 +62,36 @@ assert.deepEqual(validateRiskThresholdDraft({ ...thresholds, stoppedWarningDays:
 })
 assert.equal(validateRiskThresholdDraft(thresholds).valid, true)
 
+const overrideDashboard = normalizeRiskDashboard({
+  status: 'warning',
+  summary: {
+    total_risks: 1,
+    critical: 0,
+    warning: 1,
+    info: 0,
+    acknowledged: 1,
+    suppressed: 1,
+  },
+  risk_items: [
+    {
+      id: 'vm:node-a/101:backup-recency',
+      severity: 'warning',
+      override: { status: 'acknowledged', reason: 'accepted', updated_at: 1700000000 },
+    },
+  ],
+  suppressed_risk_items: [
+    {
+      id: 'storage:node-a:local:capacity',
+      severity: 'critical',
+      override: { status: 'suppressed', reason: 'lab exception', updated_at: 1700000000 },
+    },
+  ],
+})
+assert.equal(overrideDashboard.summary.acknowledged, 1)
+assert.equal(overrideDashboard.summary.suppressed, 1)
+assert.equal(overrideDashboard.riskItems[0].override.status, 'acknowledged')
+assert.equal(overrideDashboard.riskItems[0].override.updatedAt, 1700000000)
+assert.equal(overrideDashboard.suppressedRiskItems[0].id, 'storage:node-a:local:capacity')
+assert.equal(overrideDashboard.suppressedRiskItems[0].override.status, 'suppressed')
+
 console.log('operationalRisk tests passed')

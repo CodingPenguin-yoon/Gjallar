@@ -308,12 +308,44 @@ export const getServerVMs = async (serverId) => {
 }
 
 // Operational risk API
-export const getOperationalRisks = async () => {
+export const getOperationalRisks = async ({ includeSuppressed = false } = {}) => {
   try {
-    const response = await apiClient.get('/operations/risks')
+    const response = await apiClient.get('/operations/risks', {
+      params: includeSuppressed ? { include_suppressed: true } : undefined,
+    })
     return response
   } catch (error) {
     console.error('Get operational risks API error:', error)
+    throw error
+  }
+}
+
+export const listOperationalRiskOverrides = async () => {
+  try {
+    const response = await apiClient.get('/operations/risks/overrides')
+    return response
+  } catch (error) {
+    console.error('List operational risk overrides API error:', error)
+    throw error
+  }
+}
+
+export const updateOperationalRiskOverride = async (override) => {
+  try {
+    const response = await apiClient.put('/operations/risks/overrides', override)
+    return response
+  } catch (error) {
+    console.error('Update operational risk override API error:', error)
+    throw error
+  }
+}
+
+export const clearOperationalRiskOverride = async (riskId) => {
+  try {
+    const response = await apiClient.post('/operations/risks/overrides/clear', { risk_id: riskId })
+    return response
+  } catch (error) {
+    console.error('Clear operational risk override API error:', error)
     throw error
   }
 }

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Database, Info, Loader2, RefreshCw, Save, Server, ShieldCheck, SlidersHorizontal } from 'lucide-react'
-import { getOperationalRisks, updateOperationalRiskThresholds } from '../services/api'
+import { clearOperationalRiskOverride, getOperationalRisks, updateOperationalRiskOverride, updateOperationalRiskThresholds } from '../services/api'
 import {
   formatGeneratedAt,
   formatRiskScope,
@@ -99,11 +99,16 @@ function ThresholdEditor({ draft, onChange, onSave, saving, status }) {
   )
 }
 
-function RiskItemCard({ item }) {
+function RiskItemCard({ item, onOverride, onClearOverride, actioningRiskId, reviewMode = false }) {
   const tone = getRiskSeverityTone(item.severity)
   const category = getRiskCategoryLabel(item.category)
+  const override = item.override || null
+  const busy = actioningRiskId === item.id
+  const actionDisabled = busy || !item.id
+  const overrideStatus = String(override?.status || '').toLowerCase()
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className={`rounded-lg border p-4 shadow-sm ${reviewMode ? 'border-purple-200 bg-purple-50' : 'border-slate-200 bg-white'}`}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -115,24 +120,67 @@ function RiskItemCard({ item }) {
               {category}
             </span>
             <span className="text-xs text-slate-500">{formatRiskScope(item)}</span>
+            {override && (
+              <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${overrideStatus === 'suppressed' ? 'border-purple-200 bg-purple-100 text-purple-700' : 'border-emerald-200 bg-emerald-100 text-emerald-700'}`}>
+                {overrideStatus === 'suppressed' ? 'Suppressed' : 'Acknowledged'}
+              </span>
+            )}
           </div>
           <h3 className="mt-3 text-sm font-semibold text-slate-900">{item.title}</h3>
           <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
           <p className="mt-2 text-sm text-slate-700">
             <span className="font-medium">Recommendation:</span> {item.recommendation}
           </p>
+          {override && (
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <div className="font-semibold text-slate-700">Gjallar local override</div>
+              <div>Reason: {override.reason || 'No reason provided'}</div>
+              <div>Updated: {formatGeneratedAt(override.updatedAt)}</div>
+              {override.expiresAt && <div>Expires: {formatGeneratedAt(override.expiresAt)}</div>}
+            </div>
+          )}
         </div>
-        {item.evidence && Object.keys(item.evidence).length > 0 && (
-          <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 lg:max-w-xs">
-            <div className="mb-1 font-semibold text-slate-700">Evidence</div>
-            {Object.entries(item.evidence).slice(0, 4).map(([key, value]) => (
-              <div key={key} className="flex gap-2">
-                <span className="shrink-0 text-slate-400">{key}:</span>
-                <span className="truncate">{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</span>
-              </div>
-            ))}
+        <div className="flex flex-col gap-3 lg:items-end">
+          {item.evidence && Object.keys(item.evidence).length > 0 && (
+            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 lg:max-w-xs">
+              <div className="mb-1 font-semibold text-slate-700">Evidence</div>
+              {Object.entries(item.evidence).slice(0, 4).map(([key, value]) => (
+                <div key={key} className="flex gap-2">
+                  <span className="shrink-0 text-slate-400">{key}:</span>
+                  <span className="truncate">{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2 lg:justify-end">
+            <button
+              type="button"
+              onClick={() => onOverride(item, 'acknowledged')}
+              disabled={actionDisabled || overrideStatus === 'acknowledged'}
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Acknowledge
+            </button>
+            <button
+              type="button"
+              onClick={() => onOverride(item, 'suppressed')}
+              disabled={actionDisabled || overrideStatus === 'suppressed'}
+              className="rounded-md border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Suppress
+            </button>
+            {override && (
+              <button
+                type="button"
+                onClick={() => onClearOverride(item)}
+                disabled={actionDisabled}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
@@ -141,17 +189,20 @@ function RiskItemCard({ item }) {
 function OperationalRiskDashboard() {
   const [dashboard, setDashboard] = useState(null)
   const [thresholdDraft, setThresholdDraft] = useState(normalizeRiskThresholds({}))
+  const [includeSuppressed, setIncludeSuppressed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [savingThresholds, setSavingThresholds] = useState(false)
+  const [actioningRiskId, setActioningRiskId] = useState(null)
   const [thresholdStatus, setThresholdStatus] = useState(null)
+  const [overrideStatus, setOverrideStatus] = useState(null)
   const [error, setError] = useState(null)
 
-  const fetchRisks = async () => {
+  const fetchRisks = useCallback(async () => {
     try {
       setRefreshing(true)
       setError(null)
-      const response = await getOperationalRisks()
+      const response = await getOperationalRisks({ includeSuppressed })
       const payload = response.data || {}
       setDashboard(normalizeRiskDashboard(payload))
       setThresholdDraft(normalizeRiskThresholds(payload.thresholds || payload.threshold_config?.thresholds || {}))
@@ -163,13 +214,13 @@ function OperationalRiskDashboard() {
       setLoading(false)
       setRefreshing(false)
     }
-  }
+  }, [includeSuppressed])
 
   useEffect(() => {
     fetchRisks()
     const interval = setInterval(fetchRisks, 60000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchRisks])
 
   const handleThresholdChange = (name, value) => {
     setThresholdStatus(null)
@@ -197,8 +248,51 @@ function OperationalRiskDashboard() {
     }
   }
 
+  const promptOverrideReason = (item, status) => {
+    if (typeof window === 'undefined' || typeof window.prompt !== 'function') return ''
+    const label = status === 'suppressed' ? 'suppress' : 'acknowledge'
+    return window.prompt(`Reason to ${label} ${item.id}?`, item.override?.reason || '')
+  }
+
+  const handleRiskOverride = async (item, status) => {
+    const reason = promptOverrideReason(item, status)
+    if (reason === null) return
+    try {
+      setActioningRiskId(item.id)
+      setOverrideStatus(null)
+      await updateOperationalRiskOverride({
+        risk_id: item.id,
+        status,
+        reason: String(reason || '').trim(),
+      })
+      setOverrideStatus({ kind: 'success', message: `Risk ${status} state saved in Gjallar DB.` })
+      await fetchRisks()
+    } catch (err) {
+      console.error('Failed to update risk override:', err)
+      setOverrideStatus({ kind: 'error', message: err.response?.data?.detail || err.message || 'Failed to save risk override' })
+    } finally {
+      setActioningRiskId(null)
+    }
+  }
+
+  const handleClearOverride = async (item) => {
+    try {
+      setActioningRiskId(item.id)
+      setOverrideStatus(null)
+      await clearOperationalRiskOverride(item.id)
+      setOverrideStatus({ kind: 'success', message: 'Risk override cleared from Gjallar DB.' })
+      await fetchRisks()
+    } catch (err) {
+      console.error('Failed to clear risk override:', err)
+      setOverrideStatus({ kind: 'error', message: err.response?.data?.detail || err.message || 'Failed to clear risk override' })
+    } finally {
+      setActioningRiskId(null)
+    }
+  }
+
   const normalized = dashboard || normalizeRiskDashboard({})
   const sortedRisks = useMemo(() => sortRiskItems(normalized.riskItems), [normalized.riskItems])
+  const sortedSuppressedRisks = useMemo(() => sortRiskItems(normalized.suppressedRiskItems), [normalized.suppressedRiskItems])
   const categoryGroups = useMemo(() => groupRisksByCategory(sortedRisks), [sortedRisks])
   const statusTone = getRiskSeverityTone(normalized.status)
 
@@ -215,7 +309,7 @@ function OperationalRiskDashboard() {
           </p>
         </div>
         <button
-          onClick={fetchRisks}
+          onClick={() => fetchRisks()}
           disabled={refreshing}
           className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -259,11 +353,34 @@ function OperationalRiskDashboard() {
             status={thresholdStatus}
           />
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {overrideStatus && (
+            <div className={`rounded-lg border px-4 py-3 text-sm ${overrideStatus.kind === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+              {overrideStatus.message}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <RiskSummaryCard label="Critical" value={normalized.summary.critical} severity="critical" description="Immediate attention" />
             <RiskSummaryCard label="Warnings" value={normalized.summary.warning} severity="warning" description="Needs review" />
             <RiskSummaryCard label="Info" value={normalized.summary.info} severity="info" description="Governance hints" />
+            <RiskSummaryCard label="Acknowledged" value={normalized.summary.acknowledged} severity={normalized.summary.acknowledged ? 'healthy' : 'info'} description="Visible with metadata" />
+            <RiskSummaryCard label="Suppressed" value={normalized.summary.suppressed} severity={normalized.summary.suppressed ? 'warning' : 'healthy'} description="Hidden by default" />
             <RiskSummaryCard label="Affected VMs" value={normalized.summary.affectedVms} severity={normalized.summary.affectedVms ? 'warning' : 'healthy'} description={`${normalized.summary.affectedNodes} affected nodes`} />
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={includeSuppressed}
+                onChange={(event) => setIncludeSuppressed(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-800">Include suppressed risks for review</span>
+                <span className="block text-xs text-slate-500">Suppressed items stay hidden from the default list, but this view loads them in a separate review section.</span>
+              </span>
+            </label>
           </div>
 
           {Object.keys(categoryGroups).length > 0 && (
@@ -286,7 +403,11 @@ function OperationalRiskDashboard() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-green-200 bg-green-50 py-12 text-center">
               <ShieldCheck className="mb-4 h-12 w-12 text-green-600" />
               <p className="font-medium text-green-800">No operational risks detected</p>
-              <p className="mt-1 text-sm text-green-700">Current read-only checks did not find critical, warning, or info signals.</p>
+              <p className="mt-1 text-sm text-green-700">
+                {normalized.summary.suppressed > 0
+                  ? `${normalized.summary.suppressed} suppressed risk item(s) are hidden from this default list.`
+                  : 'Current read-only checks did not find critical, warning, or info signals.'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -295,7 +416,32 @@ function OperationalRiskDashboard() {
                 Risk items
               </div>
               {sortedRisks.map((item) => (
-                <RiskItemCard key={item.id} item={item} />
+                <RiskItemCard
+                  key={item.id}
+                  item={item}
+                  onOverride={handleRiskOverride}
+                  onClearOverride={handleClearOverride}
+                  actioningRiskId={actioningRiskId}
+                />
+              ))}
+            </div>
+          )}
+
+          {includeSuppressed && sortedSuppressedRisks.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-purple-800">
+                <Server className="h-4 w-4 text-purple-500" />
+                Suppressed risk review
+              </div>
+              {sortedSuppressedRisks.map((item) => (
+                <RiskItemCard
+                  key={item.id}
+                  item={item}
+                  onOverride={handleRiskOverride}
+                  onClearOverride={handleClearOverride}
+                  actioningRiskId={actioningRiskId}
+                  reviewMode
+                />
               ))}
             </div>
           )}

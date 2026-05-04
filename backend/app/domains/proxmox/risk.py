@@ -7,6 +7,7 @@ calls stay in the service layer.
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
@@ -27,11 +28,13 @@ SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2, "healthy": 3}
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         number = float(value)
     except (TypeError, ValueError):
         return default
-    return number if number == number else default
+    return number if math.isfinite(number) else default
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -168,6 +171,135 @@ def _snapshot_age_days(snapshot: Mapping[str, Any], *, now_epoch: float) -> Opti
         return None
     return max(0.0, (now_epoch - snaptime) / SECONDS_PER_DAY)
 
+
+
+def _active_risk_override(override: Mapping[str, Any], *, now_epoch: float) -> Optional[Dict[str, Any]]:
+    status = str(override.get("status") or "").strip().lower()
+    if status not in {"acknowledged", "suppressed"}:
+        return None
+    expires_at = override.get("expires_at")
+    if expires_at is not None and _safe_float(expires_at, now_epoch + 1) <= now_epoch:
+        return None
+    return {
+        "risk_id": str(override.get("risk_id") or ""),
+        "status": status,
+        "reason": str(override.get("reason") or ""),
+        "updated_at": override.get("updated_at"),
+        "updated_by": override.get("updated_by") or "local",
+        "expires_at": expires_at,
+    }
+
+
+def _dashboard_status_from_counts(counts: Mapping[str, int]) -> str:
+    if counts.get("critical", 0) > 0:
+        return "critical"
+    if counts.get("warning", 0) > 0:
+        return "warning"
+    if counts.get("info", 0) > 0:
+        return "info"
+    return "healthy"
+
+
+def _recompute_summary_for_visible_risks(
+    original_summary: Mapping[str, Any],
+    risk_items: Sequence[Mapping[str, Any]],
+    *,
+    acknowledged_count: int,
+    suppressed_count: int,
+) -> Dict[str, Any]:
+    counts = {"critical": 0, "warning": 0, "info": 0}
+    category_counts: Dict[str, int] = {}
+    affected_nodes = set()
+    affected_vms = set()
+
+    for risk in risk_items:
+        severity = str(risk.get("severity") or "info")
+        counts[severity] = counts.get(severity, 0) + 1
+        category = str(risk.get("category") or "unknown")
+        category_counts[category] = category_counts.get(category, 0) + 1
+        if risk.get("node"):
+            affected_nodes.add(str(risk["node"]))
+        if risk.get("scope") == "vm" and risk.get("node") and risk.get("vmid"):
+            affected_vms.add(f"{risk['node']}/{risk['vmid']}")
+
+    summary = dict(original_summary or {})
+    summary.update(
+        {
+            "total_risks": len(risk_items),
+            "critical": counts.get("critical", 0),
+            "warning": counts.get("warning", 0),
+            "info": counts.get("info", 0),
+            "affected_nodes": len(affected_nodes),
+            "affected_vms": len(affected_vms),
+            "categories": dict(sorted(category_counts.items())),
+            "acknowledged": acknowledged_count,
+            "suppressed": suppressed_count,
+        }
+    )
+    return summary
+
+
+def apply_risk_overrides(
+    dashboard: Mapping[str, Any],
+    overrides_by_risk_id: Mapping[str, Mapping[str, Any]] | None = None,
+    *,
+    now: Optional[Any] = None,
+    include_suppressed: bool = False,
+) -> Dict[str, Any]:
+    """Apply local acknowledge/suppress state to a risk dashboard response.
+
+    Suppressed risks are hidden from the visible ``risk_items`` list by default.
+    Acknowledged risks remain visible with override metadata attached. This is a
+    response-shaping step only; raw risk evidence is not deleted.
+    """
+
+    now_epoch = _now_epoch(now)
+    active_overrides: Dict[str, Dict[str, Any]] = {}
+    for risk_id, override in dict(overrides_by_risk_id or {}).items():
+        if not isinstance(override, Mapping):
+            continue
+        normalized = _active_risk_override({**dict(override), "risk_id": override.get("risk_id") or risk_id}, now_epoch=now_epoch)
+        if normalized is not None:
+            active_overrides[str(risk_id)] = normalized
+
+    visible_items: List[Dict[str, Any]] = []
+    suppressed_items: List[Dict[str, Any]] = []
+    acknowledged_count = 0
+    suppressed_count = 0
+
+    for item in list(dashboard.get("risk_items") or []):
+        if not isinstance(item, Mapping):
+            continue
+        risk_item = dict(item)
+        risk_id = str(risk_item.get("id") or "")
+        override = active_overrides.get(risk_id)
+        if override is None:
+            visible_items.append(risk_item)
+            continue
+        risk_item["override"] = override
+        if override["status"] == "suppressed":
+            suppressed_count += 1
+            if include_suppressed:
+                suppressed_items.append(risk_item)
+            continue
+        if override["status"] == "acknowledged":
+            acknowledged_count += 1
+        visible_items.append(risk_item)
+
+    result = dict(dashboard)
+    result["risk_items"] = visible_items
+    if include_suppressed:
+        result["suppressed_risk_items"] = suppressed_items
+    else:
+        result.pop("suppressed_risk_items", None)
+    result["summary"] = _recompute_summary_for_visible_risks(
+        dict(dashboard.get("summary") or {}),
+        visible_items,
+        acknowledged_count=acknowledged_count,
+        suppressed_count=suppressed_count,
+    )
+    result["status"] = _dashboard_status_from_counts(result["summary"])
+    return result
 
 def build_operational_risk_dashboard(
     vms: Sequence[Mapping[str, Any]],

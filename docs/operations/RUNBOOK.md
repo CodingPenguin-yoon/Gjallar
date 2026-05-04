@@ -63,6 +63,7 @@ task_logs
 platform_metadata
 operational_vm_state
 operational_risk_thresholds
+operational_risk_overrides
 ```
 
 `operational_vm_state` lifecycle columns:
@@ -135,7 +136,7 @@ bash ~/.hermes/skills/software-development/requesting-code-review/scripts/git_di
 - Do not commit `.env`, `data/`, tokens, keys/secrets, or local runtime artifacts.
 - Use `/api/provision` for new VM provisioning calls. Treat `/api/deploy` as a compatibility endpoint only.
 - Proxmox inventory calls are cached briefly; use manual refresh or wait for TTL expiry when checking recent changes.
-- Operational Risk Dashboard may write Gjallar-local observation/policy state, but must remain read-only with respect to Proxmox resources.
+- Operational Risk Dashboard may write Gjallar-local observation/policy/override state, but must remain read-only with respect to Proxmox resources.
 
 ## 8. Provisioning runtime prerequisites
 
@@ -218,6 +219,7 @@ HTTP 200
 status: healthy | info | warning | critical
 summary.total_nodes and summary.total_vms are populated
 threshold_config.source is default or database
+summary.suppressed is populated
 ```
 
 Evidence fields:
@@ -263,6 +265,7 @@ Safety boundary:
 - It may call Proxmox GET endpoints such as `/cluster/backup` and `/cluster/backup-info/not-backed-up`.
 - It may write Gjallar-local observations to `operational_vm_state`.
 - It may read Gjallar-local threshold policy from `operational_risk_thresholds`.
+- It may store/clear local acknowledge/suppress overrides in `operational_risk_overrides`.
 - It must not call terminate/delete/start/stop/shutdown/reboot, config mutation APIs, snapshot delete, or backup job create/update/delete.
 - Risk recommendations may mention manual actions, but the dashboard itself does not execute them.
 
@@ -305,8 +308,30 @@ after_reset_source: default
 after_reset_storage_warning: 80.0
 ```
 
+## 14. Operational Risk Overrides smoke
 
-## 13. VM state lifecycle hardening validation
+Risk acknowledge/suppress changes Gjallar-local override state only. Use a
+temporary smoke risk ID and clear it immediately afterward.
+
+```bash
+curl -sS -X PUT http://127.0.0.1:8001/api/operations/risks/overrides \
+  -H 'Content-Type: application/json' \
+  -d '{"risk_id":"smoke:operational-risk-override","status":"acknowledged","reason":"live smoke"}'
+curl -sS http://127.0.0.1:8001/api/operations/risks/overrides
+curl -sS -X POST http://127.0.0.1:8001/api/operations/risks/overrides/clear \
+  -H 'Content-Type: application/json' \
+  -d '{"risk_id":"smoke:operational-risk-override"}'
+```
+
+Expected result:
+
+```text
+PUT/list/clear return HTTP 200
+temporary smoke override is removed after clear
+/api/operations/risks?include_suppressed=true returns risk_items, suppressed_risk_items, and summary.suppressed
+```
+
+## 15. VM state lifecycle hardening validation
 
 Use this after changing Operational Risk Dashboard VM state persistence, stale
 cleanup, or VMID reuse handling. The dashboard must remain Proxmox read-only;
