@@ -151,17 +151,15 @@ class OperationalRiskStateStore:
         vms: Sequence[Mapping[str, Any]],
         *,
         observed_at: Any | None = None,
-        reconcile_missing: bool = True,
+        reconcile_missing: bool = False,
     ) -> Dict[str, Dict[str, Any]]:
         """Persist latest VM observations and return dashboard-keyed history evidence.
 
-        A non-empty valid inventory snapshot can also be used as a
-        reconciliation point: VMs that disappeared from a complete current
-        snapshot are marked inactive in Gjallar's local DB, and inactive rows
-        older than the retention window are purged. An empty snapshot is
-        treated conservatively as possibly uncollected evidence and does not
-        mark every known VM missing. Callers that know they have only a partial
-        snapshot must pass ``reconcile_missing=False``.
+        By default this method only records the VMs it was given. Missing-VM
+        reconciliation is fail-closed and must be explicitly enabled by a caller
+        that has already proven the input is a complete cluster-wide snapshot.
+        An empty snapshot is treated conservatively as possibly uncollected
+        evidence and does not mark every known VM missing.
         """
 
         observed_epoch = _now_epoch(observed_at)
@@ -239,7 +237,7 @@ class OperationalRiskStateStore:
                 session.flush()
                 history[self._dashboard_key(record)] = self._history_for_record(record, observed_at=observed_epoch)
 
-            if reconcile_missing:
+            if reconcile_missing is True:
                 active_records = (
                     session.query(OperationalVMState)
                     .filter(OperationalVMState.active.is_(True))

@@ -40,13 +40,19 @@ Completed:
 - frontend risk utility tests
 - owner/team/environment taxonomy governance checks
 - PBS direct API restore readiness evidence and `restore_readiness` risk
+- PBS datastore health/capacity evidence and Gjallar-local restore drill records
+- RPO/RTO profile reporting for PBS restore readiness, restore drill staleness, and backup-recency fallback
+- optional read-only SSH collector contract, disabled-by-default evidence fields, allowlist blocking, redaction, and `guest_ssh_evidence` failure visibility
+- safe action suggestion links/metadata that stay proposal-only and approval-required
+- lower-level fail-closed reconciliation guard: state-store reconciliation requires explicit literal `True`, legacy cache without `complete=True` is incomplete, and direct/default callers do not mark omitted VMs missing
+- Policy / Compliance baseline: prod/production VMs now get an info-level `compliance` risk when they lack an explicit accepted backup/RPO profile tag
 
 ## Immediate next recommendations
 
-1. Add PBS datastore capacity/health evidence and restore drill records after the first restore-readiness slice.
-2. Add safe action suggestion links that still require explicit approval.
-3. Add optional read-only SSH collector for evidence gaps.
-4. Consider a lower-level fail-closed follow-up so direct state-store callers must explicitly opt into missing reconciliation.
+1. Decide whether to commit/push the verified-but-uncommitted Set 1~6 working tree.
+2. Consider configurable taxonomy/profile policy storage if VM metadata tags are not enough.
+3. If real guest SSH targets are later approved, add operator-runbook smoke for known-host setup and read-only identity rotation.
+4. Next product Set candidate: Change Journal / Report.
 
 ## PBS restore readiness baseline
 
@@ -55,7 +61,9 @@ calls and correlate VM restore points by VMID. When PBS evidence is collected, a
 recent PBS restore point satisfies backup recency. Missing or stale PBS restore
 points produce `restore_readiness` warnings instead of relying only on Proxmox
 task-history fallback. Missing PBS configuration leaves the evidence uncollected
-rather than pretending the restore state is healthy.
+rather than pretending the restore state is healthy. VM-specific RPO/RTO profile
+evidence now controls the restore point age window, restore drill staleness
+window, and task-history fallback window.
 
 ## Owner/tag taxonomy baseline
 
@@ -70,13 +78,21 @@ only when it has both an owner/team signal (for example `owner`, `owned-by`/`own
 free-form tags can remain on the VM, but they are treated as incidental evidence
 rather than ownership metadata.
 
+## Policy / Compliance baseline
+
+The first policy/compliance slice is intentionally read-only and metadata-based.
+A VM with `env:prod`/`env:production` should declare an explicit backup/RPO
+profile using `backup-profile`, `recovery-profile`, `rpo-profile`, or
+`rpo-rto-profile` with one of `critical`, `standard`, or `relaxed`. Missing or
+invalid explicit production profile metadata creates an informational
+`compliance` risk; Gjallar does not mutate Proxmox tags automatically.
+
 ## Later integrations
 
 Only after the core VM operations product is stable:
 
 - backup/report exports
-- policy/compliance checks
+- configurable policy/compliance storage/editor
 - approval-based remediation
 - Ansible/Terraform/OpenTofu integration where it supports VM operations directly
-- optional read-only SSH collector for evidence unavailable through Proxmox/PBS APIs
 - optional node agent only if API + DB + SSH collector cannot supply needed evidence safely

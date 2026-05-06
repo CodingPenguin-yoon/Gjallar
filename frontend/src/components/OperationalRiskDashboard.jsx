@@ -106,6 +106,7 @@ function RiskItemCard({ item, onOverride, onClearOverride, actioningRiskId, revi
   const busy = actioningRiskId === item.id
   const actionDisabled = busy || !item.id
   const overrideStatus = String(override?.status || '').toLowerCase()
+  const suggestedActions = Array.isArray(item.suggestedActions) ? item.suggestedActions : []
 
   return (
     <div className={`rounded-lg border p-4 shadow-sm ${reviewMode ? 'border-purple-200 bg-purple-50' : 'border-slate-200 bg-white'}`}>
@@ -131,6 +132,27 @@ function RiskItemCard({ item, onOverride, onClearOverride, actioningRiskId, revi
           <p className="mt-2 text-sm text-slate-700">
             <span className="font-medium">Recommendation:</span> {item.recommendation}
           </p>
+          {suggestedActions.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <div className="font-semibold text-amber-950">Suggested next checks</div>
+              <div className="mt-1 space-y-2">
+                {suggestedActions.map((action) => (
+                  <a
+                    key={`${item.id}:${action.actionId}`}
+                    href={action.link || '/risks'}
+                    className="block rounded border border-amber-200 bg-white/70 px-2 py-1 text-amber-900 hover:bg-white"
+                  >
+                    <span className="font-medium">{action.label}</span>
+                    <span className="ml-2 rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                      {action.approvalLabel || 'Approval required'}
+                    </span>
+                    {action.description && <div className="mt-1 text-amber-800">{action.description}</div>}
+                    <div className="mt-1 text-[11px] text-amber-700">Proposal-only link; Gjallar will not execute this action automatically.</div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
           {override && (
             <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               <div className="font-semibold text-slate-700">Gjallar local override</div>

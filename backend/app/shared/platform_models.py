@@ -100,3 +100,22 @@ class OperationalRiskOverride(Base):
     updated_at: Mapped[float] = mapped_column(Float, nullable=False)
     expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_by: Mapped[str] = mapped_column(Text, nullable=False, default="local")
+
+class OperationalRestoreDrill(Base):
+    """Gjallar-owned manual restore drill evidence records."""
+
+    __tablename__ = "operational_restore_drills"
+
+    drill_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    resource_type: Mapped[str] = mapped_column(String(32), nullable=False, default="qemu")
+    node: Mapped[str] = mapped_column(String(128), nullable=False)
+    vmid: Mapped[int] = mapped_column(Integer, nullable=False)
+    vm_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    datastore: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    drilled_at: Mapped[float] = mapped_column(Float, nullable=False)
+    recorded_at: Mapped[float] = mapped_column(Float, nullable=False)
+    recorded_by: Mapped[str] = mapped_column(Text, nullable=False, default="local")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)

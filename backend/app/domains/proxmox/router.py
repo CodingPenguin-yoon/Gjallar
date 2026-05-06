@@ -153,6 +153,30 @@ class OperationalRiskOverrideClearRequest(ExtraForbidRequestModel):
     risk_id: str = Field(min_length=1, max_length=512)
 
 
+
+class OperationalRestoreDrillRecordRequest(ExtraForbidRequestModel):
+    """Gjallar-local manual/external restore drill record request."""
+
+    drill_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    resource_type: Optional[str] = Field(default="qemu", min_length=1, max_length=32)
+    node: str = Field(min_length=1, max_length=128)
+    vmid: int = Field(gt=0)
+    vm_name: Optional[str] = Field(default=None, max_length=512)
+    datastore: Optional[str] = Field(default=None, max_length=512)
+    snapshot: Optional[str] = Field(default=None, max_length=1024)
+    outcome: Literal["passed", "failed", "partial", "blocked"]
+    drilled_at: float = Field(gt=0)
+    recorded_at: Optional[float] = Field(default=None, gt=0)
+    recorded_by: Optional[str] = Field(default=None, max_length=256)
+    notes: Optional[str] = Field(default=None, max_length=4000)
+    evidence: Optional[dict[str, Any]] = Field(default=None)
+
+    def to_payload(self) -> dict[str, Any]:
+        if hasattr(self, "model_dump"):
+            return self.model_dump(exclude_none=True)
+        return self.dict(exclude_none=True)
+
+
 @router.get("/servers", response_model=ServerResponse)
 def get_servers():
     """
@@ -446,6 +470,39 @@ def clear_operational_risk_override(request: OperationalRiskOverrideClearRequest
         raise HTTPException(
             status_code=500,
             detail=f"운영 리스크 override 삭제 실패: {str(e)}",
+        )
+
+
+
+@router.get("/operations/restore-drills")
+def list_operational_restore_drills(
+    node: Optional[str] = None,
+    vmid: Optional[int] = None,
+    limit: int = 100,
+):
+    """복구 훈련 기록 조회 (Gjallar DB only)."""
+    try:
+        return proxmox_service.list_operational_restore_drills(node=node, vmid=vmid, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"복구 훈련 기록 조회 실패: {str(e)}",
+        )
+
+
+@router.post("/operations/restore-drills")
+def record_operational_restore_drill(request: OperationalRestoreDrillRecordRequest):
+    """복구 훈련 결과 저장 (Gjallar DB only; PBS/Proxmox restore 실행 없음)."""
+    try:
+        return proxmox_service.record_operational_restore_drill(request.to_payload())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"복구 훈련 기록 저장 실패: {str(e)}",
         )
 
 

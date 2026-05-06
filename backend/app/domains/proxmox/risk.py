@@ -13,6 +13,19 @@ import time
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 SECONDS_PER_DAY = 86_400
+RESTORE_DRILL_STALE_DAYS = 90.0
+DEFAULT_RPO_RTO_PROFILE_ID = "default"
+RPO_RTO_PROFILE_PRESETS: Dict[str, Dict[str, float]] = {
+    "critical": {"rpo_hours": 24.0, "restore_drill_max_age_days": 30.0},
+    "standard": {"rpo_hours": 168.0, "restore_drill_max_age_days": 90.0},
+    "relaxed": {"rpo_hours": 720.0, "restore_drill_max_age_days": 180.0},
+}
+RPO_RTO_PROFILE_TAG_KEYS = {
+    "backup-profile",
+    "recovery-profile",
+    "rpo-profile",
+    "rpo-rto-profile",
+}
 
 DEFAULT_THRESHOLDS: Dict[str, float] = {
     "storage_warning_percent": 80.0,
@@ -51,6 +64,10 @@ ENVIRONMENT_TAXONOMY_VALUES = {
     "sandbox",
 }
 TAG_TAXONOMY_SEPARATORS = (":", "=", "/")
+COMPLIANCE_POLICY_ID = "default"
+COMPLIANCE_POLICY_SOURCE = "default"
+COMPLIANCE_PROD_PROFILE_RULE_ID = "prod-explicit-backup-profile"
+COMPLIANCE_PROD_ENVIRONMENT_VALUES = {"prod", "production"}
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -68,6 +85,88 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_rpo_rto_profile_id(value: Any) -> str:
+    profile_id = _normalize_taxonomy_token(value).replace("-", "_")
+    return profile_id if profile_id in RPO_RTO_PROFILE_PRESETS else ""
+
+
+def _find_rpo_rto_profile_tag(vm: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return explicit backup/RPO profile tag evidence for a VM.
+
+    Prefer the first accepted profile so one stale/invalid candidate tag does not
+    mask a later valid explicit profile. If no candidate is valid, retain the
+    first invalid candidate for compliance evidence and operator guidance.
+    """
+
+    first_invalid_candidate: Dict[str, Any] = {}
+    for tag in _split_tags(vm.get("tags")):
+        key, value = _split_taxonomy_tag(tag)
+        if key not in RPO_RTO_PROFILE_TAG_KEYS:
+            continue
+        profile_id = _normalize_rpo_rto_profile_id(value)
+        candidate = {
+            "tag": tag,
+            "key": key,
+            "value": value.strip(),
+            "profile_id": profile_id,
+            "valid": bool(profile_id),
+        }
+        if profile_id:
+            return candidate
+        if not first_invalid_candidate:
+            first_invalid_candidate = candidate
+    return first_invalid_candidate
+
+
+def _vm_rpo_rto_profile_override_id(vm: Mapping[str, Any]) -> str:
+    profile_tag = _find_rpo_rto_profile_tag(vm)
+    return str(profile_tag.get("profile_id") or "")
+
+
+def _resolve_rpo_rto_profile(
+    vm: Mapping[str, Any],
+    *,
+    effective_thresholds: Mapping[str, float],
+) -> Dict[str, Any]:
+    """Return the read-only RPO/RTO profile for one VM.
+
+    Set 2 starts with a backward-compatible default profile. Its RPO mirrors
+    the existing backup readiness threshold so existing operators do not see a
+    policy change until a VM-specific override is present. VM-specific overrides
+    are read-only metadata tags such as ``rpo-profile:critical``.
+    """
+
+    profile_id = _vm_rpo_rto_profile_override_id(vm)
+    if profile_id:
+        preset = RPO_RTO_PROFILE_PRESETS[profile_id]
+        return {
+            "profile_id": profile_id,
+            "source": "vm_override",
+            "rpo_hours": preset["rpo_hours"],
+            "restore_drill_max_age_days": preset["restore_drill_max_age_days"],
+        }
+
+    backup_warning_days = _safe_float(
+        effective_thresholds.get("backup_warning_days"),
+        DEFAULT_THRESHOLDS["backup_warning_days"],
+    )
+    return {
+        "profile_id": DEFAULT_RPO_RTO_PROFILE_ID,
+        "source": "default",
+        "rpo_hours": round(backup_warning_days * 24.0, 3),
+        "restore_drill_max_age_days": RESTORE_DRILL_STALE_DAYS,
+    }
+
+
+def _rpo_rto_profile_evidence(profile: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "rpo_rto_profile_id": profile.get("profile_id") or DEFAULT_RPO_RTO_PROFILE_ID,
+        "rpo_rto_profile_source": profile.get("source") or "default",
+        "rpo_hours": _safe_float(profile.get("rpo_hours"), DEFAULT_THRESHOLDS["backup_warning_days"] * 24.0),
+        "restore_drill_max_age_days": _safe_float(profile.get("restore_drill_max_age_days"), RESTORE_DRILL_STALE_DAYS),
+    }
 
 
 def _now_epoch(now: Optional[Any] = None) -> float:
@@ -104,6 +203,11 @@ def _split_taxonomy_tag(tag: str) -> tuple[str, str]:
             key, value = raw.split(separator, 1)
             return _normalize_taxonomy_token(key), value.strip()
     return "", raw
+
+
+def _environment_signal_policy_value(signal: Any) -> str:
+    key, value = _split_taxonomy_tag(str(signal or ""))
+    return _normalize_taxonomy_token(value if key else signal)
 
 
 def _description_has_owner_signal(vm: Mapping[str, Any]) -> bool:
@@ -170,6 +274,229 @@ def _governance_missing_detail(missing_metadata: Sequence[str], incidental_tags:
     return detail
 
 
+def _evaluate_compliance_policy(
+    vm: Mapping[str, Any],
+    governance_metadata: Mapping[str, Any],
+    rpo_rto_profile: Mapping[str, Any],
+) -> List[Dict[str, Any]]:
+    """Evaluate default read-only compliance policy findings for one VM."""
+
+    environment_value = _environment_signal_policy_value(governance_metadata.get("environment_signal"))
+    profile_tag = _find_rpo_rto_profile_tag(vm)
+    findings: List[Dict[str, Any]] = []
+
+    if environment_value in COMPLIANCE_PROD_ENVIRONMENT_VALUES and not profile_tag.get("valid"):
+        candidate_tag = profile_tag.get("tag") or "missing"
+        if profile_tag:
+            detail = (
+                "Production VM has no accepted explicit backup/RPO profile metadata. "
+                f"Candidate tag {candidate_tag!r} is not one of the accepted profile values."
+            )
+        else:
+            detail = "Production VM has no explicit backup/RPO profile metadata."
+        findings.append(
+            {
+                "rule_id": COMPLIANCE_PROD_PROFILE_RULE_ID,
+                "title": "Production VM is missing explicit backup/RPO policy profile",
+                "detail": detail,
+                "recommendation": (
+                    "Add an accepted backup/RPO profile tag such as "
+                    "backup-profile:critical, rpo-profile:standard, or rpo-rto-profile:relaxed. "
+                    "This is metadata guidance only; Gjallar will not mutate Proxmox automatically."
+                ),
+                "evidence": {
+                    "policy_id": COMPLIANCE_POLICY_ID,
+                    "policy_source": COMPLIANCE_POLICY_SOURCE,
+                    "rule_id": COMPLIANCE_PROD_PROFILE_RULE_ID,
+                    "environment_signal": governance_metadata.get("environment_signal") or "missing",
+                    "environment_value": environment_value,
+                    "required_environment_values": sorted(COMPLIANCE_PROD_ENVIRONMENT_VALUES),
+                    "candidate_backup_profile_tag": candidate_tag,
+                    "accepted_backup_profile_keys": sorted(RPO_RTO_PROFILE_TAG_KEYS),
+                    "accepted_backup_profile_values": sorted(RPO_RTO_PROFILE_PRESETS),
+                    "rpo_rto_profile_id": rpo_rto_profile.get("profile_id") or DEFAULT_RPO_RTO_PROFILE_ID,
+                    "rpo_rto_profile_source": rpo_rto_profile.get("source") or "default",
+                },
+            }
+        )
+    return findings
+
+
+SAFE_ACTION_SUGGESTION_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
+    "node_status": [
+        {
+            "action_id": "review-node-health",
+            "label": "Review node health",
+            "description": "Open the node operations view and confirm quorum, networking, and API reachability before planning any change.",
+            "link": "/risks?category=node_status",
+        }
+    ],
+    "storage_capacity": [
+        {
+            "action_id": "review-storage-headroom",
+            "label": "Review storage headroom",
+            "description": "Inspect storage usage, retention, and migration options; any cleanup or move still needs explicit approval.",
+            "link": "/risks?category=storage_capacity",
+        }
+    ],
+    "guest_agent": [
+        {
+            "action_id": "review-guest-agent-signal",
+            "label": "Review guest agent signal",
+            "description": "Check guest agent installation and reachability evidence before deciding on a manual fix.",
+            "link": "/risks?category=guest_agent",
+        }
+    ],
+    "guest_ssh_evidence": [
+        {
+            "action_id": "review-ssh-collector-evidence",
+            "label": "Review optional SSH evidence",
+            "description": "Inspect the disabled-by-default read-only collector configuration and error evidence without running guest commands.",
+            "link": "/risks?category=guest_ssh_evidence",
+        }
+    ],
+    "governance": [
+        {
+            "action_id": "review-governance-metadata",
+            "label": "Review governance metadata",
+            "description": "Identify the missing owner/team or environment metadata and plan a documented metadata update.",
+            "link": "/risks?category=governance",
+        }
+    ],
+    "compliance": [
+        {
+            "action_id": "review-compliance-policy",
+            "label": "Review compliance policy",
+            "description": "Check which local policy rule was missed and plan a documented metadata update; no Proxmox mutation is executed automatically.",
+            "link": "/risks?category=compliance",
+        }
+    ],
+    "snapshot_age": [
+        {
+            "action_id": "review-snapshot-retention",
+            "label": "Review snapshot retention",
+            "description": "Confirm snapshot age and owner intent; any consolidation or cleanup remains a separate approved action.",
+            "link": "/risks?category=snapshot_age",
+        }
+    ],
+    "backup_coverage": [
+        {
+            "action_id": "review-backup-coverage",
+            "label": "Review backup coverage",
+            "description": "Check backup policy coverage and decide whether the VM should be added to a scheduled backup job.",
+            "link": "/risks?category=backup_coverage",
+        }
+    ],
+    "backup_recency": [
+        {
+            "action_id": "review-backup-recency",
+            "label": "Review backup recency",
+            "description": "Confirm the latest backup evidence and decide whether a fresh backup should be requested.",
+            "link": "/risks?category=backup_recency",
+        }
+    ],
+    "rpo_violation": [
+        {
+            "action_id": "review-rpo-profile",
+            "label": "Review RPO profile",
+            "description": "Compare the VM profile with backup evidence before requesting backup policy changes.",
+            "link": "/risks?category=rpo_violation",
+        }
+    ],
+    "restore_readiness": [
+        {
+            "action_id": "review-restore-readiness",
+            "label": "Review restore readiness",
+            "description": "Inspect PBS restore point evidence and decide whether backup or drill work should be approved.",
+            "link": "/risks?category=restore_readiness",
+        }
+    ],
+    "pbs_datastore_capacity": [
+        {
+            "action_id": "review-pbs-datastore-capacity",
+            "label": "Review PBS datastore capacity",
+            "description": "Check PBS datastore capacity evidence and retention policy before planning storage changes.",
+            "link": "/risks?category=pbs_datastore_capacity",
+        }
+    ],
+    "pbs_datastore_health": [
+        {
+            "action_id": "review-pbs-datastore-health",
+            "label": "Review PBS datastore health",
+            "description": "Inspect read-only PBS health evidence and storage backend status before any operator action.",
+            "link": "/risks?category=pbs_datastore_health",
+        }
+    ],
+    "restore_drill": [
+        {
+            "action_id": "review-restore-drill-plan",
+            "label": "Review restore drill plan",
+            "description": "Plan or verify a manual restore drill; recording or executing drill work needs separate approval.",
+            "link": "/risks?category=restore_drill",
+        }
+    ],
+    "long_stopped": [
+        {
+            "action_id": "review-long-stopped-vm",
+            "label": "Review stopped VM intent",
+            "description": "Confirm retention intent and ownership before proposing any resource reclamation work.",
+            "link": "/risks?category=long_stopped",
+        }
+    ],
+}
+
+
+def build_safe_suggested_actions(
+    category: str,
+    *,
+    scope: Optional[str] = None,
+    node: Optional[str] = None,
+    vmid: Optional[int] = None,
+    evidence: Optional[Mapping[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Return proposal-only next-check suggestions for one risk item.
+
+    Suggestions are metadata only. They are intentionally approval-required and
+    do not execute remediation, guest commands, or infrastructure changes.
+    """
+
+    normalized_category = str(category or "unknown").strip() or "unknown"
+    templates = SAFE_ACTION_SUGGESTION_TEMPLATES.get(
+        normalized_category,
+        [
+            {
+                "action_id": "review-operational-risk",
+                "label": "Review operational risk",
+                "description": "Inspect the evidence and choose a separately approved follow-up if needed.",
+                "link": "/risks",
+            }
+        ],
+    )
+    target: Dict[str, Any] = {"scope": scope or "unknown"}
+    if node:
+        target["node"] = str(node)
+    if vmid:
+        target["vmid"] = int(vmid)
+    if isinstance(evidence, Mapping) and evidence.get("datastore"):
+        target["datastore"] = str(evidence["datastore"])
+
+    actions: List[Dict[str, Any]] = []
+    for template in templates:
+        actions.append(
+            {
+                "action_id": template["action_id"],
+                "label": template["label"],
+                "description": template["description"],
+                "link": template["link"],
+                "requires_approval": True,
+                "execution_mode": "proposal_only",
+                "mutation_allowed": False,
+                "target": dict(target),
+            }
+        )
+    return actions
+
+
 def _risk_item(
     *,
     item_id: str,
@@ -184,6 +511,7 @@ def _risk_item(
     vm_name: Optional[str] = None,
     evidence: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    normalized_evidence = evidence or {}
     return {
         "id": item_id,
         "severity": severity,
@@ -195,7 +523,14 @@ def _risk_item(
         "title": title,
         "detail": detail,
         "recommendation": recommendation,
-        "evidence": evidence or {},
+        "suggested_actions": build_safe_suggested_actions(
+            category,
+            scope=scope,
+            node=node,
+            vmid=vmid,
+            evidence=normalized_evidence,
+        ),
+        "evidence": normalized_evidence,
     }
 
 
@@ -288,6 +623,121 @@ def _normalize_pbs_restore_evidence_by_vmid(
             "latest_backup_age_days": round(latest_backup_age_days, 3) if latest_backup_age_days is not None else None,
             "latest_snapshot": record.get("latest_snapshot"),
             "datastores": sorted(datastores),
+        }
+    return normalized
+
+
+
+
+def _normalize_restore_drill_evidence_by_vm(
+    evidence: Optional[Mapping[Any, Mapping[str, Any]]],
+    *,
+    now_epoch: float,
+) -> Dict[str, Dict[str, Any]]:
+    normalized: Dict[str, Dict[str, Any]] = {}
+    if evidence is None:
+        return normalized
+    for key, record in evidence.items():
+        if not isinstance(record, Mapping):
+            continue
+        node = str(record.get("node") or "").strip()
+        vmid = _safe_int(record.get("vmid"), 0)
+        if (not node or vmid <= 0) and isinstance(key, str) and "/" in key:
+            key_node, key_vmid = key.rsplit("/", 1)
+            node = node or key_node.strip()
+            vmid = vmid or _safe_int(key_vmid, 0)
+        if not node or vmid <= 0:
+            continue
+        drilled_at = _safe_float(record.get("drilled_at"), 0.0)
+        outcome = str(record.get("outcome") or "unknown").strip().lower()
+        if drilled_at > now_epoch:
+            outcome = "future_invalid"
+            latest_drill_age_days = None
+        elif drilled_at > 0:
+            latest_drill_age_days = _safe_float(
+                record.get("latest_drill_age_days"),
+                max(0.0, (now_epoch - drilled_at) / SECONDS_PER_DAY),
+            )
+        else:
+            latest_drill_age_days = None
+        normalized[f"{node}/{vmid}"] = {
+            "source": str(record.get("source") or "gjallar_db"),
+            "node": node,
+            "vmid": vmid,
+            "outcome": outcome,
+            "drilled_at": drilled_at or None,
+            "recorded_at": record.get("recorded_at"),
+            "recorded_by": record.get("recorded_by"),
+            "datastore": record.get("datastore"),
+            "snapshot": record.get("snapshot"),
+            "latest_drill_age_days": round(latest_drill_age_days, 3) if latest_drill_age_days is not None else None,
+        }
+    return normalized
+
+
+def _normalize_ssh_guest_evidence_by_vm(
+    evidence: Optional[Mapping[Any, Mapping[str, Any]]],
+) -> Dict[str, Dict[str, Any]]:
+    normalized: Dict[str, Dict[str, Any]] = {}
+    if evidence is None:
+        return normalized
+    for key, record in evidence.items():
+        if not isinstance(record, Mapping):
+            continue
+        node = str(record.get("node") or "").strip()
+        vmid = _safe_int(record.get("vmid"), 0)
+        if (not node or vmid <= 0) and isinstance(key, str) and "/" in key:
+            key_node, key_vmid = key.rsplit("/", 1)
+            node = node or key_node.strip()
+            vmid = vmid or _safe_int(key_vmid, 0)
+        if not node or vmid <= 0:
+            continue
+        command_ids = [str(command_id) for command_id in (record.get("command_ids") or [])]
+        blocked_commands = [str(command_id) for command_id in (record.get("blocked_commands") or [])]
+        normalized[f"{node}/{vmid}"] = {
+            "source": str(record.get("source") or "optional_readonly_ssh"),
+            "node": node,
+            "vmid": vmid,
+            "collected": bool(record.get("collected")),
+            "status": str(record.get("status") or "unknown").strip().lower(),
+            "reason": str(record.get("reason") or "unknown").strip().lower(),
+            "command_ids": command_ids,
+            "blocked_commands": blocked_commands,
+            "error": str(record.get("error") or ""),
+            "collected_at": record.get("collected_at"),
+            "command_results": record.get("command_results") if isinstance(record.get("command_results"), Mapping) else {},
+        }
+    return normalized
+
+
+def _normalize_pbs_datastore_evidence_by_name(
+    evidence: Optional[Mapping[Any, Mapping[str, Any]]],
+) -> Dict[str, Dict[str, Any]]:
+    normalized: Dict[str, Dict[str, Any]] = {}
+    if evidence is None:
+        return normalized
+    for key, record in evidence.items():
+        if not isinstance(record, Mapping):
+            continue
+        datastore = str(record.get("datastore") or key or "").strip()
+        if not datastore:
+            continue
+        total = _safe_float(record.get("total"), 0.0)
+        used = _safe_float(record.get("used"), 0.0)
+        avail = _safe_float(record.get("avail"), 0.0)
+        usage_percent = _safe_float(record.get("usage_percent"), -1.0)
+        if usage_percent < 0 and total > 0:
+            usage_percent = (used / total) * 100
+        health = str(record.get("health") or record.get("status") or "unknown").strip().lower()
+        normalized[datastore] = {
+            "source": str(record.get("source") or "pbs"),
+            "datastore": datastore,
+            "total": total,
+            "used": used,
+            "avail": avail,
+            "usage_percent": round(usage_percent, 3) if usage_percent >= 0 else None,
+            "health": health or "unknown",
+            "error": record.get("error"),
         }
     return normalized
 
@@ -437,6 +887,9 @@ def build_operational_risk_dashboard(
     backup_not_backed_up_by_vmid: Optional[Mapping[Any, Mapping[str, Any]]] = None,
     backup_jobs: Optional[Sequence[Mapping[str, Any]]] = None,
     pbs_restore_evidence_by_vmid: Optional[Mapping[Any, Mapping[str, Any]]] = None,
+    pbs_datastore_evidence_by_name: Optional[Mapping[Any, Mapping[str, Any]]] = None,
+    restore_drill_evidence_by_vm: Optional[Mapping[Any, Mapping[str, Any]]] = None,
+    ssh_guest_evidence_by_vm: Optional[Mapping[Any, Mapping[str, Any]]] = None,
     vm_state_history: Optional[Mapping[str, Mapping[str, Any]]] = None,
     now: Optional[Any] = None,
     thresholds: Optional[Mapping[str, float]] = None,
@@ -466,8 +919,18 @@ def build_operational_risk_dashboard(
             if str(datastore or "").strip()
         }
     )
+    pbs_datastore_health_collected = pbs_datastore_evidence_by_name is not None
+    pbs_datastore_evidence = _normalize_pbs_datastore_evidence_by_name(pbs_datastore_evidence_by_name)
+    restore_drill_evidence_collected = restore_drill_evidence_by_vm is not None
+    restore_drill_evidence = _normalize_restore_drill_evidence_by_vm(
+        restore_drill_evidence_by_vm,
+        now_epoch=now_epoch,
+    )
+    ssh_guest_evidence_collected = ssh_guest_evidence_by_vm is not None
+    ssh_guest_evidence = _normalize_ssh_guest_evidence_by_vm(ssh_guest_evidence_by_vm)
 
     risks: List[Dict[str, Any]] = []
+    rpo_rto_profile_sources: Dict[str, int] = {}
 
     # Node and storage capacity risks.
     for node in node_items:
@@ -515,6 +978,53 @@ def build_operational_risk_dashboard(
                 )
             )
 
+
+    # PBS datastore capacity/health risks. PBS evidence is optional/read-only; None means uncollected.
+    for datastore, record in sorted(pbs_datastore_evidence.items()):
+        usage = record.get("usage_percent")
+        if usage is not None and usage >= effective_thresholds["storage_warning_percent"]:
+            severity = "critical" if usage >= effective_thresholds["storage_critical_percent"] else "warning"
+            risks.append(
+                _risk_item(
+                    item_id=f"pbs-datastore:{datastore}:capacity",
+                    severity=severity,
+                    category="pbs_datastore_capacity",
+                    scope="pbs_datastore",
+                    title=f"PBS datastore {datastore} usage is {usage:.1f}%",
+                    detail="PBS datastore usage is above the operational risk threshold.",
+                    recommendation="Free space, expand PBS storage, or review retention policy before backups lose headroom.",
+                    evidence={
+                        "source": record.get("source", "pbs"),
+                        "datastore": datastore,
+                        "usage_percent": usage,
+                        "total": record.get("total"),
+                        "used": record.get("used"),
+                        "avail": record.get("avail"),
+                        "health": record.get("health"),
+                    },
+                )
+            )
+
+        health = str(record.get("health") or "unknown").strip().lower()
+        if health not in {"ok", "healthy", "available", "online", "good", "active"}:
+            risks.append(
+                _risk_item(
+                    item_id=f"pbs-datastore:{datastore}:health",
+                    severity="critical" if health in {"error", "failed", "failure", "critical"} else "warning",
+                    category="pbs_datastore_health",
+                    scope="pbs_datastore",
+                    title=f"PBS datastore {datastore} health is {health or 'unknown'}",
+                    detail="PBS datastore health evidence is not reporting a healthy state.",
+                    recommendation="Review PBS datastore verify/status output and storage backend health. Do not run mutation tasks without explicit approval.",
+                    evidence={
+                        "source": record.get("source", "pbs"),
+                        "datastore": datastore,
+                        "health": health or "unknown",
+                        "error": record.get("error"),
+                    },
+                )
+            )
+
     # VM-specific risks.
     backup_evidence_enabled = backup_tasks_by_vm is not None
     backup_tasks_by_vm = backup_tasks_by_vm or {}
@@ -524,6 +1034,11 @@ def build_operational_risk_dashboard(
         vm_name = str(vm.get("name") or vm.get("server_name") or f"vm-{vmid}")
         key = _vm_key(vm)
         status = str(vm.get("status") or "unknown").strip().lower()
+        rpo_rto_profile = _resolve_rpo_rto_profile(vm, effective_thresholds=effective_thresholds)
+        rpo_rto_profile_sources[str(rpo_rto_profile.get("source") or "default")] = (
+            rpo_rto_profile_sources.get(str(rpo_rto_profile.get("source") or "default"), 0) + 1
+        )
+        profile_evidence = _rpo_rto_profile_evidence(rpo_rto_profile)
 
         if status == "running" and "guest_agent_ipv4_addresses" in vm and not vm.get("guest_agent_ipv4_addresses"):
             risks.append(
@@ -545,6 +1060,32 @@ def build_operational_risk_dashboard(
                     },
                 )
             )
+
+        if ssh_guest_evidence_collected:
+            ssh_record = ssh_guest_evidence.get(key)
+            if ssh_record and not ssh_record.get("collected"):
+                risks.append(
+                    _risk_item(
+                        item_id=f"vm:{key}:ssh-guest-evidence",
+                        severity="info",
+                        category="guest_ssh_evidence",
+                        scope="vm",
+                        node=node,
+                        vmid=vmid,
+                        vm_name=vm_name,
+                        title=f"{vm_name} optional SSH guest evidence was not collected",
+                        detail="The optional read-only SSH collector was configured for this VM but did not return collected evidence.",
+                        recommendation="Review the SSH collector target/allowlist/configuration. Do not run guest mutation or remediation without explicit approval.",
+                        evidence={
+                            "source": ssh_record.get("source", "optional_readonly_ssh"),
+                            "status": ssh_record.get("status", "unknown"),
+                            "reason": ssh_record.get("reason", "unknown"),
+                            "command_ids": ssh_record.get("command_ids", []),
+                            "blocked_commands": ssh_record.get("blocked_commands", []),
+                            "error": ssh_record.get("error", ""),
+                        },
+                    )
+                )
 
         governance_metadata = _evaluate_governance_metadata(vm)
         if not governance_metadata["complete"]:
@@ -577,6 +1118,23 @@ def build_operational_risk_dashboard(
                         "accepted_environment_keys": governance_metadata["accepted_environment_keys"],
                         "accepted_environment_values": governance_metadata["accepted_environment_values"],
                     },
+                )
+            )
+
+        for finding in _evaluate_compliance_policy(vm, governance_metadata, rpo_rto_profile):
+            risks.append(
+                _risk_item(
+                    item_id=f"vm:{key}:compliance:{finding['rule_id']}",
+                    severity="info",
+                    category="compliance",
+                    scope="vm",
+                    node=node,
+                    vmid=vmid,
+                    vm_name=vm_name,
+                    title=f"{vm_name} {finding['title']}",
+                    detail=finding["detail"],
+                    recommendation=finding["recommendation"],
+                    evidence=finding["evidence"],
                 )
             )
 
@@ -671,7 +1229,7 @@ def build_operational_risk_dashboard(
         if pbs_restore_evidence_collected:
             skip_backup_recency = True
             pbs_record = pbs_restore_evidence.get(vmid)
-            warning_days = effective_thresholds["backup_warning_days"]
+            warning_days = profile_evidence["rpo_hours"] / 24.0
             if not pbs_record or _safe_int(pbs_record.get("snapshot_count"), 0) <= 0:
                 risks.append(
                     _risk_item(
@@ -686,6 +1244,7 @@ def build_operational_risk_dashboard(
                         detail="PBS direct API evidence was collected, but no VM restore point was found for this VM.",
                         recommendation="Confirm that the VM is backed up to PBS or document why restore readiness is intentionally unavailable.",
                         evidence={
+                            **profile_evidence,
                             "source": "pbs",
                             "reason": "no_pbs_restore_point",
                             "warning_days": warning_days,
@@ -708,6 +1267,7 @@ def build_operational_risk_dashboard(
                             detail=f"Latest PBS restore point is older than the configured {warning_days:.0f}-day backup/restore readiness threshold.",
                             recommendation="Run or schedule a fresh backup and consider a restore drill for important workloads.",
                             evidence={
+                                **profile_evidence,
                                 "source": pbs_record.get("source", "pbs"),
                                 "reason": "stale_pbs_restore_point",
                                 "latest_backup_time": pbs_record.get("latest_backup_time"),
@@ -720,10 +1280,94 @@ def build_operational_risk_dashboard(
                         )
                     )
 
+
+        if restore_drill_evidence_collected:
+            drill_record = restore_drill_evidence.get(key)
+            stale_after_days = profile_evidence["restore_drill_max_age_days"]
+            if not drill_record:
+                risks.append(
+                    _risk_item(
+                        item_id=f"vm:{key}:restore-drill",
+                        severity="warning",
+                        category="restore_drill",
+                        scope="vm",
+                        node=node,
+                        vmid=vmid,
+                        vm_name=vm_name,
+                        title=f"{vm_name} has no restore drill record",
+                        detail="Gjallar local evidence has no recorded restore drill for this VM.",
+                        recommendation="Record the latest manual/external restore drill result in Gjallar after validation. Do not run restore actions without explicit approval.",
+                        evidence={
+                            **profile_evidence,
+                            "source": "gjallar_db",
+                            "reason": "no_restore_drill_record",
+                            "stale_after_days": stale_after_days,
+                        },
+                    )
+                )
+            else:
+                outcome = str(drill_record.get("outcome") or "unknown").strip().lower()
+                latest_drill_age_days = _safe_float(drill_record.get("latest_drill_age_days"), float("inf"))
+                if outcome != "passed":
+                    if outcome == "failed":
+                        reason = "last_restore_drill_failed"
+                    elif outcome == "future_invalid":
+                        reason = "future_restore_drill_record"
+                    else:
+                        reason = "last_restore_drill_incomplete"
+                    risks.append(
+                        _risk_item(
+                            item_id=f"vm:{key}:restore-drill",
+                            severity="warning",
+                            category="restore_drill",
+                            scope="vm",
+                            node=node,
+                            vmid=vmid,
+                            vm_name=vm_name,
+                            title=f"{vm_name} latest restore drill outcome is {outcome or 'unknown'}",
+                            detail="The latest Gjallar restore drill record did not pass.",
+                            recommendation="Investigate the failed/partial/blocked drill and record a successful drill after manual validation.",
+                            evidence={
+                                **profile_evidence,
+                                "source": drill_record.get("source", "gjallar_db"),
+                                "reason": reason,
+                                "outcome": outcome or "unknown",
+                                "drilled_at": drill_record.get("drilled_at"),
+                                "latest_drill_age_days": latest_drill_age_days if math.isfinite(latest_drill_age_days) else None,
+                                "stale_after_days": stale_after_days,
+                            },
+                        )
+                    )
+                elif latest_drill_age_days > stale_after_days:
+                    risks.append(
+                        _risk_item(
+                            item_id=f"vm:{key}:restore-drill",
+                            severity="warning",
+                            category="restore_drill",
+                            scope="vm",
+                            node=node,
+                            vmid=vmid,
+                            vm_name=vm_name,
+                            title=f"{vm_name} restore drill is {latest_drill_age_days:.0f} days old",
+                            detail=f"Latest passed restore drill is older than the profile {stale_after_days:.0f}-day restore drill evidence threshold.",
+                            recommendation="Run a manual/external restore drill when approved and record the outcome in Gjallar local evidence.",
+                            evidence={
+                                **profile_evidence,
+                                "source": drill_record.get("source", "gjallar_db"),
+                                "reason": "stale_restore_drill",
+                                "outcome": outcome,
+                                "drilled_at": drill_record.get("drilled_at"),
+                                "latest_drill_age_days": latest_drill_age_days,
+                                "stale_after_days": stale_after_days,
+                            },
+                        )
+                    )
+
+        backup_recency_warning_days = profile_evidence["rpo_hours"] / 24.0
         if backup_evidence_enabled and not skip_backup_recency and not _has_recent_successful_backup(
             backup_tasks_by_vm.get(key, []) or [],
             now_epoch=now_epoch,
-            warning_days=effective_thresholds["backup_warning_days"],
+            warning_days=backup_recency_warning_days,
         ):
             risks.append(
                 _risk_item(
@@ -735,9 +1379,9 @@ def build_operational_risk_dashboard(
                     vmid=vmid,
                     vm_name=vm_name,
                     title=f"{vm_name} has no recent successful backup evidence",
-                    detail=f"No successful backup/vzdump task was found within {effective_thresholds['backup_warning_days']:.0f} days.",
+                    detail=f"No successful backup/vzdump task was found within the profile {backup_recency_warning_days:.0f}-day RPO window.",
                     recommendation="Confirm backup job coverage and run or schedule a backup if this VM is important.",
-                    evidence={"lookback_days": effective_thresholds["backup_warning_days"]},
+                    evidence={**profile_evidence, "lookback_days": backup_recency_warning_days},
                 )
             )
 
@@ -796,6 +1440,25 @@ def build_operational_risk_dashboard(
             "pbs_restore_readiness_collected": pbs_restore_evidence_collected,
             "pbs_restore_readiness_vms": len(pbs_restore_evidence) if pbs_restore_evidence_collected else None,
             "pbs_datastores_count": len(pbs_datastores) if pbs_restore_evidence_collected else None,
+            "pbs_datastore_health_collected": pbs_datastore_health_collected,
+            "pbs_datastore_health_datastores": len(pbs_datastore_evidence) if pbs_datastore_health_collected else None,
+            "rpo_rto_profile_collected": True,
+            "rpo_rto_profile_vms": len(vm_items),
+            "rpo_rto_profile_sources": dict(sorted(rpo_rto_profile_sources.items())),
+            "compliance_policy_collected": True,
+            "compliance_policy_id": COMPLIANCE_POLICY_ID,
+            "compliance_policy_source": COMPLIANCE_POLICY_SOURCE,
+            "compliance_policy_rules": [COMPLIANCE_PROD_PROFILE_RULE_ID],
+            "compliance_policy_vms": len(vm_items),
+            "restore_drill_records_collected": restore_drill_evidence_collected,
+            "restore_drill_vms": len(restore_drill_evidence) if restore_drill_evidence_collected else None,
+            "ssh_guest_collected": ssh_guest_evidence_collected,
+            "ssh_guest_vms": len(ssh_guest_evidence) if ssh_guest_evidence_collected else None,
+            "ssh_guest_failed_vms": (
+                sum(1 for record in ssh_guest_evidence.values() if not record.get("collected"))
+                if ssh_guest_evidence_collected
+                else None
+            ),
             "vm_state_history_collected": vm_state_history_collected,
             "vm_state_history_vms": len(vm_state_history) if vm_state_history_collected else None,
             "backup_uncovered_vms": len(backup_not_backed_up) if backup_schedule_evidence_enabled else None,

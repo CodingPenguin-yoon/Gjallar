@@ -24,6 +24,8 @@ from app.domains.proxmox.risk import DEFAULT_THRESHOLDS, apply_risk_overrides, b
 from app.domains.proxmox.risk_config import OperationalRiskThresholdStore
 from app.domains.proxmox.risk_overrides import OperationalRiskOverrideStore
 from app.domains.proxmox.risk_state import OperationalRiskStateStore
+from app.domains.proxmox.restore_drills import OperationalRestoreDrillStore
+from app.domains.proxmox.ssh_collector import ReadOnlySSHCollector, SSHCollectorConfig, redact_ssh_message
 
 # SSL 경고 비활성화 (자체 서명 인증서 사용 시)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -91,6 +93,7 @@ class ProxmoxService:
         self._risk_state_store: Optional[OperationalRiskStateStore] = None
         self._risk_threshold_store: Optional[OperationalRiskThresholdStore] = None
         self._risk_override_store: Optional[OperationalRiskOverrideStore] = None
+        self._restore_drill_store: Optional[OperationalRestoreDrillStore] = None
         
         # 디버깅: 설정 확인
         if not self.api_url:
@@ -721,7 +724,7 @@ class ProxmoxService:
                 scope = "node" if cache_key != "__all__" else "cluster"
             return VMInventorySnapshot(
                 items=copy.deepcopy(cached.get("items", [])),
-                complete=bool(cached.get("complete", True)),
+                complete=cached.get("complete") is True,
                 scope=scope,
             )
 
@@ -982,6 +985,53 @@ class ProxmoxService:
             print(f"에러: {exc}")
             return {}
 
+
+    def _get_restore_drill_store(self) -> OperationalRestoreDrillStore:
+        if self._restore_drill_store is None:
+            self._restore_drill_store = OperationalRestoreDrillStore()
+        return self._restore_drill_store
+
+    def list_operational_restore_drills(
+        self,
+        *,
+        node: Optional[str] = None,
+        vmid: Optional[int] = None,
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        """Return Gjallar-local restore drill records without touching PBS/Proxmox."""
+        records = self._get_restore_drill_store().list_drills(node=node, vmid=vmid, limit=limit)
+        return {
+            "records": records,
+            "count": len(records),
+            "database_available": True,
+        }
+
+    def record_operational_restore_drill(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Record manual/external restore drill evidence in Gjallar local DB only."""
+        return self._get_restore_drill_store().record_drill(payload)
+
+    def get_restore_drill_evidence_by_vm(
+        self,
+        vms: List[Dict[str, Any]],
+        *,
+        now_epoch: Optional[float] = None,
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Return latest Gjallar-local restore drill evidence keyed by node/vmid.
+
+        ``None`` means local evidence collection was unavailable (for example,
+        migrations have not been applied yet); an empty dict means collection
+        succeeded but no VM has a recorded drill.
+        """
+        try:
+            return self._get_restore_drill_store().get_latest_restore_drill_evidence_by_vm(
+                vms,
+                now_epoch=now_epoch,
+            )
+        except Exception as exc:
+            print("Gjallar restore drill evidence store unavailable")
+            print(f"에러: {exc}")
+            return None
+
     def get_vm_state_history(
         self,
         vms: List[Dict[str, Any]],
@@ -1001,11 +1051,31 @@ class ProxmoxService:
             return self._get_risk_state_store().observe_vms(
                 vms,
                 observed_at=now_epoch,
-                reconcile_missing=bool(reconcile_missing),
+                reconcile_missing=reconcile_missing is True,
             )
         except Exception as exc:
             print("Gjallar VM state history persistence unavailable")
             print(f"에러: {exc}")
+            return None
+
+    def get_ssh_guest_evidence_by_vm(
+        self,
+        vms: List[Dict[str, Any]],
+        *,
+        now_epoch: Optional[float] = None,
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Return optional read-only SSH guest evidence or None when uncollected.
+
+        The collector is disabled by default. Configuration failures, missing
+        targets, SSH failures, and invalid allowlist entries fail closed and do
+        not mutate guests, Proxmox, or PBS.
+        """
+        try:
+            collector = ReadOnlySSHCollector(SSHCollectorConfig.from_env())
+            return collector.collect_for_vms(vms, now_epoch=now_epoch)
+        except Exception as exc:
+            print("Gjallar optional SSH guest evidence collection unavailable")
+            print(f"에러: {redact_ssh_message(exc)}")
             return None
 
     def get_backup_jobs(self) -> Optional[List[Dict[str, Any]]]:
@@ -1050,6 +1120,55 @@ class ProxmoxService:
         if not isinstance(data, list):
             return None
         return [item for item in data if isinstance(item, dict)]
+
+
+    def get_pbs_datastore_status(self, datastore: str) -> Optional[Dict[str, Any]]:
+        """Return PBS datastore capacity/health status, or None when collection failed."""
+        datastore_name = str(datastore or "").strip()
+        if not datastore_name:
+            return None
+        endpoint = f"/admin/datastore/{quote(datastore_name, safe='')}/status"
+        result = self._make_pbs_request(endpoint)
+        if not isinstance(result, dict) or result.get("error"):
+            return None
+        data = result.get("data", {})
+        return dict(data) if isinstance(data, dict) else None
+
+    def get_pbs_datastore_health_evidence_by_name(self, *, now_epoch: Optional[float] = None) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Collect read-only PBS datastore capacity/health evidence keyed by datastore name.
+
+        ``None`` means datastore health was not collected. An empty dict means
+        PBS was collected successfully and no datastores were returned.
+        """
+        datastores = self.get_pbs_datastores()
+        if datastores is None:
+            return None
+        evidence: Dict[str, Dict[str, Any]] = {}
+        for datastore in datastores:
+            datastore_name = str(datastore or "").strip()
+            if not datastore_name:
+                continue
+            status = self.get_pbs_datastore_status(datastore_name)
+            if status is None:
+                return None
+            total = self._safe_float(status.get("total"), 0.0)
+            used = self._safe_float(status.get("used"), 0.0)
+            avail = self._safe_float(status.get("avail"), 0.0)
+            usage_percent = self._safe_float(status.get("usage_percent"), -1.0)
+            if usage_percent < 0 and total > 0:
+                usage_percent = (used / total) * 100
+            health = str(status.get("health") or status.get("status") or "unknown").strip().lower()
+            evidence[datastore_name] = {
+                "source": "pbs",
+                "datastore": datastore_name,
+                "total": total,
+                "used": used,
+                "avail": avail,
+                "usage_percent": round(usage_percent, 3) if usage_percent >= 0 else None,
+                "health": health or "unknown",
+                "collected_at": float(now_epoch if now_epoch is not None else time.time()),
+            }
+        return evidence
 
     def get_pbs_restore_readiness_evidence_by_vmid(self, *, now_epoch: Optional[float] = None) -> Optional[Dict[int, Dict[str, Any]]]:
         """Collect PBS VM restore point evidence keyed by VMID.
@@ -1133,6 +1252,9 @@ class ProxmoxService:
         backup_jobs = self.get_backup_jobs()
         vms_without_backup_jobs = self.get_vms_without_backup_jobs()
         pbs_restore_evidence_by_vmid = self.get_pbs_restore_readiness_evidence_by_vmid(now_epoch=now_epoch)
+        pbs_datastore_evidence_by_name = self.get_pbs_datastore_health_evidence_by_name(now_epoch=now_epoch)
+        restore_drill_evidence_by_vm = self.get_restore_drill_evidence_by_vm(vms, now_epoch=now_epoch)
+        ssh_guest_evidence_by_vm = self.get_ssh_guest_evidence_by_vm(vms, now_epoch=now_epoch)
         backup_schedule_collected = backup_jobs is not None and vms_without_backup_jobs is not None
         backup_not_backed_up_by_vmid: Optional[Dict[int, Dict[str, Any]]] = None
         if backup_schedule_collected:
@@ -1177,6 +1299,9 @@ class ProxmoxService:
             backup_not_backed_up_by_vmid=backup_not_backed_up_by_vmid,
             backup_jobs=backup_jobs if backup_schedule_collected else None,
             pbs_restore_evidence_by_vmid=pbs_restore_evidence_by_vmid,
+            pbs_datastore_evidence_by_name=pbs_datastore_evidence_by_name,
+            restore_drill_evidence_by_vm=restore_drill_evidence_by_vm,
+            ssh_guest_evidence_by_vm=ssh_guest_evidence_by_vm,
             vm_state_history=vm_state_history,
             thresholds=threshold_config.get("thresholds", {}),
             now=now_epoch,

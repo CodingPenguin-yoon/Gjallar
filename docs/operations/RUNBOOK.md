@@ -115,6 +115,13 @@ cd infra/terraform && terraform validate
 git diff --check
 ```
 
+RPO/RTO profile focused regressions are part of `backend/tests/test_operational_risk.py` and `frontend/tests/operationalRisk.test.mjs`. The profile contract should keep these behaviors green:
+
+- default profile preserves the threshold-backed 7-day backup readiness baseline unless threshold policy changes.
+- VM metadata override tags select `critical`, `standard`, or `relaxed` without writing to Proxmox.
+- PBS restore point staleness, restore drill staleness, and backup-recency fallback all use the active VM profile evidence.
+- frontend utilities surface `profile · RPO Nh · drill Nd` context for risk cards/reports.
+
 For pre-commit security review of the current diff:
 
 ```bash
@@ -220,6 +227,8 @@ status: healthy | info | warning | critical
 summary.total_nodes and summary.total_vms are populated
 threshold_config.source is default or database
 summary.suppressed is populated
+evidence.compliance_policy_collected is true
+evidence.compliance_policy_source is default
 ```
 
 Evidence fields:
@@ -231,10 +240,35 @@ evidence.backup_jobs_count: number|null
 evidence.backup_uncovered_vms: number|null
 evidence.vm_state_history_collected: true|false
 evidence.vm_state_history_vms: number|null
+evidence.pbs_restore_readiness_collected: true|false
+evidence.pbs_restore_readiness_vms: number|null
+evidence.pbs_datastore_health_collected: true|false
+evidence.pbs_datastore_health_datastores: number|null
+evidence.restore_drill_records_collected: true|false
+evidence.restore_drill_vms: number|null
+evidence.ssh_guest_collected: true|false
+evidence.ssh_guest_vms: number|null
+evidence.ssh_guest_failed_vms: number|null
+evidence.rpo_rto_profile_collected: true
+evidence.rpo_rto_profile_vms: number
+evidence.rpo_rto_profile_sources: object
 summary.categories.backup_coverage: optional number
+summary.categories.restore_readiness: optional number
+summary.categories.restore_drill: optional number
+summary.categories.guest_ssh_evidence: optional number
 summary.categories.long_stopped: optional number
 threshold_config.source: default|database|fallback
 ```
+
+Optional SSH collector safety smoke (no real guest credentials required):
+
+```bash
+cd /home/yoon/projects/Gjallar/backend
+PYTHONPATH=. .venv/bin/python -m unittest tests.test_optional_readonly_ssh_collector -v
+```
+
+Expected result: disabled/unconfigured collector returns uncollected evidence;
+unknown command IDs are blocked before execution; failure errors are redacted.
 
 Current lab smoke after threshold integration:
 
@@ -263,10 +297,13 @@ Safety boundary:
 
 - This endpoint is read-only with respect to Proxmox.
 - It may call Proxmox GET endpoints such as `/cluster/backup` and `/cluster/backup-info/not-backed-up`.
+- It may call optional PBS GET endpoints for datastore/snapshot evidence.
+- It may read VM metadata tags to select an RPO/RTO profile (`backup-profile`, `recovery-profile`, `rpo-profile`, or `rpo-rto-profile`).
 - It may write Gjallar-local observations to `operational_vm_state`.
 - It may read Gjallar-local threshold policy from `operational_risk_thresholds`.
 - It may store/clear local acknowledge/suppress overrides in `operational_risk_overrides`.
-- It must not call terminate/delete/start/stop/shutdown/reboot, config mutation APIs, snapshot delete, or backup job create/update/delete.
+- It may store operator-recorded restore drill evidence in Gjallar-local state.
+- It must not call terminate/delete/start/stop/shutdown/reboot, config mutation APIs, snapshot delete, backup job create/update/delete, PBS restore, PBS prune/GC, or datastore mutation APIs.
 - Risk recommendations may mention manual actions, but the dashboard itself does not execute them.
 
 ## 13. Operational Risk Thresholds smoke
@@ -386,5 +423,42 @@ Lifecycle reconciliation rules:
 - partial cluster snapshot: do not mark omitted VMs missing
 - node-scoped inventory: do not perform cluster-wide missing reconciliation
 - empty snapshot: do not mark all active VMs missing
+- direct/default OperationalRiskStateStore.observe_vms(...) calls do not reconcile missing VMs
+- reconciliation intent must be literal True; truthy strings/values fail closed
+- legacy inventory cache entries without complete=True are incomplete evidence
 - same node+vmid reappears after inactive: increment lifecycle_generation and reset stale stopped history
+```
+
+## 16. Policy / Compliance baseline validation
+
+Use this after changing read-only compliance rules or RPO/profile metadata policy.
+The compliance engine must stay pure/read-only: it evaluates VM metadata already
+collected by Gjallar and must not call Proxmox/PBS/guest mutation paths.
+
+```bash
+cd /home/yoon/projects/Gjallar/backend
+PYTHONPATH=. .venv/bin/python -m unittest   tests.test_operational_risk.OperationalRiskDashboardTest.test_prod_vm_without_explicit_backup_profile_reports_compliance_risk   tests.test_operational_risk.OperationalRiskDashboardTest.test_prod_vm_with_explicit_backup_profile_clears_compliance_risk   tests.test_operational_risk.OperationalRiskDashboardTest.test_non_prod_vm_without_explicit_backup_profile_skips_first_compliance_rule -v
+
+cd /home/yoon/projects/Gjallar/frontend
+node tests/operationalRisk.test.mjs
+```
+
+Expected policy behavior:
+
+```text
+prod/production VM + no accepted explicit profile => info compliance risk
+prod/production VM + rpo-profile:critical|standard|relaxed => no compliance risk
+non-prod VM + no explicit profile => no first-slice compliance risk
+```
+
+Set 5 verification summary:
+
+```text
+focused risk-state tests: 15 passed
+backend unittest discover -s tests -v: 111 tests passed
+backend compileall app tests: passed
+frontend operationalRisk Node regression/lint/build: passed
+static scan: STATIC_SCAN_OK set5_added_lines=248 invariants=fail_closed_no_secret_like_patterns
+independent review: passed; no blockers
+commit/push: not run; explicit user approval required
 ```

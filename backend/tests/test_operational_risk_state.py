@@ -17,6 +17,115 @@ class OperationalRiskStateStoreTest(unittest.TestCase):
         self.assertNotIn("_last_vm_inventory_complete", service_source.read_text())
 
 
+    def test_cached_inventory_without_complete_metadata_fails_closed(self):
+        service = ProxmoxService()
+        service.vm_inventory_cache_ttl_seconds = 60
+        service._vm_inventory_cache["__all__"] = {
+            "cached_at": 999_999_999_999.0,
+            "items": [{"node": "node-a", "vmid": 101, "name": "cached"}],
+        }
+
+        snapshot = service._get_vm_inventory_snapshot()
+
+        self.assertEqual(snapshot.scope, "cluster")
+        self.assertEqual([vm["vmid"] for vm in snapshot.items], [101])
+        self.assertEqual(snapshot.complete, False)
+
+    def test_store_observe_vms_defaults_to_no_missing_reconciliation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "risk-state.db"
+            database_url = f"sqlite+pysqlite:///{db_path}"
+            engine = create_platform_engine(database_url)
+            Base.metadata.create_all(engine)
+
+            first_seen = 1_700_000_000
+            store = OperationalRiskStateStore(database_url=database_url)
+            store.observe_vms(
+                [
+                    {"node": "node-a", "vmid": 101, "name": "visible", "status": "running"},
+                    {"node": "node-b", "vmid": 202, "name": "omitted", "status": "running"},
+                ],
+                observed_at=first_seen,
+                reconcile_missing=True,
+            )
+
+            history = store.observe_vms(
+                [{"node": "node-a", "vmid": 101, "name": "visible", "status": "running"}],
+                observed_at=first_seen + 60,
+            )
+
+            self.assertEqual(set(history), {"node-a/101"})
+            omitted_row = self._row_for_resource(database_url, "qemu:202")
+            self.assertEqual(omitted_row["active"], True)
+            self.assertIsNone(omitted_row["missing_since_at"])
+
+    def test_store_reconciliation_requires_literal_true_intent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "risk-state.db"
+            database_url = f"sqlite+pysqlite:///{db_path}"
+            engine = create_platform_engine(database_url)
+            Base.metadata.create_all(engine)
+
+            first_seen = 1_700_000_000
+            store = OperationalRiskStateStore(database_url=database_url)
+            store.observe_vms(
+                [
+                    {"node": "node-a", "vmid": 101, "name": "visible", "status": "running"},
+                    {"node": "node-b", "vmid": 202, "name": "truthy-string-omitted", "status": "running"},
+                ],
+                observed_at=first_seen,
+                reconcile_missing=True,
+            )
+
+            store.observe_vms(
+                [{"node": "node-a", "vmid": 101, "name": "visible", "status": "running"}],
+                observed_at=first_seen + 60,
+                reconcile_missing="false",
+            )
+
+            omitted_row = self._row_for_resource(database_url, "qemu:202")
+            self.assertEqual(omitted_row["active"], True)
+            self.assertIsNone(omitted_row["missing_since_at"])
+
+    def test_service_reconciliation_requires_literal_true_intent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "risk-state.db"
+            database_url = f"sqlite+pysqlite:///{db_path}"
+            engine = create_platform_engine(database_url)
+            Base.metadata.create_all(engine)
+
+            first_seen = 1_700_000_000
+            store = OperationalRiskStateStore(database_url=database_url)
+            store.observe_vms(
+                [
+                    {"node": "node-a", "vmid": 101, "name": "visible", "status": "running"},
+                    {"node": "node-b", "vmid": 202, "name": "service-omitted", "status": "running"},
+                ],
+                observed_at=first_seen,
+                reconcile_missing=True,
+            )
+
+            service = ProxmoxService()
+            service._risk_state_store = store
+            service.get_vm_state_history(
+                [{"node": "node-a", "vmid": 101, "name": "visible", "status": "running"}],
+                now_epoch=first_seen + 60,
+                reconcile_missing="false",
+            )
+
+            omitted_row = self._row_for_resource(database_url, "qemu:202")
+            self.assertEqual(omitted_row["active"], True)
+            self.assertIsNone(omitted_row["missing_since_at"])
+
+    def test_store_reconciliation_requires_explicit_complete_snapshot_intent(self):
+        store_source = (
+            Path(__file__).resolve().parents[1] / "app/domains/proxmox/risk_state.py"
+        ).read_text()
+
+        self.assertIn("reconcile_missing: bool = False", store_source)
+        self.assertNotIn("reconcile_missing: bool = True", store_source)
+
+
     def _row_for_resource(self, database_url, resource_key):
         engine = create_platform_engine(database_url)
         with engine.connect() as conn:
@@ -58,6 +167,7 @@ class OperationalRiskStateStoreTest(unittest.TestCase):
             history = store.observe_vms(
                 [{"node": "node-a", "vmid": 101, "name": "keep", "status": "running"}],
                 observed_at=first_seen + 60,
+                reconcile_missing=True,
             )
 
             self.assertEqual(set(history), {"node-a/101"})
@@ -167,6 +277,7 @@ class OperationalRiskStateStoreTest(unittest.TestCase):
             store.observe_vms(
                 [{"node": "node-a", "vmid": 202, "name": "keep", "status": "running"}],
                 observed_at=first_seen + 60,
+                reconcile_missing=True,
             )
 
             history = store.observe_vms([], observed_at=first_seen + 31 * 86400)
@@ -211,6 +322,7 @@ class OperationalRiskStateStoreTest(unittest.TestCase):
             store.observe_vms(
                 [{"node": "node-a", "vmid": 202, "name": "other", "status": "running"}],
                 observed_at=first_seen + 60,
+                reconcile_missing=True,
             )
 
             reappeared_at = first_seen + 40 * 86400
@@ -250,11 +362,13 @@ class OperationalRiskStateStoreTest(unittest.TestCase):
             store.observe_vms(
                 [{"node": "node-a", "vmid": 202, "name": "keep", "status": "running"}],
                 observed_at=first_seen + 60,
+                reconcile_missing=True,
             )
 
             store.observe_vms(
                 [{"node": "node-a", "vmid": 202, "name": "keep", "status": "running"}],
                 observed_at=first_seen + 31 * 86400,
+                reconcile_missing=True,
             )
 
             self.assertIsNone(self._row_for_resource(database_url, "qemu:101"))

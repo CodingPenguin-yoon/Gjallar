@@ -2,11 +2,17 @@ export const riskCategoryLabels = {
   node_status: 'Node status',
   storage_capacity: 'Storage capacity',
   guest_agent: 'Guest agent',
+  guest_ssh_evidence: 'Guest SSH evidence',
   governance: 'Governance',
+  compliance: 'Compliance',
   snapshot_age: 'Snapshot age',
   backup_coverage: 'Backup coverage',
   backup_recency: 'Backup recency',
+  rpo_violation: 'RPO violation',
   restore_readiness: 'Restore readiness',
+  pbs_datastore_capacity: 'PBS datastore capacity',
+  pbs_datastore_health: 'PBS datastore health',
+  restore_drill: 'Restore drill',
   long_stopped: 'Long stopped VM',
 }
 
@@ -150,11 +156,61 @@ export function normalizeRiskOverride(rawOverride = null) {
   }
 }
 
+function normalizeRpoRtoProfile(source = {}) {
+  const evidence = source.evidence && typeof source.evidence === 'object' ? source.evidence : source
+  const profileId = evidence.rpo_rto_profile_id || evidence.rpoRtoProfileId || evidence.profileId || ''
+  if (!profileId) return null
+  return {
+    profileId: String(profileId),
+    source: evidence.rpo_rto_profile_source || evidence.rpoRtoProfileSource || evidence.source || 'default',
+    rpoHours: toNumber(evidence.rpo_hours ?? evidence.rpoHours, null),
+    restoreDrillMaxAgeDays: toNumber(
+      evidence.restore_drill_max_age_days ?? evidence.restoreDrillMaxAgeDays,
+      null,
+    ),
+  }
+}
+
+function formatProfileNumber(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 'unknown'
+  return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(2)))
+}
+
+export function formatRiskPolicyProfile(item = {}) {
+  const profile = item.rpoRtoProfile || normalizeRpoRtoProfile(item)
+  if (!profile) return 'default RPO/RTO policy'
+  return `${profile.profileId} · RPO ${formatProfileNumber(profile.rpoHours)}h · drill ${formatProfileNumber(profile.restoreDrillMaxAgeDays)}d`
+}
+
+function normalizeSuggestedAction(action = {}) {
+  const requiresApproval = Boolean(action.requires_approval ?? action.requiresApproval ?? true)
+  return {
+    actionId: action.action_id || action.actionId || '',
+    label: action.label || 'Review suggested action',
+    description: action.description || '',
+    link: action.link || action.href || '/risks',
+    requiresApproval,
+    executionMode: action.execution_mode || action.executionMode || 'proposal_only',
+    mutationAllowed: Boolean(action.mutation_allowed ?? action.mutationAllowed ?? false),
+    approvalLabel: requiresApproval ? 'Approval required' : 'Review only',
+    target: action.target || {},
+  }
+}
+
 function normalizeRiskItem(item = {}) {
   const normalized = { ...item }
   if (item.override) {
     normalized.override = normalizeRiskOverride(item.override)
   }
+  const rpoRtoProfile = normalizeRpoRtoProfile(item)
+  if (rpoRtoProfile) {
+    normalized.rpoRtoProfile = rpoRtoProfile
+  }
+  const rawSuggestedActions = Array.isArray(item.suggested_actions)
+    ? item.suggested_actions
+    : (Array.isArray(item.suggestedActions) ? item.suggestedActions : [])
+  normalized.suggestedActions = rawSuggestedActions.map(normalizeSuggestedAction)
   return normalized
 }
 
@@ -182,6 +238,7 @@ export function normalizeRiskDashboard(payload = {}) {
     },
     riskItems,
     suppressedRiskItems,
+    evidence: payload.evidence || {},
     thresholds: payload.thresholds || {},
     thresholdConfig: payload.threshold_config || null,
   }
@@ -217,6 +274,9 @@ export function formatRiskScope(item = {}) {
   }
   if (item.scope === 'node') {
     return item.node || 'node'
+  }
+  if (item.scope === 'pbs_datastore') {
+    return item.datastore || item.evidence?.datastore || 'pbs datastore'
   }
   return item.scope || 'unknown'
 }

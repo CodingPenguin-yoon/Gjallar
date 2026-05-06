@@ -59,7 +59,8 @@ Hermes = 두 계층을 조합해서 판단하고 사용자에게 보고하는 �
 - storage usage risk
 - owner / environment / tag 누락 risk
 - 장기 stopped VM risk
-- 향후 policy/compliance rule
+- optional read-only SSH guest evidence gap risk
+- production VM explicit backup/RPO profile compliance risk
 
 ### 3. Act — 승인 기반으로 안전하게 조치한다
 
@@ -143,11 +144,17 @@ Terraform state도 장기적으로 Gjallar 쪽에 모은다.
 - Risk Dashboard UI
 - guest agent risk
 - backup task history / backup schedule coverage evidence
+- PBS restore readiness evidence
+- PBS datastore health/capacity evidence
+- restore drill record evidence
+- VM별 RPO/RTO profile reporting
 - snapshot age risk
 - storage capacity risk
 - owner/environment/tag governance risk
 - Gjallar DB 기반 VM state history
 - 장기 stopped VM 탐지 기반
+- safe action suggestion metadata/links (`proposal_only`, `requires_approval=true`)
+- lower-level fail-closed VM state reconciliation guards for partial/node-scoped/legacy cached inventory
 
 최근 핵심 커밋:
 
@@ -155,6 +162,8 @@ Terraform state도 장기적으로 Gjallar 쪽에 모은다.
 05f0f41 Add operational risk dashboard
 7c2ca71 Add backup schedule risk evidence
 854cd15 [verified] Add VM state history risk evidence
+4c29afe [verified] Add PBS restore readiness evidence
+Set 1~5: verified-but-uncommitted operational risk hardening; commit/push requires explicit approval
 ```
 
 ---
@@ -206,6 +215,10 @@ Risk Engine: 30일/90일 기준을 넘었는지 판단한다.
    - owner, env, service, backup-policy 표준화
 5. **PBS direct API / restore readiness**
    - 백업이 있는지를 넘어 복구 가능성까지 확인
+6. **RPO/RTO profile reporting**
+   - VM metadata 기반 profile로 restore point, restore drill, backup recency 기준을 설명 가능하게 만든다.
+7. **Policy / Compliance baseline**
+   - prod/production VM은 explicit backup/RPO profile metadata를 요구하는 read-only compliance risk를 제공한다.
 
 ---
 
