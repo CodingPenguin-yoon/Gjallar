@@ -3,7 +3,7 @@ FastAPI 메인 애플리케이션 진입점
 
 이 모듈은 Gjallar 백엔드 서버의 핵심 엔트리포인트입니다.
 - CORS 설정을 통해 프론트엔드와 통신
-- API 라우트를 등록하여 Proxmox VM 운영, inventory, task/log 기능 제공
+- PRD v1 MVP `/api/v1` 라우트 등록
 """
 
 import os
@@ -11,10 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.domains.deploy.router import router as deploy_router
-from app.domains.proxmox.router import router as proxmox_router
-from app.domains.llm.router import router as llm_router
-from app.domains.task.router import router as task_router
+from app.api.v1.router import router as api_v1_router
 
 # 환경 변수 로드 (.env 파일에서)
 # proxmox_service.py에서도 로드하지만, 다른 서비스들을 위해 여기서도 로드
@@ -44,10 +41,8 @@ app.add_middleware(
 )
 
 # API 라우트 등록
-app.include_router(deploy_router, prefix="/api", tags=["deploy"])
-app.include_router(task_router, prefix="/api", tags=["status", "logs"])
-app.include_router(proxmox_router, prefix="/api", tags=["proxmox"])
-app.include_router(llm_router, prefix="/api", tags=["llm"])
+app.include_router(api_v1_router)
+# PRD v1 MVP에서는 legacy deploy/provision/proxmox mutation/LLM 라우터를 노출하지 않는다.
 
 
 @app.get("/")

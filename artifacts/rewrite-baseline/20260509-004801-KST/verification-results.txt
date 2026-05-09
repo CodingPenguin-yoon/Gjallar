@@ -1,0 +1,31 @@
+Gjallar Set 0 verification results
+
+Branch: rewrite/prd-v1-mvp
+Baseline artifact: artifacts/rewrite-baseline/20260509-004801-KST
+
+frontend/tests/*.mjs: PASS
+Executed:
+- frontend/tests/inventorySummary.test.mjs
+- frontend/tests/lifecycleSafety.test.mjs
+- frontend/tests/monitoringSignals.test.mjs
+- frontend/tests/operationalRisk.test.mjs
+- frontend/tests/provisioningPayload.test.mjs
+- frontend/tests/provisioningReadiness.test.mjs
+- frontend/tests/provisioningSummary.test.mjs
+- frontend/tests/resourcePreflight.test.mjs
+- frontend/tests/taskBoardSummary.test.mjs
+
+backend/.venv/bin/python -m pytest backend/tests -q: BLOCKED
+Failure signature:
+/home/yoon/projects/Gjallar/backend/.venv/bin/python: No module named pytest
+
+Recovery plan:
+- Do not retry unchanged.
+- Add/confirm test dependency in a backend dev/test requirements file or install into backend/.venv with an explicit test dependency step.
+- Candidate command after approval/next implementation setup: backend/.venv/bin/python -m pip install -r backend/requirements.txt pytest
+- Then rerun: backend/.venv/bin/python -m pytest backend/tests -q
+
+Codex VM PRD access method: snapshot copy for this rewrite run.
+Reason: codex-vm does not currently have /mnt/hermes_data/프로젝트/Gjallar/PRD mounted.
+Snapshot path: artifacts/rewrite-baseline/20260509-004801-KST/prd-snapshot/PRD
+Follow-up: if long-running Codex CLI workers need live PRD sync, configure a verified read-only mount or repeat snapshot copy at Set boundaries.

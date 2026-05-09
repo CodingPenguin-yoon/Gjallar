@@ -1,0 +1,27 @@
+Gjallar Set 0 rewrite baseline
+timestamp: 20260509-004801-KST
+repo: /home/yoon/projects/Gjallar
+branch: rewrite/prd-v1-mvp
+head: 29412e8
+
+git status --short --branch:
+## rewrite/prd-v1-mvp
+
+tracked file counts:
+- total: 144
+- backend/: 69
+- frontend/: 40
+- infra/: 5
+- docs/: 14
+- artifacts/: 0
+
+safety:
+- commit/push/delete/apply/power-on were not run.
+- this artifact is inventory only; it intentionally does not copy .env or secret files.
+
+Set 0 verification summary:
+- safe branch created: rewrite/prd-v1-mvp at 29412e8
+- frontend tests: PASS (frontend/tests/*.mjs)
+- backend pytest: BLOCKED (No module named pytest); recovery plan written to verification-results.txt
+- Codex VM PRD access: snapshot copy at prd-snapshot/PRD; mount follow-up optional
+- commit/push/delete/apply/power-on were not run.

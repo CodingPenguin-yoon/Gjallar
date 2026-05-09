@@ -1,0 +1,28 @@
+Set 2 RED contract/schema tests summary
+Timestamp: 2026-05-09 01:35 KST
+Branch: rewrite/prd-v1-mvp
+HEAD: 29412e8
+
+New backend RED tests:
+- backend/tests/contracts/test_api_v1_shape.py
+- backend/tests/contracts/test_forbidden_mvp_endpoints.py
+- backend/tests/contracts/test_jobs_risks_contract.py
+- backend/tests/manifests/test_profile_schema.py
+- backend/tests/manifests/test_network_profile.py
+- backend/tests/manifests/test_secret_redaction.py
+- backend/tests/vm_create/test_draft_contract.py
+- backend/tests/vm_create/test_preflight_policy.py
+
+New frontend RED tests:
+- frontend/tests/reviewSummary.test.mjs
+- frontend/tests/riskPolicy.test.mjs
+- frontend/tests/createVmDefaults.test.mjs
+
+Verification:
+- git diff --check: PASS
+- new-file whitespace check: PASS
+- backend pytest command: BLOCKED, backend/.venv/bin/python: No module named pytest
+- backend unittest fallback: 17 tests run, 16 expected failures, 1 forbidden guard already satisfied
+- frontend Node focused RED tests: 3/3 exit 1 for missing PRD utility modules
+
+No production code, commit, push, delete, apply, Proxmox write, VM create, or power action was run.
