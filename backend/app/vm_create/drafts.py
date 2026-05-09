@@ -61,12 +61,17 @@ def build_default_vm_draft(
     job_id: str = "job-draft-preview",
     target_node_id: str | None = None,
     static_ip: str | None = None,
+    ip_mode: str | None = None,
 ) -> VmCreateDraft:
     """Build a non-mutating default draft for the first MVP Create VM flow."""
     profile = _load_general_profile()
     network_profile = _load_network(profile.network.network_profile)
     chosen_node = target_node_id or profile.target_node_candidates[0]
     bridge_id = network_profile.node_bridges.get(chosen_node)
+    requested_ip_mode = ip_mode or profile.network.default_ip_mode
+    if requested_ip_mode not in {"static", "dhcp"}:
+        raise ValueError("ip_mode must be either 'static' or 'dhcp'")
+    resolved_static_ip = None if requested_ip_mode == "dhcp" else static_ip or "192.168.2.142"
     suffix = _safe_identifier(job_id)
     manifest_id = f"vm-{suffix}"
     draft_id = f"draft-{suffix}"
@@ -87,8 +92,8 @@ def build_default_vm_draft(
         ),
         network=DraftNetwork(
             network_id=network_profile.network_id,
-            ip_mode=profile.network.default_ip_mode,
-            static_ip=static_ip or "192.168.2.142",
+            ip_mode=requested_ip_mode,
+            static_ip=resolved_static_ip,
             bridge_id=bridge_id,
         ),
         access=DraftAccess(

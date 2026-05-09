@@ -8,6 +8,7 @@ scope and require later RED tests plus approval gates.
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.api.v1.responses import success_response
+from app.vm_create.approval import validate_approval_request
 from app.jobs.models import ArtifactRecord, JobRecord
 from app.manifests.loader import load_builtin_profiles
 from app.proxmox.inventory import get_default_inventory_adapter
@@ -35,6 +37,32 @@ def _inventory_meta(adapter) -> dict:
 
 def _jobs_meta() -> dict[str, str]:
     return {"source": _inventory_adapter().source, "mode": "read_only"}
+
+
+def _api_draft_from_payload(draft_id: str, payload: dict | None):
+    payload = payload or {}
+    return build_default_vm_draft(
+        operator_id=str(payload.get("operator_id", "api-preview")),
+        job_id=str(payload.get("job_id", draft_id)),
+        target_node_id=payload.get("target_node_id"),
+        static_ip=payload.get("static_ip"),
+        ip_mode=payload.get("ip_mode"),
+    )
+
+
+def _safe_preview_segment(value: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value)).strip("-")
+    return safe[:120] or "job"
+
+
+def _api_preview_run_dir(job_id: str) -> Path:
+    return Path(tempfile.gettempdir()) / "gjallar-set6-api-preview" / _safe_preview_segment(job_id)
+
+
+def _api_preview_plan_from_payload(draft_id: str, payload: dict | None):
+    draft = _api_draft_from_payload(draft_id, payload)
+    preflight = run_preflight(draft, inventory_adapter=_inventory_adapter())
+    return build_vm_create_plan(draft, preflight, run_dir=_api_preview_run_dir(draft.job_id))
 
 
 def _artifact_checksum(seed: str) -> str:
@@ -300,6 +328,7 @@ async def create_vm_draft(payload: dict | None = None) -> dict:
         job_id=str(payload.get("job_id", "job-api-preview")),
         target_node_id=payload.get("target_node_id"),
         static_ip=payload.get("static_ip"),
+        ip_mode=payload.get("ip_mode"),
     )
     return success_response(draft.to_dict(), meta={"mode": "dry_run_draft_only"})
 
@@ -313,6 +342,7 @@ async def preflight_vm_draft(draft_id: str, payload: dict | None = None) -> dict
         job_id=str(payload.get("job_id", draft_id)),
         target_node_id=payload.get("target_node_id"),
         static_ip=payload.get("static_ip"),
+        ip_mode=payload.get("ip_mode"),
     )
     result = run_preflight(draft, inventory_adapter=_inventory_adapter())
     return success_response(result.to_dict(), meta={"mode": "fake_read_only_preflight"})
@@ -327,8 +357,36 @@ async def plan_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
         job_id=str(payload.get("job_id", draft_id)),
         target_node_id=payload.get("target_node_id"),
         static_ip=payload.get("static_ip"),
+        ip_mode=payload.get("ip_mode"),
     )
     preflight = run_preflight(draft, inventory_adapter=_inventory_adapter())
-    run_dir = Path(tempfile.gettempdir()) / "gjallar-set6-api-preview" / draft.job_id
-    plan = build_vm_create_plan(draft, preflight, run_dir=run_dir)
+    plan = build_vm_create_plan(draft, preflight, run_dir=_api_preview_run_dir(draft.job_id))
     return success_response(plan.to_dict(), meta={"mode": "dry_run_plan_only"})
+
+@router.post("/vm-create/{draft_id}/approve")
+async def approve_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
+    """Validate Review & Confirm approval metadata without live side effects."""
+    payload = payload or {}
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    decision = validate_approval_request(
+        plan,
+        plan_artifact_id=str(payload.get("plan_artifact_id", "")),
+        review_summary_checksum=str(payload.get("review_summary_checksum", "")),
+        yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
+        run_dir=_api_preview_run_dir(plan.job_id),
+    )
+    return success_response(decision.to_dict(), meta={"mode": "approval_validation_only"})
+
+
+@router.post("/vm-create/{draft_id}/execute")
+async def execute_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
+    """Fail closed until live GitOps/apply/Proxmox execution is explicitly approved."""
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "EXECUTE_REQUIRES_EXPLICIT_LIVE_APPROVAL",
+            "message": "Live IaC mutation, Proxmox VM creation, and first power-on are not enabled in this safe backend slice.",
+            "draft_id": draft_id,
+            "side_effects": [],
+        },
+    )

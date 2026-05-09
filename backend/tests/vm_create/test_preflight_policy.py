@@ -25,6 +25,13 @@ class PreflightPolicyTests(unittest.TestCase):
         self.assertFalse(decision.can_approve)
         self.assertTrue(decision.requires_yellow_ack)
 
+
+    def test_yellow_ack_requires_literal_boolean_true(self):
+        decision = self._evaluate([{"level": "yellow", "code": "dhcp_requires_discovery"}], yellow_ack="false")
+        self.assertFalse(decision.can_approve)
+        self.assertFalse(decision.can_execute)
+        self.assertTrue(decision.requires_yellow_ack)
+
     def test_green_risk_allows_approval(self):
         decision = self._evaluate([], yellow_ack=False)
         self.assertTrue(decision.can_approve)

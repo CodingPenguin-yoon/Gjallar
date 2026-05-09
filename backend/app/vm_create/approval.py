@@ -90,6 +90,7 @@ def evaluate_approval_gate(*, risks: list[Any], yellow_risk_acknowledged: bool =
     """Apply MVP Review & Confirm policy without executing live side effects."""
     normalized = [_risk_to_dict(risk) for risk in risks]
     level = _risk_level(normalized)
+    acknowledged = yellow_risk_acknowledged is True
     if level == "red":
         return _decision(
             risk_level="red",
@@ -98,7 +99,7 @@ def evaluate_approval_gate(*, risks: list[Any], yellow_risk_acknowledged: bool =
             requires_yellow_ack=False,
             reason="red risk blocks approval and execution",
         )
-    if level == "yellow" and not yellow_risk_acknowledged:
+    if level == "yellow" and not acknowledged:
         return _decision(
             risk_level="yellow",
             can_approve=False,
