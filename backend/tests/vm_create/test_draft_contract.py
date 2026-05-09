@@ -1,6 +1,7 @@
 """RED tests for create-VM draft defaults and allowed profile surface."""
 
 import unittest
+from unittest.mock import patch
 
 
 class VmCreateDraftContractTests(unittest.TestCase):
@@ -23,6 +24,55 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("static", draft.network.ip_mode)
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
+
+    def test_iac_state_path_can_be_relocated_with_environment(self):
+        from app.vm_create.drafts import build_default_vm_draft
+        from app.vm_create.paths import iac_path_context
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GJALLAR_SHARED_ROOT": "/Users/yoon/mnt/nfs",
+                "GJALLAR_IAC_ROOT": "",
+                "GJALLAR_TF_STATE_ROOT": "",
+                "GJALLAR_TERRAFORM_STATE_ROOT": "",
+            },
+            clear=False,
+        ):
+            draft = build_default_vm_draft(operator_id="test-operator", job_id="job-env-root")
+            context = iac_path_context()
+
+        self.assertEqual("/Users/yoon/mnt/nfs/공통/iac", context["iac_root"])
+        self.assertEqual("/Users/yoon/mnt/nfs/공통/iac-state/gjallar", context["terraform_state_root"])
+        self.assertEqual(
+            "/Users/yoon/mnt/nfs/공통/iac-state/gjallar/vm-job-env-root/terraform.tfstate",
+            draft.terraform_state_path,
+        )
+
+    def test_explicit_iac_and_state_roots_override_shared_root(self):
+        from app.vm_create.drafts import build_default_vm_draft
+        from app.vm_create.paths import iac_path_context
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GJALLAR_SHARED_ROOT": "/ignored/shared",
+                "GJALLAR_IAC_ROOT": "~/mnt/nfs/공통/iac",
+                "GJALLAR_TF_STATE_ROOT": "~/mnt/nfs/공통/tfstate/gjallar",
+                "GJALLAR_TERRAFORM_STATE_ROOT": "",
+            },
+            clear=False,
+        ):
+            draft = build_default_vm_draft(operator_id="test-operator", job_id="job-explicit-root")
+            context = iac_path_context()
+
+        self.assertTrue(context["iac_root"].endswith("/mnt/nfs/공통/iac"))
+        self.assertTrue(context["terraform_state_root"].endswith("/mnt/nfs/공통/tfstate/gjallar"))
+        self.assertTrue(
+            draft.terraform_state_path.endswith(
+                "/mnt/nfs/공통/tfstate/gjallar/vm-job-explicit-root/terraform.tfstate"
+            )
+        )
 
     def test_only_general_vm_is_create_enabled(self):
         try:

@@ -16,6 +16,12 @@ function formatNumber(value, digits = 0) {
   return parsed.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
+function formatGb(value, digits = 1) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return '-'
+  return `${formatNumber(parsed, digits)} GB`
+}
+
 function statusTone(status) {
   const normalized = String(status || '').toLowerCase()
   if (normalized === 'online' || normalized === 'running') return 'bg-emerald-100 text-emerald-700'
@@ -27,6 +33,144 @@ function statusLabel(status) {
   const normalized = String(status || '').trim()
   if (!normalized) return 'Unknown'
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function diskBadges(disk = {}) {
+  const badges = []
+  if (disk.boot) badges.push('boot')
+  if (disk.format && disk.format !== '-') badges.push(disk.format)
+  if (disk.discard === 'on') badges.push('discard')
+  if (String(disk.iothread) === '1') badges.push('iothread')
+  if (String(disk.ssd) === '1') badges.push('ssd')
+  if (String(disk.backup) === '0') badges.push('no backup')
+  if (String(disk.readonly) === '1') badges.push('read-only')
+  return badges
+}
+
+function DiskStack({ vm }) {
+  const disks = Array.isArray(vm.disks) ? vm.disks : []
+  if (disks.length === 0) {
+    return <div className="truncate text-right">{formatGb(vm.diskGb)}</div>
+  }
+
+  return (
+    <div className="space-y-1 text-left">
+      {disks.map((disk, index) => {
+        const device = disk.device || `disk-${index + 1}`
+        const storage = disk.storageId && disk.storageId !== 'unknown' ? disk.storageId : ''
+        const volume = disk.volume || disk.volumeId || ''
+        const volumeLabel = storage && volume ? `${storage}: ${volume}` : storage || volume
+        const badges = diskBadges(disk)
+
+        return (
+          <div key={`${device}-${index}`} className="min-w-0 rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-100">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <span className="truncate font-medium text-slate-700" title={device}>{device}</span>
+              <span className="shrink-0 font-mono text-xs text-slate-600">{formatGb(disk.sizeGb)}</span>
+            </div>
+            {volumeLabel ? (
+              <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={volumeLabel}>
+                {volumeLabel}
+              </div>
+            ) : null}
+            {badges.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {badges.map((badge) => (
+                  <span key={`${device}-${badge}`} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                    {badge}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+      {disks.length > 1 ? (
+        <div className="border-t border-slate-200 pt-1 text-right text-xs font-semibold text-slate-700">
+          Total {formatGb(vm.diskGb)}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function IpStack({ vm }) {
+  const [expanded, setExpanded] = useState(false)
+  const primaryIp = vm.primaryIp && vm.primaryIp !== '-' ? vm.primaryIp : ''
+  const hiddenIps = Array.isArray(vm.hiddenIpAddresses) ? vm.hiddenIpAddresses : []
+  const hiddenIpCount = hiddenIps.length || Number(vm.hiddenIpCount || 0)
+
+  const extraIpButton = hiddenIpCount > 0 ? (
+    <button
+      type="button"
+      onClick={() => setExpanded((current) => !current)}
+      aria-expanded={expanded}
+      aria-label={`${expanded ? 'Hide' : 'Show'} ${hiddenIpCount} additional IP addresses`}
+      className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 hover:border-slate-300 hover:bg-white"
+    >
+      +{hiddenIpCount}
+    </button>
+  ) : null
+
+  const extraIpList = expanded && hiddenIps.length > 0 ? (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {hiddenIps.map((ip) => (
+        <span key={ip} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+          {ip}
+        </span>
+      ))}
+    </div>
+  ) : null
+
+  if (!primaryIp) {
+    return (
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-slate-500">
+            {hiddenIpCount > 0 ? 'No vmbr IP visible' : 'No guest IP visible'}
+          </span>
+          {extraIpButton}
+        </div>
+        {extraIpList}
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate font-mono text-xs text-slate-700" title={primaryIp}>{primaryIp}</span>
+        {extraIpButton}
+      </div>
+      {extraIpList}
+    </div>
+  )
+}
+
+function SignalStack({ vm }) {
+  const signals = []
+  if (vm.guestAgent?.available) {
+    signals.push({ label: 'Guest agent', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' })
+  } else if (vm.status === 'running') {
+    signals.push({ label: 'No guest agent IP', tone: 'bg-amber-50 text-amber-700 border-amber-200' })
+  }
+  if (vm.storageId && vm.storageId !== 'unknown') {
+    signals.push({ label: vm.storageId, tone: 'bg-slate-50 text-slate-600 border-slate-200' })
+  }
+
+  if (signals.length === 0) {
+    return <span className="text-xs text-slate-400">-</span>
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1">
+      {signals.map((signal) => (
+        <span key={signal.label} className={`inline-flex max-w-full rounded border px-1.5 py-0.5 text-[11px] font-medium ${signal.tone}`}>
+          <span className="truncate">{signal.label}</span>
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
@@ -117,6 +261,31 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
       )}
 
       <div className="px-6 py-5">
+        {model?.summary ? (
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium uppercase text-slate-500">VMs</div>
+              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.runningVms} / {model.summary.totalVms}</div>
+              <div className="text-xs text-slate-500">running / total</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium uppercase text-slate-500">Nodes</div>
+              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.totalNodes}</div>
+              <div className="text-xs text-slate-500">observed nodes</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium uppercase text-slate-500">IP visibility</div>
+              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.visibleIpCount}</div>
+              <div className="text-xs text-slate-500">VMs with IP evidence</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium uppercase text-slate-500">Guest agent</div>
+              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.guestAgentCount}</div>
+              <div className="text-xs text-slate-500">with network evidence</div>
+            </div>
+          </div>
+        ) : null}
+
         {nodes.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
             No instances available.
@@ -159,15 +328,15 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                         <div className="px-4 py-4 text-sm text-slate-500">No instances observed on this server.</div>
                       ) : (
                         <div className="overflow-x-auto">
-                          <table className="min-w-[56rem] w-full table-fixed divide-y divide-slate-200 text-sm">
+                          <table className="min-w-[72rem] w-full table-fixed divide-y divide-slate-200 text-sm">
                             <colgroup>
-                              <col className="w-[28%] min-w-[14rem]" />
-                              <col className="w-[12%] min-w-[8rem]" />
-                              <col className="w-[24%] min-w-[12rem]" />
-                              <col className="w-[8%] min-w-[4.5rem]" />
-                              <col className="w-[10%] min-w-[6rem]" />
-                              <col className="w-[10%] min-w-[6rem]" />
-                              <col className="w-[8%] min-w-[5rem]" />
+                              <col className="w-[18%] min-w-[12rem]" />
+                              <col className="w-[8%] min-w-[6rem]" />
+                              <col className="w-[17%] min-w-[12rem]" />
+                              <col className="w-[6%] min-w-[4rem]" />
+                              <col className="w-[7%] min-w-[5rem]" />
+                              <col className="w-[31%] min-w-[24rem]" />
+                              <col className="w-[13%] min-w-[9rem]" />
                             </colgroup>
                             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                               <tr>
@@ -176,23 +345,40 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                                 <th scope="col" className="px-4 py-2 text-left font-medium">IP</th>
                                 <th scope="col" className="px-4 py-2 text-right font-medium">CPU</th>
                                 <th scope="col" className="px-4 py-2 text-right font-medium">Memory</th>
-                                <th scope="col" className="px-4 py-2 text-right font-medium">Disk</th>
-                                <th scope="col" className="px-4 py-2 text-center font-medium">Template</th>
+                                <th scope="col" className="px-4 py-2 text-left font-medium">Disk</th>
+                                <th scope="col" className="px-4 py-2 text-left font-medium">Signals</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
                               {node.vms.map((vm) => {
-                                const vmIpLabel = vm.primaryIp === '-' ? 'No guest IP visible' : vm.primaryIp
+                                const vmIpLabel = vm.primaryIp === '-'
+                                  ? `${vm.hiddenIpCount > 0 ? 'No vmbr IP visible' : 'No guest IP visible'}${vm.hiddenIpCount > 0 ? ` +${vm.hiddenIpCount}` : ''}`
+                                  : `${vm.primaryIp}${vm.hiddenIpCount > 0 ? ` +${vm.hiddenIpCount}` : ''}`
                                 const cpuLabel = formatNumber(vm.cpuCores)
-                                const memoryLabel = `${formatNumber(vm.memoryGb, 1)} GB`
-                                const diskLabel = `${formatNumber(vm.diskGb, 1)} GB`
-                                const templateLabel = vm.template ? 'Yes' : 'No'
+                                const memoryLabel = formatGb(vm.memoryGb)
+                                const diskLabel = vm.disks.length > 0
+                                  ? vm.disks.map((disk) => `${disk.device} ${formatGb(disk.sizeGb)} ${disk.storageId}`).join(', ')
+                                  : formatGb(vm.diskGb)
 
                                 return (
                                   <tr key={`${vm.nodeId}:${vm.vmid ?? vm.id}`} className="align-top">
                                     <td className="px-4 py-2">
                                       <div className="truncate font-medium text-slate-950" title={vm.name}>{vm.name}</div>
                                       <div className="mt-0.5 text-xs text-slate-500">VMID {vm.vmid ?? '-'}</div>
+                                      {vm.tags.length > 0 ? (
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                          {vm.tags.slice(0, 4).map((tag) => (
+                                            <span key={tag} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">
+                                              {tag}
+                                            </span>
+                                          ))}
+                                          {vm.tags.length > 4 ? (
+                                            <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
+                                              +{vm.tags.length - 4}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      ) : null}
                                     </td>
                                     <td className="px-4 py-2 whitespace-nowrap">
                                       <span className={`inline-flex max-w-full rounded-full px-2 py-1 text-xs font-medium ${statusTone(vm.status)}`} title={statusLabel(vm.status)}>
@@ -200,7 +386,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                                       </span>
                                     </td>
                                     <td className="px-4 py-2 text-slate-600" title={vmIpLabel}>
-                                      <div className="truncate">{vmIpLabel}</div>
+                                      <IpStack vm={vm} />
                                     </td>
                                     <td className="px-4 py-2 text-right text-slate-600" title={cpuLabel}>
                                       <div className="truncate">{cpuLabel}</div>
@@ -208,11 +394,11 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                                     <td className="px-4 py-2 text-right text-slate-600" title={memoryLabel}>
                                       <div className="truncate">{memoryLabel}</div>
                                     </td>
-                                    <td className="px-4 py-2 text-right text-slate-600" title={diskLabel}>
-                                      <div className="truncate">{diskLabel}</div>
+                                    <td className="px-4 py-2 text-slate-600" title={diskLabel}>
+                                      <DiskStack vm={vm} />
                                     </td>
-                                    <td className="px-4 py-2 text-center text-slate-600" title={templateLabel}>
-                                      <div className="truncate">{templateLabel}</div>
+                                    <td className="px-4 py-2 text-slate-600">
+                                      <SignalStack vm={vm} />
                                     </td>
                                   </tr>
                                 )

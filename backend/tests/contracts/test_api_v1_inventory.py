@@ -107,6 +107,7 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
                         disk_gb=40,
                         ip_addresses=("192.168.2.301",),
                         guest_agent=GuestAgentInventory(available=True, ip_addresses=("192.168.2.301",)),
+                        storage_id="local-lvm",
                     )
                 ]
                 self._templates = [
@@ -165,6 +166,8 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         self.assertEqual(1, cluster_response["data"]["vm_count"])
         self.assertEqual("live-app-01", vm_response["data"]["name"])
         self.assertEqual(["192.168.2.301"], vm_response["data"]["ip_addresses"])
+        self.assertIn("disks", vm_response["data"])
+        self.assertEqual("local-lvm", vm_response["data"]["storage_id"])
         self.assertEqual([], [name for name in ("delete_vm", "perform_vm_action", "update_vm_resources") if hasattr(v1_router._inventory_adapter(), name)])
         self.assertEqual([301], [vm["vmid"] for vm in vms_response["data"]])
 

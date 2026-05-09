@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, CheckCircle2, Clock3, FileText, RefreshCw, Search, ShieldAlert } from 'lucide-react'
+import { Activity, FileText, RefreshCw, Search, ShieldAlert } from 'lucide-react'
 import { apiV1Client } from '../services/apiV1'
 import { formatJobTimestamp, loadJobsScreenModel, statusToneClass } from '../utils/jobsScreen'
 

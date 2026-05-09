@@ -49,6 +49,28 @@ class GuestAgentInventory:
 
 
 @dataclass(frozen=True)
+class DiskInventory:
+    device: str
+    bus: str
+    index: int
+    size_gb: float
+    storage_id: str
+    volume_id: str
+    volume: str
+    boot: bool = False
+    format: str = ""
+    cache: str = ""
+    discard: str = ""
+    iothread: str = ""
+    ssd: str = ""
+    backup: str = ""
+    readonly: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class NodeInventory:
     node_id: str
     display_name: str
@@ -78,12 +100,15 @@ class VmInventory:
     ip_addresses: tuple[str, ...] = ()
     guest_agent: GuestAgentInventory = field(default_factory=lambda: GuestAgentInventory(False))
     tags: tuple[str, ...] = ()
+    storage_id: str = "unknown"
+    disks: tuple[DiskInventory, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["ip_addresses"] = list(self.ip_addresses)
         data["guest_agent"] = self.guest_agent.to_dict()
         data["tags"] = list(self.tags)
+        data["disks"] = [disk.to_dict() for disk in self.disks]
         return data
 
 

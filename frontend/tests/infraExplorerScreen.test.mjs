@@ -135,9 +135,27 @@ const fakeClient = {
         name: 'app-01',
         node_id: 'yoonmanserver2',
         status: 'running',
-        ip_addresses: ['192.168.2.141'],
+        ip_addresses: ['172.17.0.1', '192.168.2.141', '172.18.0.1'],
+        guest_agent: { available: true, ip_addresses: ['172.17.0.1', '192.168.2.141', '172.18.0.1'] },
+        tags: ['owner:platform', 'env:dev'],
+        cpu: 2,
         memory_mb: 4096,
         disk_gb: 40,
+        storage_id: 'local-lvm',
+        disks: [
+          {
+            device: 'scsi0',
+            bus: 'scsi',
+            index: 0,
+            size_gb: 40,
+            storage_id: 'local-lvm',
+            volume_id: 'local-lvm:vm-141-disk-0',
+            volume: 'vm-141-disk-0',
+            boot: true,
+            format: 'raw',
+            discard: 'on',
+          },
+        ],
       },
     ]
   },
@@ -157,10 +175,20 @@ assert.equal(model.readOnly, true)
 assert.deepEqual(model.allowedActions, [])
 assert.equal(model.summary.totalNodes, 2)
 assert.equal(model.summary.totalVms, 1)
+assert.equal(model.summary.visibleIpCount, 1)
+assert.equal(model.summary.guestAgentCount, 1)
 assert.equal(model.nodes[0].name, 'Yoonman Server 2')
 assert.equal(model.nodes[0].vms[0].name, 'app-01')
 assert.equal(model.nodes[0].vms[0].readOnly, true)
 assert.deepEqual(model.nodes[0].vms[0].allowedActions, [])
+assert.equal(model.nodes[0].vms[0].storageId, 'local-lvm')
+assert.equal(model.nodes[0].vms[0].disks[0].device, 'scsi0')
+assert.equal(model.nodes[0].vms[0].disks[0].storageId, 'local-lvm')
+assert.equal(model.nodes[0].vms[0].disks[0].volume, 'vm-141-disk-0')
+assert.equal(model.nodes[0].vms[0].guestAgent.available, true)
+assert.equal(model.nodes[0].vms[0].primaryIp, '192.168.2.141')
+assert.deepEqual(model.nodes[0].vms[0].hiddenIpAddresses, ['172.17.0.1', '172.18.0.1'])
+assert.equal(model.nodes[0].vms[0].hiddenIpCount, 2)
 
 const sourcePath = new URL('../src/components/InstanceList.jsx', import.meta.url)
 const instanceListSource = readFileSync(sourcePath, 'utf8')
@@ -174,8 +202,33 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /<colgroup>[\s\S]*?<col className="w-\[28%\] min-w-\[14rem\]" \/>[\s\S]*?<col className="w-\[12%\] min-w-\[8rem\]" \/>[\s\S]*?<col className="w-\[24%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[4\.5rem\]" \/>[\s\S]*?<col className="w-\[10%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[10%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[5rem\]" \/>[\s\S]*?<\/colgroup>/,
+  /<colgroup>[\s\S]*?<col className="w-\[18%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[17%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[6%\] min-w-\[4rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[5rem\]" \/>[\s\S]*?<col className="w-\[31%\] min-w-\[24rem\]" \/>[\s\S]*?<col className="w-\[13%\] min-w-\[9rem\]" \/>[\s\S]*?<\/colgroup>/,
   'InstanceList VM table must define stable column widths with a colgroup'
+)
+assert.match(
+  instanceListSource,
+  /function DiskStack\(\{ vm \}\)/,
+  'InstanceList must render disk detail rows with a dedicated disk stack'
+)
+assert.match(
+  instanceListSource,
+  /function IpStack\(\{ vm \}\)/,
+  'InstanceList must render guest IP evidence with a dedicated IP stack'
+)
+assert.match(
+  instanceListSource,
+  /hiddenIpCount/,
+  'InstanceList must collapse secondary IP evidence behind a count'
+)
+assert.match(
+  instanceListSource,
+  /setExpanded\(\(current\) => !current\)/,
+  'InstanceList IP count must toggle the collapsed IP details'
+)
+assert.match(
+  instanceListSource,
+  /function SignalStack\(\{ vm \}\)/,
+  'InstanceList must render guest-agent and storage signals'
 )
 assert.match(
   instanceListSource,
@@ -184,8 +237,8 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /<td className="px-4 py-2 text-slate-600" title=\{vmIpLabel\}>[\s\S]*?<div className="truncate">{vmIpLabel}<\/div>/,
-  'InstanceList IP cell must truncate without expanding the column'
+  /<td className="px-4 py-2 text-slate-600" title=\{vmIpLabel\}>[\s\S]*?<IpStack vm=\{vm\} \/>/,
+  'InstanceList IP cell must render guest IP evidence without expanding the column'
 )
 assert.match(
   instanceListSource,
@@ -194,18 +247,18 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /const memoryLabel = `\$\{formatNumber\(vm\.memoryGb, 1\)\} GB`/,
+  /const memoryLabel = formatGb\(vm\.memoryGb\)/,
   'InstanceList must build a Memory display label inside the VM row map'
 )
 assert.match(
   instanceListSource,
-  /const diskLabel = `\$\{formatNumber\(vm\.diskGb, 1\)\} GB`/,
+  /const diskLabel = vm\.disks\.length > 0[\s\S]*?: formatGb\(vm\.diskGb\)/,
   'InstanceList must build a Disk display label inside the VM row map'
 )
 assert.match(
   instanceListSource,
-  /const templateLabel = vm\.template \? 'Yes' : 'No'/,
-  'InstanceList must build a Template display label inside the VM row map'
+  /<DiskStack vm=\{vm\} \/>/,
+  'InstanceList must render disk devices, sizes, storage and volume details'
 )
 assert.match(
   instanceListSource,
@@ -219,13 +272,13 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /<td className="px-4 py-2 text-right text-slate-600" title=\{diskLabel\}>[\s\S]*?<div className="truncate">{diskLabel}<\/div>/,
-  'InstanceList Disk cell must truncate without expanding the column'
+  /<td className="px-4 py-2 text-slate-600" title=\{diskLabel\}>[\s\S]*?<DiskStack vm=\{vm\} \/>/,
+  'InstanceList Disk cell must render a stable disk stack without expanding the column'
 )
 assert.match(
   instanceListSource,
-  /<td className="px-4 py-2 text-center text-slate-600" title=\{templateLabel\}>[\s\S]*?<div className="truncate">{templateLabel}<\/div>/,
-  'InstanceList Template cell must truncate without expanding the column'
+  /<td className="px-4 py-2 text-slate-600">[\s\S]*?<SignalStack vm=\{vm\} \/>/,
+  'InstanceList Signals cell must show guest-agent and storage evidence'
 )
 
 const compiled = transformSync(compileInstanceListSource(instanceListSource), {
@@ -273,8 +326,23 @@ assert.match(html, /Online/)
 assert.match(html, /app-01/)
 assert.match(html, /VMID 141/)
 assert.match(html, /192\.168\.2\.141/)
+assert.match(html, />\+2</)
+assert.match(html, /aria-label="Show 2 additional IP addresses"/)
+assert.doesNotMatch(html, /172\.17\.0\.1/)
+assert.doesNotMatch(html, /172\.18\.0\.1/)
+assert.match(html, /owner:platform/)
+assert.match(html, /env:dev/)
+assert.match(html, /running \/ total/)
+assert.match(html, /IP visibility/)
+assert.match(html, /Guest agent/)
+assert.match(html, /scsi0/)
+assert.match(html, /local-lvm: vm-141-disk-0/)
+assert.match(html, /boot/)
+assert.match(html, /raw/)
+assert.match(html, /discard/)
+assert.match(html, /local-lvm/)
 
-for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Template']) {
+for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals']) {
   assert.match(html, new RegExp(`>${heading}<`), `InstanceList must show ${heading} in the grouped inventory table`)
 }
 

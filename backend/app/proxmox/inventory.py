@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 
 from app.core.redaction import redact_secrets
 from app.proxmox.models import (
+    DiskInventory,
     GuestAgentInventory,
     InventorySnapshot,
     NetworkInventory,
@@ -35,6 +36,7 @@ _DEFAULT_ADAPTER_LOCK = threading.Lock()
 _DEFAULT_ADAPTER_SIGNATURE: tuple[Any, ...] | None = None
 _DEFAULT_ADAPTER: FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter | None = None
 _DISK_SIZE_PATTERN = re.compile(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGTP]?)", re.IGNORECASE)
+_DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
 _NATURAL_SPLIT_PATTERN = re.compile(r"(\d+)")
 
 
@@ -89,6 +91,13 @@ def _safe_int(value: object, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def _bytes_to_mb(value: object) -> int:
@@ -188,30 +197,121 @@ def _extract_guest_agent_ipv4_addresses(payload: Any) -> tuple[str, ...]:
 
 
 def _extract_disk_size_gb(config_data: dict[str, Any], vm_row: dict[str, Any]) -> int:
-    disk_sizes: list[int] = []
-    for key, value in config_data.items():
-        if str(key)[:4] not in {"ide0", "ide1", "ide2", "sata", "scsi", "virt"}:
-            continue
-        match = _DISK_SIZE_PATTERN.search(str(value))
-        if not match:
-            continue
-        amount = float(match.group(1))
-        unit = match.group(2).upper() or "G"
-        unit_map = {"K": 1 / (1024 * 1024), "M": 1 / 1024, "G": 1, "T": 1024, "P": 1024 * 1024}
-        disk_sizes.append(int(round(amount * unit_map.get(unit, 1))))
-    if disk_sizes:
-        return sum(disk_sizes)
+    disks = _extract_disks(config_data, vm_row)
+    if disks:
+        return int(round(sum(disk.size_gb for disk in disks)))
     return _bytes_to_gb(vm_row.get("maxdisk") or vm_row.get("disk"))
 
 
 def _extract_storage_id(config_data: dict[str, Any]) -> str:
-    for key, value in config_data.items():
-        if str(key)[:4] not in {"ide0", "ide1", "ide2", "sata", "scsi", "virt"}:
-            continue
-        text = str(value or "")
-        if ":" in text:
-            return text.split(":", 1)[0].strip() or "unknown"
+    disks = _extract_disks(config_data, {})
+    for disk in disks:
+        if disk.storage_id != "unknown":
+            return disk.storage_id
     return "unknown"
+
+
+def _parse_disk_size_gb(value: object) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)([KMGTP]?)(?:i?b?)?", text, re.IGNORECASE)
+    if match is None:
+        return 0.0
+    amount = _safe_float(match.group(1), 0.0)
+    unit = match.group(2).upper() or "G"
+    unit_map = {"K": 1 / (1024 * 1024), "M": 1 / 1024, "G": 1, "T": 1024, "P": 1024 * 1024}
+    return amount * unit_map.get(unit, 1)
+
+
+def _extract_boot_disk_devices(config_data: dict[str, Any]) -> tuple[str, ...]:
+    devices: list[str] = []
+
+    def add_device(value: object) -> None:
+        device = str(value or "").strip()
+        if _DISK_CONFIG_KEY_PATTERN.fullmatch(device) and device not in devices:
+            devices.append(device)
+
+    add_device(config_data.get("bootdisk"))
+    boot_config = str(config_data.get("boot") or "")
+    for part in boot_config.split(","):
+        key, separator, value = part.partition("=")
+        if key.strip() != "order" or not separator:
+            continue
+        for device in value.split(";"):
+            add_device(device)
+    return tuple(devices)
+
+
+def _parse_disk_config(device: str, value: object, *, boot_devices: tuple[str, ...]) -> DiskInventory | None:
+    match = _DISK_CONFIG_KEY_PATTERN.fullmatch(str(device or ""))
+    if match is None or not isinstance(value, str):
+        return None
+
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        return None
+
+    params: dict[str, str] = {}
+    for part in parts[1:]:
+        key, separator, param_value = part.partition("=")
+        params[key.strip()] = param_value.strip() if separator else "true"
+
+    if str(params.get("media") or "").strip().lower() == "cdrom":
+        return None
+
+    volume_id = parts[0]
+    storage_id = "unknown"
+    volume = volume_id
+    if ":" in volume_id:
+        storage_id, volume = volume_id.split(":", 1)
+        storage_id = storage_id.strip() or "unknown"
+        volume = volume.strip()
+
+    return DiskInventory(
+        device=device,
+        bus=match.group(1),
+        index=_safe_int(match.group(2), 0),
+        size_gb=round(_parse_disk_size_gb(params.get("size")), 2),
+        storage_id=storage_id,
+        volume_id=volume_id,
+        volume=volume,
+        boot=device in boot_devices,
+        format=params.get("format", ""),
+        cache=params.get("cache", ""),
+        discard=params.get("discard", ""),
+        iothread=params.get("iothread", ""),
+        ssd=params.get("ssd", ""),
+        backup=params.get("backup", ""),
+        readonly=params.get("readonly", ""),
+    )
+
+
+def _extract_disks(config_data: dict[str, Any], vm_row: dict[str, Any]) -> tuple[DiskInventory, ...]:
+    boot_devices = _extract_boot_disk_devices(config_data)
+    disks = [
+        disk
+        for key, value in config_data.items()
+        if (disk := _parse_disk_config(str(key), value, boot_devices=boot_devices)) is not None
+    ]
+    disks.sort(key=lambda disk: (disk.bus, disk.index, disk.device))
+    if disks:
+        return tuple(disks)
+
+    fallback_gb = _bytes_to_gb(vm_row.get("maxdisk") or vm_row.get("disk"))
+    if fallback_gb <= 0:
+        return ()
+    return (
+        DiskInventory(
+            device="unknown",
+            bus="unknown",
+            index=0,
+            size_gb=fallback_gb,
+            storage_id="unknown",
+            volume_id="unknown",
+            volume="unknown",
+        ),
+    )
 
 
 def _extract_tags(config_data: dict[str, Any]) -> tuple[str, ...]:
@@ -310,6 +410,21 @@ class FakeProxmoxInventoryAdapter:
                 ip_addresses=("192.168.2.141",),
                 guest_agent=GuestAgentInventory(available=True, ip_addresses=("192.168.2.141",)),
                 tags=("gjallar", "fixture"),
+                storage_id="local-lvm",
+                disks=(
+                    DiskInventory(
+                        device="scsi0",
+                        bus="scsi",
+                        index=0,
+                        size_gb=40,
+                        storage_id="local-lvm",
+                        volume_id="local-lvm:vm-101-disk-0",
+                        volume="vm-101-disk-0",
+                        boot=True,
+                        format="raw",
+                        discard="on",
+                    ),
+                ),
             ),
         )
 
@@ -471,12 +586,14 @@ class LiveProxmoxInventoryAdapter:
                 guest_ips = ()
 
         configured_ips = _extract_configured_ipv4_addresses(config_data)
+        disks = _extract_disks(config_data, vm_row)
         detail = {
-            "disk_gb": _extract_disk_size_gb(config_data, vm_row),
+            "disk_gb": int(round(sum(disk.size_gb for disk in disks))) if disks else _extract_disk_size_gb(config_data, vm_row),
+            "disks": disks,
             "ip_addresses": _merge_ip_addresses(list(configured_ips), list(guest_ips)),
             "guest_agent": GuestAgentInventory(available=bool(guest_ips), ip_addresses=guest_ips),
             "tags": _extract_tags(config_data),
-            "storage_id": _extract_storage_id(config_data),
+            "storage_id": next((disk.storage_id for disk in disks if disk.storage_id != "unknown"), _extract_storage_id(config_data)),
         }
         with self._detail_cache_lock:
             self._detail_cache[cache_key] = (time.time(), detail)
@@ -517,6 +634,8 @@ class LiveProxmoxInventoryAdapter:
             ip_addresses=tuple(detail.get("ip_addresses") or ()),
             guest_agent=guest_agent,
             tags=tuple(detail.get("tags") or ()),
+            storage_id=str(detail.get("storage_id") or "unknown"),
+            disks=tuple(detail.get("disks") or ()),
         )
 
     def _collect_inventory(self) -> InventorySnapshot:

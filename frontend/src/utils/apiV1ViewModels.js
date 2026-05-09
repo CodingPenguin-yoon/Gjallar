@@ -59,17 +59,112 @@ function primaryIp(source = {}) {
   return asText(source.primary_ip ?? source.primaryIp ?? ips[0], '-')
 }
 
+function parseIpv4Octets(value) {
+  const text = String(value ?? '').trim()
+  const parts = text.split('.')
+  if (parts.length !== 4) return null
+  const octets = parts.map((part) => Number(part))
+  if (octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null
+  return octets
+}
+
+function isLikelyContainerIp(value) {
+  const octets = parseIpv4Octets(value)
+  if (!octets) return false
+  return octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31
+}
+
+function rankDisplayIp(value) {
+  const octets = parseIpv4Octets(value)
+  if (!octets) return 100
+  if (octets[0] === 127 || (octets[0] === 169 && octets[1] === 254)) return 90
+  if (isLikelyContainerIp(value)) return 80
+  if (octets[0] === 192 && octets[1] === 168) return 0
+  if (octets[0] === 10) return 10
+  return 20
+}
+
+function uniqueTextList(values) {
+  const seen = new Set()
+  const unique = []
+  asArray(values).forEach((value) => {
+    const text = String(value ?? '').trim()
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    unique.push(text)
+  })
+  return unique
+}
+
+function pickDisplayIp(addresses) {
+  const ranked = uniqueTextList(addresses)
+    .map((address, index) => ({ address, index, rank: rankDisplayIp(address) }))
+    .filter((item) => item.rank < 80)
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+  return ranked[0]?.address || '-'
+}
+
+function hiddenDisplayIps(addresses, displayIp) {
+  const ips = uniqueTextList(addresses)
+  if (!displayIp || displayIp === '-') return ips
+  return ips.filter((address) => address !== displayIp)
+}
+
+function normalizeDisk(source = {}, index = 0) {
+  return {
+    device: asText(source.device, `disk-${index + 1}`),
+    bus: asText(source.bus, ''),
+    index: asNumber(source.index, index),
+    sizeGb: asNumber(source.size_gb ?? source.sizeGb ?? source.gb),
+    storageId: asText(source.storage_id ?? source.storageId ?? source.storage, 'unknown'),
+    volumeId: asText(source.volume_id ?? source.volumeId, ''),
+    volume: asText(source.volume, ''),
+    boot: Boolean(source.boot),
+    format: asText(source.format, ''),
+    cache: asText(source.cache, ''),
+    discard: asText(source.discard, ''),
+    iothread: asText(source.iothread, ''),
+    ssd: asText(source.ssd, ''),
+    backup: asText(source.backup, ''),
+    readonly: asText(source.readonly, ''),
+  }
+}
+
+function normalizeGuestAgent(source = {}) {
+  const guestAgent = source.guest_agent ?? source.guestAgent ?? {}
+  return {
+    available: Boolean(guestAgent.available),
+    ipAddresses: asArray(guestAgent.ip_addresses ?? guestAgent.ipAddresses).filter(Boolean),
+  }
+}
+
 function normalizeVm(source = {}) {
+  const disks = asArray(source.disks).map(normalizeDisk)
+  const configuredPrimaryIp = primaryIp(source)
+  const sourceIpAddresses = uniqueTextList(source.ip_addresses ?? source.ipAddresses)
+  const ipAddresses = sourceIpAddresses.length > 0
+    ? sourceIpAddresses
+    : configuredPrimaryIp !== '-' ? [configuredPrimaryIp] : []
+  const primaryIpAddress = pickDisplayIp(ipAddresses)
+  const hiddenIpAddresses = hiddenDisplayIps(ipAddresses, primaryIpAddress)
+  const guestAgent = normalizeGuestAgent(source)
   return {
     id: asText(source.vmid ?? source.id, 'unknown'),
     vmid: source.vmid ?? source.id ?? null,
     name: normalizeVmName(source),
     nodeId: normalizeNodeId(source),
     status: normalizeStatus(source.status) || 'unknown',
-    primaryIp: primaryIp(source),
+    primaryIp: primaryIpAddress,
+    ipAddresses,
+    hiddenIpAddresses,
+    hiddenIpCount: hiddenIpAddresses.length,
+    guestAgent,
     cpuCores: cpuCount(source),
     memoryGb: memoryToGb(source),
-    diskGb: diskToGb(source),
+    diskGb: diskToGb({ ...source, disks }),
+    disks,
+    storageId: asText(source.storage_id ?? source.storageId ?? disks[0]?.storageId, 'unknown'),
+    tags: asArray(source.tags).filter(Boolean),
     template: Boolean(source.template),
     readOnly: true,
     allowedActions: READ_ONLY_ACTIONS,
@@ -130,6 +225,7 @@ export function buildInfraExplorerModel({ nodes = [], vms = [] } = {}) {
       runningVms: allVms.filter((vm) => vm.status === 'running').length,
       stoppedVms: allVms.filter((vm) => vm.status === 'stopped').length,
       visibleIpCount: allVms.filter((vm) => vm.primaryIp !== '-').length,
+      guestAgentCount: allVms.filter((vm) => vm.guestAgent.available).length,
     },
   }
 }

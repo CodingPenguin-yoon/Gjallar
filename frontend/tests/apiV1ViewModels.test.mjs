@@ -26,7 +26,7 @@ const infra = buildInfraExplorerModel({
       name: 'app-01',
       node_id: 'yoonmanserver2',
       status: 'running',
-      ip_addresses: ['192.168.2.141'],
+      ip_addresses: ['172.17.0.1', '192.168.2.141', '172.18.0.1'],
       cpu_cores: 2,
       memory_mb: 4096,
       disks: [{ size_gb: 40 }],
@@ -44,6 +44,8 @@ assert.equal(infra.summary.stoppedVms, 1)
 assert.deepEqual(infra.nodes.map((node) => node.id), ['yoonmanserver2', 'yoonmanserver3', 'unknown'])
 assert.deepEqual(infra.nodes[0].vms.map((vm) => vm.name), ['app-01', 'db-01'])
 assert.equal(infra.nodes[0].vms[0].primaryIp, '192.168.2.141')
+assert.deepEqual(infra.nodes[0].vms[0].hiddenIpAddresses, ['172.17.0.1', '172.18.0.1'])
+assert.equal(infra.nodes[0].vms[0].hiddenIpCount, 2)
 assert.equal(infra.nodes[0].vms[0].memoryGb, 4)
 assert.equal(infra.nodes[0].vms[0].diskGb, 40)
 assert.equal(infra.nodes[0].vms[0].readOnly, true)

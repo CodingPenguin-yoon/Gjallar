@@ -12,6 +12,7 @@ from app.vm_create.models import (
     DraftNetwork,
     VmCreateDraft,
 )
+from app.vm_create.paths import terraform_state_path
 
 
 def _safe_identifier(value: str) -> str:
@@ -33,10 +34,6 @@ def _load_network(network_id: str):
         return networks[network_id]
     except KeyError as exc:
         raise ValueError(f"NetworkProfile {network_id!r} is not available") from exc
-
-
-def _state_path(manifest_id: str) -> str:
-    return f"/mnt/hermes_data/공통/iac-state/gjallar/{manifest_id}/terraform.tfstate"
 
 
 def list_create_profile_options() -> list[CreateProfileOption]:
@@ -101,6 +98,6 @@ def build_default_vm_draft(
             ssh_key_source=profile.access.ssh_key_source,
             password_login=profile.access.password_login,
         ),
-        terraform_state_path=_state_path(manifest_id),
+        terraform_state_path=terraform_state_path(manifest_id),
         first_power_on_included=True,
     )

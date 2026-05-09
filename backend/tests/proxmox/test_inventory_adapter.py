@@ -44,6 +44,9 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertIn("192.168.2.141", vm["ip_addresses"])
         self.assertTrue(vm["guest_agent"]["available"])
         self.assertFalse(vm["template"])
+        self.assertEqual("local-lvm", vm["storage_id"])
+        self.assertEqual("scsi0", vm["disks"][0]["device"])
+        self.assertEqual(40, vm["disks"][0]["size_gb"])
 
     def test_default_adapter_stays_fake_without_live_config_or_in_fake_mode(self):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
@@ -99,7 +102,9 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
             "/nodes/node2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1}],
             "/nodes/node10/network": [{"iface": "vmbr1", "type": "bridge", "active": 1}],
             "/nodes/node2/qemu/202/config": {
-                "scsi0": "local-lvm:vm-202-disk-0,size=80G",
+                "boot": "order=scsi0;net0",
+                "scsi0": "local-lvm:vm-202-disk-0,size=80G,format=raw,discard=on,iothread=1",
+                "ide2": "local:iso/debian.iso,media=cdrom",
                 "ipconfig0": "ip=192.168.2.202/24,gw=192.168.2.1",
                 "tags": "db;critical",
             },
@@ -170,6 +175,15 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(80, first_vms[0]["disk_gb"])
         self.assertEqual(40, first_vms[1]["disk_gb"])
         self.assertEqual(20, first_vms[2]["disk_gb"])
+        self.assertEqual(1, len(first_vms[0]["disks"]))
+        self.assertEqual("scsi0", first_vms[0]["disks"][0]["device"])
+        self.assertEqual("local-lvm", first_vms[0]["disks"][0]["storage_id"])
+        self.assertEqual("vm-202-disk-0", first_vms[0]["disks"][0]["volume"])
+        self.assertTrue(first_vms[0]["disks"][0]["boot"])
+        self.assertEqual("raw", first_vms[0]["disks"][0]["format"])
+        self.assertEqual("on", first_vms[0]["disks"][0]["discard"])
+        self.assertEqual("1", first_vms[0]["disks"][0]["iothread"])
+        self.assertEqual("local-lvm", first_vms[0]["storage_id"])
         self.assertTrue(first_vms[0]["guest_agent"]["available"])
         self.assertFalse(first_vms[2]["guest_agent"]["available"])
         self.assertEqual(["db", "critical"], first_vms[0]["tags"])
