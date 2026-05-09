@@ -1,6 +1,6 @@
 """Read-only Proxmox inventory package for the Gjallar MVP core."""
 
-from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+from app.proxmox.inventory import FakeProxmoxInventoryAdapter, LiveProxmoxInventoryAdapter
 from app.proxmox.models import (
     GuestAgentInventory,
     InventorySnapshot,
@@ -13,6 +13,7 @@ from app.proxmox.models import (
 
 __all__ = [
     "FakeProxmoxInventoryAdapter",
+    "LiveProxmoxInventoryAdapter",
     "GuestAgentInventory",
     "InventorySnapshot",
     "NetworkInventory",

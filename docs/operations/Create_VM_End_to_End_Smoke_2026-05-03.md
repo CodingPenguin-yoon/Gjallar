@@ -1,5 +1,7 @@
 # Create VM End-to-End Smoke — 2026-05-03
 
+> Historical note: this smoke record is preserved for audit history and may mention legacy endpoints or flows that are not part of the current `/api/v1` repo-local contract. For current docs, start at `doc/README.md`.
+
 See also shared source-of-truth note:
 
 ```text

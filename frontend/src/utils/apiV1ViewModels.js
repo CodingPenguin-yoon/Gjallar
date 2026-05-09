@@ -87,7 +87,7 @@ export function buildInfraExplorerModel({ nodes = [], vms = [] } = {}) {
     const id = normalizeNodeId(node)
     nodeMap.set(id, {
       id,
-      name: asText(node.name ?? node.node_name ?? id, id),
+      name: asText(node.display_name ?? node.name ?? node.node_name ?? id, id),
       status: normalizeStatus(node.status) || 'unknown',
       vms: [],
       readOnly: true,

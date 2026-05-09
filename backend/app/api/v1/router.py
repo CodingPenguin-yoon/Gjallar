@@ -6,7 +6,6 @@ scope and require later RED tests plus approval gates.
 """
 
 from __future__ import annotations
-
 import hashlib
 import re
 import tempfile
@@ -201,7 +200,7 @@ def _risk_summary(job: JobRecord, risk) -> dict[str, Any]:
 
 
 @router.get("/cluster/summary")
-async def cluster_summary() -> dict:
+def cluster_summary() -> dict:
     """Return a read-only MVP cluster summary."""
     adapter = _inventory_adapter()
     snapshot = adapter.snapshot()
@@ -219,27 +218,29 @@ async def cluster_summary() -> dict:
 
 
 @router.get("/nodes")
-async def list_nodes() -> dict:
+def list_nodes() -> dict:
     """Return read-only node inventory."""
     adapter = _inventory_adapter()
+    nodes = adapter.list_nodes()
     return success_response(
-        [node.to_dict() for node in adapter.list_nodes()],
+        [node.to_dict() for node in nodes],
         meta=_inventory_meta(adapter),
     )
 
 
 @router.get("/vms")
-async def list_vms() -> dict:
+def list_vms() -> dict:
     """Return read-only VM inventory."""
     adapter = _inventory_adapter()
+    vms = adapter.list_vms()
     return success_response(
-        [vm.to_dict() for vm in adapter.list_vms()],
+        [vm.to_dict() for vm in vms],
         meta=_inventory_meta(adapter),
     )
 
 
 @router.get("/vms/{vmid}")
-async def get_vm(vmid: int) -> dict:
+def get_vm(vmid: int) -> dict:
     """Return a read-only VM detail for the requested VMID."""
     adapter = _inventory_adapter()
     vm = adapter.get_vm(vmid)
@@ -255,31 +256,34 @@ async def list_profiles() -> dict:
 
 
 @router.get("/templates")
-async def list_templates() -> dict:
+def list_templates() -> dict:
     """Return read-only template inventory."""
     adapter = _inventory_adapter()
+    templates = adapter.list_templates()
     return success_response(
-        [template.to_dict() for template in adapter.list_templates()],
+        [template.to_dict() for template in templates],
         meta=_inventory_meta(adapter),
     )
 
 
 @router.get("/storage")
-async def list_storage() -> dict:
+def list_storage() -> dict:
     """Return read-only storage candidates from inventory."""
     adapter = _inventory_adapter()
+    storages = adapter.list_storage()
     return success_response(
-        [storage.to_dict() for storage in adapter.list_storage()],
+        [storage.to_dict() for storage in storages],
         meta=_inventory_meta(adapter),
     )
 
 
 @router.get("/networks")
-async def list_networks() -> dict:
+def list_networks() -> dict:
     """Return read-only network bridge inventory."""
     adapter = _inventory_adapter()
+    networks = adapter.list_networks()
     return success_response(
-        [network.to_dict() for network in adapter.list_networks()],
+        [network.to_dict() for network in networks],
         meta=_inventory_meta(adapter),
     )
 

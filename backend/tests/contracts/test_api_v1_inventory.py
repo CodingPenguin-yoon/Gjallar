@@ -3,7 +3,9 @@
 import asyncio
 import contextlib
 import io
+import inspect
 import unittest
+from unittest.mock import patch
 
 
 class ApiV1InventoryPayloadTests(unittest.TestCase):
@@ -16,7 +18,9 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         cls.paths = {getattr(route, "path", "") for route in app.routes}
 
     def _run(self, awaitable):
-        return asyncio.run(awaitable)
+        if inspect.isawaitable(awaitable):
+            return asyncio.run(awaitable)
+        return awaitable
 
     def test_storage_route_exists_under_api_v1(self):
         self.assertIn(
@@ -31,11 +35,12 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         except ModuleNotFoundError as exc:
             self.fail(f"Expected app.api.v1.router for Set 5 inventory API: {exc}")
 
-        nodes_response = self._run(v1_router.list_nodes())
-        vms_response = self._run(v1_router.list_vms())
-        vm_response = self._run(v1_router.get_vm(101))
-        templates_response = self._run(v1_router.list_templates())
-        networks_response = self._run(v1_router.list_networks())
+        with patch.dict("os.environ", {"GJALLAR_INVENTORY_MODE": "fake"}, clear=False):
+            nodes_response = self._run(v1_router.list_nodes())
+            vms_response = self._run(v1_router.list_vms())
+            vm_response = self._run(v1_router.get_vm(101))
+            templates_response = self._run(v1_router.list_templates())
+            networks_response = self._run(v1_router.list_networks())
 
         for response in (nodes_response, vms_response, vm_response, templates_response, networks_response):
             self.assertTrue(response["ok"])
@@ -49,6 +54,119 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         self.assertTrue(vm["guest_agent"]["available"])
         self.assertIn("ubuntu-template", {template["template_id"] for template in templates_response["data"]})
         self.assertIn("vmbr0", {network["bridge_id"] for network in networks_response["data"]})
+
+    def test_inventory_routes_accept_live_read_only_adapter_without_mutating_controls(self):
+        from app.proxmox.models import (
+            GuestAgentInventory,
+            InventorySnapshot,
+            NetworkInventory,
+            NodeInventory,
+            StorageInventory,
+            TemplateInventory,
+            VmInventory,
+        )
+
+        try:
+            from app.api.v1 import router as v1_router
+        except ModuleNotFoundError as exc:
+            self.fail(f"Expected app.api.v1.router for Set 5 inventory API: {exc}")
+
+        class StubLiveAdapter:
+            source = "live_read_only"
+
+            def __init__(self):
+                storage = StorageInventory(
+                    storage_id="local-lvm",
+                    node_id="node-a",
+                    type="lvmthin",
+                    total_gb=512,
+                    free_gb=256,
+                    content=("images", "rootdir"),
+                )
+                network = NetworkInventory(bridge_id="vmbr0", node_id="node-a")
+                self._nodes = [
+                    NodeInventory(
+                        node_id="node-a",
+                        display_name="node-a",
+                        status="online",
+                        cpu_total=16,
+                        memory_total_mb=65536,
+                        storage=(storage,),
+                        networks=(network,),
+                    )
+                ]
+                self._vms = [
+                    VmInventory(
+                        vmid=301,
+                        name="live-app-01",
+                        node_id="node-a",
+                        status="running",
+                        template=False,
+                        cpu=2,
+                        memory_mb=4096,
+                        disk_gb=40,
+                        ip_addresses=("192.168.2.301",),
+                        guest_agent=GuestAgentInventory(available=True, ip_addresses=("192.168.2.301",)),
+                    )
+                ]
+                self._templates = [
+                    TemplateInventory(
+                        template_id="ubuntu-template",
+                        vmid=9000,
+                        name="ubuntu-template",
+                        node_id="node-a",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=True,
+                        guest_agent_ready=True,
+                    )
+                ]
+
+            def redacted_connection_context(self):
+                return {"source": self.source, "api_url": "https://root:[REDACTED]@pve.example.invalid:8006/api2/json"}
+
+            def snapshot(self):
+                return InventorySnapshot(
+                    source=self.source,
+                    observed_at="2026-05-09T10:00:00+09:00",
+                    nodes=tuple(self._nodes),
+                    vms=tuple(self._vms),
+                    templates=tuple(self._templates),
+                    connection=self.redacted_connection_context(),
+                )
+
+            def list_nodes(self):
+                return list(self._nodes)
+
+            def list_vms(self):
+                return list(self._vms)
+
+            def get_vm(self, vmid):
+                return self._vms[0] if vmid == 301 else None
+
+            def list_templates(self):
+                return list(self._templates)
+
+            def list_storage(self, node_id=None):
+                items = list(self._nodes[0].storage)
+                return [item for item in items if node_id is None or item.node_id == node_id]
+
+            def list_networks(self, node_id=None):
+                items = list(self._nodes[0].networks)
+                return [item for item in items if node_id is None or item.node_id == node_id]
+
+        with patch.object(v1_router, "_inventory_adapter", return_value=StubLiveAdapter()):
+            cluster_response = self._run(v1_router.cluster_summary())
+            vms_response = self._run(v1_router.list_vms())
+            vm_response = self._run(v1_router.get_vm(301))
+
+        self.assertTrue(cluster_response["ok"])
+        self.assertEqual("live_read_only", cluster_response["meta"]["source"])
+        self.assertEqual(1, cluster_response["data"]["vm_count"])
+        self.assertEqual("live-app-01", vm_response["data"]["name"])
+        self.assertEqual(["192.168.2.301"], vm_response["data"]["ip_addresses"])
+        self.assertEqual([], [name for name in ("delete_vm", "perform_vm_action", "update_vm_resources") if hasattr(v1_router._inventory_adapter(), name)])
+        self.assertEqual([301], [vm["vmid"] for vm in vms_response["data"]])
 
 
 if __name__ == "__main__":

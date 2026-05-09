@@ -1,0 +1,199 @@
+# Gjallar UI Screens PRD
+
+## 0. 목적
+
+사람이 보는 화면을 먼저 정의한다.
+API와 구현은 이 화면을 만족해야 한다.
+
+## 1. MVP 화면
+
+1. Dashboard
+2. Infra Explorer: Nodes + VMs + VM Detail
+3. Create VM
+4. Jobs / Runs
+5. Risks / Alerts
+
+2차:
+
+- Settings / Inventory
+- Independent VM power actions
+- Approval / Hermes Control
+- Snapshots / Backups
+- Template Management
+
+3차:
+
+- VM Console
+
+## 2. Dashboard
+
+목적: 전체 상태를 한눈에 보여준다.
+
+표시:
+
+- cluster health
+- node별 CPU/RAM/Disk
+- VM 수 / running 수
+- red/yellow risk 개수
+- 최근 jobs
+- 최근 실패 smoke
+
+## 3. Infra Explorer
+
+Nodes, VMs, VM Detail을 한 화면에서 본다.
+
+구성:
+
+```text
+왼쪽: Nodes
+가운데: VM list
+오른쪽: VM detail drawer/panel
+```
+
+VM list 표시:
+
+- name / VMID
+- node
+- status
+- IP
+- profile
+- owner
+- risk
+- guest-agent
+
+VM detail 표시:
+
+- hardware
+- disk/storage
+- network
+- template/profile
+- observed state
+- 최근 jobs
+- 최근 preflight/smoke
+- 가능한 action
+
+VM Detail의 2차 전원 action:
+
+- power on
+- graceful shutdown
+- reboot
+
+첫 구현 MVP에서는 VM 생성 flow 안의 first power on만 제공한다.
+기존 VM에 대한 독립 power on / graceful shutdown / reboot 버튼은 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice에서 노출한다.
+
+전원 action UX:
+
+- 일반 Confirm modal을 사용한다.
+- modal에는 VM name, VMID, node, IP, 현재 power_state, 실행할 action을 표시한다.
+- red risk가 있으면 action 버튼을 비활성화한다.
+- yellow risk가 있으면 경고 체크박스를 요구한다.
+- hard stop/reset 버튼은 MVP에서 표시하지 않는다.
+
+## 4. Create VM
+
+Profile 기반 wizard.
+
+MVP profile 정책:
+
+- 실제 생성 가능한 profile은 `general-vm` 하나다.
+- `general-vm`은 일반 VM 생성용 기본 profile이다.
+- `runtime-server`, `dev-server`, `db-server`는 2차 profile 후보이며 MVP 화면에서는 숨긴다. 필요하면 API/schema에는 future 상태만 남긴다.
+
+중요 UX:
+
+- 추천 profile 먼저
+- 고급 설정 접기
+- preflight 결과를 실행 전 명확히 표시
+- red면 실행 버튼 disabled
+- plan diff 확인 후 승인
+- 원터치/단계별 실행 선택
+
+Review & Confirm 표시 항목:
+
+1. 생성될 VM 이름
+2. VMID
+3. target node
+4. storage
+5. template
+6. CPU/RAM/Disk
+7. network / IP
+8. Terraform state path
+9. 첫 power on 포함 여부
+10. smoke timeout 요약
+11. red/yellow risk summary
+12. plan artifact link
+13. Git commit 예정 diff 요약
+
+승인 UX:
+
+- VM 생성은 일반 Confirm 버튼을 사용한다.
+- yellow risk가 있으면 경고 체크박스를 요구한다.
+- red risk가 있으면 approve/execute 버튼을 비활성화한다.
+- typed confirmation은 MVP VM 생성에는 쓰지 않고 삭제/rollback/destructive 작업에만 쓴다.
+
+## 5. Jobs / Runs
+
+표시:
+
+- job id
+- type
+- target VM
+- actor/requested_by/approved_by
+- status
+- started/finished
+- preflight summary
+- artifact links
+- retry 가능한 단계
+
+## 6. Risks / Alerts
+
+가장 중요한 화면 중 하나다.
+
+표시:
+
+- IP 충돌
+- storage 부족
+- guest-agent 미응답
+- stale observed state
+- Terraform state issue
+- credential issue
+- template mismatch
+- 오래된 snapshot/backup 경고는 2차
+
+각 risk는 원인, 영향, 가능한 조치, 막힌 action을 보여준다.
+
+생성 후 검증 실패 VM은 자동 삭제하지 않고 아래처럼 표시한다.
+
+```text
+생성은 됐지만 준비 실패
+상태: created_but_not_ready
+원인: smoke/cloud-init/SSH/guest-agent/Ansible 실패 중 해당 항목
+Runtime Target: inactive
+Cleanup: 후보로만 표시, 자동 삭제 없음
+```
+
+사용자 액션:
+
+- smoke 재시도
+- 상세 로그/아티팩트 보기
+- cleanup 후보로 표시
+- 실제 삭제는 2차 기능의 명시 승인 flow에서만 가능
+
+## 7. Deferred: Settings / Inventory
+
+첫 구현 MVP에서는 별도 설정 화면을 만들지 않는다.
+아래 정보는 read-only inventory API와 Create VM/Review & Confirm 화면에서 필요한 만큼만 노출한다.
+
+표시:
+
+- Proxmox endpoint/credential 상태
+- node/storage/network profile
+- template 목록
+- IaC repo 경로
+- Terraform state 위치
+- Network Profile source 상태
+
+## 8. 제외 화면
+
+MVP에서는 앱 배포 화면, 앱 로그 화면, DB migration 화면을 만들지 않는다.
+이들은 Gjallar 제품 정체성과 다르다.
