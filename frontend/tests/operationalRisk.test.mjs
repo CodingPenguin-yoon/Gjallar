@@ -179,7 +179,12 @@ const fallbackSuggestionDashboard = normalizeRiskDashboard({
 assert.equal(fallbackSuggestionDashboard.riskItems[0].suggestedActions[0].link, '/risks')
 
 const riskDashboardComponentSource = readFileSync(new URL('../src/components/OperationalRiskDashboard.jsx', import.meta.url), 'utf8')
-assert.ok(riskDashboardComponentSource.includes("href={action.link || '/risks'}"))
+assert.ok(riskDashboardComponentSource.includes('apiV1Client'))
+assert.ok(riskDashboardComponentSource.includes('loadRisksScreenModel'))
+assert.ok(!/from ['"]\.\.\/services\/api(?:\.js)?['"]/.test(riskDashboardComponentSource))
+for (const blocked of ['getOperationalRisks', 'updateOperationalRiskThresholds', 'updateOperationalRiskOverride', 'clearOperationalRiskOverride', 'ThresholdEditor', 'Save thresholds', 'Acknowledge', 'Suppress']) {
+  assert.ok(!riskDashboardComponentSource.includes(blocked), `legacy risk component term remains: ${blocked}`)
+}
 assert.ok(!riskDashboardComponentSource.includes('/operations/risks'))
 
 console.log('operationalRisk tests passed')
