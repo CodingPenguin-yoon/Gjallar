@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+
+const srcRoot = new URL('../src', import.meta.url)
+const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
+
+for (const label of ['Dashboard', 'Infra Explorer', 'Create VM', 'Jobs/Runs', 'Risks/Alerts']) {
+  assert.ok(app.includes(label), `App navigation must expose PRD label: ${label}`)
+}
+for (const route of ['path="/infra"', 'path="/create"', 'path="/jobs"', 'path="/risks"']) {
+  assert.ok(app.includes(route), `App routes must expose PRD route: ${route}`)
+}
+assert.doesNotMatch(app, /from ['"]\.\/services\/api(?:\.js)?['"]/, 'App must not import the legacy /api client')
+assert.doesNotMatch(app, /LlmInfraChat|LLM Assistant|\/assistant|Sparkles/, 'LLM assistant must not be routed or shown in MVP nav')
+assert.doesNotMatch(app, /provisionInstance|checkIpAvailability|handleProvision|provisioningRequest|onProvision|isProvisioning/, 'App must not own legacy provisioning execution flow')
+assert.doesNotMatch(app, /Instance List|Task Board|Risk Dashboard|Monitoring/, 'App must use PRD v1 navigation labels only')
+
+const activeImports = app
+  .split('\n')
+  .map((line) => line.match(/^import\s+[^\n]+\s+from\s+['"](\.\/components\/[^'"]+)['"]/))
+  .filter(Boolean)
+  .map((match) => match[1])
+
+assert.deepEqual(
+  activeImports.sort(),
+  [
+    './components/CreateInstanceWizard',
+    './components/InstanceList',
+    './components/OperationalRiskDashboard',
+    './components/TaskBoard',
+  ].sort(),
+  'Only PRD MVP screen components should be actively routed from App',
+)
+
+assert.equal(existsSync(new URL('../src/services/api.js', import.meta.url)), false, 'legacy frontend services/api.js must be quarantined out of active src')
+
+function collectSourceFiles(dir) {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry)
+    if (statSync(path).isDirectory()) return collectSourceFiles(path)
+    return /\.(js|jsx|mjs)$/.test(path) ? [path] : []
+  })
+}
+
+for (const file of collectSourceFiles(srcRoot.pathname)) {
+  const rel = relative(srcRoot.pathname, file)
+  const source = readFileSync(file, 'utf8')
+  assert.doesNotMatch(source, /from ['"](?:\.\.\/|\.\/)?services\/api(?:\.js)?['"]/, `${rel} must not import legacy services/api`)
+  assert.doesNotMatch(source, /LlmInfraChat|LLM Infra Assistant|LLM Assistant|\/assistant/, `${rel} must not expose the parked LLM assistant`)
+}
+
+console.log('appNavigation RED contract exercised')
