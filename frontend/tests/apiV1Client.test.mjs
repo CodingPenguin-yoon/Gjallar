@@ -22,6 +22,9 @@ assert.equal(API_V1_ENDPOINTS.risks, '/risks')
 assert.equal(API_V1_ENDPOINTS.vms, '/vms')
 assert.equal(API_V1_ENDPOINTS.nodes, '/nodes')
 assert.equal(API_V1_ENDPOINTS.jobArtifacts('job/a b'), '/jobs/job%2Fa%20b/artifacts')
+assert.equal(API_V1_ENDPOINTS.vmCreatePreflight('draft/1'), '/vm-create/draft%2F1/preflight')
+assert.equal(API_V1_ENDPOINTS.vmCreatePlan('draft/1'), '/vm-create/draft%2F1/plan')
+assert.equal(API_V1_ENDPOINTS.vmCreateApprove('draft/1'), '/vm-create/draft%2F1/approve')
 
 const calls = []
 const fakeFetch = async (url, options = {}) => {
@@ -55,6 +58,8 @@ assert.deepEqual((await client.preflightVmDraft('draft/1', { static_ip: '192.168
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/preflight')
 assert.deepEqual((await client.planVmDraft('draft/1', { target_node_id: 'yoonmanserver2' })).body, { target_node_id: 'yoonmanserver2' })
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/plan')
+assert.deepEqual((await client.approveVmDraft('draft/1', { plan_artifact_id: 'artifact-plan' })).body, { plan_artifact_id: 'artifact-plan' })
+assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/approve')
 
 assert.deepEqual(unwrapApiV1Envelope({ ok: true, data: [1, 2] }), [1, 2])
 assert.throws(

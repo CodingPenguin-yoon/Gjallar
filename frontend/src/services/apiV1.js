@@ -16,6 +16,7 @@ export const API_V1_ENDPOINTS = Object.freeze({
   createVmDrafts: '/vm-create/drafts',
   vmCreatePreflight: (draftId) => `/vm-create/${encodePathPart(draftId)}/preflight`,
   vmCreatePlan: (draftId) => `/vm-create/${encodePathPart(draftId)}/plan`,
+  vmCreateApprove: (draftId) => `/vm-create/${encodePathPart(draftId)}/approve`,
 })
 
 function encodePathPart(value) {
@@ -93,6 +94,7 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     createVmDraft: (payload = {}) => post(API_V1_ENDPOINTS.createVmDrafts, payload),
     preflightVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePreflight(draftId), payload),
     planVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePlan(draftId), payload),
+    approveVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateApprove(draftId), payload),
   })
 }
 
