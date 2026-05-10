@@ -124,6 +124,7 @@ class ApiV1NetworkPolicyTests(unittest.TestCase):
                             {
                                 "node_id": "yoonmanserver2",
                                 "bridge_id": "vmbr0",
+                                "ip_range": "192.168.2.1-192.168.2.254",
                                 "static_ip_ranges": [{"start": "192.168.2.140", "end": "192.168.2.150"}],
                             }
                         ],
@@ -135,7 +136,9 @@ class ApiV1NetworkPolicyTests(unittest.TestCase):
         binding = find_network_policy_binding(policy, node_id="yoonmanserver2", bridge_id="vmbr0", network_id="server-net")
 
         self.assertIsNotNone(binding)
+        self.assertEqual([{"start": "192.168.2.140", "end": "192.168.2.150"}], binding["static_ip_ranges"])
         self.assertTrue(ip_in_static_ranges("192.168.2.149", binding["static_ip_ranges"]))
+        self.assertFalse(ip_in_static_ranges("192.168.2.1", binding["static_ip_ranges"]))
         self.assertFalse(ip_in_static_ranges("192.168.2.200", binding["static_ip_ranges"]))
 
 

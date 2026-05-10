@@ -7,28 +7,17 @@ function asText(value, fallback = '') {
   return text || fallback
 }
 
-function normalizeStaticIpRanges(value, legacyRange = '') {
-  const ranges = asArray(value)
+function normalizeStaticIpRanges(value) {
+  return asArray(value)
     .map((range) => ({
       start: asText(range?.start),
       end: asText(range?.end),
     }))
     .filter((range) => range.start || range.end)
-
-  if (ranges.length > 0) return ranges
-
-  return String(legacyRange || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      const [start, end] = item.split('-').map((part) => part.trim())
-      return { start, end: end || start }
-    })
 }
 
-function defaultStaticIpRanges(value, legacyRange = '') {
-  const ranges = Array.isArray(value) ? normalizeStaticIpRanges(value, legacyRange) : normalizeStaticIpRanges([], value || legacyRange)
+function defaultStaticIpRanges(value) {
+  const ranges = normalizeStaticIpRanges(value)
   return ranges.length > 0 ? ranges : [{ start: '', end: '' }]
 }
 
@@ -46,7 +35,7 @@ function normalizePolicy(policy = {}) {
         subnet: asText(node.subnet),
         gateway: asText(node.gateway),
         dns: asArray(node.dns).map((item) => asText(item)).filter(Boolean),
-        static_ip_ranges: normalizeStaticIpRanges(node.static_ip_ranges, node.ip_range),
+        static_ip_ranges: normalizeStaticIpRanges(node.static_ip_ranges),
       })).filter((node) => node.node_id && node.bridge_id),
     })).filter((network) => network.network_id),
   }
@@ -66,7 +55,7 @@ function normalizeBridge(row = {}) {
     networkId: asText(policy?.network_id),
     subnet: asText(policy?.subnet),
     gateway: asText(policy?.gateway),
-    staticIpRanges: normalizeStaticIpRanges(policy?.static_ip_ranges, policy?.ip_range),
+    staticIpRanges: normalizeStaticIpRanges(policy?.static_ip_ranges),
   }
 }
 
@@ -151,6 +140,6 @@ export function formFromBridge(bridge = {}) {
     subnet: bridge.subnet || bridge.policy?.subnet || '',
     gateway: bridge.gateway || bridge.policy?.gateway || '',
     dns: asArray(bridge.policy?.dns).join(', '),
-    staticIpRanges: defaultStaticIpRanges(bridge.policy?.static_ip_ranges, bridge.policy?.ip_range),
+    staticIpRanges: defaultStaticIpRanges(bridge.policy?.static_ip_ranges),
   }
 }

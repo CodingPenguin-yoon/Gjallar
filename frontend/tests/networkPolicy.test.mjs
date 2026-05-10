@@ -44,6 +44,7 @@ const model = buildNetworkPolicyModel({
         gateway: '192.168.2.1',
         dns: ['192.168.2.1'],
         static_ip_ranges: [{ start: '192.168.2.140', end: '192.168.2.150' }],
+        ip_range: '192.168.2.1-192.168.2.254',
       },
     },
     { node_id: 'yoonmanserver2', bridge_id: 'vmbr1', type: 'bridge', active: true, registered: false },
@@ -58,6 +59,7 @@ assert.deepEqual(model.nodes, ['yoonmanserver2', 'yoonserver3'])
 assert.equal(model.bridgesByNode.yoonmanserver2.length, 2)
 assert.equal(model.bridges[0].displayName, '서버망')
 assert.deepEqual(model.bridges[0].staticIpRanges, [{ start: '192.168.2.140', end: '192.168.2.150' }])
+assert.notDeepEqual(model.bridges[0].staticIpRanges, [{ start: '192.168.2.1', end: '192.168.2.254' }])
 
 const form = formFromBridge(model.bridges[1])
 assert.equal(form.nodeId, 'yoonmanserver2')

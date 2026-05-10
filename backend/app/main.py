@@ -42,7 +42,7 @@ app.add_middleware(
 
 # API 라우트 등록
 app.include_router(api_v1_router)
-# PRD v1 MVP에서는 legacy deploy/provision/proxmox mutation/LLM 라우터를 노출하지 않는다.
+# PRD v1 MVP exposes only the explicit /api/v1 operator surface.
 
 
 @app.get("/")

@@ -108,17 +108,12 @@ function buildDashboardModel({ cluster = {}, nodes = [], vms = [], storages = []
     const nodeVms = asArray(vms).filter((vm) => (vm.node_id || vm.nodeId || vm.node) === id)
     const nodeStorages = asArray(node.storage).length ? asArray(node.storage) : asArray(storages).filter((storage) => (storage.node_id || storage.nodeId) === id)
     const nodeNetworks = asArray(node.networks).length ? asArray(node.networks) : asArray(networks).filter((network) => (network.node_id || network.nodeId) === id)
-    const cpuTotal = asNumber(node.cpu_total ?? node.cpuTotal)
-    const cpuAllocated = nodeVms.reduce((sum, vm) => sum + asNumber(vm.cpu ?? vm.cpus ?? vm.cpu_cores ?? vm.cpuCores), 0)
     const memoryTotalGb = asNumber(node.memory_total_mb ?? node.memoryTotalMb) / 1024
-    const memoryAllocatedGb = nodeVms.reduce((sum, vm) => sum + asNumber(vm.memory_mb ?? vm.memoryMb) / 1024, 0)
     const cpuUsagePercent = optionalNumber(node.cpu_usage_percent ?? node.cpuUsagePercent)
     const memoryUsedGb = asNumber(node.memory_used_mb ?? node.memoryUsedMb) / 1024
     const memoryUsagePercent = optionalNumber(node.memory_usage_percent ?? node.memoryUsagePercent)
     const storageTotalGb = nodeStorages.reduce((sum, storage) => sum + Math.max(0, asNumber(storage.total_gb ?? storage.totalGb)), 0)
     const storageFreeGb = nodeStorages.reduce((sum, storage) => sum + Math.max(0, asNumber(storage.free_gb ?? storage.freeGb)), 0)
-    const cpuPercent = cpuTotal > 0 ? (cpuAllocated / cpuTotal) * 100 : Number.NaN
-    const memoryPercent = memoryTotalGb > 0 ? (memoryAllocatedGb / memoryTotalGb) * 100 : Number.NaN
     return {
       id,
       name: nodeNameOf(node),
@@ -126,12 +121,12 @@ function buildDashboardModel({ cluster = {}, nodes = [], vms = [], storages = []
       tone: statusTone(node.status),
       vmCount: nodeVms.length,
       runningVmCount: nodeVms.filter((vm) => String(vm.status || '').toLowerCase() === 'running').length,
-      cpuLabel: cpuUsagePercent !== null ? `${Math.round(cpuUsagePercent)}%` : (cpuTotal > 0 ? `${cpuAllocated}/${cpuTotal}` : `${cpuAllocated}`),
-      cpuPercent: cpuUsagePercent !== null ? cpuUsagePercent : cpuPercent,
+      cpuLabel: cpuUsagePercent !== null ? `${Math.round(cpuUsagePercent)}%` : '-',
+      cpuPercent: cpuUsagePercent !== null ? cpuUsagePercent : Number.NaN,
       memoryLabel: memoryUsagePercent !== null && memoryTotalGb > 0
         ? `${Math.round(memoryUsedGb)} / ${Math.round(memoryTotalGb)} GB`
-        : memoryTotalGb > 0 ? `${Math.round(memoryAllocatedGb)} / ${Math.round(memoryTotalGb)} GB` : `${Math.round(memoryAllocatedGb)} GB`,
-      memoryPercent: memoryUsagePercent !== null ? memoryUsagePercent : memoryPercent,
+        : '-',
+      memoryPercent: memoryUsagePercent !== null ? memoryUsagePercent : Number.NaN,
       storageLabel: storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : '-',
       networks: nodeNetworks.map((network) => network.bridge_id || network.bridgeId).filter(Boolean),
     }
@@ -280,7 +275,7 @@ function Dashboard() {
           <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-slate-950">Cluster Summary</h3>
-              <div className="mt-1 text-xs text-slate-500">노드별 VM 할당량, 스토리지 여유 공간, 브리지 상태</div>
+              <div className="mt-1 text-xs text-slate-500">노드별 VM 상태, 실시간 CPU/메모리 사용량, 스토리지 여유 공간, 브리지 상태</div>
             </div>
             <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
               {onlineNodeLabel(model.nodeRows)}
@@ -294,8 +289,8 @@ function Dashboard() {
                   <th className="px-5 py-3 text-left font-semibold">Node</th>
                   <th className="px-5 py-3 text-left font-semibold">Status</th>
                   <th className="px-5 py-3 text-left font-semibold">VMs</th>
-                  <th className="px-5 py-3 text-left font-semibold">CPU alloc</th>
-                  <th className="px-5 py-3 text-left font-semibold">Memory alloc</th>
+                  <th className="px-5 py-3 text-left font-semibold">CPU usage</th>
+                  <th className="px-5 py-3 text-left font-semibold">Memory usage</th>
                   <th className="px-5 py-3 text-left font-semibold">Network</th>
                   <th className="px-5 py-3 text-left font-semibold">Storage</th>
                 </tr>

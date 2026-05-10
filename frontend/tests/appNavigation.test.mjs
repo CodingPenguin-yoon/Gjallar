@@ -17,6 +17,7 @@ assert.doesNotMatch(app, /provisionInstance|checkIpAvailability|handleProvision|
 assert.doesNotMatch(app, /Instance List|Task Board|Risk Dashboard|Monitoring/, 'App must use PRD v1 navigation labels only')
 assert.match(app, /cpu_usage_percent/, 'Dashboard must prefer live Proxmox node CPU usage over allocated CPU counts')
 assert.match(app, /memory_usage_percent/, 'Dashboard must prefer live Proxmox node memory usage over allocated memory')
+assert.doesNotMatch(app, /cpuAllocated|memoryAllocatedGb|CPU alloc|Memory alloc/, 'Dashboard must not fall back to old allocated CPU or memory totals')
 
 const activeImports = app
   .split('\n')

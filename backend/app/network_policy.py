@@ -50,7 +50,7 @@ def _normalize_dns(value: Any) -> list[str]:
     return [item for item in candidates if item]
 
 
-def _normalize_static_ip_ranges(value: Any, legacy_ip_range: Any = None) -> list[dict[str, str]]:
+def _normalize_static_ip_ranges(value: Any) -> list[dict[str, str]]:
     raw_ranges = value if isinstance(value, list) else []
     ranges: list[dict[str, str]] = []
     for raw_range in raw_ranges:
@@ -60,16 +60,6 @@ def _normalize_static_ip_ranges(value: Any, legacy_ip_range: Any = None) -> list
         end = str(raw_range.get("end") or "").strip()
         if start or end:
             ranges.append({"start": start, "end": end})
-
-    if ranges:
-        return ranges
-
-    legacy_text = str(legacy_ip_range or "").strip()
-    if not legacy_text:
-        return []
-    for part in [item.strip() for item in legacy_text.replace("\n", ",").split(",") if item.strip()]:
-        start, separator, end = part.partition("-")
-        ranges.append({"start": start.strip(), "end": (end if separator else start).strip()})
     return ranges
 
 
@@ -98,10 +88,7 @@ def normalize_network_policy(payload: dict[str, Any] | None) -> dict[str, Any]:
                     "subnet": str(raw_node.get("subnet") or "").strip(),
                     "gateway": str(raw_node.get("gateway") or "").strip(),
                     "dns": _normalize_dns(raw_node.get("dns")),
-                    "static_ip_ranges": _normalize_static_ip_ranges(
-                        raw_node.get("static_ip_ranges"),
-                        raw_node.get("ip_range"),
-                    ),
+                    "static_ip_ranges": _normalize_static_ip_ranges(raw_node.get("static_ip_ranges")),
                 }
             )
         normalized_networks.append(
