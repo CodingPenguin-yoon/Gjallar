@@ -18,7 +18,7 @@ from app.api.v1.router import router as api_v1_router
 project_root = Path(__file__).resolve().parent.parent.parent
 env_path = project_root / ".env"
 if env_path.exists():
-    load_dotenv(env_path, override=True)
+    load_dotenv(env_path, override=False)
 
 # FastAPI 애플리케이션 인스턴스 생성
 app = FastAPI(

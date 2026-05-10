@@ -21,6 +21,7 @@ Key values:
 - `FRONTEND_PORT`: Vite dev server port, default `5173`
 - `BACKEND_PORT`: FastAPI backend port, default `8000`
 - `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
+- `REMOTE_IAC_REPO`: shared IaC Git checkout path, for example `/Users/yoon/mnt/nfs/IaC`
 - `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`, `GJALLAR_RUNS_ROOT`: shared IaC and run-state paths
 
 ## Product framing
