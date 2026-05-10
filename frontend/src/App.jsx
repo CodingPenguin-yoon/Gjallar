@@ -405,7 +405,7 @@ function App() {
           <Route
             path="/risks"
             element={
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+              <div className="mx-auto max-w-7xl">
                 <OperationalRiskDashboard />
               </div>
             }
