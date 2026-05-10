@@ -116,5 +116,5 @@ def build_default_vm_draft(
             password_login=profile.access.password_login,
         ),
         terraform_state_path=terraform_state_path(manifest_id),
-        first_power_on_included=True,
+        first_power_on_included=False,
     )

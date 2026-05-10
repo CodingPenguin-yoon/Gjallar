@@ -172,7 +172,7 @@ MVP:
 
 결정:
 
-- VM 생성 flow의 첫 power on은 VM 생성 승인 1회에 포함한다.
+- 현재 powered-off create slice에서 VM 생성 flow의 첫 power on은 별도 create-readiness slice로 분리한다.
 - 이미 존재하는 VM의 power on / graceful shutdown / reboot는 일반 Confirm을 요구한다.
 - red risk가 있으면 차단한다.
 - yellow risk가 있으면 경고 체크박스를 요구한다.

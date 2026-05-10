@@ -9,7 +9,7 @@ The active repo-local documentation now lives under [`doc/`](doc/README.md). Sta
 - The active frontend contract remains `/api/v1`.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
 - The current Instances UI is a single read-only grouped and collapsible card with fixed columns and truncation.
-- Lifecycle and provisioning mutations remain approval-gated and fail closed.
+- Create VM mutations remain approval-gated, Terraform-backed, and fail closed.
 - There are no destructive VM list controls in the current UI.
 
 ## Local Runtime Env
@@ -21,7 +21,6 @@ Key values:
 - `FRONTEND_PORT`: Vite dev server port, default `5173`
 - `BACKEND_PORT`: FastAPI backend port, default `8000`
 - `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
-- `REMOTE_IAC_REPO`: shared IaC Git checkout path, for example `/Users/yoon/mnt/nfs/IaC`
 - `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`, `GJALLAR_RUNS_ROOT`: shared IaC and run-state paths
 
 ## Product framing

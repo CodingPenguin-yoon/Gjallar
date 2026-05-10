@@ -81,7 +81,8 @@ VM 삭제, snapshot rollback, disk delete 같은 destructive 작업은 2차 기�
 
 ## 2.2 독립 전원 제어 정책 — deferred power-action slice
 
-VM 생성 flow의 첫 power on은 VM 생성 승인 1회에 포함한다.
+현재 powered-off create slice에서 VM 생성 승인과 Terraform apply 승인은 첫 power on을 포함하지 않는다.
+첫 power on은 apply/config 성공 후 별도 create-readiness slice에서 명시 확인을 붙여 실행한다.
 이미 존재하는 VM의 전원 작업은 별도 action으로 본다.
 첫 구현 MVP에서는 이 별도 action을 구현하지 않는다.
 

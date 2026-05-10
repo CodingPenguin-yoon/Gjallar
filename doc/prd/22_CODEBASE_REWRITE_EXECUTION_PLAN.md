@@ -167,9 +167,9 @@ frontend/src/features/inventory/*
 frontend/src/features/jobs/*
 frontend/src/features/risks/*
 frontend/src/components/common/*
-frontend/src/utils/reviewSummary.js
-frontend/src/utils/riskPolicy.js
-frontend/src/utils/secretRedaction.js
+frontend/src/utils/createVmFlow.js
+frontend/src/utils/createVmDefaults.js
+frontend/src/utils/apiV1ViewModels.js
 ```
 
 Legacy 후보 처리:
@@ -275,8 +275,7 @@ backend/tests/manifests/test_network_profile.py
 backend/tests/manifests/test_secret_redaction.py
 backend/tests/vm_create/test_draft_contract.py
 backend/tests/vm_create/test_preflight_policy.py
-frontend/tests/reviewSummary.test.mjs
-frontend/tests/riskPolicy.test.mjs
+frontend/tests/createVmFlow.test.mjs
 frontend/tests/createVmDefaults.test.mjs
 ```
 

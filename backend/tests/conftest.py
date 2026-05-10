@@ -5,8 +5,6 @@ import pytest
 
 EXPLICIT_PATH_ENV_KEYS = (
     "GJALLAR_IAC_ROOT",
-    "REMOTE_IAC_REPO",
-    "REMOTE_IaC_repo",
     "GJALLAR_TF_STATE_ROOT",
     "GJALLAR_TERRAFORM_STATE_ROOT",
 )

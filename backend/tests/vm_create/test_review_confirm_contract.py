@@ -93,6 +93,8 @@ networks:
             for key in required_keys:
                 self.assertIn(key, summary_payload)
             self.assertEqual(review["vm_name"], summary_payload["vm_name"])
+            self.assertFalse(review["first_power_on_included"])
+            self.assertFalse(summary_payload["first_power_on_included"])
             self.assertEqual(review["planned_git_diff_summary"], summary_payload["planned_git_diff_summary"])
 
     def test_approval_request_requires_plan_artifact_id_and_matching_review_checksum(self):

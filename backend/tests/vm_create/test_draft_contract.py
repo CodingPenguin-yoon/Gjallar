@@ -24,6 +24,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("static", draft.network.ip_mode)
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
+        self.assertFalse(draft.first_power_on_included)
 
     def test_default_draft_accepts_resolved_inventory_vmid(self):
         from app.vm_create.drafts import build_default_vm_draft

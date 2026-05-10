@@ -16,9 +16,8 @@ MVP 포함:
 
 - Dashboard / Infra Explorer
 - Nodes / VMs / VM Detail
-- `general-vm` 생성
-- VM 생성 flow 안의 first power on
-- guest-agent/IP/SSH/cloud-init smoke
+- `general-vm` powered-off 생성
+- first power on + guest-agent/IP/SSH/cloud-init smoke는 create-readiness slice로 분리
 - 리스크/경고 표시
 - preflight / plan / Review & Confirm
 - Terraform/Proxmox job/run 이력, Ansible 이력은 Stage B 이후 추가
@@ -44,7 +43,7 @@ MVP 제외:
 
 - MVP 실제 생성 profile과 화면 선택지는 `general-vm` 하나다.
 - `general-vm`은 일반 VM 생성용 기본 profile이다.
-- 목적: template clone + hardware/network/cloud-init + first power on + smoke까지 되는 기본 VM 생성 파이프라인 검증.
+- 목적: template clone + hardware/network/cloud-init config를 powered-off 상태로 안전하게 검증하고, first power on + smoke는 다음 create-readiness slice에서 검증.
 - `runtime-server`, `dev-server`, `db-server`는 2차 profile 후보다.
 - Docker/Node/Python/uv/gh, DB, app runtime bootstrap은 `general-vm`에 넣지 않는다.
 
@@ -129,7 +128,8 @@ Stage B minimal Ansible verify와 Runtime Target manifest/API는 VM 생성 flow 
 ## 8. VM 생성 flow / first boot gate
 
 - clone/hardware/cloud-init/network config는 가능하면 powered-off 상태에서 완료한다.
-- Terraform/Proxmox apply/config 성공 후에만 first power on을 실행한다.
+- 현재 Terraform/Proxmox apply 승인은 first power on을 포함하지 않는다.
+- first power on은 apply/config 성공 후 별도 create-readiness slice에서 실행한다.
 - apply/config 실패 시 first power on을 생략하고 `provision_failed_not_booted`로 표시한다.
 - first power on 이후 smoke 실패는 `created_but_not_ready`다. Ansible 실패는 Stage B를 붙인 뒤 같은 정책을 적용한다.
 - 실패 VM은 자동 삭제하지 않는다.
@@ -203,7 +203,7 @@ Stage B — minimal Ansible verification:
 - graceful shutdown
 - reboot
 
-단, 첫 구현 MVP에서는 VM 생성 flow 안의 first power on만 필수다. 기존 VM에 대한 독립 power on / graceful shutdown / reboot는 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice로 구현한다.
+현재 powered-off create slice에서는 VM 생성 flow 안의 first power on도 실행하지 않는다. 기존 VM에 대한 독립 power on / graceful shutdown / reboot는 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice로 구현한다.
 
 정책:
 

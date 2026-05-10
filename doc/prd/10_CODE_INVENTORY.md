@@ -1,10 +1,10 @@
 # Gjallar Code Inventory
 
-Last updated: 2026-05-09 01:11 KST
+Last updated: 2026-05-11 KST
 
 ## 0. Purpose
 
-This document records the fresh Set 1 inventory of the current Gjallar codebase before the PRD rewrite continues. It replaces the earlier policy-only placeholder for implementation handoff.
+This document records the Set 1 inventory plus the current cleanup status of the Gjallar codebase as the PRD rewrite continues.
 
 The existing code is **not** the source of truth. The locked PRD is the source of truth; existing modules are only material to Keep / Drop / Park after evidence-based review.
 
@@ -35,45 +35,45 @@ Current tracked top-level count from Set 0:
 | `docs/` | 14 |
 | `artifacts/` | 0 tracked; Set 0 artifact is intentional untracked evidence |
 
-Current route baseline:
+Current active route baseline:
 
-- Backend currently mounts legacy routers under `/api`, not the PRD target `/api/v1`.
-- Backend legacy route groups include deploy/provision, task/logs, Proxmox inventory/actions/risk, monitoring/network IP pool, and LLM/chat.
-- Frontend legacy routes include `/`, `/list`, `/tasks`, `/monitoring`, `/risks`, `/assistant`, and `/create`.
+- Backend mounts the active PRD contract under `/api/v1`.
+- Legacy `/api` deploy/provision/task/log/LLM route groups are not active.
+- Frontend active routes are Dashboard, Infra Explorer, Networks, Create VM, Placement, Jobs/Runs, and Risks/Alerts.
 
 ## 2. Backend inventory
 
 | Group | Status for rewrite | Evidence | Notes |
 |---|---|---|---|
-| App entrypoint / legacy router mounting | Park | `backend/app/main.py` | Keep as reference only. New API must add `/api/v1`; existing `/api` route shape must not drive the PRD contract. |
-| Read-only Proxmox inventory and VM detail | Keep candidate | `backend/app/domains/proxmox/router.py`, `backend/app/domains/proxmox/service.py`, tests around Proxmox service/performance | Aligns with Dashboard / Infra Explorer / Nodes / VMs / VM Detail. Reuse only read-only logic after contract tests and redaction review. |
-| Proxmox monitoring signals | Keep candidate | `/monitoring/nodes`, `/monitoring/vms/...` routes in `backend/app/domains/proxmox/router.py` | Useful for read-only dashboard/inventory slices. Must be reshaped under `/api/v1`. |
-| Task/log tracking | Keep candidate | `backend/app/domains/task/router.py`, `backend/app/shared/tasks.py`, `backend/app/shared/task_store.py`, `backend/app/shared/platform_models.py`, `backend/alembic/versions/20260322_0001_platform_task_tables.py` | MVP needs jobs/artifacts. Existing task persistence can inform Set 4 job/artifact substrate. |
-| Provisioning readiness / resource preflight | Keep candidate | `backend/app/domains/deploy/readiness.py`, `backend/app/domains/deploy/resource_preflight.py`, `backend/tests/test_provision_readiness.py`, `backend/tests/test_resource_preflight.py` | Useful preflight ideas. Must be re-tested against PRD `draft -> preflight -> plan -> Review & Confirm` contract. |
-| Direct deploy/provision execution | Park | `backend/app/domains/deploy/router.py`, `backend/app/domains/deploy/service.py` | Current route can jump to execution. PRD requires draft/plan/review/approval and no live side effect in autonomous Sets 0~7. |
-| Terraform integration code | Park / later Keep candidate | `backend/app/integrations/terraform/`, `backend/tests/test_terraform_service_logging.py`, `backend/tests/test_terraform_vm_ip_output_safety.py` | Potentially useful for Set 8+, but live IaC write/commit/push/apply are approval-gated. Keep as reference until fake/dry-run contract tests exist. |
-| Network/IP pool helpers | Park | `backend/app/shared/network.py`, `/network/ip-pool/*` routes | Adjacent to preflight, but PRD MVP evidence is NetworkProfile manifest plus Proxmox observed state, not an autonomous IPAM authority. |
-| Operational risk core | Park / later Keep candidate | `backend/app/domains/proxmox/risk.py`, `risk_config.py`, `risk_overrides.py`, `risk_state.py`, `restore_drills.py`, `backend/tests/test_operational_risk*.py` | Risks are MVP-visible, but current thresholds/overrides/restore drills are broader than first create-flow contract. Extract only tested display/policy pieces later. |
-| Independent VM lifecycle writes | Drop for MVP | `/instances/terminate`, `/instances/action`, `/instances/resources` in `backend/app/domains/proxmox/router.py` | Existing VM power/action/resource mutation is excluded from first MVP. Deletion/removal still requires explicit user approval; Set 2 should add forbidden endpoint tests first. |
-| LLM/chat domain | Drop | `backend/app/domains/llm/*`, `Test/llm_test.py` | PRD explicitly excludes LLM/chat from Gjallar MVP. Do not delete without approval; first add forbidden/exclusion tests. |
+| App entrypoint / active router mounting | Keep | `backend/app/main.py`, `backend/app/api/v1/router.py` | Active backend mounts only the explicit `/api/v1` operator surface plus health/root checks. |
+| Read-only Proxmox inventory and VM detail | Keep | `backend/app/proxmox/inventory.py`, `backend/app/proxmox/models.py`, `backend/tests/proxmox/test_inventory_adapter.py` | Current inventory adapter supports live read-only Proxmox data with fake fallback and redaction. |
+| Proxmox monitoring signals | Keep through dashboard model | `/api/v1/cluster/summary`, `/api/v1/nodes`, `/api/v1/vms`, dashboard logic in `frontend/src/App.jsx` | Current dashboard uses live read-only inventory shape instead of legacy monitoring routes. |
+| Job/artifact tracking | Keep | `backend/app/jobs/*`, `backend/tests/jobs/*` | Active Jobs/Runs substrate records Create VM progress and artifacts under `GJALLAR_RUNS_ROOT`. |
+| Create VM preflight/readiness | Keep | `backend/app/vm_create/*`, `backend/tests/vm_create/*` | Current flow uses draft -> preflight -> plan -> Review & Confirm -> gated Terraform plan/apply. |
+| Direct deploy/provision execution | Removed from active tree | legacy backend archive noted in `11_KEEP_DROP_PARK.md` | Wrong contract for MVP; forbidden endpoint tests guard against reintroduction. |
+| Terraform integration code | Keep | `backend/app/vm_create/terraform_runner.py`, `infra/terraform/main.tf`, Terraform safety tests | Terraform is now wired through approved Create VM plan/apply gates and powered-off create policy. |
+| Network/IP policy helpers | Keep | `backend/app/network_policy.py`, `backend/tests/contracts/test_api_v1_network_policy.py` | Current MVP evidence is IaC NetworkPolicy plus Proxmox observed bridge inventory. |
+| Operational risk display | Keep | `backend/app/api/v1/router.py`, `frontend/src/components/OperationalRiskDashboard.jsx`, `frontend/src/utils/risksScreen.js` | Current risks API is read-only and derived from job records. |
+| Independent VM lifecycle writes | Removed / forbidden for MVP | `backend/tests/contracts/test_forbidden_mvp_endpoints.py` | Existing-VM power/delete/reset/resource mutations are not active. |
+| LLM/chat domain | Removed / forbidden for MVP | `backend/tests/contracts/test_forbidden_mvp_endpoints.py`, `frontend/tests/appNavigation.test.mjs` | PRD excludes LLM/chat from Gjallar MVP. |
 | Alembic GitLab/staging/app-deploy migrations | Drop candidate | `backend/alembic/versions/20260322_0002_*` through `20260426_0010_*` | Pre-rewrite GitLab/staging/app-deploy concerns conflict with the locked PRD. Actual migration reset/removal needs explicit approval. |
 | Alembic operational risk / restore migrations | Park | `backend/alembic/versions/20260503_0011_*` through `20260504_0015_*` | Could inform later risk/job storage but should not be blindly carried into the new core schema. |
-| Backend tests | Keep as regression ideas, not authoritative contracts | `backend/tests/*.py` | Pytest is currently missing in `backend/.venv`, so backend GREEN cannot be claimed until dependency setup is fixed. |
+| Backend tests | Keep | `backend/tests/*.py` | Current backend pytest passes in the local venv. |
 
 ## 3. Frontend inventory
 
 | Group | Status for rewrite | Evidence | Notes |
 |---|---|---|---|
-| App shell/navigation | Keep candidate | `frontend/src/App.jsx` | Existing shell can inform navigation, but route names should change toward Dashboard / Infra Explorer / Create VM / Jobs / Risks. |
-| Overview dashboard | Keep candidate | `frontend/src/components/OverviewDashboard.jsx` | Useful dashboard summary patterns. Must align with `/api/v1` data shapes. |
-| Inventory list/detail patterns | Keep candidate | `frontend/src/components/InstanceList.jsx`, `frontend/src/utils/inventorySummary.js`, `frontend/tests/inventorySummary.test.mjs` | Useful for Infra Explorer read-only VM list/detail, but lifecycle action controls must be excluded. |
-| Monitoring dashboard/signals | Keep candidate | `frontend/src/components/MonitoringDashboard.jsx`, `frontend/src/utils/monitoringSignals.js`, `frontend/tests/monitoringSignals.test.mjs` | Good source for read-only node/VM visibility. |
-| Create wizard UX shell | Keep candidate | `frontend/src/components/CreateInstanceWizard.jsx`, `frontend/src/utils/provisioningReadiness.js`, `resourcePreflight.js`, `provisioningSummary.js`, related tests | Can seed `general-vm` wizard and Review & Confirm summaries, but direct submit/payload must be replaced by draft/preflight/plan/approve contract. |
-| Legacy provisioning payload/client | Park | `frontend/src/services/api.js`, `frontend/src/utils/provisioningPayload.js`, `frontend/tests/provisioningPayload.test.mjs` | Current client targets legacy `/api/provision`. Preserve only as reference until `/api/v1` tests are RED/GREEN. |
-| Operational risk UI | Park / later Keep candidate | `frontend/src/components/OperationalRiskDashboard.jsx`, `frontend/src/utils/operationalRisk.js`, `frontend/tests/operationalRisk.test.mjs` | Risk display belongs in MVP, but suppression/threshold editing is broader than first create-flow scope. |
-| Task board | Keep candidate | `frontend/src/components/TaskBoard.jsx`, `frontend/src/utils/taskBoardSummary.js`, `frontend/tests/taskBoardSummary.test.mjs` | Can inform Jobs/Runs UI. Needs job/artifact model alignment. |
-| Lifecycle safety/destructive UI | Drop for MVP | `frontend/src/utils/lifecycleSafety.js`, `frontend/tests/lifecycleSafety.test.mjs`, lifecycle controls inside `InstanceList.jsx` | Independent power actions/terminate/hard stop/reset/delete are excluded from first MVP. Keep tests as forbidden-scope reference before deletion. |
-| LLM assistant UI | Drop | `frontend/src/components/LlmInfraChat.jsx`, `/assistant` route in `frontend/src/App.jsx` | PRD excludes LLM/chat from Gjallar MVP. |
+| App shell/navigation | Keep | `frontend/src/App.jsx` | Current navigation is Dashboard / Infra Explorer / Networks / Create VM / Placement / Jobs/Runs / Risks/Alerts. |
+| Overview dashboard | Keep | `frontend/src/App.jsx` | Current dashboard summary reads `/api/v1` data shapes directly. |
+| Inventory list/detail patterns | Keep | `frontend/src/components/InstanceList.jsx`, `frontend/src/utils/infraExplorerScreen.js`, `frontend/src/utils/apiV1ViewModels.js`, `frontend/tests/infraExplorerScreen.test.mjs` | Current Infra Explorer uses `/api/v1` read-only VM list/detail models; legacy standalone inventory summary utilities were removed. |
+| Monitoring dashboard/signals | Dropped from active code | `/api/v1` dashboard model in `frontend/src/App.jsx` | Legacy standalone monitoring signal utilities were removed after their useful read-only summary behavior was folded into the current dashboard and inventory view models. |
+| Create wizard UX shell | Keep | `frontend/src/components/CreateInstanceWizard.jsx`, `frontend/src/utils/createVmFlow.js`, `frontend/tests/createVmFlow.test.mjs` | Current wizard uses `/api/v1` draft/preflight/plan/approval/Terraform gates. Legacy provisioning helpers are removed from active `src`. |
+| Legacy provisioning payload/client | Removed from active tree | `frontend/tests/appNavigation.test.mjs`, `frontend/tests/apiV1Client.test.mjs` | `frontend/src/services/api.js` and old provisioning helpers must stay absent. |
+| Operational risk UI | Keep | `frontend/src/components/OperationalRiskDashboard.jsx`, `frontend/src/utils/risksScreen.js`, `frontend/tests/risksScreen.test.mjs` | Current screen is read-only and aligned to `/api/v1/risks`. |
+| Task board | Keep | `frontend/src/components/TaskBoard.jsx`, `frontend/src/utils/jobsScreen.js`, `frontend/tests/jobsScreen.test.mjs` | Current Jobs/Runs UI is aligned to `/api/v1/jobs` and job/artifact models; legacy task summary utility was removed. |
+| Lifecycle safety/destructive UI | Removed / forbidden for MVP | `frontend/tests/appNavigation.test.mjs`, `frontend/tests/infraExplorerScreen.test.mjs` | Independent power actions/terminate/hard stop/reset/delete are excluded from first MVP. |
+| LLM assistant UI | Removed / forbidden for MVP | `frontend/tests/appNavigation.test.mjs` | PRD excludes LLM/chat from Gjallar MVP. |
 | Frontend tests | Keep as fast harness | `frontend/tests/*.mjs` | Set 0 ran all current frontend pure tests successfully. Use this harness for Set 2+ RED tests around pure UI policy utilities. |
 
 ## 4. Infra, scripts, and repo-local docs inventory
@@ -88,10 +88,9 @@ Current route baseline:
 
 ## 5. Slow/backend risk notes
 
-- Backend pytest dependency was recovered for the current `codex-vm` backend `.venv` on 2026-05-09 10:19 KST with `backend/.venv/bin/python -m pip install pytest`.
-- Focused Set 0~7 backend pytest passes (`29 passed`), but full backend pytest is not GREEN yet (`146 passed, 3 failed, 9 subtests passed`).
-- Remaining backend RED scope: legacy forbidden MVP routes are still exposed, and `/api/v1/jobs` / `/api/v1/risks` read APIs are not implemented yet.
-- Existing backend route shape and direct execute paths remain the main PRD mismatch; tests should keep locking `/api/v1` behavior before code is changed.
+- Current backend pytest is GREEN in the local venv.
+- `/api/v1/jobs` and `/api/v1/risks` read APIs are implemented as read-only MVP summaries.
+- Forbidden endpoint tests guard the legacy deploy/provision/destructive/LLM surface.
 
 ## 6. Set 2 handoff
 

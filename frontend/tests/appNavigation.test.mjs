@@ -5,10 +5,10 @@ import { join, relative } from 'node:path'
 const srcRoot = new URL('../src', import.meta.url)
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
 
-for (const label of ['Dashboard', 'Infra Explorer', 'Networks', 'Create VM', 'Jobs/Runs', 'Risks/Alerts']) {
+for (const label of ['Dashboard', 'Infra Explorer', 'Networks', 'Create VM', 'Placement', 'Jobs/Runs', 'Risks/Alerts']) {
   assert.ok(app.includes(label), `App navigation must expose PRD label: ${label}`)
 }
-for (const route of ['path="/infra"', 'path="/networks"', 'path="/create"', 'path="/jobs"', 'path="/risks"']) {
+for (const route of ['path="/infra"', 'path="/networks"', 'path="/create"', 'path="/placement"', 'path="/jobs"', 'path="/risks"']) {
   assert.ok(app.includes(route), `App routes must expose PRD route: ${route}`)
 }
 assert.doesNotMatch(app, /from ['"]\.\/services\/api(?:\.js)?['"]/, 'App must not import the legacy /api client')
@@ -32,12 +32,27 @@ assert.deepEqual(
     './components/InstanceList',
     './components/NetworkPolicyScreen',
     './components/OperationalRiskDashboard',
+    './components/PlacementScreen',
     './components/TaskBoard',
   ].sort(),
   'Only PRD MVP screen components should be actively routed from App',
 )
 
-assert.equal(existsSync(new URL('../src/services/api.js', import.meta.url)), false, 'legacy frontend services/api.js must be quarantined out of active src')
+for (const legacyPath of [
+  '../src/services/api.js',
+  '../src/components/LlmInfraChat.jsx',
+  '../src/utils/provisioningPayload.js',
+  '../src/utils/provisioningReadiness.js',
+  '../src/utils/provisioningSummary.js',
+  '../src/utils/resourcePreflight.js',
+  '../src/utils/lifecycleSafety.js',
+  '../src/utils/inventorySummary.js',
+  '../src/utils/monitoringSignals.js',
+  '../src/utils/riskPolicy.js',
+  '../src/utils/taskBoardSummary.js',
+]) {
+  assert.equal(existsSync(new URL(legacyPath, import.meta.url)), false, `${legacyPath} must stay out of active src`)
+}
 
 function collectSourceFiles(dir) {
   return readdirSync(dir).flatMap((entry) => {

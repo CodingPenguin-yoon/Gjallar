@@ -58,7 +58,7 @@ class VmCreateDraft:
     network: DraftNetwork
     access: DraftAccess
     terraform_state_path: str
-    first_power_on_included: bool = True
+    first_power_on_included: bool = False
     side_effects: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:

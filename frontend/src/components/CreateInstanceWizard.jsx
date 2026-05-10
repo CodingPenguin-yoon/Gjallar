@@ -659,7 +659,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <SummaryTile label="스토리지" value={model.review.storage} />
                 <SummaryTile label="템플릿" value={model.review.template} />
                 <SummaryTile label="네트워크" value={`${selectedIpModeLabel} / ${model.review.network.bridge_id || model.review.network.bridgeId || 'vmbr0'}`} icon={Network} />
-                <SummaryTile label="첫 부팅" value={model.review.firstPowerOnIncluded ? '포함' : '제외'} />
+                <SummaryTile label="첫 부팅" value={model.review.firstPowerOnIncluded ? '포함' : '별도 단계'} />
               </div>
             </section>
 
@@ -704,31 +704,31 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               )}
               <button type="button" onClick={approveReview} disabled={!model.review.canApprove || approving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                승인
+                검토 내용 승인
               </button>
               <button type="button" onClick={() => prepareTerraformPlan()} disabled={!approval?.canApprove || !model.review.canPrepareTerraformPlan || preparingTerraform} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {preparingTerraform ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                Terraform 파일 준비
+                실행 준비 파일 만들기
               </button>
               <label className="mt-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2 text-sm text-blue-800">
                 <input type="checkbox" className="mt-1" checked={terraformPlanRunAcknowledged} onChange={(event) => setTerraformPlanRunAcknowledged(event.target.checked)} />
-                Terraform이 Proxmox provider를 읽어 plan을 만드는 것을 승인합니다.
+                Proxmox 현재 상태를 읽어 생성 변경 미리보기를 만드는 것을 승인합니다.
               </label>
               <button type="button" onClick={() => prepareTerraformPlan({ runPlan: true })} disabled={!approval?.canApprove || !model.review.canPrepareTerraformPlan || !terraformPlanRunAcknowledged || preparingTerraform} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {preparingTerraform ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                Terraform 검토 실행
+                생성 변경 미리보기
               </button>
               <button type="button" onClick={commitManifest} disabled={!approval?.canApprove || !model.review.canCommitManifest || committing} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderGit2 className="h-4 w-4" />}
-                생성 요청 커밋
+                생성 요청 저장
               </button>
               <label className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800">
                 <input type="checkbox" className="mt-1" checked={terraformApplyAcknowledged} onChange={(event) => setTerraformApplyAcknowledged(event.target.checked)} />
-                Terraform apply가 Proxmox에 실제 VM을 생성하는 것을 승인합니다.
+                Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.
               </label>
               <button type="button" onClick={applyTerraformPlan} disabled={!approval?.canApprove || !model.review.canApplyTerraform || !terraformPlanResult?.planRan || !commitResult?.commitSha || !terraformApplyAcknowledged || applying} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
-                실제 VM 생성
+                꺼진 상태로 VM 만들기
               </button>
               {approval && (
                 <div className={`mt-3 rounded-lg border p-3 text-sm ${approvalToneClass(approval)}`}>

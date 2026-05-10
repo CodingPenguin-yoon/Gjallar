@@ -15,5 +15,5 @@ This `doc/` tree is the active repo-local documentation set for the current impl
 
 - Active frontend contract: `/api/v1`
 - Safe live surface: read-only Proxmox inventory, with fallback data when live inventory is unavailable
-- Mutations: lifecycle and provisioning flows remain approval-gated and fail closed
+- Mutations: Create VM is approval-gated, Terraform-backed, and currently limited to powered-off creation
 - UI baseline: Instances is a single read-only grouped and collapsible card with fixed columns and truncation

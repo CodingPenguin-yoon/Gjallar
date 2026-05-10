@@ -6,7 +6,7 @@ FastAPI backend for the Gjallar Proxmox operations console.
 
 - Public API contract: `/api/v1`
 - Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
-- Create VM: draft, preflight, plan, approval, IaC manifest commit, Terraform plan/apply gates
+- Create VM: draft, preflight, plan, approval, IaC manifest commit, Terraform plan/apply gates for powered-off creation
 - Jobs/Runs and Risks: read-only MVP summaries
 
 Legacy `/api` deploy/provision/task/log/LLM routes are not part of the active backend.

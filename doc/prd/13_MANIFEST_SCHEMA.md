@@ -186,7 +186,7 @@ spec:
     ip_mode: static
     ip: 192.168.2.150
   lifecycle:
-    desired_power_state: running
+    desired_power_state: stopped
   safety:
     require_approval_for_apply: true
 ```

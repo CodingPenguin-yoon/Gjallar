@@ -78,7 +78,7 @@ const fakeClient = {
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
       network: { network_id: payload.network_id, ip_mode: payload.ip_mode, static_ip: payload.static_ip, bridge_id: payload.bridge_id },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
-      first_power_on_included: true,
+      first_power_on_included: false,
       side_effects: [],
     }
   },
@@ -113,7 +113,7 @@ const fakeClient = {
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
       network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
-      first_power_on_included: true,
+      first_power_on_included: false,
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
       risk_summary: { level: 'green', red: [], yellow: [] },
       review_confirm: {
@@ -127,7 +127,7 @@ const fakeClient = {
         hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
         network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
         terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
-        first_power_on_included: true,
+        first_power_on_included: false,
         smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
         risk_summary: { level: 'green', red: [], yellow: [] },
         plan_artifact_id: 'artifact-plan',
@@ -221,7 +221,8 @@ assert.equal(model.review.canPrepareTerraformPlan, true)
 assert.equal(model.review.canCommitManifest, false)
 assert.equal(model.review.canApplyTerraform, false)
 assert.equal(model.review.canExecute, false, 'UI must not expose execute even if backend approval says can_execute')
-assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 별도 승인 단계에서만 실행됩니다.')
+assert.equal(model.review.firstPowerOnIncluded, false)
+assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 Terraform apply 승인 단계에서만 실행됩니다.')
 assert.equal(model.artifacts[0].id, 'artifact-plan')
 assert.deepEqual(model.sideEffects, [])
 
@@ -231,7 +232,7 @@ assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
 assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
 assert.equal(approval.canApprove, true)
 assert.equal(approval.canExecute, false)
-assert.equal(approval.executeDisabledReason, '실제 VM 생성은 별도 승인 단계에서만 실행됩니다.')
+assert.equal(approval.executeDisabledReason, '실제 VM 생성은 Terraform apply 승인 단계에서만 실행됩니다.')
 assert.deepEqual(approval.sideEffects, [])
 
 const terraformPlan = await prepareCreateVmTerraformPlan(fakeClient, model, { yellowRiskAcknowledged: false })
@@ -327,10 +328,12 @@ assert.match(source, /스토리지/)
 assert.match(source, /네트워크/)
 assert.match(source, /listStorage/)
 assert.match(source, /검토 시작/)
-assert.match(source, /Terraform 파일 준비/)
-assert.match(source, /Terraform 검토 실행/)
-assert.match(source, /생성 요청 커밋/)
-assert.match(source, /실제 VM 생성/)
+assert.match(source, /검토 내용 승인/)
+assert.match(source, /실행 준비 파일 만들기/)
+assert.match(source, /생성 변경 미리보기/)
+assert.match(source, /생성 요청 저장/)
+assert.match(source, /꺼진 상태로 VM 만들기/)
+assert.match(source, /Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다/)
 assert.match(source, /useNavigate/)
 assert.match(source, /\/jobs\?job=/)
 assert.doesNotMatch(source, /요청 보관/)

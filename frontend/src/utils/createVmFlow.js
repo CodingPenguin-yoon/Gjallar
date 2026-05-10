@@ -1,4 +1,4 @@
-const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 별도 승인 단계에서만 실행됩니다.'
+const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 Terraform apply 승인 단계에서만 실행됩니다.'
 
 function present(value) {
   return value !== undefined && value !== null && String(value).trim() !== ''

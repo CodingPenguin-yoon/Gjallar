@@ -182,7 +182,7 @@ Plan response에는 Review & Confirm payload가 포함되어야 한다.
     "hardware": { "cpu": 2, "memory_mb": 4096, "disk_gb": 40 },
     "network": { "bridge": "vmbr0", "ip": "192.168.2.150" },
     "terraform_state_path": "/mnt/hermes_data/IaC-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate",
-    "first_power_on_included": true,
+    "first_power_on_included": false,
     "smoke_timeout_summary": {
       "cloud_init": "15m",
       "guest_agent": "5m",
@@ -240,7 +240,8 @@ POST /vms/{vmid}/actions/shutdown
 POST /vms/{vmid}/actions/reboot
 ```
 
-첫 구현 MVP에서는 VM 생성 flow 안의 first power on만 필수다.
+현재 powered-off create slice에서는 VM 생성 apply가 first power on을 포함하지 않는다.
+first power on + smoke는 apply/config 성공 뒤 별도 create-readiness slice로 제공한다.
 기존 VM 대상 graceful power action은 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice로 제공한다.
 `hard-stop`, `reset`, `kill` action endpoint는 만들지 않는다.
 

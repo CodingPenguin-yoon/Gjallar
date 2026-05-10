@@ -202,7 +202,8 @@ networks:
         self.assertEqual(str(self.shared_root / "IaC-state" / "gjallar"), plan.review_confirm["terraform_state_root"])
         self.assertTrue(plan.review_confirm["iac_ready_for_plan"])
         self.assertTrue(plan.review_confirm["iac_ready_for_execute"])
-        self.assertTrue(plan.first_power_on_included)
+        self.assertFalse(plan.first_power_on_included)
+        self.assertFalse(plan.review_confirm["first_power_on_included"])
         self.assertEqual(15, plan.smoke_timeout_summary["cloud_init_minutes"])
         self.assertEqual("green", plan.risk_summary["level"])
         artifacts_by_type = {artifact.type: artifact for artifact in plan.artifacts}

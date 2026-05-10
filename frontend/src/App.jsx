@@ -5,6 +5,7 @@ import CreateInstanceWizard from './components/CreateInstanceWizard'
 import InstanceList from './components/InstanceList'
 import NetworkPolicyScreen from './components/NetworkPolicyScreen'
 import OperationalRiskDashboard from './components/OperationalRiskDashboard'
+import PlacementScreen from './components/PlacementScreen'
 import TaskBoard from './components/TaskBoard'
 import { apiV1Client } from './services/apiV1'
 import middlepiaStackLogo from './assets/middlepia-stack.svg'
@@ -14,6 +15,7 @@ const navItems = [
   { label: 'Infra Explorer', path: '/infra', icon: List },
   { label: 'Networks', path: '/networks', icon: Network },
   { label: 'Create VM', path: '/create', icon: Plus },
+  { label: 'Placement', path: '/placement', icon: Activity },
   { label: 'Jobs/Runs', path: '/jobs', icon: Clock3 },
   { label: 'Risks/Alerts', path: '/risks', icon: AlertTriangle },
 ]
@@ -397,6 +399,14 @@ function App() {
             element={
               <div className="mx-auto max-w-6xl">
                 <CreateInstanceWizard />
+              </div>
+            }
+          />
+          <Route
+            path="/placement"
+            element={
+              <div className="mx-auto max-w-7xl">
+                <PlacementScreen />
               </div>
             }
           />

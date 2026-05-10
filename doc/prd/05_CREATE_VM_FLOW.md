@@ -154,12 +154,13 @@ VM 생성에는 typed confirmation을 요구하지 않는다. typed confirmation
 checkout/pull -> generate manifest -> preflight -> plan -> review/approve -> commit -> push -> apply/create-powered-off -> first power on -> Stage A smoke -> snapshot DB/artifacts
 ```
 
-현재 구현 slice는 승인된 plan을 기준으로 `IaC` repo에 `VMInstance` manifest를 쓰고 local Git commit을 만드는 `gitops_commit_only` 단계까지 연다.
-추가로 승인된 plan에서 격리된 Terraform workspace를 생성하고 `terraform init/plan` 명령을 준비하는 `terraform_plan_prepare_only` 단계를 연다.
-기본 동작은 명령 준비까지만이며, live provider를 읽는 `terraform plan` 실행은 별도 `terraform_plan_acknowledged=true` 없이는 막는다.
-Terraform apply, Proxmox clone/create, first power on은 다음 slice에서 별도 승인/검증을 붙일 때까지 비활성화한다.
+현재 구현 slice는 승인된 plan을 기준으로 `IaC` repo에 `VMInstance` manifest를 쓰고 local Git commit을 만드는 `gitops_commit_only` 단계를 연다.
+추가로 승인된 plan에서 격리된 Terraform workspace를 생성하고, 명시 승인 후 `terraform init/plan`과 `terraform apply`를 실행하는 단계를 연다.
+Terraform apply는 powered-off clone/config까지만 허용한다. `terraform_apply_acknowledged=true`와 `proxmox_mutation_acknowledged=true`가 모두 없으면 실행하지 않는다.
+first power on과 Stage A smoke는 현재 apply 승인에 포함하지 않고 다음 slice의 별도 실행/검증 단계로 둔다.
 
-첫 구현 MVP의 Execute는 Stage A smoke까지를 완료 기준으로 둔다.
+첫 구현 완료선은 powered-off VM 생성과 manifest/status 기록이다.
+Stage A smoke까지의 완료선은 다음 create-readiness slice에서 달성한다.
 Stage B minimal Ansible verify와 Runtime Target candidate/readiness API는 VM 생성 flow가 안정화된 뒤 별도 slice에서 붙인다.
 Heimdall registry에는 어떤 경우에도 직접 write하지 않는다.
 
@@ -170,9 +171,10 @@ apply 후 state backup/checksum과 observed snapshot을 남긴다.
 단계별 모드:
 
 - commit만 실행
+- Terraform plan 준비/실행
 - apply/configure powered-off만 실행
-- first power on 실행
-- smoke 재시도
+- first power on 실행: 다음 slice
+- smoke 재시도: 다음 slice
 - minimal Ansible verify 재시도: Stage B를 붙인 뒤 허용
 - Gjallar runtime target readiness 재평가: Runtime Target slice를 붙인 뒤 허용
 
@@ -203,12 +205,19 @@ CANCELLED
 
 ## 4. 성공 기준
 
-- VM이 Proxmox에 존재한다.
-- desired manifest와 observed state가 연결된다.
-- IP/guest-agent 상태를 확인했다.
-- smoke 결과가 저장됐다.
+현재 powered-off create 성공 기준:
+
+- 승인된 manifest가 IaC repo에 commit되어 있다.
+- Terraform apply가 성공했고 VM이 Proxmox에 존재한다.
+- generated manifest와 Terraform state/status가 연결된다.
+- VMInstance manifest의 desired power state는 `stopped`다.
 - 작업 artifact가 저장됐다.
 - red risk가 남아 있지 않다.
+
+다음 create-readiness slice의 추가 성공 기준:
+
+- IP/guest-agent 상태를 확인했다.
+- smoke 결과가 저장됐다.
 
 ## 5. general-vm bootstrap 단계화
 
@@ -239,15 +248,16 @@ Stage A가 안정화된 뒤 붙인다. 첫 구현 MVP 완료 기준에는 포함
 
 ## 5.1 First boot gate
 
-첫 power on은 VM 생성 승인 1회에 포함한다.
-다만 실행 순서는 apply/config 성공 뒤로 둔다.
+현재 powered-off create 정책에서는 첫 power on을 Terraform apply 승인에 포함하지 않는다.
+첫 power on은 apply/config 성공과 manifest status 확인 뒤, 별도 create-readiness slice에서 명시 승인/검증을 붙여 실행한다.
 
 원칙:
 
 - Terraform/Proxmox apply는 template clone, hardware 설정, cloud-init/network 설정을 가능하면 powered-off 상태에서 끝낸다.
 - Terraform/provider/template 설정이 VM을 자동 부팅시키는 경우 preflight 또는 plan review에서 red/yellow risk로 표시한다.
+- Review & Confirm의 `first_power_on_included`는 현재 구현에서 `false`다.
 - apply/config 단계가 실패하면 Gjallar는 첫 power on을 실행하지 않는다.
-- 첫 power on 이후에 smoke를 실행한다.
+- 첫 power on 이후에 smoke를 실행한다. 이 단계는 현재 apply와 분리한다.
 - Ansible 검증은 SSH가 필요하므로 첫 power on 이후에만 가능하다.
 - 따라서 Terraform/Proxmox 실패 VM은 부팅하지 않을 수 있지만, Ansible 실패 VM은 이미 부팅된 상태에서 실패한 것으로 표시한다.
 - Ansible 실패 시 추가 reboot/power action은 하지 않고 `created_but_not_ready`로 표시한다.

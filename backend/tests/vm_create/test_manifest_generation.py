@@ -73,6 +73,7 @@ networks:
         self.assertEqual("local-lvm", manifest["spec"]["storage"])
         self.assertEqual("vmbr0", manifest["spec"]["network"]["bridge_id"])
         self.assertEqual("192.168.2.142", manifest["spec"]["network"]["ip"])
+        self.assertEqual("stopped", manifest["spec"]["lifecycle"]["desired_power_state"])
         self.assertIn("/IaC-state/gjallar/vm-job-manifest/terraform.tfstate", manifest["spec"]["state_backend"]["path"])
         self.assertNotIn("raw-token-secret", rendered)
         self.assertNotIn("operator:raw-url-password", rendered)

@@ -39,6 +39,7 @@ Terraform, Ansible, Hermes, AI, and agent flows are supporting control plumbing 
 | `20_REMAINING_DECISIONS.md` | Decisions still pending |
 | `21_MVP_IMPLEMENTATION_HANDOFF.md` | MVP implementation handoff |
 | `22_CODEBASE_REWRITE_EXECUTION_PLAN.md` | Rewrite execution plan |
+| `23_PLACEMENT_PRD.md` | Placement screen and VM placement advisor product plan |
 
 ## Current vs historical
 

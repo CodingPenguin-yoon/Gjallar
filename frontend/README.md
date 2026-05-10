@@ -8,6 +8,7 @@ React + Vite operator UI for Gjallar.
 - Infra Explorer
 - Networks
 - Create VM
+- Placement
 - Jobs/Runs
 - Risks/Alerts
 
