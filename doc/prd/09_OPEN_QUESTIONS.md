@@ -52,13 +52,13 @@
 결정:
 
 ```text
-/mnt/hermes_data/공통/iac
+/mnt/hermes_data/IaC
   manifests/
   terraform/
   ansible/
   generated/
 
-/mnt/hermes_data/공통/iac-state
+/mnt/hermes_data/IaC-state
   gjallar/<manifest_id>/terraform.tfstate
   # MVP Terraform local backend. Git에는 넣지 않음.
 ```
@@ -117,7 +117,7 @@ D. Gjallar 자체 IPAM은 2차 이후 별도 설계
 
 - MVP는 Terraform local backend를 사용한다.
 - state는 Git에 넣지 않는다.
-- 기본 경로는 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`다.
+- 기본 경로는 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`다.
 - Gjallar job은 per-`proxmox_vmid` lock과 Terraform state lock을 확인한다.
 - apply 전 state와 manifest의 `proxmox_vmid`/name 매핑이 다르면 red risk로 막는다.
 - apply 후 state backup/checksum과 observed snapshot을 남긴다.

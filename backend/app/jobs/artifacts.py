@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from app.core.redaction import redact_secrets
 from app.jobs.models import ArtifactRecord
 
@@ -83,6 +85,29 @@ def write_text_artifact(
     path = _artifact_path(run_dir, filename)
     redacted_text = str(redact_secrets(text))
     content = redacted_text.encode("utf-8")
+    path.write_bytes(content)
+    return _record(
+        job_id=job_id,
+        artifact_type=artifact_type,
+        filename=filename,
+        path=path,
+        content=content,
+    )
+
+
+def write_yaml_artifact(
+    *,
+    run_dir: Path | str,
+    job_id: str,
+    artifact_type: str,
+    filename: str,
+    payload: Any,
+) -> ArtifactRecord:
+    """Write a redacted YAML artifact from structured data."""
+    path = _artifact_path(run_dir, filename)
+    redacted_payload = redact_secrets(payload)
+    text = yaml.safe_dump(redacted_payload, sort_keys=False, allow_unicode=True)
+    content = text.encode("utf-8")
     path.write_bytes(content)
     return _record(
         job_id=job_id,

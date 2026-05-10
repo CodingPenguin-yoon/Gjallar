@@ -1,58 +1,37 @@
 # Gjallar Backend
 
-The backend is a FastAPI API server for Proxmox VM operations, inventory, monitoring, and task/log tracking.
+FastAPI backend for the Gjallar Proxmox operations console.
 
-## Main domains
+## Active Surface
 
-- `app/domains/proxmox`
-  - Proxmox node, VM/LXC, template, storage, and network inventory
-  - VM lifecycle operations
-  - short TTL inventory caching
-- `app/domains/deploy`
-  - legacy domain name for the current VM provisioning endpoint
-  - `POST /api/deploy` should be treated as VM provisioning, not app deployment
-- `app/domains/task`
-  - task persistence, logs, progress, and SSE
-- `app/domains/llm`
-  - assistant/chat support
+- Public API contract: `/api/v1`
+- Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
+- Create VM: draft, preflight, plan, approval, IaC manifest commit, Terraform plan/apply gates
+- Jobs/Runs and Risks: read-only MVP summaries
 
-Removed legacy domains:
-
-- GitLab project inventory/API
-- GitLab webhooks
-- staging host registry/pools
-- Deploy Staging application deployment
+Legacy `/api` deploy/provision/task/log/LLM routes are not part of the active backend.
 
 ## Run
 
 ```bash
 cd backend
-. .venv/bin/activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+. venv/bin/activate
+GJALLAR_SHARED_ROOT=/Users/yoon/mnt/nfs \
+GJALLAR_RUNS_ROOT=/Users/yoon/mnt/nfs/IaC-state/gjallar/runs \
+uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000
 ```
 
-## Smoke checks
+## Validate
+
+From the repo root:
 
 ```bash
-cd backend
-.venv/bin/python -c 'from app.main import app; print(app.title)'
-```
-
-Expected:
-
-```text
-Gjallar VM Operations API
-```
-
-From repo root:
-
-```bash
-python3 -m compileall backend
-git diff --check
+PYTHONPATH=backend pytest -q backend/tests
 ```
 
 ## Notes
 
 - The app loads the repo root `.env`.
+- `GJALLAR_RUNS_ROOT` controls where Jobs/Runs progress records are stored.
 - Do not commit `.env`, tokens, secrets, `data/`, or local runtime artifacts.
-- Redis connection warnings during import are acceptable in local development if Redis is not running; chat/session persistence may be disabled.
+- Live VM creation remains gated behind explicit approval and Terraform apply acknowledgement.

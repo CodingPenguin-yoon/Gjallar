@@ -36,7 +36,7 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 - manual VMID input rejected or hidden in MVP create flow
 - Terraform state lock blocks apply
 - Terraform state/manifest `proxmox_vmid` mismatch red
-- Terraform state path under `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`
+- Terraform state path under `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`
 - duplicate IP red
 - reserved IP red
 - storage insufficient red

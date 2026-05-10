@@ -55,8 +55,8 @@ ip_modes:
   default: static
 template_family: ubuntu
 mvp_create_ip_range: 192.168.2.140-150
-terraform_state_path: /mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate
-iac_repo: /mnt/hermes_data/공통/iac
+terraform_state_path: /mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate
+iac_repo: /mnt/hermes_data/IaC
 ```
 
 ## 3. 구현 직전 live inventory 조회

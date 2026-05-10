@@ -20,6 +20,12 @@ def _safe_identifier(value: str) -> str:
     return safe or "draft"
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    return int(value)
+
+
 def _load_general_profile():
     profiles = {profile.profile_id: profile for profile in load_builtin_profiles()}
     profile = profiles.get("general-vm")
@@ -57,14 +63,21 @@ def build_default_vm_draft(
     operator_id: str,
     job_id: str = "job-draft-preview",
     target_node_id: str | None = None,
+    storage_id: str | None = None,
+    network_id: str | None = None,
+    bridge_id: str | None = None,
     static_ip: str | None = None,
     ip_mode: str | None = None,
+    proposed_vmid: int | None = None,
+    template_id: str | None = None,
+    template_vmid: int | None = None,
+    template_node_id: str | None = None,
 ) -> VmCreateDraft:
     """Build a non-mutating default draft for the first MVP Create VM flow."""
     profile = _load_general_profile()
-    network_profile = _load_network(profile.network.network_profile)
+    network_profile = _load_network(network_id or profile.network.network_profile)
     chosen_node = target_node_id or profile.target_node_candidates[0]
-    bridge_id = network_profile.node_bridges.get(chosen_node)
+    selected_bridge_id = bridge_id or network_profile.node_bridges.get(chosen_node)
     requested_ip_mode = ip_mode or profile.network.default_ip_mode
     if requested_ip_mode not in {"static", "dhcp"}:
         raise ValueError("ip_mode must be either 'static' or 'dhcp'")
@@ -79,9 +92,13 @@ def build_default_vm_draft(
         profile_id=profile.profile_id,
         manifest_id=manifest_id,
         vm_name=f"gjallar-vm-{suffix}",
-        proposed_vmid=102,
+        proposed_vmid=int(proposed_vmid or 102),
         target_node_id=chosen_node,
+        storage_id=str(storage_id).strip() if storage_id else None,
         template_family=profile.template_family,
+        template_id=template_id,
+        template_vmid=_optional_int(template_vmid),
+        template_node_id=template_node_id,
         hardware=DraftHardware(
             cpu=profile.hardware.cpu,
             memory_mb=profile.hardware.memory_mb,
@@ -91,7 +108,7 @@ def build_default_vm_draft(
             network_id=network_profile.network_id,
             ip_mode=requested_ip_mode,
             static_ip=resolved_static_ip,
-            bridge_id=bridge_id,
+            bridge_id=selected_bridge_id,
         ),
         access=DraftAccess(
             cloud_init_user=profile.access.cloud_init_user,

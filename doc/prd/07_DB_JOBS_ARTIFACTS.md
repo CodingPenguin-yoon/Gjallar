@@ -146,7 +146,7 @@ MVP에서는 Terraform local backend를 사용한다.
 기본 경로:
 
 ```text
-/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate
+/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate
 ```
 
 DB에는 state 원문을 저장하지 않는다.

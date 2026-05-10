@@ -238,17 +238,35 @@ function normalizeRiskLevel(level) {
 function normalizeJob(source = {}) {
   const status = normalizeStatus(source.status) || 'unknown'
   const riskLevel = normalizeRiskLevel(source.risk_level ?? source.riskLevel)
+  const steps = asArray(source.steps).map((step) => ({
+    id: asText(step.id, 'step'),
+    label: asText(step.label, step.id || 'step'),
+    status: normalizeStatus(step.status) || asText(step.status, 'pending'),
+    message: asText(step.message, ''),
+    updatedAt: step.updated_at ?? step.updatedAt ?? null,
+  }))
   return {
     id: asText(source.job_id ?? source.id, 'unknown'),
     type: asText(source.job_type ?? source.type, 'unknown'),
     status,
     targetId: asText(source.target_id ?? source.targetId, '-'),
     riskLevel,
-    tone: riskLevel === 'unknown' ? status : riskLevel,
+    tone: FAILED_STATUSES.has(status)
+      ? status
+      : RUNNING_STATUSES.has(status)
+        ? status
+        : BLOCKED_STATUSES.has(status) && riskLevel !== 'unknown'
+          ? riskLevel
+          : riskLevel === 'unknown' ? status : riskLevel,
     artifactCount: asNumber(source.artifact_count ?? source.artifactCount),
     riskCount: asNumber(source.risk_count ?? source.riskCount),
+    progressPercent: Math.max(0, Math.min(100, asNumber(source.progress_percent ?? source.progressPercent, 0))),
+    currentStage: asText(source.current_stage ?? source.currentStage, ''),
+    message: asText(source.message, ''),
+    steps,
     startedAt: source.started_at ?? source.startedAt ?? null,
     finishedAt: source.finished_at ?? source.finishedAt ?? null,
+    updatedAt: source.updated_at ?? source.updatedAt ?? null,
     artifactsUrl: source.artifacts_url ?? source.artifactsUrl ?? null,
     readOnly: true,
     allowedActions: READ_ONLY_ACTIONS,

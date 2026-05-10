@@ -147,7 +147,7 @@ IP 충돌 검사의 MVP evidence는 `Network Profile manifest + Proxmox observed
 Terraform state 정책:
 
 - MVP backend는 local backend다.
-- state 위치는 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`다.
+- state 위치는 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`다.
 - state는 Git에 넣지 않는다.
 - plan/apply 전 per-`proxmox_vmid` lock과 Terraform state lock을 확인한다.
 - state에 기록된 `proxmox_vmid`/name과 manifest resolved `proxmox_vmid`/name이 다르면 red risk다.

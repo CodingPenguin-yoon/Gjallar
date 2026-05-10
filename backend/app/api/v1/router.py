@@ -1,27 +1,38 @@
-"""Minimal non-mutating /api/v1 router skeleton.
-
-Set 5 wires the read-only/fake Proxmox inventory adapter into the public
-inventory routes. Live Proxmox mutations and create/apply flows remain out of
-scope and require later RED tests plus approval gates.
-"""
+"""PRD v1 /api/v1 router for inventory, Create VM, and job run inspection."""
 
 from __future__ import annotations
-import hashlib
-import re
-import tempfile
-from pathlib import Path
+
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.responses import success_response
+from app.core.redaction import redact_secrets
+from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
+from app.network_policy import NetworkPolicyError, build_network_policy_view, save_network_policy
 from app.vm_create.approval import validate_approval_request
-from app.jobs.models import ArtifactRecord, JobRecord
 from app.manifests.loader import load_builtin_profiles
 from app.proxmox.inventory import get_default_inventory_adapter
 from app.vm_create.drafts import build_default_vm_draft
+from app.vm_create.gitops import (
+    GitOpsCommitError,
+    archive_plan_manifest,
+    commit_plan_manifest,
+    update_plan_manifest_status,
+    verify_plan_manifest_commit,
+)
+from app.vm_create.iac_readiness import run_iac_readiness
 from app.vm_create.planner import build_vm_create_plan
 from app.vm_create.preflight import run_preflight
+from app.vm_create.terraform_runner import (
+    TerraformRunnerError,
+    build_terraform_workspace,
+    run_terraform_apply,
+    run_terraform_plan,
+    terraform_apply_commands,
+    terraform_plan_commands,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -40,22 +51,26 @@ def _jobs_meta() -> dict[str, str]:
 
 def _api_draft_from_payload(draft_id: str, payload: dict | None):
     payload = payload or {}
+    adapter = _inventory_adapter()
+    proposed_vmid = adapter.suggest_next_vmid() if hasattr(adapter, "suggest_next_vmid") else None
     return build_default_vm_draft(
         operator_id=str(payload.get("operator_id", "api-preview")),
         job_id=str(payload.get("job_id", draft_id)),
         target_node_id=payload.get("target_node_id"),
+        storage_id=payload.get("storage_id"),
+        network_id=payload.get("network_id"),
+        bridge_id=payload.get("bridge_id"),
         static_ip=payload.get("static_ip"),
         ip_mode=payload.get("ip_mode"),
+        proposed_vmid=proposed_vmid,
+        template_id=payload.get("template_id"),
+        template_vmid=payload.get("template_vmid"),
+        template_node_id=payload.get("template_node_id"),
     )
 
 
-def _safe_preview_segment(value: str) -> str:
-    safe = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value)).strip("-")
-    return safe[:120] or "job"
-
-
-def _api_preview_run_dir(job_id: str) -> Path:
-    return Path(tempfile.gettempdir()) / "gjallar-set6-api-preview" / _safe_preview_segment(job_id)
+def _api_preview_run_dir(job_id: str):
+    return run_dir(job_id)
 
 
 def _api_preview_plan_from_payload(draft_id: str, payload: dict | None):
@@ -64,138 +79,117 @@ def _api_preview_plan_from_payload(draft_id: str, payload: dict | None):
     return build_vm_create_plan(draft, preflight, run_dir=_api_preview_run_dir(draft.job_id))
 
 
-def _artifact_checksum(seed: str) -> str:
-    return "sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
+def _terraform_error_summary(results: list[dict[str, Any]], fallback: str) -> str:
+    for result in reversed(results):
+        text = str(result.get("stderr") or result.get("stdout") or "").strip()
+        if text:
+            return text[:1000]
+    return str(fallback or "Terraform apply failed")[:1000]
 
 
-def _artifact_id(job_id: str, artifact_type: str, filename: str) -> str:
-    safe_type = artifact_type.replace("-", "_").replace("/", "_")
-    safe_job = job_id.replace("-", "_").replace("/", "_")
-    safe_file = Path(filename).stem.replace("-", "_")
-    return f"artifact_{safe_type}_{safe_job}_{safe_file}"
+def _risk_dicts_from_plan(plan) -> list[dict[str, Any]]:
+    risk_summary = plan.risk_summary or {}
+    return [
+        *list(risk_summary.get("red") or []),
+        *list(risk_summary.get("yellow") or []),
+    ]
 
 
-def _artifact_record(
+def _target_label(*, node_id: str, vm_name: str) -> str:
+    return f"{node_id}:{vm_name}" if vm_name else node_id
+
+
+def _record_draft_job(draft, *, status: str, stage: str, step_status: str, message: str) -> dict[str, Any]:
+    return record_job_run(
+        job_id=draft.job_id,
+        job_type="vm_create",
+        status=status,
+        target_id=_target_label(node_id=draft.target_node_id, vm_name=draft.vm_name),
+        risk_level="unknown",
+        stage=stage,
+        step_status=step_status,
+        message=message,
+        details=draft.to_dict(),
+    )
+
+
+def _record_preflight_job(draft, preflight, *, status: str, step_status: str, message: str) -> dict[str, Any]:
+    return record_job_run(
+        job_id=draft.job_id,
+        job_type="vm_create",
+        status=status,
+        target_id=_target_label(node_id=draft.target_node_id, vm_name=draft.vm_name),
+        risk_level=preflight.risk_level,
+        stage="preflight",
+        step_status=step_status,
+        message=message,
+        risks=preflight.risks,
+        details={
+            "draft": draft.to_dict(),
+            "preflight": preflight.to_dict(),
+        },
+    )
+
+
+def _record_plan_job(
+    plan,
     *,
-    job_id: str,
-    artifact_type: str,
-    filename: str,
-    created_at: str,
-) -> ArtifactRecord:
-    return ArtifactRecord(
-        artifact_id=_artifact_id(job_id, artifact_type, filename),
-        job_id=job_id,
-        type=artifact_type,
-        path=f"/artifacts/read-only-preview/{job_id}/{filename}",
-        checksum=_artifact_checksum(f"{job_id}:{artifact_type}:{filename}"),
-        created_at=created_at,
-    )
-
-
-def _job_fixture_index() -> dict[str, dict[str, Any]]:
-    adapter = _inventory_adapter()
-
-    planned_draft = build_default_vm_draft(
-        operator_id="api-read-only",
-        job_id="job-api-v1-plan",
-    )
-    planned_preflight = run_preflight(planned_draft, inventory_adapter=adapter)
-
-    blocked_draft = build_default_vm_draft(
-        operator_id="api-read-only",
-        job_id="job-api-v1-risk",
-        static_ip="192.168.2.141",
-    )
-    blocked_preflight = run_preflight(blocked_draft, inventory_adapter=adapter)
-
-    return {
-        planned_draft.job_id: {
-            "job": JobRecord(
-                job_id=planned_draft.job_id,
-                job_type="vm_create_plan",
-                status="completed",
-                target_id=planned_draft.target_node_id,
-                risk_level=planned_preflight.risk_level,
-                started_at="2026-05-09T02:40:00+09:00",
-                finished_at="2026-05-09T02:41:00+09:00",
-            ),
-            "artifacts": [
-                _artifact_record(
-                    job_id=planned_draft.job_id,
-                    artifact_type="preflight_report",
-                    filename="preflight_report.json",
-                    created_at="2026-05-09T02:40:10+09:00",
-                ),
-                _artifact_record(
-                    job_id=planned_draft.job_id,
-                    artifact_type="plan",
-                    filename="plan.json",
-                    created_at="2026-05-09T02:40:20+09:00",
-                ),
-                _artifact_record(
-                    job_id=planned_draft.job_id,
-                    artifact_type="planned_git_diff",
-                    filename="planned_git_diff.txt",
-                    created_at="2026-05-09T02:40:25+09:00",
-                ),
-                _artifact_record(
-                    job_id=planned_draft.job_id,
-                    artifact_type="review_summary",
-                    filename="review_summary.json",
-                    created_at="2026-05-09T02:40:30+09:00",
-                ),
-            ],
-            "risks": planned_preflight.risks,
+    status: str,
+    stage: str,
+    step_status: str,
+    message: str,
+    artifacts: list[Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return record_job_run(
+        job_id=plan.job_id,
+        job_type="vm_create",
+        status=status,
+        target_id=_target_label(node_id=plan.target_node_id, vm_name=plan.vm_name),
+        risk_level=plan.risk_summary.get("level", "unknown"),
+        stage=stage,
+        step_status=step_status,
+        message=message,
+        artifacts=artifacts if artifacts is not None else plan.artifacts,
+        risks=_risk_dicts_from_plan(plan),
+        details={
+            "draft_id": plan.draft_id,
+            "manifest_id": plan.manifest_id,
+            "vm_name": plan.vm_name,
+            "vmid": plan.vmid,
+            "target_node_id": plan.target_node_id,
+            "storage_id": plan.storage_id,
+            "template_id": plan.template_id,
+            "network": plan.network,
+            **(details or {}),
         },
-        blocked_draft.job_id: {
-            "job": JobRecord(
-                job_id=blocked_draft.job_id,
-                job_type="vm_create_preflight",
-                status="blocked",
-                target_id=blocked_draft.target_node_id,
-                risk_level=blocked_preflight.risk_level,
-                started_at="2026-05-09T02:42:00+09:00",
-                finished_at="2026-05-09T02:42:30+09:00",
-            ),
-            "artifacts": [
-                _artifact_record(
-                    job_id=blocked_draft.job_id,
-                    artifact_type="preflight_report",
-                    filename="preflight_report.json",
-                    created_at="2026-05-09T02:42:10+09:00",
-                ),
-            ],
-            "risks": blocked_preflight.risks,
-        },
-    }
+    )
 
 
-def _job_summary(entry: dict[str, Any]) -> dict[str, Any]:
-    job = entry["job"]
-    risks = entry["risks"]
+def _job_summary(run: dict[str, Any]) -> dict[str, Any]:
     return {
-        **job.to_dict(),
-        "artifact_count": len(entry["artifacts"]),
-        "risk_count": len(risks),
-        "artifacts_url": f"/api/v1/jobs/{job.job_id}/artifacts",
+        **{key: value for key, value in run.items() if key not in {"artifacts", "risks"}},
+        "artifact_count": len(run.get("artifacts") or []),
+        "risk_count": len(run.get("risks") or []),
+        "artifacts_url": f"/api/v1/jobs/{run['job_id']}/artifacts",
     }
 
 
 def _job_entry_or_404(job_id: str) -> dict[str, Any]:
-    try:
-        return _job_fixture_index()[job_id]
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Job not found") from exc
+    entry = get_job_run(job_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return entry
 
 
-def _risk_summary(job: JobRecord, risk) -> dict[str, Any]:
+def _risk_summary(job: dict[str, Any], risk: dict[str, Any]) -> dict[str, Any]:
     return {
-        "risk_id": f"{job.job_id}:{risk.code}",
-        "job_id": job.job_id,
-        "job_type": job.job_type,
-        "job_status": job.status,
-        **risk.to_dict(),
-        "artifacts_url": f"/api/v1/jobs/{job.job_id}/artifacts",
+        "risk_id": f"{job.get('job_id')}:{risk.get('code', 'risk')}",
+        "job_id": job.get("job_id"),
+        "job_type": job.get("job_type"),
+        "job_status": job.get("status"),
+        **risk,
+        "artifacts_url": f"/api/v1/jobs/{job.get('job_id')}/artifacts",
     }
 
 
@@ -255,6 +249,12 @@ async def list_profiles() -> dict:
     return success_response([profile.to_dict() for profile in load_builtin_profiles()])
 
 
+@router.get("/vm-create/readiness")
+async def get_vm_create_readiness() -> dict:
+    """Return read-only IaC workspace readiness for the Create VM flow."""
+    return success_response(run_iac_readiness().to_dict(), meta={"mode": "read_only_iac_readiness"})
+
+
 @router.get("/templates")
 def list_templates() -> dict:
     """Return read-only template inventory."""
@@ -288,10 +288,46 @@ def list_networks() -> dict:
     )
 
 
+@router.get("/networks/policy")
+def get_network_policy() -> dict:
+    """Return live vmbr inventory combined with IaC network policy state."""
+    adapter = _inventory_adapter()
+    networks = adapter.list_networks()
+    try:
+        view = build_network_policy_view(networks)
+    except NetworkPolicyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NETWORK_POLICY_READ_FAILED",
+                "message": str(exc),
+                "side_effects": [],
+            },
+        ) from exc
+    return success_response(view, meta={**_inventory_meta(adapter), "mode": "network_policy_read"})
+
+
+@router.put("/networks/policy")
+def put_network_policy(payload: dict | None = None) -> dict:
+    """Persist the network policy under the shared IaC manifests folder."""
+    try:
+        result = save_network_policy((payload or {}).get("policy") or payload or {})
+    except NetworkPolicyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NETWORK_POLICY_WRITE_FAILED",
+                "message": str(exc),
+                "side_effects": [],
+            },
+        ) from exc
+    return success_response(result, meta={"mode": "iac_network_policy_write"})
+
+
 @router.get("/jobs")
 async def list_jobs() -> dict:
-    """Return read-only MVP job history previews."""
-    jobs = [_job_summary(entry) for entry in _job_fixture_index().values()]
+    """Return read-only job history from Create VM run status records."""
+    jobs = [_job_summary(entry) for entry in list_job_runs()]
     return success_response(jobs, meta=_jobs_meta())
 
 
@@ -307,32 +343,32 @@ async def list_job_artifacts(job_id: str) -> dict:
     """Return read-only artifact metadata for one MVP job."""
     entry = _job_entry_or_404(job_id)
     return success_response(
-        [artifact.to_dict() for artifact in entry["artifacts"]],
+        list(entry.get("artifacts") or []),
         meta=_jobs_meta(),
     )
 
 
 @router.get("/risks")
 async def list_risks() -> dict:
-    """Return read-only risk summaries derived from MVP job previews."""
+    """Return read-only risk summaries derived from Create VM run records."""
     risks = []
-    for entry in _job_fixture_index().values():
-        job = entry["job"]
-        for risk in entry["risks"]:
-            risks.append(_risk_summary(job, risk))
+    for job in list_job_runs():
+        for risk in job.get("risks") or []:
+            if isinstance(risk, dict):
+                risks.append(_risk_summary(job, risk))
     return success_response(risks, meta=_jobs_meta())
 
 
 @router.post("/vm-create/drafts")
 async def create_vm_draft(payload: dict | None = None) -> dict:
     """Create a non-mutating default Create VM draft preview."""
-    payload = payload or {}
-    draft = build_default_vm_draft(
-        operator_id=str(payload.get("operator_id", "api-preview")),
-        job_id=str(payload.get("job_id", "job-api-preview")),
-        target_node_id=payload.get("target_node_id"),
-        static_ip=payload.get("static_ip"),
-        ip_mode=payload.get("ip_mode"),
+    draft = _api_draft_from_payload("job-api-preview", payload or {})
+    _record_draft_job(
+        draft,
+        status="in_progress",
+        stage="draft",
+        step_status="completed",
+        message="VM 생성 요청 입력이 준비되었습니다.",
     )
     return success_response(draft.to_dict(), meta={"mode": "dry_run_draft_only"})
 
@@ -340,31 +376,31 @@ async def create_vm_draft(payload: dict | None = None) -> dict:
 @router.post("/vm-create/{draft_id}/preflight")
 async def preflight_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
     """Run non-destructive preflight against the fake/read-only inventory."""
-    payload = payload or {}
-    draft = build_default_vm_draft(
-        operator_id=str(payload.get("operator_id", "api-preview")),
-        job_id=str(payload.get("job_id", draft_id)),
-        target_node_id=payload.get("target_node_id"),
-        static_ip=payload.get("static_ip"),
-        ip_mode=payload.get("ip_mode"),
-    )
+    draft = _api_draft_from_payload(draft_id, payload)
     result = run_preflight(draft, inventory_adapter=_inventory_adapter())
-    return success_response(result.to_dict(), meta={"mode": "fake_read_only_preflight"})
+    _record_preflight_job(
+        draft,
+        result,
+        status="blocked" if result.risk_level == "red" else "in_progress",
+        step_status="blocked" if result.risk_level == "red" else "completed",
+        message="사전 검토가 완료되었습니다." if result.risk_level != "red" else "사전 검토에서 차단 항목이 발견되었습니다.",
+    )
+    return success_response(result.to_dict(), meta={"mode": "read_only_preflight"})
 
 
 @router.post("/vm-create/{draft_id}/plan")
 async def plan_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
     """Build an artifact-backed dry-run plan without live side effects."""
-    payload = payload or {}
-    draft = build_default_vm_draft(
-        operator_id=str(payload.get("operator_id", "api-preview")),
-        job_id=str(payload.get("job_id", draft_id)),
-        target_node_id=payload.get("target_node_id"),
-        static_ip=payload.get("static_ip"),
-        ip_mode=payload.get("ip_mode"),
-    )
+    draft = _api_draft_from_payload(draft_id, payload)
     preflight = run_preflight(draft, inventory_adapter=_inventory_adapter())
     plan = build_vm_create_plan(draft, preflight, run_dir=_api_preview_run_dir(draft.job_id))
+    _record_plan_job(
+        plan,
+        status="blocked" if plan.risk_summary.get("level") == "red" else "in_progress",
+        stage="plan",
+        step_status="blocked" if plan.risk_summary.get("level") == "red" else "completed",
+        message="생성 계획과 검토 패킷이 준비되었습니다.",
+    )
     return success_response(plan.to_dict(), meta={"mode": "dry_run_plan_only"})
 
 @router.post("/vm-create/{draft_id}/approve")
@@ -379,18 +415,475 @@ async def approve_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
         yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
         run_dir=_api_preview_run_dir(plan.job_id),
     )
+    _record_plan_job(
+        plan,
+        status="in_progress" if decision.can_execute else "blocked",
+        stage="approval",
+        step_status="completed" if decision.can_execute else "blocked",
+        message="승인이 확인되었습니다." if decision.can_execute else f"승인이 차단되었습니다: {decision.reason}",
+        details={"approval": decision.to_dict()},
+    )
     return success_response(decision.to_dict(), meta={"mode": "approval_validation_only"})
+
+
+@router.post("/vm-create/{draft_id}/terraform-plan")
+async def prepare_vm_draft_terraform_plan(draft_id: str, payload: dict | None = None) -> dict:
+    """Prepare an approved Terraform plan workspace without applying changes."""
+    payload = payload or {}
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    decision = validate_approval_request(
+        plan,
+        plan_artifact_id=str(payload.get("plan_artifact_id", "")),
+        review_summary_checksum=str(payload.get("review_summary_checksum", "")),
+        yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
+        run_dir=_api_preview_run_dir(plan.job_id),
+    )
+    if not decision.can_execute:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="approval",
+            step_status="blocked",
+            message=f"생성 준비가 차단되었습니다: {decision.reason}",
+            details={"approval": decision.to_dict()},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_PLAN_APPROVAL_GATE_BLOCKED",
+                "message": decision.reason,
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    if plan.review_confirm.get("iac_ready_for_plan") is not True:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="workspace",
+            step_status="blocked",
+            message="IaC 작업 공간이 준비되지 않아 생성 준비가 차단되었습니다.",
+            details={"approval": decision.to_dict()},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_PLAN_IAC_BLOCKED",
+                "message": "IaC workspace is not ready for Terraform plan preparation",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+
+    workspace = build_terraform_workspace(
+        plan,
+        workspace_root=_api_preview_run_dir(plan.job_id) / "terraform-workspace",
+    )
+    commands = terraform_plan_commands(workspace)
+    should_run_plan = payload.get("run_terraform_plan") is True
+    run_results: list[dict[str, Any]] = []
+    _record_plan_job(
+        plan,
+        status="running" if should_run_plan else "in_progress",
+        stage="workspace",
+        step_status="running" if should_run_plan else "completed",
+        message="Terraform 검토를 실행 중입니다." if should_run_plan else "생성 준비 파일이 만들어졌습니다.",
+        details={"workspace": workspace.to_dict(), "approval": decision.to_dict()},
+    )
+    if should_run_plan:
+        if payload.get("terraform_plan_acknowledged") is not True:
+            _record_plan_job(
+                plan,
+                status="blocked",
+                stage="workspace",
+                step_status="blocked",
+                message="Terraform 검토 실행 승인이 필요합니다.",
+                details={"workspace": workspace.to_dict(), "approval": decision.to_dict()},
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "TERRAFORM_PLAN_RUN_ACK_REQUIRED",
+                    "message": "terraform_plan_acknowledged=true is required before contacting the live provider",
+                    "draft_id": draft_id,
+                    "side_effects": workspace.side_effects,
+                },
+            )
+        try:
+            run_results = redact_secrets(await run_in_threadpool(run_terraform_plan, workspace))
+        except TerraformRunnerError as exc:
+            run_results = redact_secrets(getattr(exc, "results", []))
+            _record_plan_job(
+                plan,
+                status="failed",
+                stage="workspace",
+                step_status="failed",
+                message=f"Terraform 검토가 실패했습니다: {exc}",
+                details={"workspace": workspace.to_dict(), "terraform_plan_results": run_results},
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "TERRAFORM_PLAN_FAILED",
+                    "message": str(exc),
+                    "draft_id": draft_id,
+                    "side_effects": workspace.side_effects,
+                    "terraform_plan_results": run_results,
+                },
+            ) from exc
+        _record_plan_job(
+            plan,
+            status="in_progress",
+            stage="workspace",
+            step_status="completed",
+            message="Terraform 검토가 완료되었습니다.",
+            details={"workspace": workspace.to_dict(), "terraform_plan_results": run_results},
+        )
+
+    return success_response(
+        {
+            **workspace.to_dict(),
+            "approval": decision.to_dict(),
+            "commands": commands,
+            "terraform_plan_ran": should_run_plan,
+            "terraform_plan_results": run_results,
+            "terraform_apply_enabled": False,
+            "proxmox_mutation_enabled": False,
+        },
+        meta={"mode": "terraform_plan_prepare_only" if not should_run_plan else "terraform_plan_live_read_only"},
+    )
+
+
+@router.post("/vm-create/{draft_id}/terraform-apply")
+async def apply_vm_draft_terraform_plan(draft_id: str, payload: dict | None = None) -> dict:
+    """Run Terraform apply for an approved, committed VM create plan."""
+    payload = payload or {}
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    decision = validate_approval_request(
+        plan,
+        plan_artifact_id=str(payload.get("plan_artifact_id", "")),
+        review_summary_checksum=str(payload.get("review_summary_checksum", "")),
+        yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
+        run_dir=_api_preview_run_dir(plan.job_id),
+    )
+    if not decision.can_execute:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_APPROVAL_GATE_BLOCKED",
+                "message": decision.reason,
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    if plan.review_confirm.get("iac_ready_for_execute") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_IAC_BLOCKED",
+                "message": "IaC workspace is not ready for Terraform apply",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    if payload.get("terraform_plan_acknowledged") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_PLAN_ACK_REQUIRED",
+                "message": "terraform_plan_acknowledged=true is required before Terraform apply",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    if payload.get("terraform_apply_acknowledged") is not True or payload.get("proxmox_mutation_acknowledged") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_ACK_REQUIRED",
+                "message": "terraform_apply_acknowledged=true and proxmox_mutation_acknowledged=true are required",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+
+    try:
+        manifest_path = verify_plan_manifest_commit(plan, str(payload.get("manifest_commit_sha", "")))
+    except GitOpsCommitError as exc:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="commit",
+            step_status="blocked",
+            message=f"저장된 생성 요청 확인이 차단되었습니다: {exc}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_MANIFEST_COMMIT_BLOCKED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        ) from exc
+
+    workspace = build_terraform_workspace(
+        plan,
+        workspace_root=_api_preview_run_dir(plan.job_id) / "terraform-workspace",
+    )
+    expected_plan_path = str(payload.get("expected_plan_path") or "").strip()
+    if expected_plan_path and expected_plan_path != workspace.plan_path:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="workspace",
+            step_status="blocked",
+            message="검토된 Terraform plan 경로가 현재 작업 공간과 다릅니다.",
+            details={"workspace": workspace.to_dict()},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_PLAN_PATH_MISMATCH",
+                "message": "expected_plan_path does not match the generated workspace plan path",
+                "draft_id": draft_id,
+                "side_effects": workspace.side_effects,
+            },
+        )
+
+    _record_plan_job(
+        plan,
+        status="running",
+        stage="create",
+        step_status="running",
+        message="실제 VM 생성 작업을 시작했습니다.",
+        details={"workspace": workspace.to_dict(), "manifest_path": manifest_path},
+    )
+    try:
+        applying_status = update_plan_manifest_status(plan, "applying")
+    except GitOpsCommitError as exc:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="create",
+            step_status="blocked",
+            message=f"생성 상태 기록이 차단되었습니다: {exc}",
+            details={"workspace": workspace.to_dict(), "manifest_path": manifest_path},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_STATUS_BLOCKED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": workspace.side_effects,
+            },
+        ) from exc
+
+    status_side_effects = list(applying_status.side_effects)
+    try:
+        apply_results = redact_secrets(await run_in_threadpool(run_terraform_apply, workspace))
+    except TerraformRunnerError as exc:
+        apply_results = redact_secrets(getattr(exc, "results", []))
+        manifest_status: dict[str, Any] = {}
+        manifest_status_commit_sha = ""
+        try:
+            failed_status = update_plan_manifest_status(
+                plan,
+                "apply_failed",
+                last_error=_terraform_error_summary(apply_results, str(exc)),
+            )
+            manifest_status = failed_status.manifest_status
+            manifest_status_commit_sha = failed_status.commit_sha
+            status_side_effects.extend(failed_status.side_effects)
+        except GitOpsCommitError as status_exc:
+            status_side_effects.append("iac_manifest_status_update_failed")
+            manifest_status = {"phase": "apply_failed", "last_error": str(status_exc), "updated_at": ""}
+        _record_plan_job(
+            plan,
+            status="failed",
+            stage="create",
+            step_status="failed",
+            message=f"VM 생성이 실패했습니다: {_terraform_error_summary(apply_results, str(exc))}",
+            details={
+                "workspace": workspace.to_dict(),
+                "manifest_path": manifest_path,
+                "manifest_status": manifest_status,
+                "terraform_apply_results": apply_results,
+            },
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_FAILED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": [*workspace.side_effects, *status_side_effects, "terraform_apply_invoked"],
+                "terraform_apply_results": apply_results,
+                "manifest_status": manifest_status,
+                "manifest_status_commit_sha": manifest_status_commit_sha,
+            },
+        ) from exc
+
+    try:
+        applied_status = update_plan_manifest_status(plan, "applied")
+    except GitOpsCommitError as exc:
+        _record_plan_job(
+            plan,
+            status="failed",
+            stage="create",
+            step_status="failed",
+            message=f"VM 생성은 실행됐지만 상태 기록이 실패했습니다: {exc}",
+            details={
+                "workspace": workspace.to_dict(),
+                "manifest_path": manifest_path,
+                "terraform_apply_results": apply_results,
+            },
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TERRAFORM_APPLY_STATUS_UPDATE_FAILED",
+                "message": f"Terraform apply ran, but manifest status update failed: {exc}",
+                "draft_id": draft_id,
+                "side_effects": [*workspace.side_effects, *status_side_effects, "terraform_apply_invoked"],
+                "terraform_apply_results": apply_results,
+                "terraform_apply_ran": True,
+            },
+        ) from exc
+    status_side_effects.extend(applied_status.side_effects)
+    _record_plan_job(
+        plan,
+        status="completed",
+        stage="create",
+        step_status="completed",
+        message="VM 생성이 완료되었습니다.",
+        details={
+            "workspace": workspace.to_dict(),
+            "manifest_path": manifest_path,
+            "manifest_status": applied_status.manifest_status,
+            "terraform_apply_results": apply_results,
+        },
+    )
+
+    return success_response(
+        {
+            **workspace.to_dict(),
+            "approval": decision.to_dict(),
+            "manifest_path": manifest_path,
+            "manifest_commit_sha": str(payload.get("manifest_commit_sha", "")),
+            "manifest_status": applied_status.manifest_status,
+            "manifest_status_commit_sha": applied_status.commit_sha,
+            "commands": terraform_apply_commands(workspace),
+            "terraform_apply_ran": True,
+            "terraform_apply_results": apply_results,
+            "terraform_apply_enabled": True,
+            "proxmox_mutation_enabled": True,
+            "side_effects": [*workspace.side_effects, *status_side_effects, "terraform_apply_invoked"],
+        },
+        meta={"mode": "terraform_apply_live_mutation"},
+    )
 
 
 @router.post("/vm-create/{draft_id}/execute")
 async def execute_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
-    """Fail closed until live GitOps/apply/Proxmox execution is explicitly approved."""
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "EXECUTE_REQUIRES_EXPLICIT_LIVE_APPROVAL",
-            "message": "Live IaC mutation, Proxmox VM creation, and first power-on are not enabled in this safe backend slice.",
-            "draft_id": draft_id,
-            "side_effects": [],
+    """Commit the approved VMInstance manifest, but do not apply or touch Proxmox."""
+    payload = payload or {}
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    decision = validate_approval_request(
+        plan,
+        plan_artifact_id=str(payload.get("plan_artifact_id", "")),
+        review_summary_checksum=str(payload.get("review_summary_checksum", "")),
+        yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
+        run_dir=_api_preview_run_dir(plan.job_id),
+    )
+    if not decision.can_execute:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "EXECUTE_APPROVAL_GATE_BLOCKED",
+                "message": decision.reason,
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    try:
+        result = commit_plan_manifest(plan)
+    except GitOpsCommitError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "GITOPS_COMMIT_BLOCKED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        ) from exc
+    _record_plan_job(
+        plan,
+        status="pending",
+        stage="commit",
+        step_status="completed",
+        message="생성 요청이 저장되었습니다. 실제 VM 생성 실행을 기다립니다.",
+        details={"approval": decision.to_dict(), "commit": result.to_dict()},
+    )
+    return success_response(
+        {
+            **result.to_dict(),
+            "approval": decision.to_dict(),
+            "proxmox_mutation_enabled": False,
+            "terraform_apply_enabled": False,
         },
+        meta={"mode": "gitops_commit_only"},
+    )
+
+
+@router.post("/vm-create/{draft_id}/archive")
+async def archive_vm_draft_manifest(draft_id: str, payload: dict | None = None) -> dict:
+    """Archive an unapplied VMInstance manifest without touching Proxmox."""
+    payload = payload or {}
+    if payload.get("archive_acknowledged") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ARCHIVE_ACK_REQUIRED",
+                "message": "archive_acknowledged=true is required before archiving a VM create request",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    try:
+        result = archive_plan_manifest(
+            plan,
+            reason=str(payload.get("reason") or "operator archived unapplied create request"),
+            operator_id=str(payload.get("operator_id") or ""),
+        )
+    except GitOpsCommitError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "GITOPS_ARCHIVE_BLOCKED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        ) from exc
+
+    _record_plan_job(
+        plan,
+        status="completed",
+        stage="commit",
+        step_status="completed",
+        message="생성 요청이 보관되었습니다.",
+        details={"archive": result.to_dict()},
+    )
+    return success_response(
+        {
+            **result.to_dict(),
+            "proxmox_mutation_enabled": False,
+            "terraform_apply_enabled": False,
+        },
+        meta={"mode": "gitops_archive_only"},
     )

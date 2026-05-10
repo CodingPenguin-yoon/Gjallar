@@ -68,7 +68,7 @@ infra tracked files: 5
 - `frontend/tests/*.mjs`는 Node 22에서 통과.
 - backend pytest는 현재 venv에 `pytest`가 없어 실행 불가.
 - Codex VM에는 `/mnt/hermes_data`가 마운트되어 있지 않음.
-- Hermes host에서 `/mnt/hermes_data/공통/iac`가 현재 보이지 않음.
+- Hermes host에서 `/mnt/hermes_data/IaC`가 현재 보이지 않음.
 
 따라서 초기 구현은 가능하지만, **Slice 6 GitOps guard 이후는 IaC repo 위치/마운트 정리가 선행되어야 한다.**
 
@@ -187,7 +187,7 @@ old provisioning utils          -> static IP validation 등만 테스트 후 Kee
 PRD 기준 위치:
 
 ```text
-/mnt/hermes_data/공통/iac
+/mnt/hermes_data/IaC
   manifests/profiles/general-vm.yaml
   manifests/templates/ubuntu-template.yaml
   manifests/networks/server-net.yaml
@@ -209,7 +209,7 @@ PRD 기준 위치:
   smoke_report.json
 ```
 
-현재 `/mnt/hermes_data/공통/iac`가 확인되지 않으므로, Slice 6 전에는 IaC repo 생성/clone/mount 정책을 확정해야 한다.
+현재 `/mnt/hermes_data/IaC`가 확인되지 않으므로, Slice 6 전에는 IaC repo 생성/clone/mount 정책을 확정해야 한다.
 
 ## 5. 실행 세트
 
@@ -431,7 +431,7 @@ Review & Confirm 필수 13항목:
 
 선행 blocker:
 
-- `/mnt/hermes_data/공통/iac` 생성/clone/mount 필요.
+- `/mnt/hermes_data/IaC` 생성/clone/mount 필요.
 - Codex VM의 shared doc/IaC 접근 방식 필요.
 
 검증:
@@ -597,7 +597,7 @@ PRD는 이미 구현 시작 가능한 수준이다. 남은 값은 질문이 아�
 
 단, Slice 6 전에 다음은 도구로 확인/정리해야 한다.
 
-- `/mnt/hermes_data/공통/iac` 실제 repo 위치/생성 여부
+- `/mnt/hermes_data/IaC` 실제 repo 위치/생성 여부
 - Codex VM에서 공용 docs/IaC 접근 방식
 - Proxmox template/storage/IP availability
 - Proxmox API Token 권한 범위

@@ -5,16 +5,18 @@ import { join, relative } from 'node:path'
 const srcRoot = new URL('../src', import.meta.url)
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
 
-for (const label of ['Dashboard', 'Infra Explorer', 'Create VM', 'Jobs/Runs', 'Risks/Alerts']) {
+for (const label of ['Dashboard', 'Infra Explorer', 'Networks', 'Create VM', 'Jobs/Runs', 'Risks/Alerts']) {
   assert.ok(app.includes(label), `App navigation must expose PRD label: ${label}`)
 }
-for (const route of ['path="/infra"', 'path="/create"', 'path="/jobs"', 'path="/risks"']) {
+for (const route of ['path="/infra"', 'path="/networks"', 'path="/create"', 'path="/jobs"', 'path="/risks"']) {
   assert.ok(app.includes(route), `App routes must expose PRD route: ${route}`)
 }
 assert.doesNotMatch(app, /from ['"]\.\/services\/api(?:\.js)?['"]/, 'App must not import the legacy /api client')
 assert.doesNotMatch(app, /LlmInfraChat|LLM Assistant|\/assistant|Sparkles/, 'LLM assistant must not be routed or shown in MVP nav')
 assert.doesNotMatch(app, /provisionInstance|checkIpAvailability|handleProvision|provisioningRequest|onProvision|isProvisioning/, 'App must not own legacy provisioning execution flow')
 assert.doesNotMatch(app, /Instance List|Task Board|Risk Dashboard|Monitoring/, 'App must use PRD v1 navigation labels only')
+assert.match(app, /cpu_usage_percent/, 'Dashboard must prefer live Proxmox node CPU usage over allocated CPU counts')
+assert.match(app, /memory_usage_percent/, 'Dashboard must prefer live Proxmox node memory usage over allocated memory')
 
 const activeImports = app
   .split('\n')
@@ -27,6 +29,7 @@ assert.deepEqual(
   [
     './components/CreateInstanceWizard',
     './components/InstanceList',
+    './components/NetworkPolicyScreen',
     './components/OperationalRiskDashboard',
     './components/TaskBoard',
   ].sort(),

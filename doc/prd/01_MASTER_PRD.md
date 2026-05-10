@@ -257,7 +257,7 @@ DB snapshot만 source of truth로 두면 재설계/복구/검증이 어려워진
 MVP Terraform state 정책:
 
 - backend는 local backend를 사용한다.
-- state 위치는 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`로 둔다.
+- state 위치는 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`로 둔다.
 - state는 Git에 넣지 않는다.
 - Gjallar job은 per-`proxmox_vmid` lock과 Terraform state lock을 확인한 뒤 plan/apply한다.
 - state와 manifest의 `proxmox_vmid`/name 매핑이 다르면 red risk로 실행을 막는다.

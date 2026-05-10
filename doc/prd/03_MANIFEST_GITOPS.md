@@ -20,7 +20,7 @@ Manifest와 실제 Proxmox 상태를 계속 대조한다.
 ## 2. 권장 저장 위치
 
 ```text
-/mnt/hermes_data/공통/iac
+/mnt/hermes_data/IaC
   manifests/
     profiles/
     templates/
@@ -34,7 +34,7 @@ Manifest와 실제 Proxmox 상태를 계속 대조한다.
 /var/lib/gjallar/runs/<job_id>/iac
   # job별 checkout/copy
 
-/mnt/hermes_data/공통/iac-state
+/mnt/hermes_data/IaC-state
   gjallar/<manifest_id>/terraform.tfstate
   # MVP local backend. Git에 넣지 않음.
 ```
@@ -68,7 +68,7 @@ IaC Git remote
 - commit에는 job id, actor, approval id, plan artifact reference를 남긴다.
 - push 실패, non-fast-forward, dirty tree는 apply 전 red/yellow risk로 막거나 재검토한다.
 
-MVP에서는 `/mnt/hermes_data/공통/iac`를 durable IaC repo checkout 후보로 쓰되, job 실행은 `/var/lib/gjallar/runs/<job_id>/iac` 같은 per-job workspace에서 수행한다.
+MVP에서는 `/mnt/hermes_data/IaC`를 durable IaC repo checkout 후보로 쓰되, job 실행은 `/var/lib/gjallar/runs/<job_id>/iac` 같은 per-job workspace에서 수행한다.
 
 ## 2.2 Terraform state/backend 정책
 
@@ -77,7 +77,7 @@ MVP에서는 Terraform local backend를 사용한다.
 기본 위치:
 
 ```text
-/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate
+/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate
 ```
 
 원칙:

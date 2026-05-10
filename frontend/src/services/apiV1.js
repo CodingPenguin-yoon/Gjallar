@@ -9,14 +9,19 @@ export const API_V1_ENDPOINTS = Object.freeze({
   templates: '/templates',
   storage: '/storage',
   networks: '/networks',
+  networkPolicy: '/networks/policy',
   jobs: '/jobs',
   job: (jobId) => `/jobs/${encodePathPart(jobId)}`,
   jobArtifacts: (jobId) => `/jobs/${encodePathPart(jobId)}/artifacts`,
   risks: '/risks',
+  vmCreateReadiness: '/vm-create/readiness',
   createVmDrafts: '/vm-create/drafts',
   vmCreatePreflight: (draftId) => `/vm-create/${encodePathPart(draftId)}/preflight`,
   vmCreatePlan: (draftId) => `/vm-create/${encodePathPart(draftId)}/plan`,
   vmCreateApprove: (draftId) => `/vm-create/${encodePathPart(draftId)}/approve`,
+  vmCreateTerraformPlan: (draftId) => `/vm-create/${encodePathPart(draftId)}/terraform-plan`,
+  vmCreateTerraformApply: (draftId) => `/vm-create/${encodePathPart(draftId)}/terraform-apply`,
+  vmCreateExecute: (draftId) => `/vm-create/${encodePathPart(draftId)}/execute`,
 })
 
 function encodePathPart(value) {
@@ -37,6 +42,15 @@ function defaultFetchImpl() {
     throw new Error('No fetch implementation is available for the /api/v1 client')
   }
   return globalThis.fetch.bind(globalThis)
+}
+
+function firstCommandError(detail) {
+  const results = [
+    ...(Array.isArray(detail?.terraform_plan_results) ? detail.terraform_plan_results : []),
+    ...(Array.isArray(detail?.terraform_apply_results) ? detail.terraform_apply_results : []),
+  ]
+  const text = results.map((item) => item?.stderr || item?.stdout || '').find(Boolean) || ''
+  return String(text).replace(/\u001b\[[0-9;]*m/g, '').trim()
 }
 
 export function unwrapApiV1Envelope(envelope) {
@@ -64,9 +78,15 @@ async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body }) {
   const response = await fetchImpl(buildUrl(baseUrl, path), options)
   const envelope = await response.json()
   if (!response.ok) {
-    const message = envelope?.error?.message || `API v1 request failed with status ${response.status}`
+    const detail = envelope?.detail && typeof envelope.detail === 'object' ? envelope.detail : null
+    const errorBody = envelope?.error && typeof envelope.error === 'object' ? envelope.error : null
+    const commandError = firstCommandError(detail)
+    const baseMessage = detail?.message || errorBody?.message || detail?.code || errorBody?.code || `API v1 request failed with status ${response.status}`
+    const message = commandError ? `${baseMessage}: ${commandError.slice(0, 700)}` : baseMessage
     const error = new Error(message)
     error.status = response.status
+    error.code = detail?.code || errorBody?.code
+    error.details = detail || errorBody || envelope
     error.envelope = envelope
     throw error
   }
@@ -77,6 +97,7 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
   const clientConfig = { baseUrl: normalizeBaseUrl(baseUrl), fetchImpl }
   const get = (path) => requestJson({ ...clientConfig, path })
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
+  const put = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PUT', body })
 
   return Object.freeze({
     clusterSummary: () => get(API_V1_ENDPOINTS.clusterSummary),
@@ -87,14 +108,20 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     listTemplates: () => get(API_V1_ENDPOINTS.templates),
     listStorage: () => get(API_V1_ENDPOINTS.storage),
     listNetworks: () => get(API_V1_ENDPOINTS.networks),
+    getNetworkPolicy: () => get(API_V1_ENDPOINTS.networkPolicy),
+    saveNetworkPolicy: (payload = {}) => put(API_V1_ENDPOINTS.networkPolicy, payload),
     listJobs: () => get(API_V1_ENDPOINTS.jobs),
     getJob: (jobId) => get(API_V1_ENDPOINTS.job(jobId)),
     listJobArtifacts: (jobId) => get(API_V1_ENDPOINTS.jobArtifacts(jobId)),
     listRisks: () => get(API_V1_ENDPOINTS.risks),
+    getVmCreateReadiness: () => get(API_V1_ENDPOINTS.vmCreateReadiness),
     createVmDraft: (payload = {}) => post(API_V1_ENDPOINTS.createVmDrafts, payload),
     preflightVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePreflight(draftId), payload),
     planVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePlan(draftId), payload),
     approveVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateApprove(draftId), payload),
+    prepareVmDraftTerraformPlan: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateTerraformPlan(draftId), payload),
+    applyVmDraftTerraformPlan: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateTerraformApply(draftId), payload),
+    commitVmDraftManifest: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateExecute(draftId), payload),
   })
 }
 

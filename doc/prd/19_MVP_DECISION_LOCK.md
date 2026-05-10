@@ -94,8 +94,8 @@ mvp_create_ip_range: 192.168.2.140-150
 
 ## 6. IaC / Manifest / State
 
-- IaC repo/source of truth: `/mnt/hermes_data/공통/iac`
-- Terraform state 후보: `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`
+- IaC repo/source of truth: `/mnt/hermes_data/IaC`
+- Terraform state 후보: `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`
 - IaC는 Git-backed desired state다.
 - Flow:
 

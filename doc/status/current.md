@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-09
+Last refreshed: 2026-05-10
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -9,25 +9,24 @@ Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and age
 - The active frontend contract remains `/api/v1`.
 - Do not treat `/api/instances` or `/api/provision` as the active frontend surface.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
+- Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP selections, and gated IaC/Terraform actions.
 - Read-only inventory is the safe baseline.
 
 ## Implemented behavior
 
 - Instances UI is a single read-only grouped and collapsible card.
-- The card uses fixed columns and truncation.
+- Create VM review stores request manifests under the configured IaC root and publishes request progress to Jobs/Runs through `GJALLAR_RUNS_ROOT`.
 - There are no destructive VM list controls.
-- Lifecycle and provisioning mutations remain approval-gated and fail closed.
+- Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
+- Live Terraform apply remains approval-gated and fail closed.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Frontend `127.0.0.1:5174` returned status `200`.
-- `/api/v1/nodes` returned `200` with count `3`.
-- `/api/v1/vms` returned `200` with count `25`.
-- Node ids returned: `yoonmanserver`, `yoonmanserver2`, `yoonserver3`.
-- Backend `pytest` result: `46 passed`.
-- Frontend tests: passed.
+- Backend `pytest` result: `89 passed`.
+- Frontend `.mjs` contract tests: passed.
+- Frontend lint: passed.
 - Frontend build: passed.
 
 ## Practical reading

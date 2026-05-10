@@ -30,6 +30,7 @@ class ApiV1ShapeContractTests(unittest.TestCase):
             "/api/v1/profiles",
             "/api/v1/templates",
             "/api/v1/networks",
+            "/api/v1/networks/policy",
         }
         missing = sorted(expected_paths - self.paths)
         self.assertEqual([], missing, f"Missing PRD inventory API routes: {missing}")

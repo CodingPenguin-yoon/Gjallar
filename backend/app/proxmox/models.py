@@ -77,6 +77,9 @@ class NodeInventory:
     status: str
     cpu_total: int
     memory_total_mb: int
+    cpu_usage_percent: float = 0.0
+    memory_used_mb: int = 0
+    memory_usage_percent: float = 0.0
     storage: tuple[StorageInventory, ...] = ()
     networks: tuple[NetworkInventory, ...] = ()
 

@@ -6,7 +6,15 @@ from ipaddress import ip_address
 from typing import Callable
 
 from app.manifests.loader import load_builtin_network_profiles, load_builtin_profiles
+from app.network_policy import (
+    NetworkPolicyError,
+    find_network_policy_binding,
+    ip_in_static_ranges,
+    load_network_policy,
+)
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
+from app.proxmox.models import TemplateInventory
+from app.vm_create.iac_readiness import run_iac_readiness
 from app.vm_create.models import PreflightCheck, PreflightResult, RiskItem, VmCreateDraft
 
 
@@ -38,12 +46,45 @@ def _check(
         risks.append(RiskItem(level=fail_level, code=fail_code or code, message=message, detail=detail))
 
 
-def _ip_in_mvp_range(value: str) -> bool:
+def _valid_static_ipv4(value: str) -> bool:
     try:
         ip = ip_address(value)
     except ValueError:
         return False
-    return ip.version == 4 and str(ip).startswith("192.168.2.") and 140 <= int(str(ip).split(".")[-1]) <= 150
+    return ip.version == 4
+
+
+def _select_template(templates: list[TemplateInventory], draft: VmCreateDraft) -> TemplateInventory | None:
+    if draft.template_vmid is not None:
+        return next(
+            (
+                item
+                for item in templates
+                if item.vmid == draft.template_vmid
+                and (draft.template_node_id is None or item.node_id == draft.template_node_id)
+            ),
+            None,
+        )
+
+    if draft.template_id:
+        requested = str(draft.template_id)
+        return next(
+            (
+                item
+                for item in templates
+                if requested
+                in {
+                    item.template_id,
+                    item.name,
+                    str(item.vmid),
+                    f"{item.node_id}/{item.vmid}",
+                    f"{item.node_id}:{item.vmid}",
+                }
+            ),
+            None,
+        )
+
+    return next((item for item in templates if item.family == draft.template_family), None)
 
 
 def run_preflight(
@@ -70,17 +111,57 @@ def run_preflight(
     )
 
     templates = list(adapter.list_templates())
-    template = next((item for item in templates if item.family == draft.template_family and item.cloud_init_ready and item.guest_agent_ready), None)
+    template = _select_template(templates, draft)
     _check(
         checks,
         risks,
         code="template_available",
         ok=template is not None,
-        message="Ubuntu cloud-init template is available and guest-agent ready",
+        message="selected template is available in read-only inventory",
         fail_code="template_unavailable",
-        detail={"template_family": draft.template_family},
+        detail={
+            "template_family": draft.template_family,
+            "requested_template_id": draft.template_id,
+            "requested_template_vmid": draft.template_vmid,
+            "requested_template_node_id": draft.template_node_id,
+        },
     )
+    if template is not None:
+        _check(
+            checks,
+            risks,
+            code="template_matches_profile",
+            ok=template.family == draft.template_family,
+            message="selected template matches the profile family",
+            fail_code="template_family_mismatch",
+            detail={
+                "template_id": template.template_id,
+                "template_family": template.family,
+                "profile_template_family": draft.template_family,
+            },
+        )
+        _check(
+            checks,
+            risks,
+            code="template_cloud_init_ready",
+            ok=template.cloud_init_ready,
+            message="template cloud-init readiness is verified",
+            fail_code="template_cloud_init_unverified",
+            fail_level="yellow",
+            detail={"template_id": template.template_id, "template_vmid": template.vmid},
+        )
+        _check(
+            checks,
+            risks,
+            code="template_guest_agent_ready",
+            ok=template.guest_agent_ready,
+            message="template guest-agent readiness is verified",
+            fail_code="template_guest_agent_unverified",
+            fail_level="yellow",
+            detail={"template_id": template.template_id, "template_vmid": template.vmid},
+        )
 
+    vms = list(adapter.list_vms())
     nodes = {node.node_id: node for node in adapter.list_nodes()}
     node = nodes.get(draft.target_node_id)
     _check(
@@ -93,40 +174,57 @@ def run_preflight(
         detail={"target_node_id": draft.target_node_id},
     )
 
-    storages = adapter.list_storage(draft.target_node_id)
-    storage = next((item for item in storages if item.free_gb >= draft.hardware.disk_gb and "images" in item.content), None)
+    storages = list(adapter.list_storage(draft.target_node_id))
+    selected_storage_id = str(draft.storage_id or "").strip()
+    if selected_storage_id:
+        storage = next((item for item in storages if item.storage_id == selected_storage_id), None)
+        storage_ok = storage is not None and storage.free_gb >= draft.hardware.disk_gb and "images" in storage.content
+    else:
+        storage = next((item for item in storages if item.free_gb >= draft.hardware.disk_gb and "images" in item.content), None)
+        storage_ok = storage is not None
     _check(
         checks,
         risks,
         code="storage_available",
-        ok=storage is not None,
-        message="storage has enough free space for the requested disk",
+        ok=storage_ok,
+        message="selected storage has images content and enough free space for the requested disk",
         fail_code="storage_unavailable",
-        detail={"target_node_id": draft.target_node_id, "disk_gb": draft.hardware.disk_gb},
+        detail={
+            "target_node_id": draft.target_node_id,
+            "selected_storage_id": selected_storage_id or None,
+            "resolved_storage_id": storage.storage_id if storage is not None else None,
+            "disk_gb": draft.hardware.disk_gb,
+        },
     )
 
     networks = {network.network_id: network for network in load_builtin_network_profiles()}
     network_profile = networks.get(draft.network.network_id)
-    mapped_bridge: str | None = None
-    if network_profile is not None:
+    selected_bridge = draft.network.bridge_id
+    mapping_source = "explicit" if selected_bridge else "builtin_profile"
+    if selected_bridge is None and network_profile is not None:
         try:
-            mapped_bridge = network_profile.resolve_bridge(draft.target_node_id)
+            selected_bridge = network_profile.resolve_bridge(draft.target_node_id)
         except ValueError:
-            mapped_bridge = None
+            selected_bridge = None
     _check(
         checks,
         risks,
         code="bridge_mapping",
-        ok=mapped_bridge is not None,
-        message="NetworkProfile maps the selected node to a bridge",
+        ok=selected_bridge is not None,
+        message="selected node resolves to a bridge",
         fail_code="bridge_mapping_missing",
-        detail={"node_id": draft.target_node_id, "network_id": draft.network.network_id},
+        detail={
+            "node_id": draft.target_node_id,
+            "network_id": draft.network.network_id,
+            "bridge_id": selected_bridge,
+            "source": mapping_source,
+        },
     )
 
     live_bridge = None
-    if mapped_bridge is not None:
+    if selected_bridge is not None:
         live_bridge = next(
-            (item for item in adapter.list_networks(draft.target_node_id) if item.bridge_id == mapped_bridge and item.active),
+            (item for item in adapter.list_networks(draft.target_node_id) if item.bridge_id == selected_bridge and item.active),
             None,
         )
     _check(
@@ -136,10 +234,10 @@ def run_preflight(
         ok=live_bridge is not None,
         message="mapped bridge exists in read-only inventory",
         fail_code="bridge_missing",
-        detail={"bridge_id": mapped_bridge, "node_id": draft.target_node_id},
+        detail={"bridge_id": selected_bridge, "node_id": draft.target_node_id},
     )
 
-    existing_vmids = {vm.vmid for vm in adapter.list_vms()} | {item.vmid for item in templates}
+    existing_vmids = {vm.vmid for vm in vms} | {item.vmid for item in templates}
     _check(
         checks,
         risks,
@@ -150,7 +248,7 @@ def run_preflight(
         detail={"proposed_vmid": draft.proposed_vmid},
     )
 
-    existing_names = {vm.name for vm in adapter.list_vms()} | {item.name for item in templates}
+    existing_names = {vm.name for vm in vms} | {item.name for item in templates}
     _check(
         checks,
         risks,
@@ -161,18 +259,72 @@ def run_preflight(
         detail={"vm_name": draft.vm_name},
     )
 
-    observed_ips = {addr for vm in adapter.list_vms() for addr in vm.ip_addresses}
+    observed_ips = {addr for vm in vms for addr in vm.ip_addresses}
     if draft.network.ip_mode == "static":
         static_ip = draft.network.static_ip or ""
-        static_ok = _ip_in_mvp_range(static_ip) and static_ip not in observed_ips
+        try:
+            policy = load_network_policy()
+            policy_error = None
+        except NetworkPolicyError as exc:
+            policy = {}
+            policy_error = str(exc)
+        binding = find_network_policy_binding(
+            policy,
+            node_id=draft.target_node_id,
+            bridge_id=selected_bridge,
+            network_id=draft.network.network_id,
+        )
+        static_ip_ranges = list(binding.get("static_ip_ranges") or []) if binding is not None else []
+        _check(
+            checks,
+            risks,
+            code="network_policy_registered",
+            ok=policy_error is None and binding is not None,
+            message="selected bridge has a registered network policy for static IP allocation",
+            fail_code="network_policy_missing" if policy_error is None else "network_policy_unreadable",
+            detail={
+                "node_id": draft.target_node_id,
+                "bridge_id": selected_bridge,
+                "network_id": draft.network.network_id,
+                "error": policy_error,
+            },
+        )
+        _check(
+            checks,
+            risks,
+            code="static_ip_range_configured",
+            ok=bool(static_ip_ranges),
+            message="selected network policy has at least one fixed IP range",
+            fail_code="static_ip_range_missing",
+            detail={
+                "node_id": draft.target_node_id,
+                "bridge_id": selected_bridge,
+                "network_id": draft.network.network_id,
+            },
+        )
+        _check(
+            checks,
+            risks,
+            code="static_ip_in_policy_range",
+            ok=ip_in_static_ranges(static_ip, static_ip_ranges),
+            message="static IP is inside the selected network policy fixed IP range",
+            fail_code="static_ip_out_of_range",
+            detail={"static_ip": static_ip, "static_ip_ranges": static_ip_ranges},
+        )
+        conflicts = [
+            {"vmid": vm.vmid, "name": vm.name, "node_id": vm.node_id}
+            for vm in vms
+            if static_ip in vm.ip_addresses
+        ]
+        static_ok = _valid_static_ipv4(static_ip) and not conflicts
         _check(
             checks,
             risks,
             code="static_ip_available",
             ok=static_ok,
-            message="static IP is in the MVP range and not observed in current VM inventory",
+            message="static IP is valid and not observed in current VM inventory",
             fail_code="static_ip_unavailable",
-            detail={"static_ip": static_ip},
+            detail={"static_ip": static_ip, "conflicts": conflicts},
         )
     else:
         checks.append(
@@ -194,6 +346,10 @@ def run_preflight(
         )
 
     state_lock_ok = True if state_lock_checker is None else bool(state_lock_checker(draft.terraform_state_path))
+    iac_readiness = run_iac_readiness()
+    checks.extend(iac_readiness.checks)
+    risks.extend(iac_readiness.risks)
+
     _check(
         checks,
         risks,
@@ -213,14 +369,15 @@ def run_preflight(
     )
     mutating_methods = {"apply", "clone_vm", "create_vm", "delete_vm", "power_on", "perform_vm_action"}
     offenders = sorted(name for name in mutating_methods if hasattr(adapter, name))
+    adapter_source = getattr(adapter, "source", "")
     _check(
         checks,
         risks,
         code="credential_scope_read_only",
-        ok=not offenders and getattr(adapter, "source", "") == "fake_read_only",
-        message="Set 6 uses fake/read-only inventory only",
+        ok=not offenders and adapter_source in {"fake_read_only", "live_read_only"},
+        message="Create VM preflight uses read-only inventory only",
         fail_code="inventory_adapter_not_read_only",
-        detail={"offenders": offenders, "source": getattr(adapter, "source", None)},
+        detail={"offenders": offenders, "source": adapter_source or None},
     )
 
     return PreflightResult(
@@ -231,6 +388,12 @@ def run_preflight(
         risks=risks,
         selected_storage_id=storage.storage_id if storage is not None else None,
         selected_template_id=template.template_id if template is not None else None,
-        selected_bridge_id=mapped_bridge,
+        selected_template_vmid=template.vmid if template is not None else None,
+        selected_template_node_id=template.node_id if template is not None else None,
+        selected_bridge_id=selected_bridge,
+        iac_root=iac_readiness.iac_root,
+        terraform_state_root=iac_readiness.terraform_state_root,
+        iac_ready_for_plan=iac_readiness.ready_for_plan,
+        iac_ready_for_execute=iac_readiness.ready_for_execute,
         side_effects=[],
     )

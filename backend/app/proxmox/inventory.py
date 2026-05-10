@@ -93,6 +93,13 @@ def _safe_int(value: object, default: int = 0) -> int:
         return int(default)
 
 
+def _first_unused_vmid(used_vmids: set[int], *, start: int = 100) -> int:
+    candidate = max(int(start), 100)
+    while candidate in used_vmids:
+        candidate += 1
+    return candidate
+
+
 def _safe_float(value: object, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -108,6 +115,21 @@ def _bytes_to_mb(value: object) -> int:
     if parsed <= 0:
         return 0
     return int(round(parsed / (1024 * 1024)))
+
+
+def _node_cpu_usage_percent(node_row: dict[str, Any]) -> float:
+    cpu = _safe_float(node_row.get("cpu"), 0.0)
+    if cpu <= 0:
+        return 0.0
+    if cpu <= 1:
+        return round(cpu * 100, 2)
+    return round(min(cpu, 100.0), 2)
+
+
+def _node_memory_usage_percent(*, used_mb: int, total_mb: int) -> float:
+    if total_mb <= 0 or used_mb <= 0:
+        return 0.0
+    return round(min((used_mb / total_mb) * 100, 100.0), 2)
 
 
 def _bytes_to_gb(value: object) -> int:
@@ -322,6 +344,23 @@ def _extract_tags(config_data: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
+def _config_guest_agent_enabled(config_data: dict[str, Any]) -> bool:
+    raw = str(config_data.get("agent") or "").strip().lower()
+    if not raw:
+        return True
+    return raw not in {"0", "false", "off", "disabled", "no"}
+
+
+def _config_cloud_init_ready(config_data: dict[str, Any]) -> bool:
+    if not config_data:
+        return False
+    for value in config_data.values():
+        lowered = str(value or "").lower()
+        if "cloudinit" in lowered:
+            return True
+    return False
+
+
 def _template_family(name: str) -> str:
     lowered = str(name or "").lower()
     for family in ("ubuntu", "debian", "rocky", "alma", "centos", "rhel", "fedora", "windows"):
@@ -372,6 +411,9 @@ class FakeProxmoxInventoryAdapter:
                 status="online",
                 cpu_total=16,
                 memory_total_mb=65536,
+                cpu_usage_percent=18.0,
+                memory_used_mb=27525,
+                memory_usage_percent=42.0,
                 storage=tuple(item for item in self._storages if item.node_id == "yoonmanserver2"),
                 networks=tuple(item for item in self._networks if item.node_id == "yoonmanserver2"),
             ),
@@ -381,6 +423,9 @@ class FakeProxmoxInventoryAdapter:
                 status="online",
                 cpu_total=16,
                 memory_total_mb=65536,
+                cpu_usage_percent=12.0,
+                memory_used_mb=20316,
+                memory_usage_percent=31.0,
                 storage=tuple(item for item in self._storages if item.node_id == "yoonmanserver3"),
                 networks=tuple(item for item in self._networks if item.node_id == "yoonmanserver3"),
             ),
@@ -465,6 +510,10 @@ class FakeProxmoxInventoryAdapter:
         if node_id is None:
             return list(self._networks)
         return [network for network in self._networks if network.node_id == node_id]
+
+    def suggest_next_vmid(self) -> int:
+        used = {vm.vmid for vm in self._vms} | {template.vmid for template in self._templates}
+        return _first_unused_vmid(used, start=102)
 
 
 class LiveProxmoxInventoryAdapter:
@@ -592,6 +641,8 @@ class LiveProxmoxInventoryAdapter:
             "disks": disks,
             "ip_addresses": _merge_ip_addresses(list(configured_ips), list(guest_ips)),
             "guest_agent": GuestAgentInventory(available=bool(guest_ips), ip_addresses=guest_ips),
+            "guest_agent_configured": _config_guest_agent_enabled(config_data),
+            "cloud_init_ready": _config_cloud_init_ready(config_data),
             "tags": _extract_tags(config_data),
             "storage_id": next((disk.storage_id for disk in disks if disk.storage_id != "unknown"), _extract_storage_id(config_data)),
         }
@@ -610,8 +661,8 @@ class LiveProxmoxInventoryAdapter:
             node_id=node_id,
             storage_id=str(detail.get("storage_id") or "unknown"),
             family=_template_family(name),
-            cloud_init_ready=True,
-            guest_agent_ready=bool(detail.get("guest_agent") and detail["guest_agent"].available),
+            cloud_init_ready=bool(detail.get("cloud_init_ready", True)),
+            guest_agent_ready=bool(detail.get("guest_agent_configured", True)),
         )
 
     def _vm_from_row(self, node_id: str, vm_row: dict[str, Any], detail: dict[str, Any]) -> VmInventory:
@@ -704,20 +755,29 @@ class LiveProxmoxInventoryAdapter:
                             "storage_id": "unknown",
                         }
 
-        nodes = [
-            NodeInventory(
-                node_id=node_id,
-                display_name=str(node_row.get("node") or node_row.get("name") or node_id),
-                status=str(node_row.get("status") or "unknown"),
-                cpu_total=_safe_int(node_row.get("maxcpu") or node_row.get("cpu")),
-                memory_total_mb=_bytes_to_mb(node_row.get("maxmem") or node_row.get("mem")),
-                storage=node_storage.get(node_id, ()),
-                networks=node_networks.get(node_id, ()),
+        nodes = []
+        for node_id, node_row in (
+            (str(item.get("node") or item.get("id") or "unknown"), item) for item in node_rows
+        ):
+            memory_total_mb = _bytes_to_mb(node_row.get("maxmem"))
+            memory_used_mb = _bytes_to_mb(node_row.get("mem"))
+            nodes.append(
+                NodeInventory(
+                    node_id=node_id,
+                    display_name=str(node_row.get("node") or node_row.get("name") or node_id),
+                    status=str(node_row.get("status") or "unknown"),
+                    cpu_total=_safe_int(node_row.get("maxcpu")),
+                    memory_total_mb=memory_total_mb,
+                    cpu_usage_percent=_node_cpu_usage_percent(node_row),
+                    memory_used_mb=memory_used_mb,
+                    memory_usage_percent=_node_memory_usage_percent(
+                        used_mb=memory_used_mb,
+                        total_mb=memory_total_mb,
+                    ),
+                    storage=node_storage.get(node_id, ()),
+                    networks=node_networks.get(node_id, ()),
+                )
             )
-            for node_id, node_row in (
-                (str(item.get("node") or item.get("id") or "unknown"), item) for item in node_rows
-            )
-        ]
 
         vms = [
             self._vm_from_row(node_id, vm_row, detail_map.get((node_id, _safe_int(vm_row.get("vmid"))), {}))
@@ -787,6 +847,17 @@ class LiveProxmoxInventoryAdapter:
         if node_id is None:
             return items
         return [network for network in items if network.node_id == node_id]
+
+    def suggest_next_vmid(self) -> int:
+        try:
+            resolved = _safe_int(self._get_json("/cluster/nextid"))
+            if resolved >= 100:
+                return resolved
+        except Exception:
+            pass
+        snapshot = self.snapshot()
+        used = {vm.vmid for vm in snapshot.vms} | {template.vmid for template in snapshot.templates}
+        return _first_unused_vmid(used)
 
 
 def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter:

@@ -63,6 +63,12 @@ variable "vm_name" {
   default     = ""
 }
 
+variable "vm_id" {
+  description = "Proxmox VMID"
+  type        = number
+  default     = 0
+}
+
 variable "target_node" {
   description = "Proxmox 노드 이름"
   type        = string
@@ -141,6 +147,18 @@ variable "vm_gateway" {
   default     = ""
 }
 
+variable "start_on_create" {
+  description = "Terraform apply 직후 VM을 시작할지 여부"
+  type        = bool
+  default     = false
+}
+
+variable "on_boot" {
+  description = "Proxmox node 부팅 시 VM 자동 시작 여부"
+  type        = bool
+  default     = false
+}
+
 # 템플릿 ID 파싱 (node/vmid 형식 지원)
 locals {
   template_id_parts = split("/", var.template_id)
@@ -154,6 +172,7 @@ resource "proxmox_virtual_environment_vm" "instance" {
 
   name      = var.vm_name
   node_name = var.target_node
+  vm_id     = var.vm_id > 0 ? var.vm_id : null
 
   # 템플릿 클론 설정
   dynamic "clone" {
@@ -215,13 +234,14 @@ resource "proxmox_virtual_environment_vm" "instance" {
   # QEMU Guest Agent 설정
   # 고정 IP 사용 시 agent 불필요, DHCP 사용 시 IP 조회를 위해 필요
   agent {
-    enabled = var.vm_ip == "" # 고정 IP면 비활성화
+    enabled = true
     timeout = "2m"
   }
 
-  # VM 시작 설정
-  started = true
-  on_boot = true
+  # PRD MVP: clone/config apply는 powered-off 상태로 끝내고,
+  # 첫 power on은 Gjallar의 별도 승인/검증 단계에서 수행한다.
+  started = var.start_on_create
+  on_boot = var.on_boot
 
   # NFS 템플릿 복제/디스크 이동이 느린 환경을 고려해 타임아웃 상향
   timeout_clone       = var.vm_operation_timeout_seconds

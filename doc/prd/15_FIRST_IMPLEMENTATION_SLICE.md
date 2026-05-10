@@ -102,7 +102,7 @@ Slice 4:
 - VM 이름 기본값은 `gjallar-vm-<YYYYMMDD>-<short_job_id>` 형식
 - VMID는 Proxmox `nextid` 기반 자동 할당
 - profile별 reserved VMID range는 2차로 둠
-- Terraform state는 local backend로 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`에 저장
+- Terraform state는 local backend로 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`에 저장
 - apply 전 state lock과 manifest/state `proxmox_vmid`/name 일치 확인
 - Terraform/Proxmox apply/config 성공 전에는 첫 power on 금지
 - apply/config 성공 후 첫 power on

@@ -49,7 +49,11 @@ class VmCreateDraft:
     vm_name: str
     proposed_vmid: int
     target_node_id: str
+    storage_id: str | None
     template_family: str
+    template_id: str | None
+    template_vmid: int | None
+    template_node_id: str | None
     hardware: DraftHardware
     network: DraftNetwork
     access: DraftAccess
@@ -67,7 +71,11 @@ class VmCreateDraft:
             "vm_name": self.vm_name,
             "proposed_vmid": self.proposed_vmid,
             "target_node_id": self.target_node_id,
+            "storage_id": self.storage_id,
             "template_family": self.template_family,
+            "template_id": self.template_id,
+            "template_vmid": self.template_vmid,
+            "template_node_id": self.template_node_id,
             "hardware": self.hardware.to_dict(),
             "network": self.network.to_dict(),
             "access": self.access.to_dict(),
@@ -119,7 +127,13 @@ class PreflightResult:
     risks: list[RiskItem]
     selected_storage_id: str | None
     selected_template_id: str | None
+    selected_template_vmid: int | None
+    selected_template_node_id: str | None
     selected_bridge_id: str | None
+    iac_root: str
+    terraform_state_root: str
+    iac_ready_for_plan: bool
+    iac_ready_for_execute: bool
     side_effects: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -131,7 +145,39 @@ class PreflightResult:
             "risks": [risk.to_dict() for risk in self.risks],
             "selected_storage_id": self.selected_storage_id,
             "selected_template_id": self.selected_template_id,
+            "selected_template_vmid": self.selected_template_vmid,
+            "selected_template_node_id": self.selected_template_node_id,
             "selected_bridge_id": self.selected_bridge_id,
+            "iac_root": self.iac_root,
+            "terraform_state_root": self.terraform_state_root,
+            "iac_ready_for_plan": self.iac_ready_for_plan,
+            "iac_ready_for_execute": self.iac_ready_for_execute,
+            "side_effects": list(self.side_effects),
+        }
+
+
+@dataclass(frozen=True)
+class IacReadinessResult:
+    shared_root: str
+    iac_root: str
+    terraform_state_root: str
+    risk_level: str
+    ready_for_plan: bool
+    ready_for_execute: bool
+    checks: list[PreflightCheck]
+    risks: list[RiskItem]
+    side_effects: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "shared_root": self.shared_root,
+            "iac_root": self.iac_root,
+            "terraform_state_root": self.terraform_state_root,
+            "risk_level": self.risk_level,
+            "ready_for_plan": self.ready_for_plan,
+            "ready_for_execute": self.ready_for_execute,
+            "checks": [check.to_dict() for check in self.checks],
+            "risks": [risk.to_dict() for risk in self.risks],
             "side_effects": list(self.side_effects),
         }
 
@@ -178,3 +224,36 @@ class VmCreatePlan:
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
             "side_effects": list(self.side_effects),
         }
+
+
+@dataclass(frozen=True)
+class GitOpsCommitResult:
+    job_id: str
+    manifest_id: str
+    execution_intent: str
+    iac_root: str
+    manifest_path: str
+    commit_sha: str
+    apply_enabled: bool
+    next_stage: str
+    side_effects: list[str] = field(default_factory=list)
+    manifest_status: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TerraformWorkspaceResult:
+    job_id: str
+    manifest_id: str
+    workspace_dir: str
+    terraform_dir: str
+    backend_config_path: str
+    tfvars_path: str
+    plan_path: str
+    state_path: str
+    side_effects: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)

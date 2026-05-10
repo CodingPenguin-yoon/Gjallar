@@ -168,7 +168,7 @@ spec:
     resolved_at_plan: true
   state_backend:
     type: local
-    path: /mnt/hermes_data/공통/iac-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate
+    path: /mnt/hermes_data/IaC-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate
   node: yoonmanserver2
   profile_id: general-vm
   template_id: ubuntu-template
@@ -224,7 +224,7 @@ Runtime Target slice를 붙인 뒤에도 `candidate`, `candidate_ready`, `blocke
 - MVP에서는 VMID 직접 입력을 기본 허용하지 않고 Proxmox `nextid` 기반 resolved `proxmox_vmid`를 사용한다.
 - resolved `proxmox_vmid`는 apply 직전 다시 중복 검증해야 한다.
 - MVP Terraform state backend는 local이며 Git에 저장하지 않는다.
-- state path는 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate` 형식이어야 한다.
+- state path는 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate` 형식이어야 한다.
 - state와 manifest의 `proxmox_vmid`/name 매핑 불일치는 red risk다.
 - hardware override는 profile limit 안에 있어야 한다.
 - node bridge mapping이 존재해야 한다.

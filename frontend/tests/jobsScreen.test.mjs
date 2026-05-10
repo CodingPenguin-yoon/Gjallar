@@ -27,6 +27,9 @@ const fakeClient = {
         risk_level: 'green',
         artifact_count: 2,
         risk_count: 0,
+        progress_percent: 100,
+        message: 'VM 생성이 완료되었습니다.',
+        steps: [{ id: 'create', label: 'VM 생성', status: 'completed', message: 'done' }],
         started_at: '2026-05-09T14:00:00+09:00',
         finished_at: '2026-05-09T14:01:00+09:00',
         artifacts_url: '/api/v1/jobs/job-plan/artifacts',
@@ -52,6 +55,9 @@ const fakeClient = {
       risk_level: 'green',
       artifact_count: 2,
       risk_count: 0,
+      progress_percent: 100,
+      message: 'VM 생성이 완료되었습니다.',
+      steps: [{ id: 'create', label: 'VM 생성', status: 'completed', message: 'done' }],
       started_at: '2026-05-09T14:00:00+09:00',
       finished_at: '2026-05-09T14:01:00+09:00',
     }
@@ -87,6 +93,9 @@ assert.equal(model.summary.blocked, 1)
 assert.equal(model.selectedJob.id, 'job-plan')
 assert.equal(model.selectedJob.readOnly, true)
 assert.deepEqual(model.selectedJob.allowedActions, [])
+assert.equal(model.selectedJob.progressPercent, 100)
+assert.equal(model.selectedJob.message, 'VM 생성이 완료되었습니다.')
+assert.equal(model.selectedJob.steps[0].label, 'VM 생성')
 assert.equal(model.artifacts.length, 2)
 assert.deepEqual(model.artifacts.map((artifact) => artifact.id), ['plan-json', 'review-md'])
 assert.equal(model.artifacts[0].readOnly, true)
@@ -95,6 +104,8 @@ assert.deepEqual(model.artifacts[0].allowedActions, [])
 const source = readFileSync(new URL('../src/components/TaskBoard.jsx', import.meta.url), 'utf8')
 assert.match(source, /apiV1Client/)
 assert.match(source, /loadJobsScreenModel/)
+assert.match(source, /진행 상황/)
+assert.match(source, /useSearchParams/)
 assert.doesNotMatch(source, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'TaskBoard must not import the legacy /api client')
 
 const forbidden = (...parts) => parts.join('')

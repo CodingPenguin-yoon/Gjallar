@@ -78,6 +78,8 @@ MVP 기본값:
 bridge는 VM 생성 요청에서 raw 값으로 받지 않는다.
 Gjallar는 `network_profile.node_bridges[target_node]`로 bridge를 resolve 하고,
 plan/preflight에서 해당 target node의 Proxmox live inventory에 bridge가 실제 존재하는지 확인한다.
+노드별 실제 vmbr 목록은 Proxmox inventory에서 읽고, vmbr의 의미/subnet/gateway/DNS/고정 IP 범위는 공용 IaC의 `manifests/networks/network-profiles.yaml`에서 관리한다.
+Create VM 화면은 이 두 정보를 합쳐 선택한 노드에서 사용 가능한 네트워크만 보여준다.
 
 runtime target으로 등록하려면 static IP 또는 안정적 접근 주소가 필요하다.
 DHCP 생성 자체는 허용하지만, smoke에서는 guest-agent/IP discovery가 필수 evidence가 된다.
@@ -152,11 +154,16 @@ VM 생성에는 typed confirmation을 요구하지 않는다. typed confirmation
 checkout/pull -> generate manifest -> preflight -> plan -> review/approve -> commit -> push -> apply/create-powered-off -> first power on -> Stage A smoke -> snapshot DB/artifacts
 ```
 
+현재 구현 slice는 승인된 plan을 기준으로 `IaC` repo에 `VMInstance` manifest를 쓰고 local Git commit을 만드는 `gitops_commit_only` 단계까지 연다.
+추가로 승인된 plan에서 격리된 Terraform workspace를 생성하고 `terraform init/plan` 명령을 준비하는 `terraform_plan_prepare_only` 단계를 연다.
+기본 동작은 명령 준비까지만이며, live provider를 읽는 `terraform plan` 실행은 별도 `terraform_plan_acknowledged=true` 없이는 막는다.
+Terraform apply, Proxmox clone/create, first power on은 다음 slice에서 별도 승인/검증을 붙일 때까지 비활성화한다.
+
 첫 구현 MVP의 Execute는 Stage A smoke까지를 완료 기준으로 둔다.
 Stage B minimal Ansible verify와 Runtime Target candidate/readiness API는 VM 생성 flow가 안정화된 뒤 별도 slice에서 붙인다.
 Heimdall registry에는 어떤 경우에도 직접 write하지 않는다.
 
-MVP Terraform state는 local backend로 사용하며, path는 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate`다.
+MVP Terraform state는 local backend로 사용하며, root는 환경변수 `GJALLAR_TF_STATE_ROOT`/`GJALLAR_TERRAFORM_STATE_ROOT`가 있으면 그 값을 쓰고, 없으면 `GJALLAR_SHARED_ROOT/IaC-state/gjallar/<manifest_id>/terraform.tfstate`를 사용한다.
 apply 전 state lock과 manifest/state `proxmox_vmid`/name 일치 여부를 확인한다.
 apply 후 state backup/checksum과 observed snapshot을 남긴다.
 

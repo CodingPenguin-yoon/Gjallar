@@ -15,6 +15,17 @@ class TerraformVmIpOutputSafetyTest(unittest.TestCase):
         self.assertIn("flatten(", source)
         self.assertIn("try(", source)
 
+    def test_vm_apply_defaults_to_powered_off_and_explicit_vmid(self):
+        source = TERRAFORM_MAIN.read_text()
+
+        self.assertIn('variable "vm_id"', source)
+        self.assertIn("vm_id     = var.vm_id > 0 ? var.vm_id : null", source)
+        self.assertIn('variable "start_on_create"', source)
+        self.assertIn("default     = false", source)
+        self.assertIn("started = var.start_on_create", source)
+        self.assertIn("on_boot = var.on_boot", source)
+        self.assertNotIn("started = true", source)
+
 
 if __name__ == "__main__":
     unittest.main()

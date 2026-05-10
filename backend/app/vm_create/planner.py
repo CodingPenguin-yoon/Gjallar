@@ -5,8 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.jobs.artifacts import write_json_artifact, write_text_artifact
+from app.jobs.artifacts import write_json_artifact, write_text_artifact, write_yaml_artifact
 from app.vm_create.approval import build_review_summary_payload
+from app.vm_create.manifest import (
+    build_vm_instance_manifest,
+    vm_instance_manifest_path,
+)
 from app.vm_create.models import PreflightResult, VmCreateDraft, VmCreatePlan
 
 
@@ -28,6 +32,7 @@ def _risk_summary(preflight: PreflightResult) -> dict[str, Any]:
 
 
 def _plan_core(draft: VmCreateDraft, preflight: PreflightResult) -> dict[str, Any]:
+    planned_manifest_path = vm_instance_manifest_path(draft.manifest_id)
     return {
         "draft_id": draft.draft_id,
         "job_id": draft.job_id,
@@ -38,6 +43,8 @@ def _plan_core(draft: VmCreateDraft, preflight: PreflightResult) -> dict[str, An
         "target_node_id": draft.target_node_id,
         "storage_id": preflight.selected_storage_id,
         "template_id": preflight.selected_template_id,
+        "template_vmid": preflight.selected_template_vmid,
+        "template_node_id": preflight.selected_template_node_id,
         "hardware": draft.hardware.to_dict(),
         "network": {
             "network_id": draft.network.network_id,
@@ -46,10 +53,14 @@ def _plan_core(draft: VmCreateDraft, preflight: PreflightResult) -> dict[str, An
             "ip_address": draft.network.static_ip,
         },
         "terraform_state_path": draft.terraform_state_path,
+        "iac_root": preflight.iac_root,
+        "terraform_state_root": preflight.terraform_state_root,
+        "iac_ready_for_plan": preflight.iac_ready_for_plan,
+        "iac_ready_for_execute": preflight.iac_ready_for_execute,
         "first_power_on_included": draft.first_power_on_included,
         "smoke_timeout_summary": dict(SMOKE_TIMEOUT_SUMMARY),
         "risk_summary": _risk_summary(preflight),
-        "planned_git_diff_summary": "not_generated_in_set6_dry_run_plan",
+        "planned_git_diff_summary": f"create {planned_manifest_path}",
         "side_effects": [],
     }
 
@@ -67,12 +78,20 @@ def build_vm_create_plan(draft: VmCreateDraft, preflight: PreflightResult, *, ru
         payload=preflight.to_dict(),
     )
     core = _plan_core(draft, preflight)
+    manifest = build_vm_instance_manifest(draft, preflight)
+    manifest_artifact = write_yaml_artifact(
+        run_dir=run_path,
+        job_id=draft.job_id,
+        artifact_type="vm_instance_manifest",
+        filename="vm_instance_manifest.yaml",
+        payload=manifest,
+    )
     planned_diff_artifact = write_text_artifact(
         run_dir=run_path,
         job_id=draft.job_id,
         artifact_type="planned_git_diff",
         filename="planned_git_diff.txt",
-        text="Set 6 dry-run planner: no Git diff generated; commit/push/apply are approval-gated.\n",
+        text=f"A {vm_instance_manifest_path(draft.manifest_id)}\n",
     )
     plan_artifact = write_json_artifact(
         run_dir=run_path,
@@ -87,15 +106,22 @@ def build_vm_create_plan(draft: VmCreateDraft, preflight: PreflightResult, *, ru
         "target_node_id": draft.target_node_id,
         "storage_id": preflight.selected_storage_id,
         "template_id": preflight.selected_template_id,
+        "template_vmid": preflight.selected_template_vmid,
+        "template_node_id": preflight.selected_template_node_id,
         "hardware": draft.hardware.to_dict(),
         "network": core["network"],
         "terraform_state_path": draft.terraform_state_path,
+        "iac_root": preflight.iac_root,
+        "terraform_state_root": preflight.terraform_state_root,
+        "iac_ready_for_plan": preflight.iac_ready_for_plan,
+        "iac_ready_for_execute": preflight.iac_ready_for_execute,
         "first_power_on_included": draft.first_power_on_included,
         "smoke_timeout_summary": dict(SMOKE_TIMEOUT_SUMMARY),
         "risk_summary": core["risk_summary"],
         "plan_artifact_id": plan_artifact.artifact_id,
-        "planned_git_diff_summary": "not_generated_in_set6_dry_run_plan",
+        "planned_git_diff_summary": core["planned_git_diff_summary"],
         "planned_git_diff_artifact_id": planned_diff_artifact.artifact_id,
+        "vm_instance_manifest_artifact_id": manifest_artifact.artifact_id,
     }
     review_summary_artifact = write_json_artifact(
         run_dir=run_path,
@@ -126,6 +152,6 @@ def build_vm_create_plan(draft: VmCreateDraft, preflight: PreflightResult, *, ru
         smoke_timeout_summary=dict(SMOKE_TIMEOUT_SUMMARY),
         risk_summary=core["risk_summary"],
         review_confirm=review_confirm,
-        artifacts=[preflight_artifact, plan_artifact, planned_diff_artifact, review_summary_artifact],
+        artifacts=[preflight_artifact, plan_artifact, manifest_artifact, planned_diff_artifact, review_summary_artifact],
         side_effects=[],
     )

@@ -73,6 +73,29 @@ class ArtifactStoreContractTests(unittest.TestCase):
             )
             self.assertEqual("planned_git_diff", record.type)
 
+    def test_yaml_artifact_redacts_structured_secrets_without_redacting_password_login_flag(self):
+        from app.jobs.artifacts import write_yaml_artifact
+
+        with tempfile.TemporaryDirectory() as tmp:
+            record = write_yaml_artifact(
+                run_dir=Path(tmp),
+                job_id="job_set4_yaml",
+                artifact_type="vm_instance_manifest",
+                filename="vm_instance_manifest.yaml",
+                payload={
+                    "access": {
+                        "password_login": "disabled",
+                        "proxmox_api_token_secret": "raw-token-secret",
+                    }
+                },
+            )
+
+            text = Path(record.path).read_text()
+
+        self.assertIn("password_login: disabled", text)
+        self.assertNotIn("raw-token-secret", text)
+        self.assertIn("[REDACTED]", text)
+
 
 if __name__ == "__main__":
     unittest.main()

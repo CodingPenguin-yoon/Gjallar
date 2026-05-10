@@ -13,26 +13,55 @@ const {
   buildCreateVmPayload,
   loadCreateVmReviewModel,
   approveCreateVmReview,
+  applyCreateVmTerraformPlan,
+  commitCreateVmManifest,
+  prepareCreateVmTerraformPlan,
 } = await importExpected('../src/utils/createVmFlow.js', 'Create VM PRD flow utility')
 
 const input = {
   operatorId: 'hermes-ui',
   jobId: 'job-ui-create',
   targetNodeId: 'yoonmanserver2',
+  storageId: 'nas-server',
+  networkId: 'server-net',
+  bridgeId: 'vmbr0',
   staticIp: '192.168.2.149',
   ipMode: 'static',
+  templateId: 'ubuntu-template',
+  templateVmid: 9000,
+  templateNodeId: 'yoonmanserver2',
 }
 
 assert.deepEqual(buildCreateVmPayload(input), {
   operator_id: 'hermes-ui',
   job_id: 'job-ui-create',
   target_node_id: 'yoonmanserver2',
+  storage_id: 'nas-server',
+  network_id: 'server-net',
+  bridge_id: 'vmbr0',
   static_ip: '192.168.2.149',
   ip_mode: 'static',
+  template_id: 'ubuntu-template',
+  template_vmid: 9000,
+  template_node_id: 'yoonmanserver2',
 })
 
 const calls = []
 const fakeClient = {
+  async getVmCreateReadiness() {
+    calls.push(['getVmCreateReadiness'])
+    return {
+      shared_root: '/Users/yoon/mnt/nfs',
+      iac_root: '/Users/yoon/mnt/nfs/IaC',
+      terraform_state_root: '/Users/yoon/mnt/nfs/IaC-state/gjallar',
+      ready_for_plan: true,
+      ready_for_execute: false,
+      risk_level: 'yellow',
+      checks: [{ code: 'iac_git_repo_available', status: 'fail', level: 'yellow', message: 'IaC root is not a Git checkout yet' }],
+      risks: [{ level: 'yellow', code: 'iac_git_repo_missing', message: 'IaC root is not a Git checkout yet' }],
+      side_effects: [],
+    }
+  },
   async createVmDraft(payload) {
     calls.push(['createVmDraft', payload])
     return {
@@ -42,8 +71,12 @@ const fakeClient = {
       vm_name: 'gjallar-vm-job-ui-create',
       proposed_vmid: 120,
       target_node_id: payload.target_node_id,
+      storage_id: payload.storage_id,
+      template_id: payload.template_id,
+      template_vmid: payload.template_vmid,
+      template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
-      network: { network_id: 'server-net', ip_mode: payload.ip_mode, static_ip: payload.static_ip, bridge_id: 'vmbr0' },
+      network: { network_id: payload.network_id, ip_mode: payload.ip_mode, static_ip: payload.static_ip, bridge_id: payload.bridge_id },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: true,
       side_effects: [],
@@ -56,9 +89,11 @@ const fakeClient = {
       risk_level: 'green',
       checks: [{ code: 'template_available', status: 'pass', level: 'green', message: 'template ready' }],
       risks: [],
-      selected_storage_id: 'local-lvm',
-      selected_template_id: 'ubuntu-template',
-      selected_bridge_id: 'vmbr0',
+      selected_storage_id: payload.storage_id || 'local-lvm',
+      selected_template_id: payload.template_id,
+      selected_template_vmid: payload.template_vmid,
+      selected_template_node_id: payload.template_node_id,
+      selected_bridge_id: payload.bridge_id,
       side_effects: [],
     }
   },
@@ -71,10 +106,12 @@ const fakeClient = {
       vm_name: 'gjallar-vm-job-ui-create',
       vmid: 120,
       target_node_id: payload.target_node_id,
-      storage_id: 'local-lvm',
-      template_id: 'ubuntu-template',
+      storage_id: payload.storage_id || 'local-lvm',
+      template_id: payload.template_id,
+      template_vmid: payload.template_vmid,
+      template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
-      network: { network_id: 'server-net', bridge_id: 'vmbr0', ip_mode: payload.ip_mode, ip_address: payload.static_ip },
+      network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: true,
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
@@ -83,10 +120,12 @@ const fakeClient = {
         vm_name: 'gjallar-vm-job-ui-create',
         vmid: 120,
         target_node_id: payload.target_node_id,
-        storage_id: 'local-lvm',
-        template_id: 'ubuntu-template',
+        storage_id: payload.storage_id || 'local-lvm',
+        template_id: payload.template_id,
+        template_vmid: payload.template_vmid,
+        template_node_id: payload.template_node_id,
         hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
-        network: { network_id: 'server-net', bridge_id: 'vmbr0', ip_mode: payload.ip_mode, ip_address: payload.static_ip },
+        network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
         terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
         first_power_on_included: true,
         smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
@@ -110,33 +149,149 @@ const fakeClient = {
       approval_record: { decision: 'approved' },
     }
   },
-  async executeVmDraft() {
-    calls.push(['executeVmDraft'])
-    throw new Error('UI must not call execute from F7')
+  async prepareVmDraftTerraformPlan(draftId, payload) {
+    calls.push(['prepareVmDraftTerraformPlan', draftId, payload])
+    return {
+      job_id: payload.job_id,
+      manifest_id: 'vm-job-ui-create',
+      workspace_dir: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace',
+      terraform_dir: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace/terraform',
+      backend_config_path: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace/terraform/backend.hcl',
+      tfvars_path: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace/terraform/terraform.auto.tfvars.json',
+      plan_path: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace/terraform/tfplan',
+      state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
+      commands: [
+        ['terraform', 'init', '-input=false', '-backend-config=backend.hcl'],
+        ['terraform', 'plan', '-input=false', '-out=tfplan', '-var-file=terraform.auto.tfvars.json'],
+      ],
+      terraform_plan_ran: payload.run_terraform_plan === true,
+      terraform_plan_results: payload.run_terraform_plan ? [{ stdout: 'plan ok', stderr: '', returncode: 0 }] : [],
+      terraform_apply_enabled: false,
+      proxmox_mutation_enabled: false,
+      side_effects: ['terraform_workspace_created'],
+    }
+  },
+  async applyVmDraftTerraformPlan(draftId, payload) {
+    calls.push(['applyVmDraftTerraformPlan', draftId, payload])
+    return {
+      job_id: payload.job_id,
+      manifest_id: 'vm-job-ui-create',
+      workspace_dir: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace',
+      terraform_dir: '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace/terraform',
+      state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
+      manifest_path: 'manifests/vms/vm-job-ui-create.yaml',
+      manifest_commit_sha: payload.manifest_commit_sha,
+      manifest_status: { phase: 'applied', last_error: '', updated_at: '2026-05-10T00:00:00Z' },
+      manifest_status_commit_sha: 'def456',
+      terraform_apply_ran: true,
+      terraform_apply_results: [{ stdout: 'apply ok', stderr: '', returncode: 0 }],
+      terraform_apply_enabled: true,
+      proxmox_mutation_enabled: true,
+      side_effects: ['terraform_workspace_created', 'terraform_apply_invoked'],
+    }
+  },
+  async commitVmDraftManifest(draftId, payload) {
+    calls.push(['commitVmDraftManifest', draftId, payload])
+    return {
+      execution_intent: 'gitops_commit_only',
+      manifest_path: 'manifests/vms/vm-job-ui-create.yaml',
+      manifest_status: { phase: 'pending', last_error: '', updated_at: '' },
+      commit_sha: 'abc123',
+      terraform_apply_enabled: false,
+      proxmox_mutation_enabled: false,
+      side_effects: ['iac_manifest_written', 'iac_git_commit_created'],
+    }
   },
 }
 
 const model = await loadCreateVmReviewModel(fakeClient, input)
-assert.deepEqual(calls.map((call) => call[0]), ['createVmDraft', 'preflightVmDraft', 'planVmDraft'])
+assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft'])
+assert.equal(model.readiness.iacRoot, '/Users/yoon/mnt/nfs/IaC')
+assert.equal(model.readiness.terraformStateRoot, '/Users/yoon/mnt/nfs/IaC-state/gjallar')
+assert.equal(model.readiness.readyForPlan, true)
+assert.equal(model.readiness.readyForExecute, false)
 assert.equal(model.draft.id, 'draft-job-ui-create')
+assert.equal(model.draft.storageId, 'nas-server')
+assert.equal(model.draft.templateVmid, 9000)
 assert.equal(model.preflight.level, 'green')
 assert.equal(model.plan.executionIntent, 'dry_run_plan_only')
 assert.equal(model.review.vmName, 'gjallar-vm-job-ui-create')
 assert.equal(model.review.canApprove, true)
+assert.equal(model.review.canPrepareTerraformPlan, true)
+assert.equal(model.review.canCommitManifest, false)
+assert.equal(model.review.canApplyTerraform, false)
 assert.equal(model.review.canExecute, false, 'UI must not expose execute even if backend approval says can_execute')
-assert.equal(model.review.executeDisabledReason, 'execute requires explicit live approval outside this MVP UI slice')
+assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 별도 승인 단계에서만 실행됩니다.')
 assert.equal(model.artifacts[0].id, 'artifact-plan')
 assert.deepEqual(model.sideEffects, [])
 
 const approval = await approveCreateVmReview(fakeClient, model, { yellowRiskAcknowledged: false })
-assert.deepEqual(calls.map((call) => call[0]), ['createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft'])
+assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft'])
 assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
 assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
 assert.equal(approval.canApprove, true)
 assert.equal(approval.canExecute, false)
-assert.equal(approval.executeDisabledReason, 'execute requires explicit live approval outside this MVP UI slice')
+assert.equal(approval.executeDisabledReason, '실제 VM 생성은 별도 승인 단계에서만 실행됩니다.')
 assert.deepEqual(approval.sideEffects, [])
 
+const terraformPlan = await prepareCreateVmTerraformPlan(fakeClient, model, { yellowRiskAcknowledged: false })
+assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft', 'prepareVmDraftTerraformPlan'])
+assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
+assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
+assert.equal(calls.at(-1)[2].run_terraform_plan, false)
+assert.equal(calls.at(-1)[2].terraform_plan_acknowledged, false)
+assert.equal(terraformPlan.status, 'prepared')
+assert.equal(terraformPlan.terraformDir, '/tmp/gjallar-set6-api-preview/job-ui-create/terraform-workspace/terraform')
+assert.match(terraformPlan.commandText, /terraform init/)
+assert.equal(terraformPlan.planRan, false)
+assert.equal(terraformPlan.applyEnabled, false)
+assert.equal(terraformPlan.proxmoxMutationEnabled, false)
+assert.deepEqual(terraformPlan.sideEffects, ['terraform_workspace_created'])
+
+const terraformPlanRun = await prepareCreateVmTerraformPlan(fakeClient, model, {
+  yellowRiskAcknowledged: false,
+  runTerraformPlan: true,
+  terraformPlanAcknowledged: true,
+})
+assert.equal(calls.at(-1)[0], 'prepareVmDraftTerraformPlan')
+assert.equal(calls.at(-1)[2].run_terraform_plan, true)
+assert.equal(calls.at(-1)[2].terraform_plan_acknowledged, true)
+assert.equal(terraformPlanRun.status, 'planned')
+assert.equal(terraformPlanRun.planRan, true)
+
+model.review.canCommitManifest = true
+const commit = await commitCreateVmManifest(fakeClient, model, { yellowRiskAcknowledged: false })
+assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft', 'prepareVmDraftTerraformPlan', 'prepareVmDraftTerraformPlan', 'commitVmDraftManifest'])
+assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
+assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
+assert.equal(commit.status, 'committed')
+assert.equal(commit.manifestPath, 'manifests/vms/vm-job-ui-create.yaml')
+assert.equal(commit.commitSha, 'abc123')
+assert.equal(commit.manifestStatus.phase, 'pending')
+assert.equal(commit.applyEnabled, false)
+assert.equal(commit.proxmoxMutationEnabled, false)
+assert.deepEqual(commit.sideEffects, ['iac_manifest_written', 'iac_git_commit_created'])
+
+const apply = await applyCreateVmTerraformPlan(fakeClient, model, {
+  yellowRiskAcknowledged: false,
+  manifestCommitSha: commit.commitSha,
+  expectedPlanPath: terraformPlanRun.planPath,
+  terraformPlanAcknowledged: true,
+  terraformApplyAcknowledged: true,
+  proxmoxMutationAcknowledged: true,
+})
+assert.equal(calls.at(-1)[0], 'applyVmDraftTerraformPlan')
+assert.equal(calls.at(-1)[2].manifest_commit_sha, 'abc123')
+assert.equal(calls.at(-1)[2].expected_plan_path, terraformPlanRun.planPath)
+assert.equal(calls.at(-1)[2].terraform_plan_acknowledged, true)
+assert.equal(calls.at(-1)[2].terraform_apply_acknowledged, true)
+assert.equal(calls.at(-1)[2].proxmox_mutation_acknowledged, true)
+assert.equal(apply.status, 'applied')
+assert.equal(apply.applyEnabled, true)
+assert.equal(apply.proxmoxMutationEnabled, true)
+assert.equal(apply.manifestStatus.phase, 'applied')
+assert.equal(apply.manifestStatusCommitSha, 'def456')
+assert.match(apply.stdout, /apply ok/)
 
 const deniedApproval = await approveCreateVmReview(
   {
@@ -166,6 +321,19 @@ const source = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx'
 assert.match(source, /apiV1Client/)
 assert.match(source, /loadCreateVmReviewModel/)
 assert.match(source, /approveCreateVmReview/)
+assert.match(source, /새 VM 만들기/)
+assert.match(source, /템플릿/)
+assert.match(source, /스토리지/)
+assert.match(source, /네트워크/)
+assert.match(source, /listStorage/)
+assert.match(source, /검토 시작/)
+assert.match(source, /Terraform 파일 준비/)
+assert.match(source, /Terraform 검토 실행/)
+assert.match(source, /생성 요청 커밋/)
+assert.match(source, /실제 VM 생성/)
+assert.match(source, /useNavigate/)
+assert.match(source, /\/jobs\?job=/)
+assert.doesNotMatch(source, /요청 보관/)
 assert.doesNotMatch(source, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'Create VM wizard must not import the legacy /api client')
 
 const forbidden = (...parts) => parts.join('')
@@ -181,7 +349,6 @@ for (const blocked of [
   forbidden('/api/', 'provision'),
   forbidden('execute', 'VmDraft'),
   forbidden('execute', ' button'),
-  forbidden('Terraform', ' apply'),
   forbidden('Proxmox', ' write'),
   forbidden('window.', 'confirm'),
   forbidden('window.', 'prompt'),

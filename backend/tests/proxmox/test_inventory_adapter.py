@@ -29,6 +29,9 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         )
         node = next(item for item in snapshot["nodes"] if item["node_id"] == "yoonmanserver2")
         self.assertEqual("online", node["status"])
+        self.assertEqual(18.0, node["cpu_usage_percent"])
+        self.assertEqual(42.0, node["memory_usage_percent"])
+        self.assertGreater(node["memory_used_mb"], 0)
         self.assertIn("vmbr0", {network["bridge_id"] for network in node["networks"]})
         self.assertTrue(node["storage"], "node inventory must include storage candidates")
 
@@ -47,6 +50,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual("local-lvm", vm["storage_id"])
         self.assertEqual("scsi0", vm["disks"][0]["device"])
         self.assertEqual(40, vm["disks"][0]["size_gb"])
+        self.assertEqual(102, adapter.suggest_next_vmid())
 
     def test_default_adapter_stays_fake_without_live_config_or_in_fake_mode(self):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
@@ -82,8 +86,8 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
 
         payloads = {
             "/nodes": [
-                {"node": "node2", "status": "online", "maxcpu": 24, "maxmem": 137438953472},
-                {"node": "node10", "status": "online", "maxcpu": 16, "maxmem": 68719476736},
+                {"node": "node2", "status": "online", "maxcpu": 24, "cpu": 0.18, "mem": 57724360458, "maxmem": 137438953472},
+                {"node": "node10", "status": "online", "maxcpu": 16, "cpu": 0.21, "mem": 25426206310, "maxmem": 68719476736},
             ],
             "/nodes/node2/qemu": [
                 {"vmid": 202, "name": "db-02", "status": "running", "template": 0, "cpus": 4, "maxmem": 8589934592},
@@ -119,7 +123,9 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
             },
             "/nodes/node2/qemu/9000/config": {
                 "scsi0": "local-lvm:vm-9000-disk-0,size=8G",
+                "ide2": "local-lvm:cloudinit",
                 "ipconfig0": "ip=192.168.2.9/24",
+                "agent": "1",
             },
             "/nodes/node2/qemu/202/agent/network-get-interfaces": {
                 "result": [
@@ -143,6 +149,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                     }
                 ]
             },
+            "/cluster/nextid": 303,
         }
         call_counts = {}
 
@@ -168,6 +175,10 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
 
         self.assertEqual(first_vms, second_vms, "live inventory cache should keep repeat reads stable")
         self.assertEqual(["node2", "node10"], [node["node_id"] for node in snapshot["nodes"]])
+        self.assertEqual(18.0, snapshot["nodes"][0]["cpu_usage_percent"])
+        self.assertEqual(42.0, snapshot["nodes"][0]["memory_usage_percent"])
+        self.assertEqual(55050, snapshot["nodes"][0]["memory_used_mb"])
+        self.assertEqual(21.0, snapshot["nodes"][1]["cpu_usage_percent"])
         self.assertEqual([202, 101, 150], [vm["vmid"] for vm in first_vms])
         self.assertEqual(["192.168.2.202"], first_vms[0]["ip_addresses"])
         self.assertEqual(["192.168.2.101"], first_vms[1]["ip_addresses"])
@@ -197,6 +208,10 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         templates = [template.to_dict() for template in adapter.list_templates()]
         self.assertEqual([9000], [template["vmid"] for template in templates])
         self.assertEqual("ubuntu-template", templates[0]["template_id"])
+        self.assertTrue(templates[0]["cloud_init_ready"])
+        self.assertTrue(templates[0]["guest_agent_ready"])
+        self.assertEqual(303, adapter.suggest_next_vmid())
+        self.assertEqual(1, call_counts["/cluster/nextid"])
 
     @pytest.mark.live_inventory
     def test_adapter_exposes_no_mutating_proxmox_methods(self):

@@ -1,33 +1,36 @@
 # Gjallar Frontend
 
-The frontend is a React + Vite operator UI for Gjallar.
+React + Vite operator UI for Gjallar.
 
-## Main screens
+## Main Screens
 
-- `Overview`: Proxmox and instance summary
-- `Create Instance`: VM provisioning from template
-- `Instance List`: VM/LXC inventory and lifecycle actions
-- `Task Board`: long-running operation progress/logs
-- `Monitoring`: operational visibility
-- `LLM Assistant`: operational assistant UI
+- Dashboard
+- Infra Explorer
+- Networks
+- Create VM
+- Jobs/Runs
+- Risks/Alerts
 
-Removed legacy screen:
-
-- GitLab Workspace
+The frontend talks to the backend through `/api/v1` only.
 
 ## Run
 
 ```bash
 cd frontend
-npm run dev -- --host 0.0.0.0 --port 5174
+pnpm dev -- --host 0.0.0.0 --port 5173
 ```
 
 ## Validate
 
 ```bash
-cd frontend
-npm run lint
-npm run build
+pnpm lint
+pnpm build
 ```
 
-The frontend talks to the backend through `/api`. The current VM provisioning client still calls `/api/deploy` for compatibility, but UI copy should describe the action as VM provisioning or VM creation.
+From the repo root, the contract tests can be run with:
+
+```bash
+for test_file in frontend/tests/*.mjs; do
+  node "$test_file"
+done
+```

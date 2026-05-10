@@ -7,8 +7,8 @@ from pathlib import Path
 
 
 DEFAULT_SHARED_ROOT = Path("/mnt/hermes_data")
-DEFAULT_IAC_ROOT = DEFAULT_SHARED_ROOT / "공통" / "iac"
-DEFAULT_TF_STATE_ROOT = DEFAULT_SHARED_ROOT / "공통" / "iac-state" / "gjallar"
+DEFAULT_IAC_ROOT = DEFAULT_SHARED_ROOT / "IaC"
+DEFAULT_TF_STATE_ROOT = DEFAULT_SHARED_ROOT / "IaC-state" / "gjallar"
 
 
 def _configured_path(*names: str) -> Path | None:
@@ -25,7 +25,7 @@ def shared_root() -> Path:
 
 
 def iac_root() -> Path:
-    return _configured_path("GJALLAR_IAC_ROOT") or shared_root() / "공통" / "iac"
+    return _configured_path("GJALLAR_IAC_ROOT") or shared_root() / "IaC"
 
 
 def terraform_state_root() -> Path:
@@ -33,8 +33,8 @@ def terraform_state_root() -> Path:
     if explicit is not None:
         return explicit
     if _configured_path("GJALLAR_IAC_ROOT") is not None:
-        return iac_root().parent / "iac-state" / "gjallar"
-    return shared_root() / "공통" / "iac-state" / "gjallar"
+        return iac_root().parent / "IaC-state" / "gjallar"
+    return shared_root() / "IaC-state" / "gjallar"
 
 
 def terraform_state_path(manifest_id: str) -> str:

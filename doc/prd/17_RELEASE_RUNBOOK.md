@@ -61,7 +61,7 @@ apply 금지.
 - 테스트 node/IP만 사용
 - 사용자 승인 필수
 - destroy/delete plan 금지
-- Terraform state는 `/mnt/hermes_data/공통/iac-state/gjallar/<manifest_id>/terraform.tfstate` local backend 사용
+- Terraform state는 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate` local backend 사용
 - apply 전 state lock과 manifest/state `proxmox_vmid`/name 일치 확인
 - Terraform/Proxmox apply/config 성공 전 첫 power on 금지
 - apply 후 smoke 필수

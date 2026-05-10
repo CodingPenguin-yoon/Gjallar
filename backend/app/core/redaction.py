@@ -17,9 +17,12 @@ _SECRET_KEY_MARKERS = (
     "database_url",
     "connection_string",
 )
+_SAFE_KEYS = {"password_login"}
 
 
 def _is_secret_key(key: Any) -> bool:
+    if str(key).lower() in _SAFE_KEYS:
+        return False
     return any(marker in str(key).lower() for marker in _SECRET_KEY_MARKERS)
 
 

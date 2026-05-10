@@ -101,10 +101,18 @@ VM fields:
 GET /profiles
 GET /templates
 GET /networks
+GET /networks/policy
+PUT /networks/policy
 ```
 
 읽기 전용으로 시작한다.
 Template 생성/수정은 MVP 제외다.
+
+`GET /networks`는 Proxmox에서 발견한 live vmbr inventory다.
+`GET /networks/policy`는 live vmbr inventory와 공용 IaC의 `manifests/networks/network-profiles.yaml` 정책 파일을 합쳐 등록/미등록 상태를 반환한다.
+`PUT /networks/policy`는 해당 정책 파일을 저장하고, IaC root가 Git checkout이면 local commit을 만든다.
+정책 파일에는 vmbr의 display name, subnet, gateway, DNS, 고정 IP 범위 같은 Gjallar 의미 정보를 저장한다.
+고정 IP 범위는 여러 구간을 표현할 수 있도록 `static_ip_ranges: [{start, end}]` 배열로 저장한다.
 
 MVP `GET /profiles`는 기본적으로 실제 생성 가능한 `general-vm` 하나만 반환한다.
 `runtime-server`, `dev-server`, `db-server`는 2차 profile 후보로 문서/스키마 방향에만 남기고 MVP 화면 선택지에는 노출하지 않는다.
@@ -117,6 +125,7 @@ POST /vm-create/drafts
 POST /vm-create/{draft_id}/preflight
 POST /vm-create/{draft_id}/plan
 POST /vm-create/{draft_id}/approve
+POST /vm-create/{draft_id}/terraform-plan
 POST /vm-create/{draft_id}/execute
 ```
 
@@ -172,7 +181,7 @@ Plan response에는 Review & Confirm payload가 포함되어야 한다.
     "template": "ubuntu-template",
     "hardware": { "cpu": 2, "memory_mb": 4096, "disk_gb": 40 },
     "network": { "bridge": "vmbr0", "ip": "192.168.2.150" },
-    "terraform_state_path": "/mnt/hermes_data/공통/iac-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate",
+    "terraform_state_path": "/mnt/hermes_data/IaC-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate",
     "first_power_on_included": true,
     "smoke_timeout_summary": {
       "cloud_init": "15m",
@@ -201,6 +210,15 @@ Approve request:
 VM 생성 approve에는 typed confirmation을 요구하지 않는다.
 yellow risk가 있으면 `yellow_risk_acknowledged=true`가 필요하다.
 red risk가 있으면 approve/execute는 실패해야 한다.
+
+현재 구현된 execute slice는 `gitops_commit_only`다.
+승인된 plan의 `VMInstance` manifest를 `IaC/manifests/vms/<manifest_id>.yaml`에 쓰고 local Git commit을 만든 뒤 종료한다.
+응답은 `terraform_apply_enabled=false`, `proxmox_mutation_enabled=false`를 명시해야 하며, Terraform apply와 Proxmox VM 생성은 아직 실행하지 않는다.
+
+현재 구현된 Terraform slice는 `terraform_plan_prepare_only`다.
+승인된 plan의 review checksum과 plan artifact id를 다시 검증한 뒤 temp job workspace에 `main.tf`, `backend.hcl`, `backend.tf`, `terraform.auto.tfvars.json`을 생성하고 `terraform init/plan` 명령 배열을 반환한다.
+기본값으로는 `terraform plan`도 실행하지 않는다.
+`run_terraform_plan=true`를 요청하려면 `terraform_plan_acknowledged=true`가 반드시 필요하며, 이 경우에도 응답은 `terraform_apply_enabled=false`, `proxmox_mutation_enabled=false`를 유지한다.
 
 ## 7. Jobs API
 

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, FileText, RefreshCw, Search, ShieldAlert } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import { formatJobTimestamp, loadJobsScreenModel, statusToneClass } from '../utils/jobsScreen'
+
+const LIVE_JOB_STATUSES = new Set(['running', 'pending', 'in_progress', 'processing'])
 
 function SummaryCard({ label, value, tone = 'slate' }) {
   const classes = {
@@ -23,6 +26,50 @@ function JobStatusBadge({ job }) {
     <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClass(job.tone || job.status)}`}>
       {job.status}
     </span>
+  )
+}
+
+function jobStatusLabel(status) {
+  if (status === 'completed') return '완료'
+  if (status === 'running' || status === 'in_progress' || status === 'processing') return '진행 중'
+  if (status === 'pending') return '대기'
+  if (status === 'blocked') return '차단'
+  if (status === 'failed' || status === 'error') return '실패'
+  return status || '-'
+}
+
+function stepStatusClass(status) {
+  if (status === 'completed') return 'border-green-200 bg-green-50 text-green-700'
+  if (status === 'running' || status === 'in_progress') return 'border-blue-200 bg-blue-50 text-blue-700'
+  if (status === 'blocked' || status === 'failed' || status === 'error') return 'border-red-200 bg-red-50 text-red-700'
+  return 'border-slate-200 bg-slate-50 text-slate-500'
+}
+
+function ProgressSteps({ job }) {
+  const steps = Array.isArray(job.steps) ? job.steps : []
+  if (!steps.length) return null
+
+  return (
+    <div className="mt-6">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-slate-900">진행 상황</div>
+        <div className="text-sm font-medium text-slate-600">{job.progressPercent}%</div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${job.progressPercent}%` }} />
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {steps.map((step) => (
+          <div key={step.id} className={`rounded-lg border p-3 ${stepStatusClass(step.status)}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold">{step.label}</div>
+              <div className="text-xs font-medium">{jobStatusLabel(step.status)}</div>
+            </div>
+            {step.message && <div className="mt-1 text-xs opacity-80">{step.message}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -57,7 +104,7 @@ function SelectedJobPanel({ job, artifacts }) {
   if (!job) {
     return (
       <section className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-        Select a job to inspect read-only details and artifacts.
+        작업을 선택하면 진행 상황과 산출물을 확인할 수 있습니다.
       </section>
     )
   }
@@ -69,6 +116,7 @@ function SelectedJobPanel({ job, artifacts }) {
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected run</div>
           <h2 className="mt-1 text-xl font-bold text-slate-900">{job.type}</h2>
           <p className="mt-1 text-sm text-slate-500">{job.id}</p>
+          {job.message && <p className="mt-2 text-sm font-medium text-slate-700">{job.message}</p>}
         </div>
         <JobStatusBadge job={job} />
       </div>
@@ -91,6 +139,8 @@ function SelectedJobPanel({ job, artifacts }) {
           <div className="mt-1 font-medium text-slate-900">{formatJobTimestamp(job.finishedAt)}</div>
         </div>
       </div>
+
+      <ProgressSteps job={job} />
 
       <div className="mt-6">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -124,36 +174,49 @@ function filterJobs(jobs, query) {
 }
 
 function TaskBoard() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const queryJobId = searchParams.get('job')
   const [model, setModel] = useState(null)
-  const [selectedJobId, setSelectedJobId] = useState(null)
+  const [selectedJobId, setSelectedJobId] = useState(queryJobId)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const loadModel = useCallback(async (jobId = selectedJobId) => {
-    setLoading(true)
+  const loadModel = useCallback(async (jobId = null, { silent = false } = {}) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const nextModel = await loadJobsScreenModel(apiV1Client, { selectedJobId: jobId })
       setModel(nextModel)
-      if (!jobId && nextModel.selectedJob?.id) {
+      if (jobId) {
+        setSelectedJobId(jobId)
+      } else if (nextModel.selectedJob?.id) {
         setSelectedJobId(nextModel.selectedJob.id)
       }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to load Jobs/Runs')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }, [selectedJobId])
+  }, [])
 
   useEffect(() => {
-    loadModel()
-  }, [])
+    loadModel(queryJobId)
+  }, [loadModel, queryJobId])
+
+  useEffect(() => {
+    const job = model?.selectedJob
+    if (!job || !LIVE_JOB_STATUSES.has(job.status)) return undefined
+    const interval = window.setInterval(() => {
+      loadModel(job.id, { silent: true })
+    }, 2500)
+    return () => window.clearInterval(interval)
+  }, [loadModel, model?.selectedJob])
 
   const selectJob = useCallback((jobId) => {
     setSelectedJobId(jobId)
-    loadModel(jobId)
-  }, [loadModel])
+    setSearchParams(jobId ? { job: jobId } : {})
+  }, [setSearchParams])
 
   const jobs = useMemo(() => filterJobs(model?.jobs || [], query), [model, query])
   const summary = model?.summary || { total: 0, running: 0, completed: 0, blocked: 0, failed: 0 }
