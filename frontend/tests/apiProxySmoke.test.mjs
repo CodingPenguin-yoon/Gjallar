@@ -16,7 +16,10 @@ const { API_V1_BASE_URL, API_V1_ENDPOINTS } = await importExpected(
 
 const viteConfigSource = readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8')
 assert.match(viteConfigSource, /proxy:\s*\{[\s\S]*['"]\/api['"]\s*:/, 'Vite dev server must proxy the backend /api surface')
-assert.match(viteConfigSource, /VITE_BACKEND_URL|127\.0\.0\.1:8001/, 'Vite proxy must still target the backend runtime')
+assert.match(viteConfigSource, /loadEnv/, 'Vite config must load repo runtime environment files')
+assert.match(viteConfigSource, /VITE_BACKEND_URL/, 'Vite proxy must allow an explicit backend URL')
+assert.match(viteConfigSource, /BACKEND_PORT[\s\S]*8000/, 'Vite proxy must default to the Gjallar backend port')
+assert.match(viteConfigSource, /FRONTEND_PORT[\s\S]*5173/, 'Vite dev server must default to the Gjallar frontend port')
 
 const requiredSmokePaths = [
   `${API_V1_BASE_URL}${API_V1_ENDPOINTS.nodes}`,

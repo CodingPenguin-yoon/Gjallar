@@ -14,12 +14,11 @@ Legacy `/api` deploy/provision/task/log/LLM routes are not part of the active ba
 ## Run
 
 ```bash
-cd backend
-. venv/bin/activate
-GJALLAR_SHARED_ROOT=/Users/yoon/mnt/nfs \
-GJALLAR_RUNS_ROOT=/Users/yoon/mnt/nfs/IaC-state/gjallar/runs \
-uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000
+cp .env.example .env
+pnpm run backend
 ```
+
+The backend loads the repo root `.env`. `BACKEND_PORT` controls the local uvicorn port, and `FRONTEND_PORT` controls the CORS origin allowed for the Vite dev server.
 
 ## Validate
 

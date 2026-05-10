@@ -20,6 +20,14 @@ cd frontend
 pnpm dev -- --host 0.0.0.0 --port 5173
 ```
 
+The Vite proxy reads runtime values from the repo root `.env` and optional `frontend/.env`.
+
+```bash
+FRONTEND_PORT=5173
+BACKEND_PORT=8000
+VITE_BACKEND_URL=http://127.0.0.1:8000
+```
+
 ## Validate
 
 ```bash
