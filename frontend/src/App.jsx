@@ -7,6 +7,7 @@ import NetworkPolicyScreen from './components/NetworkPolicyScreen'
 import OperationalRiskDashboard from './components/OperationalRiskDashboard'
 import TaskBoard from './components/TaskBoard'
 import { apiV1Client } from './services/apiV1'
+import middlepiaStackLogo from './assets/middlepia-stack.svg'
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, end: true },
@@ -351,12 +352,15 @@ function App() {
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="container mx-auto px-8 py-5">
-          <div className="flex items-center gap-3">
-            <Server className="w-8 h-8 text-slate-700" />
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">Gjallar Operations Console</h1>
-              <p className="text-sm text-gray-500">Proxmox VM 운영 관리</p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <Server className="h-8 w-8 shrink-0 text-slate-700" />
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-semibold text-gray-900 sm:text-2xl">Gjallar Operations Console</h1>
+                <p className="text-sm text-gray-500">Proxmox VM 운영 관리</p>
+              </div>
             </div>
+            <img src={middlepiaStackLogo} alt="MiddlePia Stack" className="h-12 w-auto shrink-0 sm:h-14 md:h-16" />
           </div>
         </div>
       </header>

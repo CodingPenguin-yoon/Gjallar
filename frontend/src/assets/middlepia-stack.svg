@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 356 168" role="img" aria-labelledby="title desc">
+  <title id="title">MiddlePia Stack</title>
+  <desc id="desc">MiddlePia company logo with Stack wordmark.</desc>
+  <rect width="356" height="168" fill="#ffffff"/>
+  <rect y="83" width="356" height="85" fill="#0700c9"/>
+  <text
+    x="178"
+    y="60"
+    fill="#0700c9"
+    font-family="Arial Black, Arial, Helvetica, sans-serif"
+    font-size="58"
+    font-weight="900"
+    text-anchor="middle"
+  >MiddlePia</text>
+  <text
+    x="178"
+    y="143"
+    fill="#ffffff"
+    font-family="Arial Black, Arial, Helvetica, sans-serif"
+    font-size="64"
+    font-weight="900"
+    text-anchor="middle"
+  >Stack</text>
+</svg>
