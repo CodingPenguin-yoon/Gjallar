@@ -20,6 +20,8 @@ const navItems = [
   { label: 'Risks/Alerts', path: '/risks', icon: AlertTriangle },
 ]
 
+const DASHBOARD_DATA_LABELS = ['Cluster', 'Nodes', 'VMs', 'Storage', 'Networks', 'Jobs/Runs', 'Risks/Alerts']
+
 function navClass({ isActive }) {
   return `flex shrink-0 items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
     isActive
@@ -30,6 +32,19 @@ function navClass({ isActive }) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : []
+}
+
+function settledValue(result, fallback) {
+  return result.status === 'fulfilled' ? result.value : fallback
+}
+
+function dashboardPartialError(results) {
+  const failed = results
+    .map((result, index) => (result.status === 'rejected' ? DASHBOARD_DATA_LABELS[index] : null))
+    .filter(Boolean)
+  return failed.length
+    ? `일부 Dashboard 데이터를 불러오지 못했습니다: ${failed.join(', ')}. 사용 가능한 inventory 데이터는 계속 표시합니다.`
+    : null
 }
 
 function asNumber(value, fallback = 0) {
@@ -175,22 +190,27 @@ function Dashboard() {
   const loadDashboard = async () => {
     setLoading(true)
     setError(null)
-    try {
-      const [cluster, nodes, vms, storages, networks, jobs, risks] = await Promise.all([
-        apiV1Client.clusterSummary(),
-        apiV1Client.listNodes(),
-        apiV1Client.listVms(),
-        apiV1Client.listStorage(),
-        apiV1Client.listNetworks(),
-        apiV1Client.listJobs(),
-        apiV1Client.listRisks(),
-      ])
-      setSnapshot({ cluster, nodes, vms, storages, networks, jobs, risks })
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Dashboard data load failed')
-    } finally {
-      setLoading(false)
-    }
+    const results = await Promise.allSettled([
+      apiV1Client.clusterSummary(),
+      apiV1Client.listNodes(),
+      apiV1Client.listVms(),
+      apiV1Client.listStorage(),
+      apiV1Client.listNetworks(),
+      apiV1Client.listJobs(),
+      apiV1Client.listRisks(),
+    ])
+    const [cluster, nodes, vms, storages, networks, jobs, risks] = results
+    setSnapshot((previous) => ({
+      cluster: settledValue(cluster, previous.cluster || {}),
+      nodes: settledValue(nodes, previous.nodes || []),
+      vms: settledValue(vms, previous.vms || []),
+      storages: settledValue(storages, previous.storages || []),
+      networks: settledValue(networks, previous.networks || []),
+      jobs: settledValue(jobs, previous.jobs || []),
+      risks: settledValue(risks, previous.risks || []),
+    }))
+    setError(dashboardPartialError(results))
+    setLoading(false)
   }
 
   useEffect(() => {
@@ -229,7 +249,7 @@ function Dashboard() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">{error}</div>
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

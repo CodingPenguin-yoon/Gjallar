@@ -18,6 +18,7 @@ Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and age
 - Instances UI is a single read-only grouped and collapsible card.
 - Create VM review stores request manifests under the configured IaC root and publishes request progress to Jobs/Runs through `GJALLAR_RUNS_ROOT`.
 - Create VM plan/review records `first_power_on_included=false`; the generated VMInstance manifest requests `desired_power_state: stopped`.
+- `general-vm` currently defaults to 2 CPU / 4096 MB RAM / 50 GB disk to match the live Ubuntu template size; preflight blocks requests smaller than the selected template disk.
 - There are no destructive VM list controls.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Live Terraform apply remains approval-gated and fail closed.

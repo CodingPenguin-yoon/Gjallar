@@ -36,7 +36,7 @@ PRD의 제품/안전/흐름 결정은 대부분 잠겼다.
 ```yaml
 cpu: 2
 memory_mb: 4096
-disk_gb: 40
+disk_gb: 50
 ```
 
 이유: 일반 VM smoke와 추후 runtime/dev 확장 전 단계로 충분하고, 홈랩 리소스 부담이 낮다.

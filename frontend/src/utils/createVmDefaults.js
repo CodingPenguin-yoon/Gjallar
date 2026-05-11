@@ -10,7 +10,7 @@ export function buildCreateVmDefaults() {
     hardware: {
       cpu: 2,
       memoryMb: 4096,
-      diskGb: 40,
+      diskGb: 50,
     },
     network: {
       ipMode: 'static',

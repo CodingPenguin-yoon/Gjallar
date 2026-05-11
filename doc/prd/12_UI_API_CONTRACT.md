@@ -143,7 +143,7 @@ Draft request 핵심 필드:
   "hardware_overrides": {
     "cpu": 2,
     "memory_mb": 4096,
-    "disk_gb": 40
+    "disk_gb": 50
   },
   "access": {
     "cloud_init_user": "yoon",
@@ -179,7 +179,7 @@ Plan response에는 Review & Confirm payload가 포함되어야 한다.
     "target_node": "yoonmanserver3",
     "storage": "local-lvm",
     "template": "ubuntu-template",
-    "hardware": { "cpu": 2, "memory_mb": 4096, "disk_gb": 40 },
+    "hardware": { "cpu": 2, "memory_mb": 4096, "disk_gb": 50 },
     "network": { "bridge": "vmbr0", "ip": "192.168.2.150" },
     "terraform_state_path": "/mnt/hermes_data/IaC-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate",
     "first_power_on_included": false,

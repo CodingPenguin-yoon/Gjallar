@@ -160,6 +160,21 @@ def run_preflight(
             fail_level="yellow",
             detail={"template_id": template.template_id, "template_vmid": template.vmid},
         )
+        template_disk_gb = int(template.disk_gb or 0)
+        _check(
+            checks,
+            risks,
+            code="template_disk_floor",
+            ok=template_disk_gb <= 0 or draft.hardware.disk_gb >= template_disk_gb,
+            message="requested disk is at least as large as the selected template disk",
+            fail_code="template_disk_larger_than_requested",
+            detail={
+                "template_id": template.template_id,
+                "template_vmid": template.vmid,
+                "template_disk_gb": template_disk_gb,
+                "requested_disk_gb": draft.hardware.disk_gb,
+            },
+        )
 
     vms = list(adapter.list_vms())
     nodes = {node.node_id: node for node in adapter.list_nodes()}

@@ -36,7 +36,7 @@ vm_name_pattern: gjallar-vm-<YYYYMMDD>-<short_job_id>
 hardware:
   cpu: 2
   memory_mb: 4096
-  disk_gb: 40
+  disk_gb: 50
 access:
   cloud_init_user: yoon
   ssh_key_source: operator_default_public_key
@@ -99,7 +99,7 @@ iac_repo: /mnt/hermes_data/IaC
 - NetworkProfile requires node_bridges
 - `yoonmanserver2` and `yoonmanserver3` resolve to `vmbr0`
 - DHCP/static both accepted, default static
-- hardware default is 2/4096/40
+- hardware default is 2/4096/50
 - cloud-init user default is `yoon`
 - password login disabled
 - secrets never serialized

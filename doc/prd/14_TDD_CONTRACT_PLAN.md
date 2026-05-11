@@ -19,7 +19,7 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 
 - valid `general-vm` profile accepted
 - MVP create draft rejects disabled/future profiles such as `runtime-server`, `dev-server`, `db-server`
-- default `general-vm` hardware is 2 vCPU / 4096MB / 40GB
+- default `general-vm` hardware is 2 vCPU / 4096MB / 50GB
 - hardware override over max rejected
 - unknown template rejected
 - unknown network rejected

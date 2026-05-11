@@ -26,6 +26,15 @@ def _optional_int(value: object) -> int | None:
     return int(value)
 
 
+def _hardware_value(overrides: dict, key: str, default: int) -> int:
+    aliases = {"memory_mb": "memoryMb", "disk_gb": "diskGb"}
+    raw_value = overrides.get(key)
+    if raw_value is None and key in aliases:
+        raw_value = overrides.get(aliases[key])
+    value = _optional_int(raw_value)
+    return value if value is not None else default
+
+
 def _load_general_profile():
     profiles = {profile.profile_id: profile for profile in load_builtin_profiles()}
     profile = profiles.get("general-vm")
@@ -72,9 +81,11 @@ def build_default_vm_draft(
     template_id: str | None = None,
     template_vmid: int | None = None,
     template_node_id: str | None = None,
+    hardware_overrides: dict | None = None,
 ) -> VmCreateDraft:
     """Build a non-mutating default draft for the first MVP Create VM flow."""
     profile = _load_general_profile()
+    hardware_override_values = dict(hardware_overrides or {})
     network_profile = _load_network(network_id or profile.network.network_profile)
     chosen_node = target_node_id or profile.target_node_candidates[0]
     selected_bridge_id = bridge_id or network_profile.node_bridges.get(chosen_node)
@@ -100,9 +111,13 @@ def build_default_vm_draft(
         template_vmid=_optional_int(template_vmid),
         template_node_id=template_node_id,
         hardware=DraftHardware(
-            cpu=profile.hardware.cpu,
-            memory_mb=profile.hardware.memory_mb,
-            disk_gb=profile.hardware.disk_gb,
+            cpu=_hardware_value(hardware_override_values, "cpu", profile.hardware.cpu),
+            memory_mb=_hardware_value(
+                hardware_override_values,
+                "memory_mb",
+                profile.hardware.memory_mb,
+            ),
+            disk_gb=_hardware_value(hardware_override_values, "disk_gb", profile.hardware.disk_gb),
         ),
         network=DraftNetwork(
             network_id=network_profile.network_id,

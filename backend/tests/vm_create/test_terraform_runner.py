@@ -81,7 +81,7 @@ networks:
         self.assertEqual("yoonmanserver2/9000", vars_payload["template_id"])
         self.assertEqual(2, vars_payload["cpu_cores"])
         self.assertEqual(4, vars_payload["memory_gb"])
-        self.assertEqual(40, vars_payload["disk_size_gb"])
+        self.assertEqual(50, vars_payload["disk_size_gb"])
         self.assertEqual("local-lvm", vars_payload["storage_id"])
         self.assertEqual(["vmbr0"], vars_payload["network_ids"])
         self.assertEqual("192.168.2.142/24", vars_payload["vm_ip"])

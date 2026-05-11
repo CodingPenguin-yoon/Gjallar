@@ -125,6 +125,9 @@ class TemplateInventory:
     family: str
     cloud_init_ready: bool
     guest_agent_ready: bool
+    cpu: int = 0
+    memory_mb: int = 0
+    disk_gb: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

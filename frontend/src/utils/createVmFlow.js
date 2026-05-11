@@ -16,6 +16,15 @@ function toCamelHardware(hardware = {}) {
   }
 }
 
+function toSnakeHardware(hardware = {}) {
+  const payload = pickDefined([
+    ['cpu', hardware.cpu],
+    ['memory_mb', hardware.memory_mb ?? hardware.memoryMb],
+    ['disk_gb', hardware.disk_gb ?? hardware.diskGb],
+  ])
+  return Object.keys(payload).length ? payload : undefined
+}
+
 function normalizeArtifacts(artifacts = []) {
   return Array.isArray(artifacts)
     ? artifacts.map((artifact) => ({
@@ -70,6 +79,7 @@ export function buildCreateVmPayload(input = {}) {
     ['template_id', input.templateId ?? input.template_id ?? input.template?.templateId ?? input.template?.template_id],
     ['template_vmid', input.templateVmid ?? input.template_vmid ?? input.template?.vmid],
     ['template_node_id', input.templateNodeId ?? input.template_node_id ?? input.template?.nodeId ?? input.template?.node_id],
+    ['hardware_overrides', toSnakeHardware(input.hardware || input.hardware_overrides || {})],
   ])
 }
 

@@ -30,6 +30,7 @@ const input = {
   templateId: 'ubuntu-template',
   templateVmid: 9000,
   templateNodeId: 'yoonmanserver2',
+  hardware: { cpu: 2, memoryMb: 4096, diskGb: 50 },
 }
 
 assert.deepEqual(buildCreateVmPayload(input), {
@@ -44,6 +45,7 @@ assert.deepEqual(buildCreateVmPayload(input), {
   template_id: 'ubuntu-template',
   template_vmid: 9000,
   template_node_id: 'yoonmanserver2',
+  hardware_overrides: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
 })
 
 const calls = []
@@ -75,7 +77,7 @@ const fakeClient = {
       template_id: payload.template_id,
       template_vmid: payload.template_vmid,
       template_node_id: payload.template_node_id,
-      hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
+      hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
       network: { network_id: payload.network_id, ip_mode: payload.ip_mode, static_ip: payload.static_ip, bridge_id: payload.bridge_id },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
@@ -110,7 +112,7 @@ const fakeClient = {
       template_id: payload.template_id,
       template_vmid: payload.template_vmid,
       template_node_id: payload.template_node_id,
-      hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
+      hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
       network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
@@ -124,7 +126,7 @@ const fakeClient = {
         template_id: payload.template_id,
         template_vmid: payload.template_vmid,
         template_node_id: payload.template_node_id,
-        hardware: { cpu: 2, memory_mb: 4096, disk_gb: 40 },
+        hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
         network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
         terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
         first_power_on_included: false,

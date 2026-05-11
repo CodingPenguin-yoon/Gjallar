@@ -20,7 +20,7 @@ class ProfileSchemaTests(unittest.TestCase):
         self.assertIsNotNone(profile, "general-vm profile must exist")
         self.assertEqual(2, profile.hardware.cpu)
         self.assertEqual(4096, profile.hardware.memory_mb)
-        self.assertEqual(40, profile.hardware.disk_gb)
+        self.assertEqual(50, profile.hardware.disk_gb)
         self.assertEqual("yoon", profile.access.cloud_init_user)
         self.assertFalse(profile.access.password_login)
         self.assertEqual("static", profile.network.default_ip_mode)

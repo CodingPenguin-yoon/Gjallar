@@ -83,6 +83,7 @@ networks:
             "template_available",
             "template_cloud_init_ready",
             "template_guest_agent_ready",
+            "template_disk_floor",
             "target_node_online",
             "storage_available",
             "bridge_mapping",
@@ -126,6 +127,19 @@ networks:
         self.assertEqual("red", result.risk_level)
         red_codes = {risk.code for risk in result.risks if risk.level == "red"}
         self.assertIn("storage_unavailable", red_codes)
+
+    def test_preflight_rejects_disk_smaller_than_selected_template(self):
+        undersized = self._default_draft(
+            target_node_id="yoonmanserver2",
+            static_ip="192.168.2.142",
+            hardware_overrides={"disk_gb": 40},
+        )
+
+        result = self._preflight(undersized)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("template_disk_larger_than_requested", red_codes)
 
     def test_missing_bridge_mapping_is_red_without_live_mutation(self):
         draft = self._default_draft(target_node_id="unknown-node", static_ip="192.168.2.142")
@@ -194,7 +208,7 @@ networks:
         self.assertEqual("yoonmanserver2", plan.target_node_id)
         self.assertEqual("local-lvm", plan.storage_id)
         self.assertEqual("ubuntu-template", plan.template_id)
-        self.assertEqual({"cpu": 2, "memory_mb": 4096, "disk_gb": 40}, plan.hardware)
+        self.assertEqual({"cpu": 2, "memory_mb": 4096, "disk_gb": 50}, plan.hardware)
         self.assertEqual("vmbr0", plan.network["bridge_id"])
         self.assertEqual("192.168.2.142", plan.network["ip_address"])
         self.assertIn("/IaC-state/gjallar/", plan.terraform_state_path)

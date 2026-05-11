@@ -211,7 +211,11 @@ def record_job_run(
 
 def list_job_runs() -> list[dict[str, Any]]:
     runs = []
-    for path in sorted(runs_root().glob("*/job_status.json")):
+    try:
+        status_paths = sorted(runs_root().glob("*/job_status.json"))
+    except OSError:
+        return []
+    for path in status_paths:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

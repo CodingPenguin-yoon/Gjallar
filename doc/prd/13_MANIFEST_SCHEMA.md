@@ -175,7 +175,7 @@ spec:
   hardware:
     cpu: 2
     memory_mb: 4096
-    disk_gb: 40
+    disk_gb: 50
   storage: local-lvm
   access:
     cloud_init_user: yoon

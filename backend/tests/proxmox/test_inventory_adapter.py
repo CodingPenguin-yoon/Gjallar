@@ -40,6 +40,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertIsNotNone(ubuntu, "MVP read-only inventory must expose an Ubuntu template candidate")
         self.assertTrue(ubuntu["cloud_init_ready"])
         self.assertTrue(ubuntu["guest_agent_ready"])
+        self.assertEqual(50, ubuntu["disk_gb"])
 
         vm = adapter.get_vm(101).to_dict()
         self.assertEqual(101, vm["vmid"])
@@ -122,7 +123,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                 "agent": "0",
             },
             "/nodes/node2/qemu/9000/config": {
-                "scsi0": "local-lvm:vm-9000-disk-0,size=8G",
+                "scsi0": "local-lvm:vm-9000-disk-0,size=50G",
                 "ide2": "local-lvm:cloudinit",
                 "ipconfig0": "ip=192.168.2.9/24",
                 "agent": "1",
@@ -210,6 +211,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual("ubuntu-template", templates[0]["template_id"])
         self.assertTrue(templates[0]["cloud_init_ready"])
         self.assertTrue(templates[0]["guest_agent_ready"])
+        self.assertEqual(50, templates[0]["disk_gb"])
         self.assertEqual(303, adapter.suggest_next_vmid())
         self.assertEqual(1, call_counts["/cluster/nextid"])
 

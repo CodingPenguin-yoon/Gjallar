@@ -117,6 +117,7 @@ VM 생성 전 최소 검사:
 6. 선택 target node에 mapped bridge가 실제 존재하는지 Proxmox live inventory 검증
 7. `proxmox_vmid`/name 중복 검증
 8. CPU/RAM/Disk profile limit 검증
+9. 요청 디스크가 선택 템플릿 디스크보다 작지 않은지 검증
 9. static IP allowed range 검증
 10. reserved IP 검증
 11. 기존 VM/IP 충돌 검증

@@ -17,7 +17,7 @@ const defaults = buildCreateVmDefaults()
 assert.equal(defaults.profileId, 'general-vm')
 assert.equal(defaults.hardware.cpu, 2)
 assert.equal(defaults.hardware.memoryMb, 4096)
-assert.equal(defaults.hardware.diskGb, 40)
+assert.equal(defaults.hardware.diskGb, 50)
 assert.equal(defaults.network.ipMode, 'static')
 assert.equal(defaults.network.networkId, 'server-net')
 assert.deepEqual(defaults.network.nodeBridges, {

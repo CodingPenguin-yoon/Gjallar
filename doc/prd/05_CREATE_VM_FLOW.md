@@ -87,8 +87,9 @@ DHCP 생성 자체는 허용하지만, smoke에서는 guest-agent/IP discovery�
 ### Step 6. Hardware Override
 
 기본은 profile 값을 사용한다.
-`general-vm` 기본값은 2 vCPU / 4096MB RAM / 40GB disk다.
+`general-vm` 기본값은 2 vCPU / 4096MB RAM / 50GB disk다.
 고급 설정에서만 CPU/RAM/Disk를 수정한다.
+요청 디스크는 선택한 템플릿 디스크보다 작을 수 없다. 작으면 Terraform apply 전에 preflight red risk로 차단한다.
 수정은 profile limit 안에서만 허용된다.
 
 ### Step 7. Cloud-init / Access

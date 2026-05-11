@@ -19,6 +19,7 @@ const CHECK_LABELS = {
   template_matches_profile: '템플릿 프로필',
   template_cloud_init_ready: 'Cloud-init',
   template_guest_agent_ready: 'Guest agent',
+  template_disk_floor: '템플릿 디스크',
   target_node_online: '노드 상태',
   storage_available: '스토리지',
   bridge_mapping: '네트워크 매핑',
@@ -187,6 +188,9 @@ function normalizeTemplateOptions(templates = []) {
           nodeId,
           name: template.name || templateId,
           family: template.family || '',
+          cpu: Number(template.cpu ?? 0),
+          memoryMb: Number(template.memory_mb ?? template.memoryMb ?? 0),
+          diskGb: Number(template.disk_gb ?? template.diskGb ?? 0),
           ready: template.cloud_init_ready !== false && template.guest_agent_ready !== false,
         }
       })
@@ -218,6 +222,18 @@ function normalizeStorageOptions(storages = []) {
 function storageLabel(storage) {
   const free = Number.isFinite(storage.freeGb) ? `${storage.freeGb} GB free` : ''
   return [storage.id, storage.type, free].filter(Boolean).join(' · ')
+}
+
+function templateLabel(template) {
+  const disk = template.diskGb > 0 ? `${template.diskGb} GB` : ''
+  return [template.name, `${template.nodeId}/${template.vmid}`, disk].filter(Boolean).join(' · ')
+}
+
+function hardwareForTemplate(hardware = {}, template = null) {
+  const currentDiskGb = Number(hardware.diskGb ?? hardware.disk_gb ?? 0)
+  const templateDiskGb = Number(template?.diskGb ?? 0)
+  if (!templateDiskGb || currentDiskGb >= templateDiskGb) return hardware
+  return { ...hardware, diskGb: templateDiskGb }
 }
 
 function selectPreferredStorage(storages, nodeId, currentStorageId = '') {
@@ -314,7 +330,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const selectedIpModeLabel = form.ipMode === 'dhcp' ? 'DHCP' : '고정 IP'
   const hardware = form.hardware || {}
   const memoryMb = hardware.memoryMb || hardware.memory_mb || 4096
-  const diskGb = hardware.diskGb || hardware.disk_gb || 40
+  const diskGb = hardware.diskGb || hardware.disk_gb || 50
   const staticIpPlaceholder = firstRangeStart(selectedBridge)
 
   useEffect(() => {
@@ -382,6 +398,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         next.templateNodeId = template.nodeId
         changed = true
       }
+      const alignedHardware = hardwareForTemplate(next.hardware, template)
+      if (alignedHardware !== next.hardware) {
+        next.hardware = alignedHardware
+        changed = true
+      }
       const storage = selectPreferredStorage(storageOptions, next.targetNodeId, next.storageId)
       if (storage && (!next.storageId || next.storageId !== storage.id)) {
         next.storageId = storage.id
@@ -421,6 +442,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       templateId: template?.templateId || '',
       templateVmid: template?.vmid || '',
       templateNodeId: template?.nodeId || '',
+      hardware: hardwareForTemplate(form.hardware, template),
     })
   }
 
@@ -581,7 +603,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               {templateOptions.length === 0 && <option value="">템플릿 없음</option>}
               {templateOptions.map((template) => (
                 <option key={template.key} value={template.key}>
-                  {template.name} · {template.nodeId}/{template.vmid}
+                  {templateLabel(template)}
                 </option>
               ))}
             </select>

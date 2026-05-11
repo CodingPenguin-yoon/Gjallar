@@ -137,7 +137,7 @@ MVP에서 실제 생성 가능한 profile은 `general-vm` 하나다.
    - bridge는 선택 target node와 NetworkProfile의 node_bridges mapping으로 결정
    - MVP target node `yoonmanserver2`, `yoonmanserver3`를 모두 지원
 6. CPU/RAM/Disk 기본값 확인 또는 제한 내 override
-   - 기본값: 2 vCPU / 4096MB RAM / 40GB disk
+   - 기본값: 2 vCPU / 4096MB RAM / 50GB disk
    - profile limit 안에서만 override 허용
 7. cloud-init access 기본값 확인
    - user: `yoon`

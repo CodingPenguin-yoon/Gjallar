@@ -18,6 +18,8 @@ assert.doesNotMatch(app, /Instance List|Task Board|Risk Dashboard|Monitoring/, '
 assert.match(app, /cpu_usage_percent/, 'Dashboard must prefer live Proxmox node CPU usage over allocated CPU counts')
 assert.match(app, /memory_usage_percent/, 'Dashboard must prefer live Proxmox node memory usage over allocated memory')
 assert.doesNotMatch(app, /cpuAllocated|memoryAllocatedGb|CPU alloc|Memory alloc/, 'Dashboard must not fall back to old allocated CPU or memory totals')
+assert.match(app, /Promise\.allSettled/, 'Dashboard must keep rendering available inventory when jobs or risks fail')
+assert.match(app, /사용 가능한 inventory 데이터는 계속 표시합니다/, 'Dashboard must show partial-failure copy instead of blanking the first screen')
 
 const activeImports = app
   .split('\n')

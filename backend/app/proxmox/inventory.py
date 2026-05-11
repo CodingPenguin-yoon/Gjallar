@@ -440,6 +440,9 @@ class FakeProxmoxInventoryAdapter:
                 family="ubuntu",
                 cloud_init_ready=True,
                 guest_agent_ready=True,
+                cpu=2,
+                memory_mb=4096,
+                disk_gb=50,
             ),
         )
         self._vms = (
@@ -663,6 +666,9 @@ class LiveProxmoxInventoryAdapter:
             family=_template_family(name),
             cloud_init_ready=bool(detail.get("cloud_init_ready", True)),
             guest_agent_ready=bool(detail.get("guest_agent_configured", True)),
+            cpu=_safe_int(vm_row.get("cpus") or vm_row.get("cpu") or vm_row.get("cores")),
+            memory_mb=_bytes_to_mb(vm_row.get("maxmem") or vm_row.get("mem") or vm_row.get("memory")),
+            disk_gb=_safe_int(detail.get("disk_gb")),
         )
 
     def _vm_from_row(self, node_id: str, vm_row: dict[str, Any], detail: dict[str, Any]) -> VmInventory:

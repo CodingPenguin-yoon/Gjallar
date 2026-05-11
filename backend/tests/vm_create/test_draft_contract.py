@@ -20,7 +20,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("general-vm", draft.profile_id)
         self.assertEqual(2, draft.hardware.cpu)
         self.assertEqual(4096, draft.hardware.memory_mb)
-        self.assertEqual(40, draft.hardware.disk_gb)
+        self.assertEqual(50, draft.hardware.disk_gb)
         self.assertEqual("static", draft.network.ip_mode)
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
@@ -32,6 +32,18 @@ class VmCreateDraftContractTests(unittest.TestCase):
         draft = build_default_vm_draft(operator_id="test-operator", proposed_vmid=303)
 
         self.assertEqual(303, draft.proposed_vmid)
+
+    def test_draft_accepts_hardware_overrides_for_template_alignment(self):
+        from app.vm_create.drafts import build_default_vm_draft
+
+        draft = build_default_vm_draft(
+            operator_id="test-operator",
+            hardware_overrides={"cpu": 4, "memory_mb": 8192, "disk_gb": 80},
+        )
+
+        self.assertEqual(4, draft.hardware.cpu)
+        self.assertEqual(8192, draft.hardware.memory_mb)
+        self.assertEqual(80, draft.hardware.disk_gb)
 
     def test_draft_preserves_selected_template_and_bridge(self):
         from app.vm_create.drafts import build_default_vm_draft
