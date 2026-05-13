@@ -8,6 +8,12 @@
 - Prefer concise summaries over raw logs and long command dumps.
 - Keep the main thread focused on requirements, decisions, and final output.
 
+## Multi-agent model policy
+- When model control is required, do not use built-in `explorer`, `reviewer`, `docs_researcher`, or `worker` agent types because their model settings may be runtime-fixed.
+- Spawn `default` agents with `model: gpt-5.5` and `reasoning_effort: xhigh`.
+- Assign the intended role in the prompt text instead: explorer, reviewer, docs_researcher, or worker.
+- Preserve the same delegation order and edit restrictions even when roles are assigned by prompt text.
+
 ## When to skip multi-agent
 - Single-file trivial edits
 - Known typo fixes

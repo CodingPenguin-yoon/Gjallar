@@ -2,6 +2,16 @@
 
 FastAPI backend for the Gjallar Proxmox operations console.
 
+## Product Direction vs Current Backend
+
+Current MVP product source of truth is `docs/product/prd/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
+
+The target direction is DRS Advisor. The current backend provides read-only Proxmox inventory, Jobs/Runs, Risks, and approval-gated Create VM support. It does not yet provide `/api/v1/drs/*`, DRS identity/fingerprint tables, backend recommendation generation, final pre-check, Proxmox live migration execution, UPID tracking, operation locks, or reconciliation.
+
+Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
+
+DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
+
 ## Active Surface
 
 - Public API contract: `/api/v1`

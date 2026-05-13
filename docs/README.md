@@ -1,19 +1,44 @@
-# Legacy Docs Index
+# Gjallar Docs
 
-This `docs/` tree is retained as historical and working-reference material. It may describe superseded plans, endpoints, or implementation stages.
+This is the single repo-local documentation entrypoint for Gjallar.
 
-For the current repo-local documented state, start with [`../doc/README.md`](../doc/README.md).
+## Product
 
-## Current entrypoints
+Use this section for product direction, current implemented state, operational guidance, and PRD navigation.
 
-- [Current status](../doc/status/current.md)
-- [Current runbook](../doc/operations/runbook.md)
-- [PRD index](../doc/prd/README.md)
+- [Product docs](product/README.md)
+- [Current implemented state](product/status/current.md)
+- [Current runbook](product/operations/runbook.md)
+- [Product PRD index](product/prd/README.md)
+- [DRS Advisor source of truth](product/prd/drs-advisor/README.md)
 
-## How to read this tree
+## Engineering
 
-- `architecture/` and `features/` contain older design and implementation notes that may still be useful for context.
-- `operations/` contains historical runbooks and smoke notes.
-- `roadmap/` contains historical planning material and should not be read as the current completion baseline.
+Use this section for current code-oriented architecture notes and implementation contracts.
 
-When `docs/` conflicts with `doc/`, treat `doc/` as authoritative for repo-local current state.
+- [Engineering architecture](engineering/architecture/)
+- [VM operations architecture](engineering/architecture/VM_OPERATIONS_ARCHITECTURE.md)
+- [Create VM contract](engineering/architecture/VM_PROVISIONING_CONTRACT.md)
+- [Backend README](../backend/README.md)
+- [Frontend README](../frontend/README.md)
+
+## History
+
+Use this section for older implementation notes, planning records, refresh notes, and audit history. These files are background only and do not override the current product source of truth.
+
+- [Historical feature notes](history/features/)
+- [Historical operations notes](history/operations/)
+- [Historical roadmap notes](history/roadmap/)
+- [Historical status refreshes](history/status/)
+
+Current MVP product source of truth is [`docs/product/prd/drs-advisor/`](product/prd/drs-advisor/README.md). If another document conflicts with that folder, `drs-advisor/` wins.
+
+## Active Contract Summary
+
+- The active backend surface is `/api/v1`.
+- Legacy `/api/instances`, `/api/provision`, task/log, deploy, and LLM surfaces are not active.
+- Inventory is read-only and may use a fake fallback when live Proxmox inventory is unavailable.
+- Create VM is a gated draft -> preflight -> plan -> approval -> Terraform path.
+- Live apply remains explicit-acknowledgement only and creates/configures a powered-off VM.
+- Read-only Placement exists today; target direction is DRS Advisor.
+- Dashboard and read-only screens should stay available when NFS-backed job history is unavailable.
