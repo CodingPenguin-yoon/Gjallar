@@ -47,7 +47,6 @@ def _plan_core(draft: VmCreateDraft, preflight: PreflightResult) -> dict[str, An
         "template_node_id": preflight.selected_template_node_id,
         "hardware": draft.hardware.to_dict(),
         "network": {
-            "network_id": draft.network.network_id,
             "bridge_id": preflight.selected_bridge_id,
             "ip_mode": draft.network.ip_mode,
             "static_ip": draft.network.static_ip,

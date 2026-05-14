@@ -50,6 +50,7 @@ networks:
             operator_id="test-operator",
             job_id="job-manifest",
             target_node_id="yoonmanserver2",
+            bridge_id="vmbr0",
             static_ip="192.168.2.142",
             prefix=25,
             gateway="192.168.2.254",
@@ -74,6 +75,7 @@ networks:
         self.assertEqual(9000, manifest["spec"]["template_source"]["vmid"])
         self.assertEqual("local-lvm", manifest["spec"]["storage"])
         self.assertEqual("vmbr0", manifest["spec"]["network"]["bridge_id"])
+        self.assertNotIn("profile_id", manifest["spec"]["network"])
         self.assertEqual("192.168.2.142", manifest["spec"]["network"]["static_ip"])
         self.assertEqual(25, manifest["spec"]["network"]["prefix"])
         self.assertEqual("192.168.2.254", manifest["spec"]["network"]["gateway"])
@@ -93,6 +95,7 @@ networks:
             operator_id="test-operator",
             job_id="job-manifest-plan",
             target_node_id="yoonmanserver2",
+            bridge_id="vmbr0",
             static_ip="192.168.2.142",
             prefix=24,
             gateway="192.168.2.1",

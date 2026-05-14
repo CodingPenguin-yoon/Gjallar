@@ -177,9 +177,11 @@ Backend preflight는 같은 조건을 다시 검증하고 red-block한다.
 고정 IP 범위는 여러 구간을 표현할 수 있도록 `static_ip_ranges: [{start, end}]` 배열로 저장한다.
 
 Current implementation gap: 현재 code는 아직 built-in/current profile 경로이며
-`general-vm`만 create-enabled다. 현재 Create VM 경로는 아직
-`network_id`/`server-net`와 NetworkPolicy bridge mapping을 사용하고, static
-mode에 `prefix`/`gateway`를 요구하지 않는다. 위 내용은 target contract다.
+`general-vm`만 create-enabled다. 현재 Create VM 경로는 target node 선택 후
+active live bridge의 explicit `bridge_id`를 사용하고, incoming
+`network_id`/`networkId`는 transition compatibility로 ignore한다. Static
+mode는 `static_ip`, `prefix`, `gateway`를 요구한다. 위 내용 중 profile seed,
+template requirement disable, access key red-block 등은 아직 target contract다.
 
 ## 6. Create VM API
 

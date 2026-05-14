@@ -5,13 +5,7 @@ from __future__ import annotations
 from ipaddress import ip_address
 from typing import Callable
 
-from app.manifests.loader import load_builtin_network_profiles, load_builtin_profiles
-from app.network_policy import (
-    NetworkPolicyError,
-    find_network_policy_binding,
-    ip_in_static_ranges,
-    load_network_policy,
-)
+from app.manifests.loader import load_builtin_profiles
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
 from app.proxmox.models import TemplateInventory
 from app.vm_create.iac_readiness import run_iac_readiness
@@ -226,27 +220,18 @@ def run_preflight(
         },
     )
 
-    networks = {network.network_id: network for network in load_builtin_network_profiles()}
-    network_profile = networks.get(draft.network.network_id)
-    selected_bridge = draft.network.bridge_id
-    mapping_source = "explicit" if selected_bridge else "builtin_profile"
-    if selected_bridge is None and network_profile is not None:
-        try:
-            selected_bridge = network_profile.resolve_bridge(draft.target_node_id)
-        except ValueError:
-            selected_bridge = None
+    selected_bridge = str(draft.network.bridge_id or "").strip() or None
     _check(
         checks,
         risks,
-        code="bridge_mapping",
+        code="bridge_selection",
         ok=selected_bridge is not None,
-        message="selected node resolves to a bridge",
-        fail_code="bridge_mapping_missing",
+        message="operator selected an explicit bridge for the target node",
+        fail_code="bridge_id_missing",
         detail={
             "node_id": draft.target_node_id,
-            "network_id": draft.network.network_id,
             "bridge_id": selected_bridge,
-            "source": mapping_source,
+            "source": "explicit",
         },
     )
 
@@ -261,8 +246,8 @@ def run_preflight(
         risks,
         code="bridge_exists",
         ok=live_bridge is not None,
-        message="mapped bridge exists in read-only inventory",
-        fail_code="bridge_missing",
+        message="selected bridge is active on the target node in read-only inventory",
+        fail_code="bridge_missing_or_inactive",
         detail={"bridge_id": selected_bridge, "node_id": draft.target_node_id},
     )
 
@@ -347,67 +332,17 @@ def run_preflight(
             fail_code="static_gateway_invalid",
             detail={"gateway": gateway or None},
         )
-        try:
-            policy = load_network_policy()
-            policy_error = None
-        except NetworkPolicyError as exc:
-            policy = {}
-            policy_error = str(exc)
-        binding = find_network_policy_binding(
-            policy,
-            node_id=draft.target_node_id,
-            bridge_id=selected_bridge,
-            network_id=draft.network.network_id,
-        )
-        static_ip_ranges = list(binding.get("static_ip_ranges") or []) if binding is not None else []
-        _check(
-            checks,
-            risks,
-            code="network_policy_registered",
-            ok=policy_error is None and binding is not None,
-            message="selected bridge has a registered network policy for static IP allocation",
-            fail_code="network_policy_missing" if policy_error is None else "network_policy_unreadable",
-            detail={
-                "node_id": draft.target_node_id,
-                "bridge_id": selected_bridge,
-                "network_id": draft.network.network_id,
-                "error": policy_error,
-            },
-        )
-        _check(
-            checks,
-            risks,
-            code="static_ip_range_configured",
-            ok=bool(static_ip_ranges),
-            message="selected network policy has at least one fixed IP range",
-            fail_code="static_ip_range_missing",
-            detail={
-                "node_id": draft.target_node_id,
-                "bridge_id": selected_bridge,
-                "network_id": draft.network.network_id,
-            },
-        )
-        _check(
-            checks,
-            risks,
-            code="static_ip_in_policy_range",
-            ok=ip_in_static_ranges(static_ip, static_ip_ranges),
-            message="static IP is inside the selected network policy fixed IP range",
-            fail_code="static_ip_out_of_range",
-            detail={"static_ip": static_ip, "static_ip_ranges": static_ip_ranges},
-        )
         conflicts = [
             {"vmid": vm.vmid, "name": vm.name, "node_id": vm.node_id}
             for vm in vms
             if static_ip in vm.ip_addresses
         ]
-        static_ok = _valid_static_ipv4(static_ip) and not conflicts
         _check(
             checks,
             risks,
             code="static_ip_available",
-            ok=static_ok,
-            message="static IP is valid and not observed in current VM inventory",
+            ok=not conflicts,
+            message="static IP is not observed in current VM inventory",
             fail_code="static_ip_unavailable",
             detail={"static_ip": static_ip, "conflicts": conflicts},
         )

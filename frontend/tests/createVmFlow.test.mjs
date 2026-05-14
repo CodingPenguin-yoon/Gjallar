@@ -24,7 +24,7 @@ const input = {
   jobId: 'job-ui-create',
   targetNodeId: 'yoonmanserver2',
   storageId: 'nas-server',
-  networkId: 'server-net',
+  networkId: 'evil-net',
   bridgeId: 'vmbr0',
   staticIp: '192.168.2.149',
   prefix: 25,
@@ -41,7 +41,6 @@ assert.deepEqual(buildCreateVmPayload(input), {
   job_id: 'job-ui-create',
   target_node_id: 'yoonmanserver2',
   storage_id: 'nas-server',
-  network_id: 'server-net',
   bridge_id: 'vmbr0',
   static_ip: '192.168.2.149',
   prefix: 25,
@@ -52,11 +51,12 @@ assert.deepEqual(buildCreateVmPayload(input), {
   template_node_id: 'yoonmanserver2',
   hardware_overrides: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
 })
+assert.equal('network_id' in buildCreateVmPayload(input), false)
 
 assert.deepEqual(buildCreateVmPayload({
   operatorId: 'nested-test',
   network: {
-    networkId: 'server-net',
+    networkId: 'evil-net',
     bridgeId: 'vmbr0',
     staticIp: '192.168.2.149',
     prefix: 25,
@@ -65,7 +65,6 @@ assert.deepEqual(buildCreateVmPayload({
   },
 }), {
   operator_id: 'nested-test',
-  network_id: 'server-net',
   bridge_id: 'vmbr0',
   static_ip: '192.168.2.149',
   prefix: 25,
@@ -88,7 +87,6 @@ assert.deepEqual(buildCreateVmInputFromConfig({
   jobId: 'fallback-job',
   targetNodeId: 'yoonmanserver2',
   storageId: '',
-  networkId: '',
   bridgeId: '',
   staticIp: '192.168.2.151',
   prefix: 26,
@@ -131,7 +129,6 @@ const fakeClient = {
       template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
       network: {
-        network_id: payload.network_id,
         ip_mode: payload.ip_mode,
         static_ip: payload.static_ip,
         prefix: payload.prefix,
@@ -173,7 +170,6 @@ const fakeClient = {
       template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
       network: {
-        network_id: payload.network_id,
         bridge_id: payload.bridge_id,
         ip_mode: payload.ip_mode,
         static_ip: payload.static_ip,
@@ -195,7 +191,6 @@ const fakeClient = {
         template_node_id: payload.template_node_id,
         hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
         network: {
-          network_id: payload.network_id,
           bridge_id: payload.bridge_id,
           ip_mode: payload.ip_mode,
           static_ip: payload.static_ip,
@@ -313,6 +308,8 @@ assert.equal(model.review.firstPowerOnIncluded, false)
 assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.')
 assert.equal(model.payload.prefix, 25)
 assert.equal(model.payload.gateway, '192.168.2.254')
+assert.equal('network_id' in model.payload, false)
+assert.equal('networkId' in model.payload, false)
 assert.equal(model.review.network.static_ip, '192.168.2.149')
 assert.equal(model.review.network.prefix, 25)
 assert.equal(model.review.network.gateway, '192.168.2.254')
@@ -399,5 +396,8 @@ assert.match(deniedApproval.operatorMessage, /승인할 수 없습니다|acknowl
 const source = readFileSync(new URL('../src/utils/createVmFlow.js', import.meta.url), 'utf8')
 assert.ok(!source.includes('prepareVmDraftTerraformPlan'), 'active frontend flow must not call Terraform plan helper')
 assert.ok(!source.includes('applyVmDraftTerraformPlan'), 'active frontend flow must not call Terraform apply helper')
+const wizardSource = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx', import.meta.url), 'utf8')
+assert.ok(wizardSource.includes('apiV1Client.listNetworks()'), 'Create VM wizard must load live bridge inventory')
+assert.ok(!wizardSource.includes('apiV1Client.getNetworkPolicy()'), 'Create VM wizard must not use NetworkPolicy as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')

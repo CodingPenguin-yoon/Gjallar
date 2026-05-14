@@ -27,9 +27,12 @@ VM 생성 wizard와 원터치/단계별 실행 흐름을 정의한다.
 현재 구현 gap:
 
 - 현재 code는 아직 built-in profile 경로이며 `general-vm`만 create-enabled다.
-- 현재 code는 아직 `network_id`/`server-net` 의존과 bridge mapping을 사용한다.
-- 현재 code는 static network 입력에 `prefix`/`gateway`를 아직 요구하지 않고,
-  일부 create payload helper에서 gateway를 static IP 기반으로 추론한다.
+- 현재 Create VM active path는 target node 선택 후 active live bridge의
+  explicit `bridge_id`를 사용한다. Incoming `network_id`/`networkId`는
+  transition compatibility로 ignore되고 active output에 echo되지 않는다.
+- 현재 static network 입력은 `static_ip`, `prefix`, `gateway`를 요구하며,
+  native create는 static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지
+  않는다.
 - 아래 target design은 구현 완료 전까지 current implemented state로 읽으면 안 된다.
 
 ## 1. 기본 원칙

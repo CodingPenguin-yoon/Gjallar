@@ -75,6 +75,7 @@ networks:
             operator_id="test-operator",
             job_id=job_id,
             target_node_id="yoonmanserver2",
+            bridge_id="vmbr0",
             static_ip="192.168.2.142",
             prefix=24,
             gateway="192.168.2.1",

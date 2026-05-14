@@ -52,7 +52,10 @@ Use `AGENTS.md` for execution mode:
 - Profile/template/network target design is not fully implemented yet:
   - only `general-vm` is create-enabled
   - profiles are still current built-in data rather than DB seed source
-  - network still uses `network_id`/`server-net` in parts of the flow
+  - Create VM active networking now uses explicit `bridge_id` selected from
+    active live bridge inventory after target node selection; incoming
+    `network_id`/`networkId` is ignored during the transition and is not echoed
+    in active draft/plan/review/manifest/job output
   - static mode now requires explicit `static_ip`, `prefix`, and `gateway`
     across draft, preflight, plan, manifest, and native create preview/create
   - native create no longer infers `.1` gateway or `/24` prefix from static IP
@@ -74,7 +77,7 @@ Status: in progress.
 
 ## Workstream B: Create VM Profile/Template/Network Target
 
-Status: not implemented.
+Status: partially implemented.
 
 Goal: implement the target design from
 `CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`.
@@ -90,8 +93,8 @@ Planned slices:
 - [ ] Disable UI templates that fail selected profile requirements.
 - [ ] Red-block backend preflight when selected template fails required
   cloud-init or qemu guest-agent checks.
-- [ ] Remove Create VM dependency on `network_id`/`server-net`.
-- [ ] Select target node first, then active live bridge for that node.
+- [x] Remove Create VM dependency on `network_id`/`server-net`.
+- [x] Select target node first, then active live bridge for that node.
 - [x] Add static `static_ip`, `prefix`, and `gateway` fields.
 - [x] Stop gateway inference from static IP; use operator-supplied gateway.
 - [ ] Add Access section with username and SSH public key.
@@ -186,9 +189,8 @@ pnpm --dir frontend build
 
 Recommended next implementation slice:
 
-1. Remove Create VM dependency on `network_id`/`server-net`.
-2. Select target node first, then use active live bridge inventory as the
-   network source of truth.
-3. Preserve existing flat payload compatibility only for the planned transition
-   window.
-4. Keep Terraform legacy cleanup deferred until native-only contracts are locked.
+1. Expose the three target enabled seed profiles:
+   `general-vm`, `runtime-server`, `development-vm`.
+2. Add profile hardware default/min/max contract and reset UI hardware when the
+   selected profile changes.
+3. Keep Terraform legacy cleanup deferred until native-only contracts are locked.

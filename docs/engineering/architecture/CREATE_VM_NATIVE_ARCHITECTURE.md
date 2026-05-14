@@ -265,9 +265,12 @@ flow but behind the new selection model:
 - Only `general-vm` is create-enabled in current behavior.
 - Target seeded enabled profiles `runtime-server` and `development-vm` are not
   fully active Create VM choices yet.
-- Current Create VM networking still uses `network_id`/`server-net` in the
-  draft/preflight path.
-- Current static network handling does not yet require `prefix` and `gateway`.
+- Current Create VM networking uses explicit `bridge_id` selected from active
+  live bridge inventory on the target node. Incoming `network_id`/`networkId`
+  is ignored during transition compatibility and is not echoed in active
+  draft/plan/review/manifest/job output.
+- Current static network handling requires explicit `static_ip`, `prefix`, and
+  `gateway`.
 - Network tab policy remains current/legacy support; it is not the target Create
   VM network source of truth.
 

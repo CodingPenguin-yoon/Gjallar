@@ -78,9 +78,10 @@ Current request fields:
   "job_id": "job-api-preview",
   "target_node_id": "yoonmanserver2",
   "storage_id": "local-lvm",
-  "network_id": "server-net",
   "bridge_id": "vmbr0",
   "static_ip": "192.168.2.150",
+  "prefix": 24,
+  "gateway": "192.168.2.1",
   "ip_mode": "static",
   "template_id": "ubuntu-template",
   "template_vmid": 9000,
@@ -91,10 +92,9 @@ Current request fields:
 The backend resolves `proposed_vmid` from inventory via `suggest_next_vmid()`.
 VMID is not operator-supplied in the active draft request.
 
-Target draft requests remove `network_id`/`server-net`, select a live bridge
-after target node selection, and require `static_ip`, `prefix`, and `gateway`
-when `ip_mode=static`. Target requests also carry the selected live template
-reference and editable access fields:
+Incoming `network_id`/`networkId` is ignored for transition compatibility and
+is not echoed by active draft/plan/review/manifest/job output. Target requests
+also carry the selected live template reference and editable access fields:
 
 ```json
 {
@@ -137,7 +137,7 @@ Current default values:
 | CPU | `2` |
 | Memory | `4096 MB` |
 | Disk | `50 GB` |
-| Network profile | `server-net` |
+| Network source | explicit `bridge_id` selected from target-node active live bridge inventory |
 | IP mode | `static` |
 | Cloud-init user | `yoon` |
 | Password login | `false` |
@@ -188,9 +188,8 @@ floor to the selected template minimum.
 
 ## Preflight Contract
 
-Preflight is read-only. It checks the draft against inventory, network policy,
-and IaC readiness without creating, committing, pushing, applying, or mutating
-Proxmox state.
+Preflight is read-only. It checks the draft against inventory and IaC readiness
+without creating, committing, pushing, applying, or mutating Proxmox state.
 
 Current checks include:
 
@@ -202,11 +201,11 @@ Current checks include:
 - template disk floor
 - target node online
 - storage availability and capacity
-- bridge mapping
-- observed bridge availability
+- explicit bridge selection
+- selected bridge active on the target node
 - VMID uniqueness
 - VM name uniqueness
-- static IP policy and availability
+- static field validity and observed static IP availability
 - IaC root/state readiness
 - Terraform state lock availability
 
@@ -296,9 +295,10 @@ This keeps Dashboard and read-only operator screens available when NFS is down.
 
 ## Network Policy
 
-Current implementation still uses the configured network policy under the IaC
-root for static IP and bridge checks. The current MVP network profile is
-`server-net`.
+Current Create VM implementation does not use NetworkPolicy or `server-net` as
+the network source of truth. It uses explicit `bridge_id` selected from active
+live bridge inventory on the selected target node. NetworkPolicy remains
+current/legacy Networks-tab support and possible future advisory evidence.
 
 Policy read combines:
 
@@ -324,8 +324,11 @@ The current code still differs from the target profile/template/network design:
 - only `general-vm` is create-enabled
 - `runtime-server` and `development-vm` are target enabled profiles, not current
   active choices
-- current Create VM still depends on `network_id`/`server-net`
-- current static networking does not require `prefix` and `gateway`
+- current Create VM uses explicit `bridge_id` selected from target-node active
+  live bridge inventory; incoming `network_id`/`networkId` is ignored and is
+  not echoed in active outputs
+- current static networking requires explicit `static_ip`, `prefix`, and
+  `gateway`
 - profile management UI, template catalog UI, and VM start action are not part
   of the current implementation
 

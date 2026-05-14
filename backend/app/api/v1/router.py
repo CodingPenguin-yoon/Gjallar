@@ -71,7 +71,6 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
         job_id=str(payload.get("job_id", draft_id)),
         target_node_id=payload.get("target_node_id"),
         storage_id=payload.get("storage_id"),
-        network_id=network_value("network_id", "networkId"),
         bridge_id=network_value("bridge_id", "bridgeId"),
         static_ip=network_value("static_ip", "staticIp"),
         prefix=network_value("prefix"),

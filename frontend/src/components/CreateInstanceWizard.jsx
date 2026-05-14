@@ -3,7 +3,6 @@ import { CheckCircle2, ClipboardCheck, FileText, FolderGit2, Loader2, Network, R
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import { buildCreateVmDefaults } from '../utils/createVmDefaults'
-import { buildNetworkPolicyModel } from '../utils/networkPolicy'
 import {
   approveCreateVmReview,
   buildCreateVmInputFromConfig,
@@ -22,7 +21,7 @@ const CHECK_LABELS = {
   template_disk_floor: '템플릿 디스크',
   target_node_online: '노드 상태',
   storage_available: '스토리지',
-  bridge_mapping: '네트워크 매핑',
+  bridge_selection: '브리지 선택',
   bridge_exists: '브리지',
   network_policy_registered: '네트워크 정책',
   static_ip_range_configured: '고정 IP 범위',
@@ -227,6 +226,22 @@ function normalizeStorageOptions(storages = []) {
     : []
 }
 
+function normalizeBridgeOptions(networks = []) {
+  return Array.isArray(networks)
+    ? networks
+      .map((network) => ({
+        id: `${network.node_id || network.nodeId || ''}/${network.bridge_id || network.bridgeId || ''}`,
+        bridgeId: network.bridge_id || network.bridgeId || '',
+        nodeId: network.node_id || network.nodeId || '',
+        type: network.type || 'bridge',
+        active: network.active === true,
+        displayName: network.display_name || network.displayName || network.name || '',
+      }))
+      .filter((bridge) => bridge.bridgeId && bridge.nodeId)
+      .sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }))
+    : []
+}
+
 function storageLabel(storage) {
   const free = Number.isFinite(storage.freeGb) ? `${storage.freeGb} GB free` : ''
   return [storage.id, storage.type, free].filter(Boolean).join(' · ')
@@ -253,18 +268,16 @@ function selectPreferredStorage(storages, nodeId, currentStorageId = '') {
 }
 
 function bridgeLabel(bridge) {
-  const status = bridge.registered ? '등록됨' : '미등록'
-  const name = bridge.displayName || bridge.networkId || ''
-  const parts = [name, bridge.bridgeId, bridge.subnet, status].filter(Boolean)
+  const status = bridge.active ? '활성' : '비활성'
+  const name = bridge.displayName || ''
+  const parts = [name, bridge.bridgeId, bridge.type, status].filter(Boolean)
   return parts.join(' · ')
 }
 
-function selectPreferredBridge(model, nodeId, currentBridgeId = '') {
-  const bridges = (model?.bridges || []).filter((bridge) => bridge.nodeId === nodeId && bridge.active)
-  if (!bridges.length) return null
-  return bridges.find((bridge) => bridge.bridgeId === currentBridgeId)
-    || bridges.find((bridge) => bridge.registered)
-    || bridges[0]
+function selectPreferredBridge(bridges, nodeId, currentBridgeId = '') {
+  const candidates = (bridges || []).filter((bridge) => bridge.nodeId === nodeId && bridge.active === true)
+  if (!candidates.length) return null
+  return candidates.find((bridge) => bridge.bridgeId === currentBridgeId) || candidates[0]
 }
 
 function firstRangeStart(bridge) {
@@ -281,8 +294,7 @@ function buildInitialForm(config) {
     operatorId: 'ui-operator',
     jobId: `ui-${datePart}-${timePart}`,
     targetNodeId: 'yoonmanserver2',
-    networkId: defaults.network.networkId,
-    bridgeId: defaults.network.nodeBridges.yoonmanserver2,
+    bridgeId: '',
     storageId: '',
     staticIp: '',
     prefix: defaults.network.prefix,
@@ -294,8 +306,7 @@ function buildInitialForm(config) {
     profileId: defaults.profileId,
     hardware: defaults.hardware,
     storageId: input.storageId || '',
-    networkId: input.networkId || defaults.network.networkId,
-    bridgeId: input.bridgeId || defaults.network.nodeBridges[input.targetNodeId] || '',
+    bridgeId: input.bridgeId || '',
     prefix: input.prefix || defaults.network.prefix,
     gateway: input.gateway || defaults.network.gateway,
   }
@@ -317,7 +328,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const [committing, setCommitting] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
-  const [options, setOptions] = useState({ nodes: [], templates: [], storages: [], networkPolicy: null, loading: true, error: null })
+  const [options, setOptions] = useState({ nodes: [], templates: [], storages: [], networks: [], loading: true, error: null })
 
   const reviewRiskTone = useMemo(() => {
     const level = model?.review?.riskLevel || model?.preflight?.level
@@ -327,14 +338,14 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const nodeOptions = useMemo(() => normalizeNodeOptions(options.nodes), [options.nodes])
   const templateOptions = useMemo(() => normalizeTemplateOptions(options.templates), [options.templates])
   const storageOptions = useMemo(() => normalizeStorageOptions(options.storages), [options.storages])
-  const networkPolicyModel = useMemo(() => buildNetworkPolicyModel(options.networkPolicy || {}), [options.networkPolicy])
+  const allBridgeOptions = useMemo(() => normalizeBridgeOptions(options.networks), [options.networks])
   const nodeStorageOptions = useMemo(
     () => storageOptions.filter((storage) => storage.nodeId === form.targetNodeId && storage.content.includes('images') && storage.freeGb > 0),
     [storageOptions, form.targetNodeId],
   )
   const bridgeOptions = useMemo(
-    () => (networkPolicyModel.bridges || []).filter((bridge) => bridge.nodeId === form.targetNodeId && bridge.active),
-    [networkPolicyModel, form.targetNodeId],
+    () => allBridgeOptions.filter((bridge) => bridge.nodeId === form.targetNodeId && bridge.active === true),
+    [allBridgeOptions, form.targetNodeId],
   )
   const selectedTemplateKey = form.templateKey || (form.templateNodeId && form.templateVmid ? `${form.templateNodeId}/${form.templateVmid}` : form.templateId)
   const selectedBridge = bridgeOptions.find((bridge) => bridge.bridgeId === form.bridgeId) || null
@@ -355,14 +366,14 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     let cancelled = false
     async function loadOptions() {
       try {
-        const [nodes, templates, storages, networkPolicy] = await Promise.all([
+        const [nodes, templates, storages, networks] = await Promise.all([
           apiV1Client.listNodes(),
           apiV1Client.listTemplates(),
           apiV1Client.listStorage(),
-          apiV1Client.getNetworkPolicy(),
+          apiV1Client.listNetworks(),
         ])
         if (!cancelled) {
-          setOptions({ nodes, templates, storages, networkPolicy, loading: false, error: null })
+          setOptions({ nodes, templates, storages, networks, loading: false, error: null })
         }
       } catch (err) {
         if (!cancelled) {
@@ -426,25 +437,23 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         next.storageId = storage.id
         changed = true
       }
-      const bridge = selectPreferredBridge(networkPolicyModel, next.targetNodeId, next.bridgeId)
-      if (bridge && (!next.bridgeId || next.bridgeId !== bridge.bridgeId || !next.networkId)) {
+      const bridge = selectPreferredBridge(allBridgeOptions, next.targetNodeId, next.bridgeId)
+      if (bridge && (!next.bridgeId || next.bridgeId !== bridge.bridgeId)) {
         next.bridgeId = bridge.bridgeId
-        next.networkId = bridge.networkId || next.networkId || ''
         changed = true
       }
       if (changed) onConfigChange(next)
       return changed ? next : current
     })
-  }, [nodeOptions, templateOptions, storageOptions, networkPolicyModel, options.loading, onConfigChange, selectedTemplateKey])
+  }, [nodeOptions, templateOptions, storageOptions, allBridgeOptions, options.loading, onConfigChange, selectedTemplateKey])
 
   const handleNodeChange = (nodeId) => {
-    const bridge = selectPreferredBridge(networkPolicyModel, nodeId)
+    const bridge = selectPreferredBridge(allBridgeOptions, nodeId)
     const storage = selectPreferredStorage(storageOptions, nodeId)
     applyFormPatch({
       targetNodeId: nodeId,
       storageId: storage?.id || '',
       bridgeId: bridge?.bridgeId || '',
-      networkId: bridge?.networkId || form.networkId || '',
       staticIp: form.staticIp,
     })
   }
@@ -461,10 +470,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   }
 
   const handleBridgeChange = (bridgeId) => {
-    const bridge = bridgeOptions.find((item) => item.bridgeId === bridgeId)
     applyFormPatch({
       bridgeId,
-      networkId: bridge?.networkId || form.networkId || '',
       staticIp: form.staticIp,
     })
   }

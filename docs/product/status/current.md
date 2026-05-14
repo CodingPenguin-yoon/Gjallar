@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-13
+Last refreshed: 2026-05-14
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -51,7 +51,12 @@ The target design is not current implementation yet:
   catalog or registration window.
 - Target Create VM networking should select target node, then an active live
   bridge on that node.
-- Current code still uses `network_id`/`server-net` and bridge mapping.
+- Current code now uses explicit `bridge_id` from active live bridge inventory
+  as the Create VM network source of truth. Incoming `network_id`/`networkId`
+  is ignored for transition compatibility and is not echoed in active draft,
+  plan, review, manifest, or job output.
+- NetworkPolicy remains Networks-tab legacy/future policy UI and is not a
+  red-gate source for Create VM static range membership.
 - Static mode now requires explicit `static_ip`, `prefix`, and `gateway`
   across draft, preflight, plan/review, manifest, and native create
   preview/create.
@@ -64,10 +69,10 @@ The target design is not current implementation yet:
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `110 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `112 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
-- Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.
+- `git diff --check`: passed.
 
 ## Practical reading
 

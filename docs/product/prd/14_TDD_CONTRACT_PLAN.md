@@ -10,8 +10,10 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 
 Create VM profile/template/network target contract은
 [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)를 따른다.
-현재 code는 아직 built-in profiles, `general-vm` only enabled,
-`network_id`/`server-net`, no static `prefix`/`gateway` 상태이므로 아래 target
+현재 code는 아직 built-in profiles, `general-vm` only enabled 상태다. Create
+VM networking은 explicit active live bridge와 static
+`static_ip`/`prefix`/`gateway`를 사용하며, incoming `network_id`/`networkId`는
+transition compatibility로 ignore한다. 남은 profile/template/access target
 tests는 구현 update와 함께 RED부터 추가한다.
 
 ## 1. 테스트 원칙

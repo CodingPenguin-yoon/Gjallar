@@ -25,6 +25,8 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertIsNone(draft.network.static_ip)
         self.assertIsNone(draft.network.prefix)
         self.assertIsNone(draft.network.gateway)
+        self.assertIsNone(draft.network.bridge_id)
+        self.assertNotIn("network_id", draft.network.to_dict())
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
         self.assertFalse(draft.first_power_on_included)
@@ -57,7 +59,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
             template_id="ubuntu-template",
             template_vmid=9000,
             template_node_id="yoonmanserver2",
-            network_id="server-net",
+            network_id="evil-net",
             bridge_id="vmbr0",
             static_ip="192.168.2.142",
             prefix=25,
@@ -68,11 +70,11 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("ubuntu-template", draft.template_id)
         self.assertEqual(9000, draft.template_vmid)
         self.assertEqual("yoonmanserver2", draft.template_node_id)
-        self.assertEqual("server-net", draft.network.network_id)
         self.assertEqual("vmbr0", draft.network.bridge_id)
         self.assertEqual("192.168.2.142", draft.network.static_ip)
         self.assertEqual(25, draft.network.prefix)
         self.assertEqual("192.168.2.254", draft.network.gateway)
+        self.assertNotIn("network_id", draft.to_dict()["network"])
 
     def test_iac_state_path_can_be_relocated_with_environment(self):
         from app.vm_create.drafts import build_default_vm_draft

@@ -51,6 +51,7 @@ networks:
             operator_id="test-operator",
             job_id="job-set7-review",
             target_node_id="yoonmanserver2",
+            bridge_id="vmbr0",
             static_ip="192.168.2.143",
             prefix=25,
             gateway="192.168.2.254",

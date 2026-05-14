@@ -30,6 +30,7 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
             self.fail(f"Expected app.vm_create.drafts for Set 6 draft contract: {exc}")
         draft_kwargs = {
             "target_node_id": "yoonmanserver2",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.142",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -74,6 +75,13 @@ networks:
             self.fail(f"Expected app.vm_create.preflight for Set 6 preflight contract: {exc}")
         return run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
 
+    def _preflight_with_adapter(self, draft, adapter):
+        try:
+            from app.vm_create.preflight import run_preflight
+        except ModuleNotFoundError as exc:
+            self.fail(f"Expected app.vm_create.preflight for Set 6 preflight contract: {exc}")
+        return run_preflight(draft, inventory_adapter=adapter)
+
     def test_preflight_uses_read_only_inventory_and_returns_green_for_prd_defaults(self):
         draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
 
@@ -93,11 +101,8 @@ networks:
             "template_disk_floor",
             "target_node_online",
             "storage_available",
-            "bridge_mapping",
+            "bridge_selection",
             "bridge_exists",
-            "network_policy_registered",
-            "static_ip_range_configured",
-            "static_ip_in_policy_range",
             "static_ip_present",
             "static_ip_valid",
             "static_prefix_present",
@@ -154,15 +159,42 @@ networks:
         red_codes = {risk.code for risk in result.risks if risk.level == "red"}
         self.assertIn("template_disk_larger_than_requested", red_codes)
 
-    def test_missing_bridge_mapping_is_red_without_live_mutation(self):
-        draft = self._default_draft(target_node_id="unknown-node", static_ip="192.168.2.142")
+    def test_missing_bridge_id_is_red_without_server_net_fallback_or_live_mutation(self):
+        draft = self._default_draft(bridge_id=None, static_ip="192.168.2.142")
 
         result = self._preflight(draft)
 
         self.assertEqual("red", result.risk_level)
         red_codes = {risk.code for risk in result.risks if risk.level == "red"}
-        self.assertIn("bridge_mapping_missing", red_codes)
+        self.assertIn("bridge_id_missing", red_codes)
+        self.assertIn("bridge_missing_or_inactive", red_codes)
+        self.assertIsNone(result.selected_bridge_id)
+        self.assertNotIn("server-net", repr(result.to_dict()))
         self.assertEqual([], result.side_effects)
+
+    def test_missing_inactive_or_wrong_node_bridge_is_red(self):
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import NetworkInventory
+
+        class BridgeAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self, networks):
+                super().__init__()
+                self._networks = tuple(networks)
+
+        cases = {
+            "missing": ("vmbr9", []),
+            "inactive": ("vmbr0", [NetworkInventory(bridge_id="vmbr0", node_id="yoonmanserver2", active=False)]),
+            "wrong-node": ("vmbr9", [NetworkInventory(bridge_id="vmbr9", node_id="yoonmanserver3", active=True)]),
+        }
+        for name, (bridge_id, networks) in cases.items():
+            with self.subTest(name=name):
+                draft = self._default_draft(bridge_id=bridge_id)
+                result = self._preflight_with_adapter(draft, BridgeAdapter(networks))
+
+                self.assertEqual("red", result.risk_level)
+                red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+                self.assertIn("bridge_missing_or_inactive", red_codes)
+                self.assertEqual(bridge_id, result.selected_bridge_id)
 
     def test_live_read_only_inventory_source_is_allowed(self):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter
@@ -179,26 +211,36 @@ networks:
         self.assertNotIn("inventory_adapter_not_read_only", red_codes)
         self.assertEqual([], result.side_effects)
 
-    def test_static_ip_requires_registered_network_policy(self):
+    def test_explicit_active_bridge_passes_without_network_policy_file(self):
         policy_path = self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml"
         policy_path.unlink()
         draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
 
         result = self._preflight(draft)
 
-        self.assertEqual("red", result.risk_level)
+        self.assertEqual("green", result.risk_level)
         red_codes = {risk.code for risk in result.risks if risk.level == "red"}
-        self.assertIn("network_policy_missing", red_codes)
+        self.assertNotIn("network_policy_missing", red_codes)
+        self.assertNotIn("network_policy_unreadable", red_codes)
 
-    def test_static_ip_must_be_inside_registered_fixed_ip_range(self):
+    def test_network_policy_out_of_range_is_not_red(self):
         draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.200")
+
+        result = self._preflight(draft)
+
+        self.assertEqual("green", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertNotIn("static_ip_out_of_range", red_codes)
+        self.assertNotIn("static_ip_unavailable", red_codes)
+
+    def test_observed_static_ip_conflict_remains_red(self):
+        draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.141")
 
         result = self._preflight(draft)
 
         self.assertEqual("red", result.risk_level)
         red_codes = {risk.code for risk in result.risks if risk.level == "red"}
-        self.assertIn("static_ip_out_of_range", red_codes)
-        self.assertNotIn("static_ip_unavailable", red_codes)
+        self.assertIn("static_ip_unavailable", red_codes)
 
     def test_static_mode_missing_static_ip_is_red(self):
         draft = self._default_draft(static_ip=None)
@@ -262,6 +304,8 @@ networks:
         with tempfile.TemporaryDirectory() as run_dir:
             plan = build_vm_create_plan(draft, preflight, run_dir=run_dir)
             rendered = repr(plan.to_dict())
+            artifacts_by_type = {artifact.type: artifact for artifact in plan.artifacts}
+            manifest_text = Path(artifacts_by_type["vm_instance_manifest"].path).read_text(encoding="utf-8")
 
         self.assertEqual("dry_run_plan_only", plan.execution_intent)
         self.assertEqual([], plan.side_effects)
@@ -278,6 +322,11 @@ networks:
         self.assertEqual("192.168.2.254", plan.network["gateway"])
         self.assertEqual("192.168.2.142", plan.network["ip_address"])
         self.assertEqual(plan.network, plan.review_confirm["network"])
+        self.assertNotIn("network_id", plan.network)
+        self.assertNotIn("networkId", rendered)
+        self.assertNotIn("network_id", rendered)
+        self.assertNotIn("server-net", rendered)
+        self.assertNotIn("profile_id:", manifest_text.split("network:", 1)[1])
         self.assertIn("/IaC-state/gjallar/", plan.terraform_state_path)
         self.assertEqual(str(self.shared_root / "IaC"), plan.review_confirm["iac_root"])
         self.assertEqual(str(self.shared_root / "IaC-state" / "gjallar"), plan.review_confirm["terraform_state_root"])
@@ -287,7 +336,6 @@ networks:
         self.assertFalse(plan.review_confirm["first_power_on_included"])
         self.assertEqual(15, plan.smoke_timeout_summary["cloud_init_minutes"])
         self.assertEqual("green", plan.risk_summary["level"])
-        artifacts_by_type = {artifact.type: artifact for artifact in plan.artifacts}
         self.assertIn("preflight_report", artifacts_by_type)
         self.assertIn("plan", artifacts_by_type)
         for artifact in artifacts_by_type.values():

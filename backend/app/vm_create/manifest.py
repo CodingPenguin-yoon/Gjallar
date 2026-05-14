@@ -49,7 +49,6 @@ def build_vm_instance_manifest(draft: VmCreateDraft, preflight: PreflightResult)
                 "password_login": "enabled" if draft.access.password_login else "disabled",
             },
             "network": {
-                "profile_id": draft.network.network_id,
                 "bridge_id": preflight.selected_bridge_id,
                 "ip_mode": draft.network.ip_mode,
                 "static_ip": draft.network.static_ip,

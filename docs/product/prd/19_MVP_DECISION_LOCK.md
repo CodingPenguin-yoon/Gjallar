@@ -97,7 +97,10 @@ Create VM supporting capability target lock:
 - Static mode requires `static_ip`, `prefix`, and `gateway`; DHCP is allowed with warning.
 - Create VM always completes powered off/stopped by global create policy. Profile has no power policy.
 - VM start is future Infra Explorer row action work with Jobs/Runs audit.
-- Current code gap remains: built-in profiles, only `general-vm` enabled, `network_id`/`server-net`, and no static `prefix`/`gateway` requirement until implementation update.
+- Current code gap remains: built-in profiles and only `general-vm` enabled.
+  Create VM networking now uses explicit active live bridge selection and
+  static `static_ip`/`prefix`/`gateway`; incoming `network_id`/`networkId` is
+  ignored during transition compatibility.
 
 ## 1. 제품 정체성
 

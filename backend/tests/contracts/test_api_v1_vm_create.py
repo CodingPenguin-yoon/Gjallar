@@ -144,7 +144,7 @@ networks:
                     "operator_id": "api-nested-network-test",
                     "job_id": f"job-api-nested-network-{suffix}",
                     "target_node_id": "yoonmanserver2",
-                    "network_id": "server-net",
+                    "network_id": "evil-net",
                     "network": network,
                 }
 
@@ -159,6 +159,11 @@ networks:
                 self.assertEqual(25, plan_network["prefix"])
                 self.assertEqual("192.168.2.254", plan_network["gateway"])
                 self.assertEqual(plan_network, review_network)
+                rendered = repr(response["data"])
+                self.assertNotIn("network_id", rendered)
+                self.assertNotIn("networkId", rendered)
+                self.assertNotIn("evil-net", rendered)
+                self.assertNotIn("server-net", rendered)
 
 
 if __name__ == "__main__":

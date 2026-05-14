@@ -16,10 +16,12 @@ PRD의 제품/안전/흐름 결정은 대부분 잠겼다.
 1. **구현 직전 live inventory 확인값** — 질문이 아니라 실제 Proxmox/IaC를 조회해서 채울 값.
 2. **첫 구현 slice 착수 전 운영 기본값** — 기본값을 정하면 바로 구현 가능한 값.
 
-2026-05-13 Create VM profile/template/network target design은
+2026-05-14 Create VM profile/template/network target design은
 [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)를 따른다.
-Current implementation gap: 현재 code는 built-in profile, `general-vm` only,
-`network_id`/`server-net`, no static `prefix`/`gateway` 상태다.
+Current implementation gap: 현재 code는 built-in profile, `general-vm` only
+상태다. Create VM networking은 explicit active live bridge와 static
+`static_ip`/`prefix`/`gateway`를 사용하며, incoming `network_id`/`networkId`는
+transition compatibility로 ignore한다.
 
 ## 1. 구현 직전 live inventory 확인값
 

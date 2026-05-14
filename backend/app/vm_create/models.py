@@ -30,7 +30,6 @@ class DraftAccess:
 
 @dataclass(frozen=True)
 class DraftNetwork:
-    network_id: str
     ip_mode: str
     static_ip: str | None = None
     prefix: int | str | None = None

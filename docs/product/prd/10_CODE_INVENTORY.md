@@ -1,6 +1,6 @@
 # Gjallar Code Inventory
 
-Last updated: 2026-05-13 KST
+Last updated: 2026-05-14 KST
 
 ## DRS Advisor update
 
@@ -12,10 +12,10 @@ Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar
 
 Create VM profile/template/network target design now lives in
 [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
-Current code gap: Create VM still has current built-in profile behavior, only
-`general-vm` create-enabled, `network_id`/`server-net` in the draft/preflight
-path, and no static `prefix`/`gateway` requirement until implementation is
-updated.
+Current code gap: Create VM still has current built-in profile behavior and
+only `general-vm` create-enabled. Create VM networking now uses explicit active
+live bridge selection and static `static_ip`/`prefix`/`gateway`; incoming
+`network_id`/`networkId` is ignored during transition compatibility.
 
 ## 0. Purpose
 
@@ -66,7 +66,7 @@ Current active route baseline:
 | Native Proxmox mutation client | Keep, narrow scope | `backend/app/proxmox/client.py`, `backend/app/vm_create/proxmox_runner.py`, `backend/tests/vm_create/test_proxmox_runner.py` | Active Create VM mutation path. Uses clone UPID polling, config, stopped post-check, observed_after/fingerprint artifact. Separate from read-only inventory adapter. |
 | Proxmox monitoring signals | Keep through dashboard model | `/api/v1/cluster/summary`, `/api/v1/nodes`, `/api/v1/vms`, dashboard logic in `frontend/src/App.jsx` | Current dashboard uses live read-only inventory shape instead of legacy monitoring routes. |
 | Job/artifact tracking | Keep | `backend/app/jobs/*`, `backend/tests/jobs/*` | Active Jobs/Runs substrate records Create VM progress and artifacts under `GJALLAR_RUNS_ROOT`. |
-| Create VM preflight/readiness | Keep as supporting capability | `backend/app/vm_create/*`, `backend/tests/vm_create/*` | Current active flow uses draft -> preflight -> plan -> Review & Confirm -> manifest commit -> Proxmox native preview/create. Current gap versus target: profiles are not DB-seeded with all three enabled choices, and networking still uses `network_id`/`server-net` without static `prefix`/`gateway`. Reuse approval/artifact/UPID/observed_after ideas for DRS, but do not use Create VM as the next MVP success line. |
+| Create VM preflight/readiness | Keep as supporting capability | `backend/app/vm_create/*`, `backend/tests/vm_create/*` | Current active flow uses draft -> preflight -> plan -> Review & Confirm -> manifest commit -> Proxmox native preview/create. Current gap versus target: profiles are not DB-seeded with all three enabled choices yet. Create VM networking now uses explicit active live bridge selection and static `static_ip`/`prefix`/`gateway`. Reuse approval/artifact/UPID/observed_after ideas for DRS, but do not use Create VM as the next MVP success line. |
 | DRS Advisor backend API | Gap | no `/api/v1/drs/*` implementation yet | Add backend recommendation read model before migration execution. |
 | VM identity/fingerprint/policy | Gap | no DB-backed DRS tables yet | Required before Allowed VM execution; VMID alone is only a locator. |
 | Proxmox migration/UPID/reconciliation | Gap | no mutation client for DRS migration yet | Must be implemented with final pre-check, operation lock, UPID tracking, post-check, and Reconcile Now. |

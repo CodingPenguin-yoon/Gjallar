@@ -394,7 +394,7 @@ The following must not be persisted in API responses, job logs, or artifacts:
 
 ## Current Implementation Gap
 
-As of 2026-05-13, current code does not fully match this target design.
+As of 2026-05-14, current code does not fully match this target design.
 
 - Profiles are still implemented through current built-in/profile code paths,
   not as Gjallar DB seed source of truth.
@@ -404,12 +404,14 @@ As of 2026-05-13, current code does not fully match this target design.
 - Some older docs mention `dev-server` or `db-server`; the target seeded
   development profile is `development-vm`, and `db-server` is not an initial
   seeded enabled profile.
-- Current Create VM networking still uses `network_id`/`server-net` and bridge
-  mapping in parts of the implementation.
-- Current Create VM draft handling does not yet require target static
-  `prefix`/`gateway`.
-- Current native create config still derives a gateway from `static_ip` in some
-  paths. Target behavior is explicit gateway input only.
+- Current Create VM active networking uses explicit `bridge_id` selected from
+  active live bridge inventory after target node selection. Incoming
+  `network_id`/`networkId` is ignored for transition compatibility and is not
+  echoed in active draft/plan/review/manifest/job output.
+- Current Create VM draft handling requires target static `static_ip`,
+  `prefix`, and `gateway`.
+- Current native create config no longer derives `.1` gateway or `/24` prefix
+  from `static_ip`; it uses explicit operator input.
 - Current Network tab policy support may remain as current/legacy functionality,
   but it is not the target Create VM network source of truth.
 - Current template handling already uses live Proxmox inventory in important

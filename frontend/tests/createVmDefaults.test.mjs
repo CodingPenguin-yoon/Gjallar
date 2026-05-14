@@ -21,11 +21,8 @@ assert.equal(defaults.hardware.diskGb, 50)
 assert.equal(defaults.network.ipMode, 'static')
 assert.equal(defaults.network.prefix, '')
 assert.equal(defaults.network.gateway, '')
-assert.equal(defaults.network.networkId, 'server-net')
-assert.deepEqual(defaults.network.nodeBridges, {
-  yoonmanserver2: 'vmbr0',
-  yoonmanserver3: 'vmbr0',
-})
+assert.equal('networkId' in defaults.network, false)
+assert.equal('nodeBridges' in defaults.network, false)
 assert.equal(defaults.access.cloudInitUser, 'yoon')
 assert.equal(defaults.access.passwordLogin, false)
 assert.deepEqual(

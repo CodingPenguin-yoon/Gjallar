@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.manifests.loader import load_builtin_network_profiles, load_builtin_profiles
+from app.manifests.loader import load_builtin_profiles
 from app.vm_create.models import (
     CreateProfileOption,
     DraftAccess,
@@ -60,14 +60,6 @@ def _load_general_profile():
     return profile
 
 
-def _load_network(network_id: str):
-    networks = {network.network_id: network for network in load_builtin_network_profiles()}
-    try:
-        return networks[network_id]
-    except KeyError as exc:
-        raise ValueError(f"NetworkProfile {network_id!r} is not available") from exc
-
-
 def list_create_profile_options() -> list[CreateProfileOption]:
     """Return profiles visible to the Create VM wizard.
 
@@ -105,9 +97,8 @@ def build_default_vm_draft(
     """Build a non-mutating default draft for the first MVP Create VM flow."""
     profile = _load_general_profile()
     hardware_override_values = dict(hardware_overrides or {})
-    network_profile = _load_network(network_id or profile.network.network_profile)
     chosen_node = target_node_id or profile.target_node_candidates[0]
-    selected_bridge_id = bridge_id or network_profile.node_bridges.get(chosen_node)
+    selected_bridge_id = _optional_text(bridge_id)
     requested_ip_mode = ip_mode or profile.network.default_ip_mode
     if requested_ip_mode not in {"static", "dhcp"}:
         raise ValueError("ip_mode must be either 'static' or 'dhcp'")
@@ -141,7 +132,6 @@ def build_default_vm_draft(
             disk_gb=_hardware_value(hardware_override_values, "disk_gb", profile.hardware.disk_gb),
         ),
         network=DraftNetwork(
-            network_id=network_profile.network_id,
             ip_mode=requested_ip_mode,
             static_ip=resolved_static_ip,
             prefix=resolved_prefix,

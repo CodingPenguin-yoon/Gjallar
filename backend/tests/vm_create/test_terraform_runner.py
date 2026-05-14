@@ -63,6 +63,7 @@ networks:
             operator_id="terraform-test",
             job_id="job-terraform-runner",
             target_node_id="yoonmanserver2",
+            bridge_id="vmbr0",
             static_ip="192.168.2.142",
             prefix=25,
             gateway="192.168.2.254",

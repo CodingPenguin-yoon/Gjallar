@@ -105,6 +105,7 @@ networks:
         payload = {
             "operator_id": "api-approval-test",
             "job_id": draft_id,
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.144",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -137,6 +138,7 @@ networks:
         payload = {
             "operator_id": "api-approval-test",
             "job_id": draft_id,
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.145",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -168,6 +170,7 @@ networks:
         payload = {
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-preview",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.142",
             "prefix": 25,
             "gateway": "192.168.2.254",
@@ -204,6 +207,7 @@ networks:
         payload = {
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-create-gates",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.143",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -239,6 +243,7 @@ networks:
         payload = {
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-create-success",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.144",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -315,6 +320,7 @@ networks:
         payload = {
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-create-reconcile",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.145",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -387,6 +393,7 @@ networks:
         payload = {
             "operator_id": "api-approval-test",
             "job_id": draft_id,
+            "bridge_id": "vmbr0",
             "ip_mode": "dhcp",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
@@ -419,6 +426,7 @@ networks:
                 {
                     "operator_id": "api-approval-test",
                     "job_id": "/tmp/gjallar-path-escape",
+                    "bridge_id": "vmbr0",
                     "static_ip": "192.168.2.146",
                     "prefix": 24,
                     "gateway": "192.168.2.1",
@@ -451,6 +459,7 @@ networks:
         payload = {
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-plan",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.148",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -499,6 +508,7 @@ networks:
         payload = {
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-plan-ack",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.149",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -529,6 +539,7 @@ networks:
         payload = {
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-plan-run",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.150",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -579,6 +590,7 @@ networks:
         payload = {
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-apply-ack",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.149",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -609,6 +621,7 @@ networks:
         payload = {
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-apply-run",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.146",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -703,6 +716,7 @@ networks:
         payload = {
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-apply-fail",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.142",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -773,6 +787,7 @@ networks:
         payload = {
             "operator_id": "api-archive-test",
             "job_id": "job-api-archive",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.143",
             "prefix": 24,
             "gateway": "192.168.2.1",
@@ -814,6 +829,7 @@ networks:
         payload = {
             "operator_id": "api-execute-test",
             "job_id": "job-api-execute-commit",
+            "bridge_id": "vmbr0",
             "static_ip": "192.168.2.147",
             "prefix": 24,
             "gateway": "192.168.2.1",

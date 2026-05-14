@@ -1,8 +1,8 @@
 # Create VM
 
-평가일: 2026-05-13
+평가일: 2026-05-14
 
-검증 기준: 2026-05-13에 backend `PYTHONPATH=backend pytest -q backend/tests` -> 100 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed를 기록했다.
+검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 112 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -53,7 +53,13 @@ Target design은
 - Target template source of truth는 Proxmox live inventory이며, Gjallar template catalog/registration window는 없다.
 - Target UI는 선택 profile의 `require_cloud_init=true`, `require_qemu_guest_agent=true` 조건을 만족하지 못하는 live template을 disabled로 보여주고, backend preflight가 red-block한다.
 - Target network source of truth는 selected target node의 active live bridge다.
-- Current code는 아직 `network_id`/`server-net`와 bridge mapping을 사용한다.
+- Current code는 selected target node의 active live bridge를 source of truth로
+  사용한다. `bridge_id`가 없거나 target node에서 missing/inactive이면 red
+  preflight다.
+- Incoming `network_id`/`networkId`는 transition compatibility로 ignore되며
+  draft/plan/review/manifest/job active output에 echo하지 않는다.
+- NetworkPolicy missing/range/out-of-range는 Create VM red blocker가 아니다.
+  관찰된 static IP conflict는 계속 red blocker다.
 - Static mode는 현재 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
 - Gateway와 prefix는 사용자가 입력한 값을 그대로 사용하며, native create는
   static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지 않는다.
@@ -71,4 +77,4 @@ Create VM의 approval/artifact/GitOps/native acknowledgement/observed_after 패�
 
 ## 다음 구현 slice
 
-Create VM 자체는 안정화 유지로 둔다. DRS 작업에서는 approval checksum, artifact publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.
+Create VM 다음 slice는 profile seed/hardware contract 정렬이다. DRS 작업에서는 approval checksum, artifact publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.

@@ -16,11 +16,6 @@ export function buildCreateVmDefaults() {
       ipMode: 'static',
       prefix: '',
       gateway: '',
-      networkId: 'server-net',
-      nodeBridges: {
-        yoonmanserver2: 'vmbr0',
-        yoonmanserver3: 'vmbr0',
-      },
     },
     access: {
       cloudInitUser: 'yoon',
