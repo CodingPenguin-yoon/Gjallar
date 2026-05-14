@@ -18,6 +18,7 @@ def test_drop_candidate_legacy_domains_are_not_active_import_packages():
         f"or legacy Proxmox domain packages importable: {offenders}"
     )
 
+
 def test_legacy_task_domain_is_not_active_after_jobs_api_replacement():
     backend_root = Path(__file__).resolve().parents[2]
     task_domain = backend_root / "app/domains/task"
@@ -52,6 +53,7 @@ def test_removed_state_metadata_symbols_are_absent_from_active_tree():
         repo_root / "docs/current",
         repo_root / "docs/architecture",
         repo_root / "docs/engineering",
+        repo_root / "docs/ko",
         repo_root / "docs/product",
     ]
     forbidden_patterns = [
@@ -109,3 +111,20 @@ def test_removed_state_metadata_symbols_are_absent_from_active_tree():
                     offenders.append(f"{relative}:{line_number}: {match.group(0)}")
 
     assert offenders == [], "Removed Terraform state/API symbols remain active: " + repr(offenders)
+
+
+def test_korean_non_index_docs_declare_source_documents():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+    ko_docs_root = repo_root / "docs/ko"
+    pages = sorted(path for path in ko_docs_root.glob("*.md") if path.name != "README.md")
+
+    assert pages, "Expected Korean reader-facing docs under docs/ko"
+
+    offenders = [
+        str(path.relative_to(repo_root))
+        for path in pages
+        if "기준 문서:" not in path.read_text(encoding="utf-8")
+    ]
+
+    assert offenders == [], "Korean docs must declare 기준 문서: " + repr(offenders)

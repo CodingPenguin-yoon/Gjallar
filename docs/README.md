@@ -2,6 +2,12 @@
 
 This is the single repo-local documentation entrypoint for Gjallar.
 
+## 한국어 안내
+
+한국어 사용자를 위한 읽기 쉬운 설명 문서입니다. 최종 기준은 아래 current, architecture, product, code, test reference입니다.
+
+- [한국어 사용자 안내](ko/README.md)
+
 ## Current
 
 Use this section for implemented behavior and current UI/API snapshots.
