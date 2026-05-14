@@ -88,9 +88,17 @@ class VmCreateDraft:
 
 @dataclass(frozen=True)
 class CreateProfileOption:
+    id: str
     profile_id: str
     display_name: str
+    display_name_ko: str
+    enabled: bool
     create_enabled: bool
+    hardware: dict[str, Any]
+    template_requirements: dict[str, Any]
+    access_recommendations: dict[str, Any]
+    source: str
+    management: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -131,6 +139,8 @@ class PreflightResult:
     selected_template_vmid: int | None
     selected_template_node_id: str | None
     selected_bridge_id: str | None
+    profile_id: str
+    profile_hardware_limits: dict[str, Any]
     iac_root: str
     terraform_state_root: str
     iac_ready_for_plan: bool
@@ -149,6 +159,8 @@ class PreflightResult:
             "selected_template_vmid": self.selected_template_vmid,
             "selected_template_node_id": self.selected_template_node_id,
             "selected_bridge_id": self.selected_bridge_id,
+            "profile_id": self.profile_id,
+            "profile_hardware_limits": dict(self.profile_hardware_limits),
             "iac_root": self.iac_root,
             "terraform_state_root": self.terraform_state_root,
             "iac_ready_for_plan": self.iac_ready_for_plan,
@@ -189,12 +201,14 @@ class VmCreatePlan:
     job_id: str
     manifest_id: str
     execution_intent: str
+    profile_id: str
     vm_name: str
     vmid: int
     target_node_id: str
     storage_id: str
     template_id: str
     hardware: dict[str, int]
+    profile_hardware_limits: dict[str, Any]
     network: dict[str, Any]
     terraform_state_path: str
     first_power_on_included: bool
@@ -210,12 +224,14 @@ class VmCreatePlan:
             "job_id": self.job_id,
             "manifest_id": self.manifest_id,
             "execution_intent": self.execution_intent,
+            "profile_id": self.profile_id,
             "vm_name": self.vm_name,
             "vmid": self.vmid,
             "target_node_id": self.target_node_id,
             "storage_id": self.storage_id,
             "template_id": self.template_id,
             "hardware": dict(self.hardware),
+            "profile_hardware_limits": dict(self.profile_hardware_limits),
             "network": dict(self.network),
             "terraform_state_path": self.terraform_state_path,
             "first_power_on_included": self.first_power_on_included,

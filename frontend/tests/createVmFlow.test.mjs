@@ -22,6 +22,7 @@ const {
 const input = {
   operatorId: 'hermes-ui',
   jobId: 'job-ui-create',
+  profileId: 'general-vm',
   targetNodeId: 'yoonmanserver2',
   storageId: 'nas-server',
   networkId: 'evil-net',
@@ -39,6 +40,7 @@ const input = {
 assert.deepEqual(buildCreateVmPayload(input), {
   operator_id: 'hermes-ui',
   job_id: 'job-ui-create',
+  profile_id: 'general-vm',
   target_node_id: 'yoonmanserver2',
   storage_id: 'nas-server',
   bridge_id: 'vmbr0',
@@ -73,6 +75,7 @@ assert.deepEqual(buildCreateVmPayload({
 })
 
 assert.deepEqual(buildCreateVmInputFromConfig({
+  profileId: 'runtime-server',
   network: {
     staticIp: '192.168.2.151',
     prefix: 26,
@@ -81,10 +84,12 @@ assert.deepEqual(buildCreateVmInputFromConfig({
 }, {
   operatorId: 'fallback-operator',
   jobId: 'fallback-job',
+  profileId: 'general-vm',
   targetNodeId: 'yoonmanserver2',
 }), {
   operatorId: 'fallback-operator',
   jobId: 'fallback-job',
+  profileId: 'runtime-server',
   targetNodeId: 'yoonmanserver2',
   storageId: '',
   bridgeId: '',
@@ -120,6 +125,7 @@ const fakeClient = {
       draft_id: 'draft-job-ui-create',
       job_id: payload.job_id,
       operator_id: payload.operator_id,
+      profile_id: payload.profile_id,
       vm_name: 'gjallar-vm-job-ui-create',
       proposed_vmid: 120,
       target_node_id: payload.target_node_id,
@@ -161,6 +167,7 @@ const fakeClient = {
       draft_id: draftId,
       job_id: payload.job_id,
       execution_intent: 'dry_run_plan_only',
+      profile_id: payload.profile_id,
       vm_name: 'gjallar-vm-job-ui-create',
       vmid: 120,
       target_node_id: payload.target_node_id,
@@ -169,6 +176,11 @@ const fakeClient = {
       template_vmid: payload.template_vmid,
       template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
+      profile_hardware_limits: {
+        cpu: { default: 2, min: 1, max: 8 },
+        memory_mb: { default: 4096, min: 1024, max: 32768 },
+        disk_gb: { default: 50, min: 50, max: 500 },
+      },
       network: {
         bridge_id: payload.bridge_id,
         ip_mode: payload.ip_mode,
@@ -182,6 +194,7 @@ const fakeClient = {
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
       risk_summary: { level: 'green', red: [], yellow: [] },
       review_confirm: {
+        profile_id: payload.profile_id,
         vm_name: 'gjallar-vm-job-ui-create',
         vmid: 120,
         target_node_id: payload.target_node_id,
@@ -190,6 +203,11 @@ const fakeClient = {
         template_vmid: payload.template_vmid,
         template_node_id: payload.template_node_id,
         hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
+        profile_hardware_limits: {
+          cpu: { default: 2, min: 1, max: 8 },
+          memory_mb: { default: 4096, min: 1024, max: 32768 },
+          disk_gb: { default: 50, min: 50, max: 500 },
+        },
         network: {
           bridge_id: payload.bridge_id,
           ip_mode: payload.ip_mode,
@@ -294,11 +312,14 @@ assert.equal(model.readiness.legacyStateRoot, '/Users/yoon/mnt/nfs/IaC-state/gja
 assert.equal(model.readiness.readyForPlan, true)
 assert.equal(model.readiness.readyForExecute, false)
 assert.equal(model.draft.id, 'draft-job-ui-create')
+assert.equal(model.draft.profileId, 'general-vm')
 assert.equal(model.draft.storageId, 'nas-server')
 assert.equal(model.draft.templateVmid, 9000)
 assert.equal(model.preflight.level, 'green')
 assert.equal(model.plan.executionIntent, 'dry_run_plan_only')
 assert.equal(model.review.vmName, 'gjallar-vm-job-ui-create')
+assert.equal(model.review.profileId, 'general-vm')
+assert.equal(model.review.profileHardwareLimits.disk_gb.max, 500)
 assert.equal(model.review.canApprove, true)
 assert.equal(model.review.canPreviewProxmox, true)
 assert.equal(model.review.canCommitManifest, false)
@@ -307,6 +328,7 @@ assert.equal(model.review.canExecute, false, 'UI must not expose direct create b
 assert.equal(model.review.firstPowerOnIncluded, false)
 assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.')
 assert.equal(model.payload.prefix, 25)
+assert.equal(model.payload.profile_id, 'general-vm')
 assert.equal(model.payload.gateway, '192.168.2.254')
 assert.equal('network_id' in model.payload, false)
 assert.equal('networkId' in model.payload, false)
@@ -398,6 +420,7 @@ assert.ok(!source.includes('prepareVmDraftTerraformPlan'), 'active frontend flow
 assert.ok(!source.includes('applyVmDraftTerraformPlan'), 'active frontend flow must not call Terraform apply helper')
 const wizardSource = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx', import.meta.url), 'utf8')
 assert.ok(wizardSource.includes('apiV1Client.listNetworks()'), 'Create VM wizard must load live bridge inventory')
+assert.ok(wizardSource.includes('apiV1Client.listProfiles()'), 'Create VM wizard must load profile inventory')
 assert.ok(!wizardSource.includes('apiV1Client.getNetworkPolicy()'), 'Create VM wizard must not use NetworkPolicy as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')

@@ -128,9 +128,11 @@ also carry the selected live template reference and editable access fields:
 
 ## Profile Defaults
 
-Current implementation has `general-vm` as the only create-enabled profile.
+Current implementation exposes three enabled transitional `static_seed`
+profiles: `general-vm`, `runtime-server`, and `development-vm`. The default
+selected profile remains `general-vm`.
 
-Current default values:
+Current `general-vm` default values:
 
 | Field | Value |
 |---|---|
@@ -319,11 +321,10 @@ support until code changes.
 
 The current code still differs from the target profile/template/network design:
 
-- profiles are built in/current manifest-backed behavior, not Gjallar DB seed
+- profiles are transitional read-only `static_seed` data, not Gjallar DB seed
   source of truth
-- only `general-vm` is create-enabled
-- `runtime-server` and `development-vm` are target enabled profiles, not current
-  active choices
+- `general-vm`, `runtime-server`, and `development-vm` are current active
+  enabled choices with hardware defaults/min/max
 - current Create VM uses explicit `bridge_id` selected from target-node active
   live bridge inventory; incoming `network_id`/`networkId` is ignored and is
   not echoed in active outputs

@@ -12,10 +12,9 @@ from app.core.redaction import redact_secrets
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.network_policy import NetworkPolicyError, build_network_policy_view, save_network_policy
 from app.vm_create.approval import validate_approval_request
-from app.manifests.loader import load_builtin_profiles
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
 from app.proxmox.inventory import get_default_inventory_adapter
-from app.vm_create.drafts import build_default_vm_draft
+from app.vm_create.drafts import build_default_vm_draft, list_create_profile_options
 from app.vm_create.gitops import (
     GitOpsCommitError,
     archive_plan_manifest,
@@ -54,6 +53,9 @@ def _jobs_meta() -> dict[str, str]:
 def _api_draft_from_payload(draft_id: str, payload: dict | None):
     payload = payload or {}
     network_payload = payload.get("network") if isinstance(payload.get("network"), dict) else {}
+    hardware_payload = payload.get("hardware_overrides") if isinstance(payload.get("hardware_overrides"), dict) else {}
+    if not hardware_payload and isinstance(payload.get("hardware"), dict):
+        hardware_payload = payload.get("hardware") or {}
 
     def network_value(*keys: str):
         for key in keys:
@@ -69,6 +71,7 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
     return build_default_vm_draft(
         operator_id=str(payload.get("operator_id", "api-preview")),
         job_id=str(payload.get("job_id", draft_id)),
+        profile_id=payload.get("profile_id") or payload.get("profileId"),
         target_node_id=payload.get("target_node_id"),
         storage_id=payload.get("storage_id"),
         bridge_id=network_value("bridge_id", "bridgeId"),
@@ -80,6 +83,7 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
         template_id=payload.get("template_id"),
         template_vmid=payload.get("template_vmid"),
         template_node_id=payload.get("template_node_id"),
+        hardware_overrides=hardware_payload,
     )
 
 
@@ -181,6 +185,7 @@ def _record_plan_job(
         details={
             "draft_id": plan.draft_id,
             "manifest_id": plan.manifest_id,
+            "profile_id": plan.profile_id,
             "vm_name": plan.vm_name,
             "vmid": plan.vmid,
             "target_node_id": plan.target_node_id,
@@ -275,8 +280,8 @@ def get_vm(vmid: int) -> dict:
 
 @router.get("/profiles")
 async def list_profiles() -> dict:
-    """Return builtin VM creation profile defaults."""
-    return success_response([profile.to_dict() for profile in load_builtin_profiles()])
+    """Return static read-only VM creation profile defaults."""
+    return success_response([profile.to_dict() for profile in list_create_profile_options()])
 
 
 @router.get("/vm-create/readiness")

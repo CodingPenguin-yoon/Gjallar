@@ -50,6 +50,25 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual(8192, draft.hardware.memory_mb)
         self.assertEqual(80, draft.hardware.disk_gb)
 
+    def test_selected_profile_defaults_set_hardware(self):
+        from app.vm_create.drafts import build_default_vm_draft
+
+        runtime = build_default_vm_draft(operator_id="test-operator", profile_id="runtime-server")
+        development = build_default_vm_draft(operator_id="test-operator", profile_id="development-vm")
+
+        self.assertEqual("runtime-server", runtime.profile_id)
+        self.assertEqual((4, 8192, 100), (runtime.hardware.cpu, runtime.hardware.memory_mb, runtime.hardware.disk_gb))
+        self.assertEqual("development-vm", development.profile_id)
+        self.assertEqual((2, 4096, 50), (development.hardware.cpu, development.hardware.memory_mb, development.hardware.disk_gb))
+
+    def test_unknown_profile_id_is_preserved_for_preflight_red_check(self):
+        from app.vm_create.drafts import build_default_vm_draft
+
+        draft = build_default_vm_draft(operator_id="test-operator", profile_id="unknown-profile")
+
+        self.assertEqual("unknown-profile", draft.profile_id)
+        self.assertEqual((2, 4096, 50), (draft.hardware.cpu, draft.hardware.memory_mb, draft.hardware.disk_gb))
+
     def test_draft_preserves_selected_template_and_bridge(self):
         from app.vm_create.drafts import build_default_vm_draft
 
@@ -143,7 +162,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("/Users/yoon/mnt/nfs/IaC", context["iac_root"])
         self.assertEqual("/Users/yoon/mnt/nfs/IaC-state/gjallar", context["terraform_state_root"])
 
-    def test_only_general_vm_is_create_enabled(self):
+    def test_three_create_profiles_are_enabled(self):
         try:
             from app.vm_create.drafts import list_create_profile_options
         except ModuleNotFoundError as exc:
@@ -153,7 +172,13 @@ class VmCreateDraftContractTests(unittest.TestCase):
             )
         options = list_create_profile_options()
         enabled = [option.profile_id for option in options if option.create_enabled]
-        self.assertEqual(["general-vm"], enabled)
+        self.assertEqual(["general-vm", "runtime-server", "development-vm"], enabled)
+        for option in options:
+            data = option.to_dict()
+            self.assertIn("hardware", data)
+            self.assertNotIn("network", data)
+            self.assertNotIn("network_id", data)
+            self.assertNotIn("server-net", repr(data))
 
 
 if __name__ == "__main__":

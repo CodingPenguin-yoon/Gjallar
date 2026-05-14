@@ -22,7 +22,7 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 - Do not treat `/api/instances` or `/api/provision` as the active frontend surface.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
 - Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP selections, manifest commit, and gated Proxmox native create.
-- Create VM profile/template/network target design is documented in [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md), but it is not fully implemented yet.
+- Create VM profile/template/network target design is documented in [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md), and is partially implemented through transitional static profile seed data plus live template/network inventory.
 - Current Create VM create policy is powered-off only: native Proxmox clone, boot disk resize when needed, and config may run after exact approval metadata, manifest commit verification, and `proxmox_mutation_acknowledged=true`; first power-on and Stage A smoke are separate deferred stages.
 - Terraform plan/apply routes remain optional/deprecated legacy executor paths and are not used by the active UI.
 - Read-only inventory is the safe baseline.
@@ -33,7 +33,9 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 - Instances UI is a single read-only grouped and collapsible card.
 - Create VM review stores request manifests under the configured IaC root and publishes request progress to Jobs/Runs through `GJALLAR_RUNS_ROOT`.
 - Create VM plan/review records `first_power_on_included=false`; the generated VMInstance manifest requests `desired_power_state: stopped`.
-- `general-vm` currently defaults to 2 CPU / 4096 MB RAM / 50 GB disk to match the live Ubuntu template size; preflight blocks requests smaller than the selected template disk.
+- `GET /api/v1/profiles` exposes exactly three enabled read-only `static_seed` profiles: `general-vm`, `runtime-server`, and `development-vm`.
+- Profile selection controls draft defaults for CPU/RAM/Disk. Backend preflight red-blocks unknown/disabled profiles and requested CPU/RAM/Disk outside the selected profile min/max.
+- `general-vm` defaults to 2 CPU / 4096 MB RAM / 50 GB disk to match the live Ubuntu template size; preflight blocks requests smaller than the selected template disk and blocks template/requested disks above the selected profile disk max.
 - There are no destructive VM list controls.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, and marks applied only when the requested disk resize is unnecessary or completed and the VM exists on the target node and is still stopped.
@@ -41,12 +43,13 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 
 ## Create VM target gap
 
-The target design is not current implementation yet:
+The target design is partially implemented, with these gaps still open:
 
 - Profiles should become Gjallar DB-seeded read-only presets with enabled
   `general-vm`, `runtime-server`, and `development-vm`.
-- Current code still uses current built-in/profile paths and only `general-vm`
-  is create-enabled.
+- Current code uses transitional static seed data (`source: static_seed`) rather
+  than a DB/ORM seed source, but all three initial profiles are active Create VM
+  choices.
 - Target templates come from Proxmox live inventory with no Gjallar template
   catalog or registration window.
 - Target Create VM networking should select target node, then an active live
@@ -69,8 +72,9 @@ The target design is not current implementation yet:
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `112 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `120 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
+- Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.
 - `git diff --check`: passed.
 

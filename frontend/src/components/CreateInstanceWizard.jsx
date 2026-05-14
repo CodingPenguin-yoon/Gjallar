@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, ClipboardCheck, FileText, FolderGit2, Loader2, Network, Rocket, Server, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
-import { buildCreateVmDefaults } from '../utils/createVmDefaults'
+import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile } from '../utils/createVmDefaults'
 import {
   approveCreateVmReview,
   buildCreateVmInputFromConfig,
@@ -14,6 +14,11 @@ import {
 
 const CHECK_LABELS = {
   profile_schema: '프로필',
+  profile_enabled: '프로필 활성화',
+  profile_cpu_range: 'CPU 범위',
+  profile_memory_mb_range: '메모리 범위',
+  profile_disk_gb_range: '디스크 범위',
+  profile_template_disk_limit: '프로필 디스크',
   template_available: '템플릿',
   template_matches_profile: '템플릿 프로필',
   template_cloud_init_ready: 'Cloud-init',
@@ -252,6 +257,10 @@ function templateLabel(template) {
   return [template.name, `${template.nodeId}/${template.vmid}`, disk].filter(Boolean).join(' · ')
 }
 
+function profileDisplayName(profile) {
+  return [profile?.displayNameKo, profile?.displayName].filter(Boolean).join(' / ')
+}
+
 function hardwareForTemplate(hardware = {}, template = null) {
   const currentDiskGb = Number(hardware.diskGb ?? hardware.disk_gb ?? 0)
   const templateDiskGb = Number(template?.diskGb ?? 0)
@@ -293,6 +302,7 @@ function buildInitialForm(config) {
   const input = buildCreateVmInputFromConfig(config, {
     operatorId: 'ui-operator',
     jobId: `ui-${datePart}-${timePart}`,
+    profileId: config.profileId || config.profile_id || 'general-vm',
     targetNodeId: 'yoonmanserver2',
     bridgeId: '',
     storageId: '',
@@ -301,10 +311,11 @@ function buildInitialForm(config) {
     gateway: defaults.network.gateway,
     ipMode: defaults.network.ipMode,
   })
+  const profile = defaults.profileOptions.find((item) => item.profileId === input.profileId) || defaults.profileOptions[0]
   return {
     ...input,
-    profileId: defaults.profileId,
-    hardware: defaults.hardware,
+    profileId: input.profileId || defaults.profileId,
+    hardware: config.hardware || resetHardwareForProfile(profile),
     storageId: input.storageId || '',
     bridgeId: input.bridgeId || '',
     prefix: input.prefix || defaults.network.prefix,
@@ -328,7 +339,15 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const [committing, setCommitting] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
-  const [options, setOptions] = useState({ nodes: [], templates: [], storages: [], networks: [], loading: true, error: null })
+  const [options, setOptions] = useState({
+    nodes: [],
+    templates: [],
+    storages: [],
+    networks: [],
+    profiles: buildCreateVmDefaults().profileOptions,
+    loading: true,
+    error: null,
+  })
 
   const reviewRiskTone = useMemo(() => {
     const level = model?.review?.riskLevel || model?.preflight?.level
@@ -339,6 +358,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const templateOptions = useMemo(() => normalizeTemplateOptions(options.templates), [options.templates])
   const storageOptions = useMemo(() => normalizeStorageOptions(options.storages), [options.storages])
   const allBridgeOptions = useMemo(() => normalizeBridgeOptions(options.networks), [options.networks])
+  const profileOptions = useMemo(() => normalizeCreateVmProfiles(options.profiles), [options.profiles])
   const nodeStorageOptions = useMemo(
     () => storageOptions.filter((storage) => storage.nodeId === form.targetNodeId && storage.content.includes('images') && storage.freeGb > 0),
     [storageOptions, form.targetNodeId],
@@ -348,6 +368,9 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     [allBridgeOptions, form.targetNodeId],
   )
   const selectedTemplateKey = form.templateKey || (form.templateNodeId && form.templateVmid ? `${form.templateNodeId}/${form.templateVmid}` : form.templateId)
+  const selectedTemplate = templateOptions.find((template) => template.key === selectedTemplateKey) || null
+  const selectedProfile = profileOptions.find((profile) => profile.profileId === form.profileId) || profileOptions[0]
+  const hardwareLimits = selectedProfile?.hardware || {}
   const selectedBridge = bridgeOptions.find((bridge) => bridge.bridgeId === form.bridgeId) || null
   const selectedIpModeLabel = form.ipMode === 'dhcp' ? 'DHCP' : '고정 IP'
   const reviewedNetwork = model?.review?.network || {}
@@ -358,32 +381,35 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     ? selectedIpModeLabel
     : [reviewedStaticIp, reviewedPrefix ? `/${reviewedPrefix}` : '', reviewedGateway ? `gw ${reviewedGateway}` : ''].join(' ').replace(' /', '/').trim()
   const hardware = form.hardware || {}
-  const memoryMb = hardware.memoryMb || hardware.memory_mb || 4096
-  const diskGb = hardware.diskGb || hardware.disk_gb || 50
+  const cpuValue = hardware.cpu ?? hardwareLimits.cpu?.default ?? 2
+  const memoryMb = hardware.memoryMb ?? hardware.memory_mb ?? hardwareLimits.memoryMb?.default ?? 4096
+  const diskGb = hardware.diskGb ?? hardware.disk_gb ?? hardwareLimits.diskGb?.default ?? 50
   const staticIpPlaceholder = firstRangeStart(selectedBridge) || '예: 192.168.2.142'
 
   useEffect(() => {
     let cancelled = false
     async function loadOptions() {
-      try {
-        const [nodes, templates, storages, networks] = await Promise.all([
-          apiV1Client.listNodes(),
-          apiV1Client.listTemplates(),
-          apiV1Client.listStorage(),
-          apiV1Client.listNetworks(),
-        ])
-        if (!cancelled) {
-          setOptions({ nodes, templates, storages, networks, loading: false, error: null })
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setOptions((current) => ({
-            ...current,
-            loading: false,
-            error: err?.message || '생성 옵션을 불러오지 못했습니다.',
-          }))
-        }
-      }
+      const [nodes, templates, storages, networks, profiles] = await Promise.allSettled([
+        apiV1Client.listNodes(),
+        apiV1Client.listTemplates(),
+        apiV1Client.listStorage(),
+        apiV1Client.listNetworks(),
+        apiV1Client.listProfiles(),
+      ])
+      if (cancelled) return
+      const inventoryFailures = [nodes, templates, storages, networks].filter((result) => result.status === 'rejected')
+      const profileValues = profiles.status === 'fulfilled'
+        ? normalizeCreateVmProfiles(profiles.value)
+        : buildCreateVmDefaults().profileOptions
+      setOptions({
+        nodes: nodes.status === 'fulfilled' ? nodes.value : [],
+        templates: templates.status === 'fulfilled' ? templates.value : [],
+        storages: storages.status === 'fulfilled' ? storages.value : [],
+        networks: networks.status === 'fulfilled' ? networks.value : [],
+        profiles: profileValues,
+        loading: false,
+        error: inventoryFailures[0]?.reason?.message || null,
+      })
     }
     loadOptions()
     return () => {
@@ -455,6 +481,24 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       storageId: storage?.id || '',
       bridgeId: bridge?.bridgeId || '',
       staticIp: form.staticIp,
+    })
+  }
+
+  const handleProfileChange = (profileId) => {
+    const profile = profileOptions.find((item) => item.profileId === profileId) || profileOptions[0]
+    applyFormPatch({
+      profileId,
+      hardware: resetHardwareForProfile(profile, selectedTemplate?.diskGb),
+    })
+  }
+
+  const handleHardwareChange = (field, value) => {
+    const nextValue = value === '' ? '' : Number(value)
+    applyFormPatch({
+      hardware: {
+        ...(form.hardware || {}),
+        [field]: nextValue,
+      },
     })
   }
 
@@ -583,8 +627,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               <h2 className="text-xl font-semibold text-slate-950">새 VM 만들기</h2>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <StatusPill tone="slate">general-vm</StatusPill>
-              <StatusPill tone="slate">{hardware.cpu || 2} CPU</StatusPill>
+              <StatusPill tone="slate">{form.profileId || 'general-vm'}</StatusPill>
+              <StatusPill tone="slate">{cpuValue} CPU</StatusPill>
               <StatusPill tone="slate">{memoryMb} MB</StatusPill>
               <StatusPill tone="slate">{diskGb} GB</StatusPill>
             </div>
@@ -594,6 +638,76 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
 
         <div className="mt-5">
           <StepIndicator model={model} approval={approval} proxmoxPreviewResult={proxmoxPreviewResult} commitResult={commitResult} createResult={createResult} />
+        </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          {profileOptions.map((profile) => {
+            const selected = profile.profileId === form.profileId
+            const disabled = profile.enabled === false || profile.createEnabled === false
+            return (
+              <button
+                key={profile.profileId}
+                type="button"
+                disabled={disabled}
+                onClick={() => handleProfileChange(profile.profileId)}
+                className={`min-h-28 rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  selected ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-950">{profileDisplayName(profile)}</div>
+                    <div className="mt-1 text-xs text-slate-500">{profile.profileId}</div>
+                  </div>
+                  <StatusPill tone={selected ? 'blue' : 'slate'}>{selected ? '선택' : '프로필'}</StatusPill>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <StatusPill tone="slate">{profile.hardware.cpu.default} CPU</StatusPill>
+                  <StatusPill tone="slate">{profile.hardware.memoryMb.default} MB</StatusPill>
+                  <StatusPill tone="slate">{profile.hardware.diskGb.default} GB</StatusPill>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">CPU</span>
+            <input
+              type="number"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={cpuValue}
+              min={hardwareLimits.cpu?.min}
+              max={hardwareLimits.cpu?.max}
+              step="1"
+              onChange={(event) => handleHardwareChange('cpu', event.target.value)}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">메모리 MB</span>
+            <input
+              type="number"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={memoryMb}
+              min={hardwareLimits.memoryMb?.min}
+              max={hardwareLimits.memoryMb?.max}
+              step="512"
+              onChange={(event) => handleHardwareChange('memoryMb', event.target.value)}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">디스크 GB</span>
+            <input
+              type="number"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={diskGb}
+              min={hardwareLimits.diskGb?.min}
+              max={hardwareLimits.diskGb?.max}
+              step="10"
+              onChange={(event) => handleHardwareChange('diskGb', event.target.value)}
+            />
+          </label>
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -698,6 +812,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <StatusPill tone={reviewRiskTone}>{riskLabel(model.review.riskLevel)}</StatusPill>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <SummaryTile label="프로필" value={model.review.profileId} />
                 <SummaryTile label="VM 이름" value={model.review.vmName} icon={Server} />
                 <SummaryTile label="VMID" value={model.review.vmid} />
                 <SummaryTile label="생성 노드" value={model.review.targetNode} icon={Server} />

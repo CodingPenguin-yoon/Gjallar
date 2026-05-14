@@ -160,10 +160,12 @@ selection model is being updated as follows:
 - Create success remains stopped/powered off by global create policy. VM start
   is future Infra Explorer row action work with Jobs/Runs audit.
 
-Current implementation gap: code still has current built-in profile behavior,
-only `general-vm` create-enabled, `network_id`/`server-net` in the Create VM
-path, no required static `prefix`/`gateway`, and gateway derivation from static
-IP in create payload helpers until the implementation update.
+Current implementation gap: profiles are transitional read-only `static_seed`
+data rather than DB seed rows, and template requirement disabled-state/access
+SSH key gates are still future slices. The active path now exposes the three
+initial enabled profiles, records selected `profile_id` in plan/review evidence,
+uses explicit `bridge_id` plus `static_ip`/`prefix`/`gateway`, and does not echo
+incoming `network_id`/`networkId`.
 
 ## Main Data Flows
 

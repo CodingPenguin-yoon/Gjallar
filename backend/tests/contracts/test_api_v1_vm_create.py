@@ -94,6 +94,44 @@ networks:
         self.assertTrue(plan_response["ok"])
         self.assertEqual(303, plan_response["data"]["vmid"])
 
+    def test_profiles_route_returns_three_enabled_static_profiles_without_forbidden_fields(self):
+        response = asyncio.run(self.api_v1_router.list_profiles())
+
+        self.assertTrue(response["ok"])
+        profiles = response["data"]
+        self.assertEqual(["general-vm", "runtime-server", "development-vm"], [item["profile_id"] for item in profiles])
+        self.assertEqual(
+            ["범용 VM", "서비스 실행용 VM", "개발/테스트용 VM"],
+            [item["display_name_ko"] for item in profiles],
+        )
+        forbidden = {
+            "network",
+            "network_id",
+            "bridge",
+            "bridge_id",
+            "static_ip",
+            "target_node_id",
+            "storage_id",
+            "template_id",
+            "template_vmid",
+            "power_policy",
+            "profile_version",
+        }
+        for profile in profiles:
+            self.assertTrue(profile["enabled"])
+            self.assertTrue(profile["create_enabled"])
+            self.assertEqual(profile["profile_id"], profile["id"])
+            self.assertEqual("static_seed", profile["source"])
+            self.assertEqual("read_only", profile["management"])
+            self.assertEqual({"default", "min", "max"}, set(profile["hardware"]["cpu"]))
+            self.assertTrue(profile["template_requirements"]["require_cloud_init"])
+            self.assertTrue(profile["template_requirements"]["require_qemu_guest_agent"])
+            self.assertEqual("yoon", profile["access_recommendations"]["default_user"])
+            self.assertEqual(set(), forbidden & set(profile))
+            rendered = repr(profile)
+            self.assertNotIn("server-net", rendered)
+            self.assertNotIn("network_id", rendered)
+
     def test_create_flow_publishes_job_run_progress(self):
         job_id = "job-api-progress-contract"
         payload = {
@@ -164,6 +202,62 @@ networks:
                 self.assertNotIn("networkId", rendered)
                 self.assertNotIn("evil-net", rendered)
                 self.assertNotIn("server-net", rendered)
+
+    def test_selected_profile_and_hardware_overrides_are_preserved_in_active_api_outputs(self):
+        payload = {
+            "operator_id": "api-profile-test",
+            "job_id": "job-api-profile",
+            "profileId": "runtime-server",
+            "target_node_id": "yoonmanserver2",
+            "bridge_id": "vmbr0",
+            "static_ip": "192.168.2.150",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
+            "hardware": {"cpu": 6, "memoryMb": 12288, "diskGb": 120},
+            "network_id": "evil-net",
+        }
+
+        draft_response = asyncio.run(self.api_v1_router.create_vm_draft(payload))
+        preflight_response = asyncio.run(self.api_v1_router.preflight_vm_draft("draft-job-api-profile", payload))
+        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft("draft-job-api-profile", payload))
+
+        self.assertTrue(draft_response["ok"])
+        self.assertEqual("runtime-server", draft_response["data"]["profile_id"])
+        self.assertEqual({"cpu": 6, "memory_mb": 12288, "disk_gb": 120}, draft_response["data"]["hardware"])
+        self.assertTrue(preflight_response["ok"])
+        self.assertEqual("runtime-server", preflight_response["data"]["profile_id"])
+        self.assertEqual(16, preflight_response["data"]["profile_hardware_limits"]["cpu"]["max"])
+        self.assertTrue(plan_response["ok"])
+        self.assertEqual("runtime-server", plan_response["data"]["profile_id"])
+        self.assertEqual("runtime-server", plan_response["data"]["review_confirm"]["profile_id"])
+        self.assertEqual(1000, plan_response["data"]["profile_hardware_limits"]["disk_gb"]["max"])
+        rendered = repr(plan_response["data"])
+        self.assertNotIn("network_id", rendered)
+        self.assertNotIn("networkId", rendered)
+        self.assertNotIn("evil-net", rendered)
+
+    def test_unknown_profile_red_blocks_preflight_without_rewriting_profile_id(self):
+        payload = {
+            "operator_id": "api-profile-test",
+            "job_id": "job-api-unknown-profile",
+            "profile_id": "unknown-profile",
+            "target_node_id": "yoonmanserver2",
+            "bridge_id": "vmbr0",
+            "static_ip": "192.168.2.150",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
+        }
+
+        draft_response = asyncio.run(self.api_v1_router.create_vm_draft(payload))
+        preflight_response = asyncio.run(self.api_v1_router.preflight_vm_draft("draft-job-api-unknown-profile", payload))
+
+        self.assertTrue(draft_response["ok"])
+        self.assertEqual("unknown-profile", draft_response["data"]["profile_id"])
+        self.assertTrue(preflight_response["ok"])
+        self.assertEqual("red", preflight_response["data"]["risk_level"])
+        self.assertEqual("unknown-profile", preflight_response["data"]["profile_id"])
+        red_codes = {risk["code"] for risk in preflight_response["data"]["risks"] if risk["level"] == "red"}
+        self.assertIn("unknown_profile", red_codes)
 
 
 if __name__ == "__main__":

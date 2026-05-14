@@ -394,13 +394,12 @@ The following must not be persisted in API responses, job logs, or artifacts:
 
 ## Current Implementation Gap
 
-As of 2026-05-14, current code does not fully match this target design.
+As of 2026-05-14, current code partially matches this target design.
 
-- Profiles are still implemented through current built-in/profile code paths,
+- Profiles are implemented through transitional read-only `static_seed` data,
   not as Gjallar DB seed source of truth.
-- Only `general-vm` is create-enabled in the current UI/API behavior.
-- `runtime-server` and `development-vm` are target seeded enabled profiles, but
-  they are not fully implemented as active Create VM choices yet.
+- `general-vm`, `runtime-server`, and `development-vm` are all active enabled
+  Create VM choices with hardware default/min/max contracts.
 - Some older docs mention `dev-server` or `db-server`; the target seeded
   development profile is `development-vm`, and `db-server` is not an initial
   seeded enabled profile.
@@ -421,6 +420,7 @@ As of 2026-05-14, current code does not fully match this target design.
 ## Implementation Checklist
 
 1. Add DB seed data for the three enabled profiles.
+   Transitional static seed data is implemented; DB seed remains future work.
 2. Expose profile seed data through `GET /api/v1/profiles` with hardware
    defaults/limits, template requirements, and access recommendations.
 3. Keep profile management UI out of the initial slice.

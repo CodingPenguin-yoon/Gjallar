@@ -1,4 +1,4 @@
-"""Create-VM draft helpers for the PRD-locked general-vm MVP profile."""
+"""Create-VM draft helpers for the static Create VM profiles."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from app.vm_create.models import (
     VmCreateDraft,
 )
 from app.vm_create.paths import terraform_state_path
+
+DEFAULT_PROFILE_ID = "general-vm"
 
 
 def _safe_identifier(value: str) -> str:
@@ -52,34 +54,35 @@ def _hardware_value(overrides: dict, key: str, default: int) -> int:
     return value if value is not None else default
 
 
-def _load_general_profile():
+def _profiles_by_id():
     profiles = {profile.profile_id: profile for profile in load_builtin_profiles()}
-    profile = profiles.get("general-vm")
+    return profiles
+
+
+def _load_general_profile():
+    profiles = _profiles_by_id()
+    profile = profiles.get(DEFAULT_PROFILE_ID)
     if profile is None or not profile.create_enabled:
-        raise ValueError("general-vm profile must exist and be create-enabled for the MVP")
+        raise ValueError("general-vm profile must exist and be create-enabled")
     return profile
 
 
-def list_create_profile_options() -> list[CreateProfileOption]:
-    """Return profiles visible to the Create VM wizard.
+def _profile_for_draft_defaults(profile_id: str | None):
+    requested_profile_id = _optional_text(profile_id) or DEFAULT_PROFILE_ID
+    profiles = _profiles_by_id()
+    return requested_profile_id, profiles.get(requested_profile_id) or _load_general_profile()
 
-    Only general-vm is create-enabled in the first MVP. Future profile candidates
-    can be displayed/read but cannot be executed.
-    """
-    return [
-        CreateProfileOption(
-            profile_id=profile.profile_id,
-            display_name=profile.display_name,
-            create_enabled=profile.create_enabled,
-        )
-        for profile in load_builtin_profiles()
-    ]
+
+def list_create_profile_options() -> list[CreateProfileOption]:
+    """Return the read-only profile list visible to the Create VM wizard."""
+    return [CreateProfileOption(**profile.to_dict()) for profile in load_builtin_profiles()]
 
 
 def build_default_vm_draft(
     *,
     operator_id: str,
     job_id: str = "job-draft-preview",
+    profile_id: str | None = None,
     target_node_id: str | None = None,
     storage_id: str | None = None,
     network_id: str | None = None,
@@ -94,12 +97,12 @@ def build_default_vm_draft(
     template_node_id: str | None = None,
     hardware_overrides: dict | None = None,
 ) -> VmCreateDraft:
-    """Build a non-mutating default draft for the first MVP Create VM flow."""
-    profile = _load_general_profile()
+    """Build a non-mutating default draft for the Create VM flow."""
+    requested_profile_id, profile = _profile_for_draft_defaults(profile_id)
     hardware_override_values = dict(hardware_overrides or {})
     chosen_node = target_node_id or profile.target_node_candidates[0]
     selected_bridge_id = _optional_text(bridge_id)
-    requested_ip_mode = ip_mode or profile.network.default_ip_mode
+    requested_ip_mode = ip_mode or profile.default_ip_mode
     if requested_ip_mode not in {"static", "dhcp"}:
         raise ValueError("ip_mode must be either 'static' or 'dhcp'")
     resolved_static_ip = None if requested_ip_mode == "dhcp" else _optional_text(static_ip)
@@ -112,7 +115,7 @@ def build_default_vm_draft(
         draft_id=draft_id,
         job_id=job_id,
         operator_id=operator_id,
-        profile_id=profile.profile_id,
+        profile_id=requested_profile_id,
         manifest_id=manifest_id,
         vm_name=f"gjallar-vm-{suffix}",
         proposed_vmid=int(proposed_vmid or 102),
@@ -123,13 +126,13 @@ def build_default_vm_draft(
         template_vmid=_optional_int(template_vmid),
         template_node_id=template_node_id,
         hardware=DraftHardware(
-            cpu=_hardware_value(hardware_override_values, "cpu", profile.hardware.cpu),
+            cpu=_hardware_value(hardware_override_values, "cpu", profile.hardware.cpu.default),
             memory_mb=_hardware_value(
                 hardware_override_values,
                 "memory_mb",
-                profile.hardware.memory_mb,
+                profile.hardware.memory_mb.default,
             ),
-            disk_gb=_hardware_value(hardware_override_values, "disk_gb", profile.hardware.disk_gb),
+            disk_gb=_hardware_value(hardware_override_values, "disk_gb", profile.hardware.disk_gb.default),
         ),
         network=DraftNetwork(
             ip_mode=requested_ip_mode,

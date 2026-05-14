@@ -2,7 +2,7 @@
 
 평가일: 2026-05-14
 
-검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 112 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 120 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -10,6 +10,7 @@ Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan
 
 ## 구현 API/endpoints
 
+- `GET /api/v1/profiles`
 - `GET /api/v1/vm-create/readiness`
 - `POST /api/v1/vm-create/drafts`
 - `POST /api/v1/vm-create/{draft_id}/preflight`
@@ -41,6 +42,21 @@ Terraform apply는 legacy route에 남아 있지만 active UI에서 사용하지
 
 현재 생성 정책은 powered-off creation/config다. plan/review는 `first_power_on_included=false`를 기록하고, 생성되는 VMInstance manifest는 `desired_power_state: stopped`를 요청한다. first power-on과 Stage A smoke는 deferred다.
 
+Profiles는 현재 transitional `static_seed` source로 구현되어 있다.
+`GET /api/v1/profiles`는 enabled/read-only `general-vm`, `runtime-server`,
+`development-vm` 세 개만 반환하며, hardware `default/min/max`,
+`template_requirements`, `access_recommendations`를 포함한다. Profile API는
+network/`network_id`, bridge, static IP, target node, storage, template
+VMID/name, power policy, profile version을 반환하지 않는다. Wizard는 profile
+목록을 API에서 로드하고 실패 시 동일한 local defaults로 fallback한다.
+
+Draft/API는 `profile_id`/`profileId`와 CPU/RAM/Disk override를 받는다. 기본값은
+`general-vm`이고, profile 변경 시 UI는 CPU/RAM/Disk를 해당 profile default로
+reset한 뒤 선택 template disk가 더 크면 disk만 올린다. Backend preflight는
+선택 profile 존재/활성 여부와 CPU/RAM/Disk min/max를 authoritative red gate로
+검증한다. Plan/review/review-summary checksum에는 `profile_id`와 resolved
+profile hardware limits가 포함된다.
+
 ## Profile / Template / Network target gap
 
 Target design은
@@ -49,7 +65,8 @@ Target design은
 
 - Target profile source of truth는 Gjallar DB seed이며 초기 UI에서는 read-only다.
 - Target seeded enabled profiles는 `general-vm`, `runtime-server`, `development-vm`이다.
-- Current code는 아직 built-in/current profile 경로이고 `general-vm`만 create-enabled다.
+- Current code는 DB seed가 아니라 transitional `static_seed` profile source를
+  사용하지만, 세 initial profile 모두 active Create VM choice다.
 - Target template source of truth는 Proxmox live inventory이며, Gjallar template catalog/registration window는 없다.
 - Target UI는 선택 profile의 `require_cloud_init=true`, `require_qemu_guest_agent=true` 조건을 만족하지 못하는 live template을 disabled로 보여주고, backend preflight가 red-block한다.
 - Target network source of truth는 selected target node의 active live bridge다.
@@ -77,4 +94,7 @@ Create VM의 approval/artifact/GitOps/native acknowledgement/observed_after 패�
 
 ## 다음 구현 slice
 
-Create VM 다음 slice는 profile seed/hardware contract 정렬이다. DRS 작업에서는 approval checksum, artifact publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.
+Create VM 다음 slice는 template requirement disabled-state와 backend red gate,
+또는 Access/SSH-key contract 정렬이다. DRS 작업에서는 approval checksum,
+artifact publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*`
+read model과 final pre-check 계약을 먼저 만든다.

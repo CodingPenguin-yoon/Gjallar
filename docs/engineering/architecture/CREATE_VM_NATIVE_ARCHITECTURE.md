@@ -257,14 +257,13 @@ Artifacts:
 
 ## Current Implementation Gap
 
-As of 2026-05-13, the current native create path is ahead of the old Terraform
-flow but behind the new selection model:
+As of 2026-05-14, the current native create path is ahead of the old Terraform
+flow but still has selection-model gaps:
 
-- Profiles are still current built-in/profile code paths rather than Gjallar DB
+- Profiles are transitional read-only `static_seed` data rather than Gjallar DB
   seed source of truth.
-- Only `general-vm` is create-enabled in current behavior.
-- Target seeded enabled profiles `runtime-server` and `development-vm` are not
-  fully active Create VM choices yet.
+- `general-vm`, `runtime-server`, and `development-vm` are active enabled
+  choices with hardware default/min/max validation.
 - Current Create VM networking uses explicit `bridge_id` selected from active
   live bridge inventory on the target node. Incoming `network_id`/`networkId`
   is ignored during transition compatibility and is not echoed in active

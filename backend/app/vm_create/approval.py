@@ -10,12 +10,14 @@ from app.jobs.artifacts import write_json_artifact
 from app.jobs.models import ApprovalRecord, ArtifactRecord
 
 REVIEW_CONFIRM_REQUIRED_KEYS = (
+    "profile_id",
     "vm_name",
     "vmid",
     "target_node_id",
     "storage_id",
     "template_id",
     "hardware",
+    "profile_hardware_limits",
     "network",
     "terraform_state_path",
     "first_power_on_included",

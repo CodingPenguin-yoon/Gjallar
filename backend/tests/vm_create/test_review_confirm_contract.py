@@ -66,12 +66,14 @@ networks:
             review = plan.review_confirm
 
             required_keys = {
+                "profile_id",
                 "vm_name",
                 "vmid",
                 "target_node_id",
                 "storage_id",
                 "template_id",
                 "hardware",
+                "profile_hardware_limits",
                 "network",
                 "terraform_state_path",
                 "first_power_on_included",
@@ -97,6 +99,8 @@ networks:
                 self.assertIn(key, summary_payload)
             self.assertEqual(review["vm_name"], summary_payload["vm_name"])
             self.assertEqual("192.168.2.143", review["network"]["static_ip"])
+            self.assertEqual("general-vm", review["profile_id"])
+            self.assertEqual(500, review["profile_hardware_limits"]["disk_gb"]["max"])
             self.assertEqual(25, review["network"]["prefix"])
             self.assertEqual("192.168.2.254", review["network"]["gateway"])
             self.assertFalse(review["first_power_on_included"])

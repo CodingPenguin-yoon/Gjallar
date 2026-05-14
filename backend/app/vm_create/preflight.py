@@ -95,6 +95,39 @@ def _select_template(templates: list[TemplateInventory], draft: VmCreateDraft) -
     return next((item for item in templates if item.family == draft.template_family), None)
 
 
+def _profile_limits_dict(profile) -> dict:
+    if profile is None:
+        return {}
+    return profile.hardware.to_dict()
+
+
+def _check_hardware_range(
+    checks: list[PreflightCheck],
+    risks: list[RiskItem],
+    *,
+    profile,
+    profile_id: str,
+    field_name: str,
+    requested: int,
+) -> None:
+    limits = getattr(profile.hardware, field_name)
+    _check(
+        checks,
+        risks,
+        code=f"profile_{field_name}_range",
+        ok=limits.min <= requested <= limits.max,
+        message=f"requested {field_name} is inside the selected profile limits",
+        fail_code=f"profile_{field_name}_out_of_range",
+        detail={
+            "profile_id": profile_id,
+            "requested": requested,
+            "default": limits.default,
+            "min": limits.min,
+            "max": limits.max,
+        },
+    )
+
+
 def run_preflight(
     draft: VmCreateDraft,
     *,
@@ -112,11 +145,45 @@ def run_preflight(
         checks,
         risks,
         code="profile_schema",
-        ok=profile is not None and profile.profile_id == "general-vm" and profile.create_enabled,
-        message="general-vm profile is create-enabled for MVP",
-        fail_code="unsupported_profile",
+        ok=profile is not None,
+        message="selected profile exists in static seed data",
+        fail_code="unknown_profile",
         detail={"profile_id": draft.profile_id},
     )
+    _check(
+        checks,
+        risks,
+        code="profile_enabled",
+        ok=profile is not None and profile.create_enabled,
+        message="selected profile is enabled for Create VM",
+        fail_code="disabled_profile",
+        detail={"profile_id": draft.profile_id},
+    )
+    if profile is not None:
+        _check_hardware_range(
+            checks,
+            risks,
+            profile=profile,
+            profile_id=draft.profile_id,
+            field_name="cpu",
+            requested=draft.hardware.cpu,
+        )
+        _check_hardware_range(
+            checks,
+            risks,
+            profile=profile,
+            profile_id=draft.profile_id,
+            field_name="memory_mb",
+            requested=draft.hardware.memory_mb,
+        )
+        _check_hardware_range(
+            checks,
+            risks,
+            profile=profile,
+            profile_id=draft.profile_id,
+            field_name="disk_gb",
+            requested=draft.hardware.disk_gb,
+        )
 
     templates = list(adapter.list_templates())
     template = _select_template(templates, draft)
@@ -183,6 +250,22 @@ def run_preflight(
                 "requested_disk_gb": draft.hardware.disk_gb,
             },
         )
+        if profile is not None:
+            _check(
+                checks,
+                risks,
+                code="profile_template_disk_limit",
+                ok=template_disk_gb <= 0 or template_disk_gb <= profile.hardware.disk_gb.max,
+                message="selected template disk fits inside the selected profile disk limit",
+                fail_code="template_disk_exceeds_profile_max",
+                detail={
+                    "profile_id": draft.profile_id,
+                    "template_id": template.template_id,
+                    "template_vmid": template.vmid,
+                    "template_disk_gb": template_disk_gb,
+                    "profile_disk_max_gb": profile.hardware.disk_gb.max,
+                },
+            )
 
     vms = list(adapter.list_vms())
     nodes = {node.node_id: node for node in adapter.list_nodes()}
@@ -411,6 +494,8 @@ def run_preflight(
         selected_template_vmid=template.vmid if template is not None else None,
         selected_template_node_id=template.node_id if template is not None else None,
         selected_bridge_id=selected_bridge,
+        profile_id=draft.profile_id,
+        profile_hardware_limits=_profile_limits_dict(profile),
         iac_root=iac_readiness.iac_root,
         terraform_state_root=iac_readiness.terraform_state_root,
         iac_ready_for_plan=iac_readiness.ready_for_plan,

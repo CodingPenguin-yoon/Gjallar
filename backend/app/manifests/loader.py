@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from app.manifests.models import (
     AccessDefaults,
-    HardwareDefaults,
+    HardwareLimit,
     NetworkProfile,
-    ProfileNetworkDefaults,
+    ProfileHardware,
     TemplateProfile,
     VmProfile,
 )
@@ -15,45 +15,47 @@ _MVP_TARGET_NODES = ("yoonmanserver2", "yoonmanserver3")
 
 
 def load_builtin_profiles() -> list[VmProfile]:
-    """Load VM profile defaults locked by the PRD decision documents."""
+    """Load read-only static VM creation profiles for the active Create VM path."""
     return [
         VmProfile(
             profile_id="general-vm",
             display_name="General VM",
-            create_enabled=True,
-            hardware=HardwareDefaults(cpu=2, memory_mb=4096, disk_gb=50),
-            access=AccessDefaults(cloud_init_user="yoon", password_login=False),
-            network=ProfileNetworkDefaults(network_profile="server-net", default_ip_mode="static"),
+            display_name_ko="범용 VM",
+            enabled=True,
+            hardware=ProfileHardware(
+                cpu=HardwareLimit(default=2, min=1, max=8),
+                memory_mb=HardwareLimit(default=4096, min=1024, max=32768),
+                disk_gb=HardwareLimit(default=50, min=50, max=500),
+            ),
+            access=AccessDefaults(default_user="yoon"),
             target_node_candidates=_MVP_TARGET_NODES,
             template_family="ubuntu",
         ),
         VmProfile(
             profile_id="runtime-server",
-            display_name="Runtime server candidate",
-            create_enabled=False,
-            hardware=HardwareDefaults(cpu=2, memory_mb=4096, disk_gb=50),
-            access=AccessDefaults(cloud_init_user="yoon", password_login=False),
-            network=ProfileNetworkDefaults(network_profile="server-net", default_ip_mode="static"),
+            display_name="Runtime Server",
+            display_name_ko="서비스 실행용 VM",
+            enabled=True,
+            hardware=ProfileHardware(
+                cpu=HardwareLimit(default=4, min=2, max=16),
+                memory_mb=HardwareLimit(default=8192, min=4096, max=65536),
+                disk_gb=HardwareLimit(default=100, min=80, max=1000),
+            ),
+            access=AccessDefaults(default_user="yoon"),
             target_node_candidates=_MVP_TARGET_NODES,
             template_family="ubuntu",
         ),
         VmProfile(
-            profile_id="dev-server",
-            display_name="Development server candidate",
-            create_enabled=False,
-            hardware=HardwareDefaults(cpu=2, memory_mb=4096, disk_gb=50),
-            access=AccessDefaults(cloud_init_user="yoon", password_login=False),
-            network=ProfileNetworkDefaults(network_profile="server-net", default_ip_mode="static"),
-            target_node_candidates=_MVP_TARGET_NODES,
-            template_family="ubuntu",
-        ),
-        VmProfile(
-            profile_id="db-server",
-            display_name="Database server candidate",
-            create_enabled=False,
-            hardware=HardwareDefaults(cpu=2, memory_mb=4096, disk_gb=50),
-            access=AccessDefaults(cloud_init_user="yoon", password_login=False),
-            network=ProfileNetworkDefaults(network_profile="server-net", default_ip_mode="static"),
+            profile_id="development-vm",
+            display_name="Development VM",
+            display_name_ko="개발/테스트용 VM",
+            enabled=True,
+            hardware=ProfileHardware(
+                cpu=HardwareLimit(default=2, min=1, max=12),
+                memory_mb=HardwareLimit(default=4096, min=2048, max=32768),
+                disk_gb=HardwareLimit(default=50, min=50, max=500),
+            ),
+            access=AccessDefaults(default_user="yoon"),
             target_node_candidates=_MVP_TARGET_NODES,
             template_family="ubuntu",
         ),

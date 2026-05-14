@@ -49,9 +49,11 @@ Use `AGENTS.md` for execution mode:
   commit, Proxmox native preview/create, Jobs/Runs progress, and artifacts.
 - Native create clone/config success is only valid when Proxmox post-check sees
   the VM on the target node in `stopped` state and writes `observed_after`.
-- Profile/template/network target design is not fully implemented yet:
-  - only `general-vm` is create-enabled
-  - profiles are still current built-in data rather than DB seed source
+- Profile/template/network target design is partially implemented:
+  - `GET /api/v1/profiles` exposes exactly three enabled read-only static-seed
+    profiles: `general-vm`, `runtime-server`, and `development-vm`
+  - profile hardware defaults/min/max are enforced in backend preflight and
+    surfaced in plan/review artifacts; DB/ORM seed source remains future work
   - Create VM active networking now uses explicit `bridge_id` selected from
     active live bridge inventory after target node selection; incoming
     `network_id`/`networkId` is ignored during the transition and is not echoed
@@ -84,11 +86,11 @@ Goal: implement the target design from
 
 Planned slices:
 
-- [ ] Expose three enabled seed profiles:
+- [x] Expose three enabled seed profiles:
   `general-vm`, `runtime-server`, `development-vm`.
-- [ ] Add profile hardware default/min/max contract.
-- [ ] Reset CPU/RAM/Disk to profile defaults when profile changes in UI.
-- [ ] Enforce profile hardware min/max in UI and backend preflight.
+- [x] Add profile hardware default/min/max contract.
+- [x] Reset CPU/RAM/Disk to profile defaults when profile changes in UI.
+- [x] Enforce profile hardware min/max in UI and backend preflight.
 - [ ] Use Proxmox live template inventory as the template source of truth.
 - [ ] Disable UI templates that fail selected profile requirements.
 - [ ] Red-block backend preflight when selected template fails required
@@ -100,9 +102,11 @@ Planned slices:
 - [ ] Add Access section with username and SSH public key.
 - [ ] Red-block missing SSH key when selected profile requires one.
 - [ ] Keep password login disabled/fixed for initial profiles.
-- [ ] Update review/plan/artifacts to record selected profile, live template
-  evidence, bridge, static network fields, access username, and SSH key
-  presence/fingerprint without storing secrets.
+- [x] Record selected profile and resolved profile hardware limits in plan,
+  review, and artifacts.
+- [ ] Update review/plan/artifacts to record live template evidence, bridge,
+  static network fields, access username, and SSH key presence/fingerprint
+  without storing secrets.
 
 ## Workstream C: Native Proxmox Create Quality
 
@@ -176,8 +180,8 @@ pnpm --dir frontend build
 
 ## Open Decisions
 
-- Whether profile seed source should be a real DB table immediately or a
-  transitional seed repository with the target `source: db_seed` contract.
+- Profile seed source is currently transitional `source: static_seed`.
+  A real DB/ORM seed source remains a later implementation decision.
 - Whether removed Terraform endpoints should disappear as 404 or return an
   explicit gone/deprecated error for one transition slice.
 - Whether Terraform-named state path fields should be renamed immediately or

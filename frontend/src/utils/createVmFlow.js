@@ -70,6 +70,7 @@ export function buildCreateVmPayload(input = {}) {
   return pickDefined([
     ['operator_id', input.operatorId ?? input.operator_id],
     ['job_id', input.jobId ?? input.job_id],
+    ['profile_id', input.profileId ?? input.profile_id],
     ['target_node_id', input.targetNodeId ?? input.target_node_id],
     ['storage_id', input.storageId ?? input.storage_id],
     ['bridge_id', input.bridgeId ?? input.bridge_id ?? input.network?.bridgeId ?? input.network?.bridge_id],
@@ -88,6 +89,7 @@ export function buildCreateVmInputFromConfig(config = {}, fallback = {}) {
   return {
     operatorId: config.operatorId || fallback.operatorId || 'ui-operator',
     jobId: config.jobId || fallback.jobId || `ui-${Date.now()}`,
+    profileId: config.profileId || config.profile_id || fallback.profileId || 'general-vm',
     targetNodeId: config.targetNodeId || config.selectedServerId || fallback.targetNodeId || 'yoonmanserver2',
     storageId: config.storageId || config.storage_id || fallback.storageId || '',
     bridgeId: config.bridgeId || config.bridge_id || config.network?.bridgeId || config.network?.bridge_id || fallback.bridgeId || '',
@@ -124,6 +126,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       id: draftId,
       jobId: draft.job_id || payload.job_id,
       operatorId: draft.operator_id || payload.operator_id,
+      profileId: draft.profile_id || payload.profile_id,
       vmName: draft.vm_name || review.vm_name || plan.vm_name,
       vmid: draft.proposed_vmid ?? plan.vmid,
       targetNodeId: draft.target_node_id || plan.target_node_id || payload.target_node_id,
@@ -144,12 +147,14 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       raw: plan,
     },
     review: {
+      profileId: review.profile_id || plan.profile_id || draft.profile_id || payload.profile_id,
       vmName: review.vm_name || plan.vm_name || draft.vm_name,
       vmid: review.vmid ?? plan.vmid ?? draft.proposed_vmid,
       targetNode: review.target_node_id || plan.target_node_id || draft.target_node_id,
       storage: review.storage_id || plan.storage_id,
       template: review.template_id || plan.template_id,
       hardware: toCamelHardware(review.hardware || plan.hardware || draft.hardware),
+      profileHardwareLimits: review.profile_hardware_limits || plan.profile_hardware_limits || {},
       network: review.network || plan.network || draft.network || {},
       legacyStatePath: review.terraform_state_path || plan.terraform_state_path || draft.terraform_state_path,
       iacRoot: review.iac_root || plan.iac_root || preflight.iac_root || readiness.iacRoot,

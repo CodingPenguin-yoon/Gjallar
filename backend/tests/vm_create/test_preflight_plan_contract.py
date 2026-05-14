@@ -95,6 +95,10 @@ networks:
         check_codes = {check.code for check in result.checks}
         for code in {
             "profile_schema",
+            "profile_enabled",
+            "profile_cpu_range",
+            "profile_memory_mb_range",
+            "profile_disk_gb_range",
             "template_available",
             "template_cloud_init_ready",
             "template_guest_agent_ready",
@@ -158,6 +162,70 @@ networks:
         self.assertEqual("red", result.risk_level)
         red_codes = {risk.code for risk in result.risks if risk.level == "red"}
         self.assertIn("template_disk_larger_than_requested", red_codes)
+
+    def test_preflight_red_blocks_unknown_profile_without_fallback(self):
+        draft = self._default_draft(profile_id="unknown-profile", static_ip="192.168.2.142")
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("unknown_profile", red_codes)
+        self.assertIn("disabled_profile", red_codes)
+        self.assertEqual("unknown-profile", result.profile_id)
+
+    def test_preflight_red_blocks_profile_hardware_outside_limits(self):
+        cases = {
+            "cpu": ({"cpu": 9}, "profile_cpu_out_of_range"),
+            "memory": ({"memory_mb": 512}, "profile_memory_mb_out_of_range"),
+            "disk": ({"disk_gb": 501}, "profile_disk_gb_out_of_range"),
+        }
+        for name, (hardware_overrides, expected_code) in cases.items():
+            with self.subTest(name=name):
+                draft = self._default_draft(
+                    static_ip="192.168.2.142",
+                    hardware_overrides=hardware_overrides,
+                )
+
+                result = self._preflight(draft)
+
+                self.assertEqual("red", result.risk_level)
+                red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+                self.assertIn(expected_code, red_codes)
+
+    def test_preflight_red_blocks_template_disk_above_profile_max(self):
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import TemplateInventory
+
+        class LargeTemplateAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self):
+                super().__init__()
+                self._templates = (
+                    TemplateInventory(
+                        template_id="huge-template",
+                        vmid=9001,
+                        name="ubuntu-huge-template",
+                        node_id="yoonmanserver2",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=True,
+                        guest_agent_ready=True,
+                        disk_gb=600,
+                    ),
+                )
+
+        draft = self._default_draft(
+            static_ip="192.168.2.142",
+            template_id="huge-template",
+            hardware_overrides={"disk_gb": 600},
+        )
+
+        result = self._preflight_with_adapter(draft, LargeTemplateAdapter())
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("profile_disk_gb_out_of_range", red_codes)
+        self.assertIn("template_disk_exceeds_profile_max", red_codes)
 
     def test_missing_bridge_id_is_red_without_server_net_fallback_or_live_mutation(self):
         draft = self._default_draft(bridge_id=None, static_ip="192.168.2.142")
@@ -308,6 +376,7 @@ networks:
             manifest_text = Path(artifacts_by_type["vm_instance_manifest"].path).read_text(encoding="utf-8")
 
         self.assertEqual("dry_run_plan_only", plan.execution_intent)
+        self.assertEqual("general-vm", plan.profile_id)
         self.assertEqual([], plan.side_effects)
         self.assertTrue(plan.vm_name.startswith("gjallar-vm-"))
         self.assertIsInstance(plan.vmid, int)
@@ -316,12 +385,16 @@ networks:
         self.assertEqual("local-lvm", plan.storage_id)
         self.assertEqual("ubuntu-template", plan.template_id)
         self.assertEqual({"cpu": 2, "memory_mb": 4096, "disk_gb": 50}, plan.hardware)
+        self.assertEqual(2, plan.profile_hardware_limits["cpu"]["default"])
+        self.assertEqual(8, plan.profile_hardware_limits["cpu"]["max"])
         self.assertEqual("vmbr0", plan.network["bridge_id"])
         self.assertEqual("192.168.2.142", plan.network["static_ip"])
         self.assertEqual(25, plan.network["prefix"])
         self.assertEqual("192.168.2.254", plan.network["gateway"])
         self.assertEqual("192.168.2.142", plan.network["ip_address"])
         self.assertEqual(plan.network, plan.review_confirm["network"])
+        self.assertEqual("general-vm", plan.review_confirm["profile_id"])
+        self.assertEqual(plan.profile_hardware_limits, plan.review_confirm["profile_hardware_limits"])
         self.assertNotIn("network_id", plan.network)
         self.assertNotIn("networkId", rendered)
         self.assertNotIn("network_id", rendered)
