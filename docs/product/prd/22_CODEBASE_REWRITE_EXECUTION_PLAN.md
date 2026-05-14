@@ -3,6 +3,13 @@
 > Historical planning note: this execution plan preserves rewrite-era working assumptions and may mention legacy endpoint names or parked flows. Treat [`../status/current.md`](../status/current.md) and [`../operations/runbook.md`](../operations/runbook.md) as the current repo-local state.
 > Current MVP product source of truth is `drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 > This create-first material is historical/supporting capability context only. It must not define the next MVP success line or implementation order.
+> 2026-05-13 Create VM profile/template/network update: if historical Create VM
+> work here is resumed, use
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> The target has three enabled UI-visible seed profiles, live Proxmox template
+> and bridge inventory, no `network_id`/`server-net`, no template catalog, no
+> profile node/storage/network/template/power/version binding, static
+> `static_ip`/`prefix`/`gateway`, DHCP warning, and stopped create success.
 
 > 작성: 2026-05-09 00:04 KST
 > 역사적 기준 문서 경로: `/mnt/hermes_data/프로젝트/Gjallar/PRD/`
@@ -27,7 +34,8 @@ repo/code inventory
 → Review & Confirm
 → GitOps guard
 → Terraform/Proxmox apply powered-off
-→ first power on + Stage A smoke
+→ stopped create result
+→ future first power-on + Stage A smoke follow-up
 → UI/artifact expansion
 ```
 
@@ -37,8 +45,8 @@ repo/code inventory
 
 - Gjallar = **Proxmox를 VMware처럼 쓰게 해주는 VM/인프라 운영 콘솔**.
 - 제품 중심은 Terraform/Ansible 실행기가 아니라 **사람이 이해하고 승인하는 VM/노드/리스크/작업 화면**.
-- MVP 실제 생성 profile은 `general-vm` 하나.
-- 첫 생성 flow는 `draft → preflight → plan → Review & Confirm → commit/push guard → apply powered-off → first power on → smoke`.
+- Historical create-first text used a single `general-vm`; the 2026-05-13 Create VM target uses enabled `general-vm`, `runtime-server`, `development-vm` seed profiles.
+- Current Create VM target flow is `draft → preflight → plan → Review & Confirm → commit/push guard → apply/configure powered-off → stopped create result`. First power-on/smoke is a future follow-up action.
 - MVP 제외: VM 삭제, snapshot/rollback, hard stop/reset/kill, 기존 VM 독립 power action, Runtime Target write/active, 앱 deploy/DB migration/임의 shell.
 - red risk는 승인으로도 우회 불가. yellow risk는 명시 ack 필요.
 - secret 원문은 Git/DB/artifact/log/UI/API에 남기지 않는다.
@@ -192,10 +200,11 @@ PRD 기준 위치:
 
 ```text
 /mnt/hermes_data/IaC
-  manifests/profiles/general-vm.yaml
-  manifests/templates/ubuntu-template.yaml
-  manifests/networks/server-net.yaml
   manifests/vms/<manifest_id>.yaml
+  # historical create-first paths below are not target Create VM source of truth:
+  manifests/profiles/
+  manifests/templates/
+  manifests/networks/
   generated/**
   terraform/**
   ansible/**
@@ -214,6 +223,7 @@ PRD 기준 위치:
 ```
 
 현재 `/mnt/hermes_data/IaC`가 확인되지 않으므로, Slice 6 전에는 IaC repo 생성/clone/mount 정책을 확정해야 한다.
+Create VM target에서는 profile은 DB seed, template/bridge는 Proxmox live inventory가 source of truth이므로 `profiles/`, `templates/`, `networks/server-net.yaml` manifest fixture를 active target으로 만들지 않는다.
 
 ## 5. 실행 세트
 
@@ -265,7 +275,7 @@ artifacts/rewrite-baseline/<timestamp>/test-inventory.txt
 
 - `/api/v1` 공통 response/error shape 테스트.
 - manifest schema 테스트.
-- profile/network/template 기본값 테스트.
+- profile seed, live template inventory, selected node live bridge, static field 기본 contract 테스트.
 - forbidden API 테스트.
 - secret serialization 테스트.
 
@@ -295,7 +305,7 @@ frontend/tests/createVmDefaults.test.mjs
 - `FastAPI`에 `/api/v1` router 추가.
 - 공통 response wrapper 추가.
 - manifest model/loader/validator 추가.
-- `general-vm`, `server-net`, `ubuntu-template` fixture 로드.
+- seed profiles(`general-vm`, `runtime-server`, `development-vm`)와 fake Proxmox live template/bridge inventory 로드.
 
 초기 API:
 
@@ -373,15 +383,16 @@ Keep 후보:
 Preflight 필수 checks:
 
 - profile schema
-- disabled/future profile reject
+- selected profile is an enabled seed id
 - template 존재/상태
 - target node online
 - storage 존재/여유
-- selected node bridge mapping
-- live bridge existence
+- selected node active live bridge existence
+- `network_id`/`server-net` absence
 - `proxmox_vmid`/name collision
 - hardware limit
-- static IP range/reserved/collision
+- static mode `static_ip`/`prefix`/`gateway` required
+- static IP range/reserved/collision evidence
 - Terraform state lock
 - destroy/delete plan blocker
 - credential scope
@@ -407,10 +418,10 @@ Review & Confirm 필수 13항목:
 4. storage
 5. template
 6. CPU/RAM/Disk
-7. network/IP
+7. bridge/IP mode/static IP fields
 8. Terraform state path
-9. first power on 포함 여부
-10. smoke timeout summary
+9. power policy `stopped`
+10. follow-up readiness/smoke policy summary
 11. red/yellow risk summary
 12. plan artifact link
 13. planned Git diff summary
@@ -450,7 +461,7 @@ Review & Confirm 필수 13항목:
 - powered-off clone/config.
 - hardware/cloud-init/network config.
 - local backend state path 사용.
-- apply/config 성공 전 first power on 금지.
+- apply/config 성공 후에도 Create VM success는 stopped 상태.
 - state checksum/backup metadata 저장.
 
 실패 상태:
@@ -468,6 +479,9 @@ failed_stage: terraform_apply | proxmox_config
 - Terraform destroy/delete plan block.
 
 ### Set 10 — First power on + Stage A smoke
+
+Historical follow-up set only. 2026-05-13 Create VM target does not include
+first power-on or smoke in the create success path.
 
 목표:
 
@@ -511,8 +525,11 @@ failed_stage: first_power_on | cloud_init | guest_agent | ip | ssh
 
 검증:
 
-- Create VM wizard에서 `general-vm`만 노출.
-- default static, DHCP 선택 가능.
+- Create VM wizard에서 enabled seed profiles `general-vm`, `runtime-server`, `development-vm` 노출.
+- Template list는 live Proxmox inventory이며 failing template은 disabled reason 표시.
+- Network는 target node 선택 후 active live bridge 선택. `network_id`/`server-net` 없음.
+- static mode는 `static_ip`/`prefix`/`gateway` 필수.
+- DHCP 선택 가능하며 guest-agent/inventory discovery warning 표시.
 - advanced hardware collapsed.
 - red risk approve disabled.
 - yellow risk ack checkbox.

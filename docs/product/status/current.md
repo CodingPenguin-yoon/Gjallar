@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-11
+Last refreshed: 2026-05-13
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -21,8 +21,10 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 - The active frontend contract remains `/api/v1`.
 - Do not treat `/api/instances` or `/api/provision` as the active frontend surface.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
-- Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP selections, and gated IaC/Terraform actions.
-- Current Create VM apply policy is powered-off only: Terraform may clone/configure the VM after explicit apply acknowledgement, but first power-on and Stage A smoke are separate deferred stages.
+- Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP selections, manifest commit, and gated Proxmox native create.
+- Create VM profile/template/network target design is documented in [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md), but it is not fully implemented yet.
+- Current Create VM create policy is powered-off only: native Proxmox clone, boot disk resize when needed, and config may run after exact approval metadata, manifest commit verification, and `proxmox_mutation_acknowledged=true`; first power-on and Stage A smoke are separate deferred stages.
+- Terraform plan/apply routes remain optional/deprecated legacy executor paths and are not used by the active UI.
 - Read-only inventory is the safe baseline.
 - `/placement` is currently a read-only Placement screen. The target product direction is to relabel and expand this route into DRS Advisor.
 
@@ -34,19 +36,41 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 - `general-vm` currently defaults to 2 CPU / 4096 MB RAM / 50 GB disk to match the live Ubuntu template size; preflight blocks requests smaller than the selected template disk.
 - There are no destructive VM list controls.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
-- Live Terraform apply remains approval-gated and fail closed.
+- Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, and marks applied only when the requested disk resize is unnecessary or completed and the VM exists on the target node and is still stopped.
+- Task failure, unknown cloned disk size, resize failure, VM missing, or observed powered-on state records failed/`needs_reconciliation` and does not mark the manifest applied.
+
+## Create VM target gap
+
+The target design is not current implementation yet:
+
+- Profiles should become Gjallar DB-seeded read-only presets with enabled
+  `general-vm`, `runtime-server`, and `development-vm`.
+- Current code still uses current built-in/profile paths and only `general-vm`
+  is create-enabled.
+- Target templates come from Proxmox live inventory with no Gjallar template
+  catalog or registration window.
+- Target Create VM networking should select target node, then an active live
+  bridge on that node.
+- Current code still uses `network_id`/`server-net` and bridge mapping.
+- Target static mode should require `static_ip`, `prefix`, and `gateway`.
+- Current code does not yet require static `prefix`/`gateway`.
+- Profile has no power policy; create remains stopped/powered off. VM start is
+  future Infra Explorer row action work with Jobs/Runs audit.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `pytest` result: `89 passed`.
-- Frontend `.mjs` contract tests: passed.
-- Frontend lint: passed.
-- Frontend build: passed.
+- Backend `PYTHONPATH=backend pytest -q backend/tests`: `100 passed`.
+- Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
+- Frontend `pnpm --dir frontend lint`: passed.
+- Frontend `pnpm --dir frontend build`: passed.
 
 ## Practical reading
 
+- Use [`../../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
+- Use [`../../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.
 - Use [../prd/README.md](../prd/README.md) for shared PRD and working design material.
+- Use [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md) for the Create VM target profile/template/network model.
 - Use [`../../engineering/architecture/`](../../engineering/architecture/) for current code-oriented architecture notes; treat [`../../history/features/`](../../history/features/), [`../../history/operations/`](../../history/operations/), and [`../../history/roadmap/`](../../history/roadmap/) as historical context unless a file says otherwise.

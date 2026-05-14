@@ -6,11 +6,11 @@ import { buildCreateVmDefaults } from '../utils/createVmDefaults'
 import { buildNetworkPolicyModel } from '../utils/networkPolicy'
 import {
   approveCreateVmReview,
-  applyCreateVmTerraformPlan,
   buildCreateVmInputFromConfig,
   commitCreateVmManifest,
+  createVmWithProxmox,
   loadCreateVmReviewModel,
-  prepareCreateVmTerraformPlan,
+  previewCreateVmProxmox,
 } from '../utils/createVmFlow'
 
 const CHECK_LABELS = {
@@ -35,8 +35,8 @@ const CHECK_LABELS = {
   iac_root_writable: '코드 저장소 쓰기',
   iac_git_repo_available: 'Git 저장소',
   iac_write_allowlist_ready: '쓰기 경로',
-  terraform_state_root_available: '상태 저장소',
-  terraform_state_root_writable: '상태 저장소 쓰기',
+  terraform_state_root_available: '레거시 상태 저장소',
+  terraform_state_root_writable: '레거시 상태 저장소 쓰기',
   terraform_state_lock_available: '상태 잠금',
   destroy_delete_plan_absent: '삭제 계획 없음',
   credential_scope_read_only: '인증 범위',
@@ -74,13 +74,13 @@ function SummaryTile({ label, value, icon: Icon }) {
   )
 }
 
-function StepIndicator({ model, approval, terraformPlanResult, commitResult, applyResult }) {
+function StepIndicator({ model, approval, proxmoxPreviewResult, commitResult, createResult }) {
   const steps = [
     { label: '요청 입력', done: true, active: !model },
     { label: '검토', done: Boolean(model), active: Boolean(model) && !approval },
-    { label: '승인', done: Boolean(approval?.canApprove), active: Boolean(approval) && !terraformPlanResult && !commitResult && !applyResult },
-    { label: '생성 준비', done: Boolean(terraformPlanResult || commitResult), active: Boolean(terraformPlanResult || commitResult) && !applyResult },
-    { label: '생성 실행', done: Boolean(applyResult), active: Boolean(applyResult) },
+    { label: '승인', done: Boolean(approval?.canApprove), active: Boolean(approval) && !proxmoxPreviewResult && !commitResult && !createResult },
+    { label: '최종 확인', done: Boolean(proxmoxPreviewResult || commitResult), active: Boolean(proxmoxPreviewResult || commitResult) && !createResult },
+    { label: 'Native 생성', done: Boolean(createResult), active: Boolean(createResult) },
   ]
   return (
     <div className="grid gap-2 sm:grid-cols-5">
@@ -124,6 +124,7 @@ function manifestPhaseLabel(phase) {
   if (phase === 'planned') return '검토됨'
   if (phase === 'applying') return '생성 중'
   if (phase === 'apply_failed') return '생성 실패'
+  if (phase === 'needs_reconciliation') return '확인 필요'
   if (phase === 'applied') return '생성 완료'
   if (phase === 'archived') return '보관됨'
   return phase || '대기'
@@ -132,6 +133,7 @@ function manifestPhaseLabel(phase) {
 function toneForManifestPhase(phase) {
   if (phase === 'applied') return 'green'
   if (phase === 'apply_failed') return 'red'
+  if (phase === 'needs_reconciliation') return 'yellow'
   if (phase === 'applying' || phase === 'planned') return 'blue'
   if (phase === 'archived') return 'slate'
   return 'yellow'
@@ -294,17 +296,16 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const [form, setForm] = useState(() => buildInitialForm(config))
   const [model, setModel] = useState(null)
   const [approval, setApproval] = useState(null)
-  const [terraformPlanResult, setTerraformPlanResult] = useState(null)
+  const [proxmoxPreviewResult, setProxmoxPreviewResult] = useState(null)
   const [commitResult, setCommitResult] = useState(null)
-  const [applyResult, setApplyResult] = useState(null)
+  const [createResult, setCreateResult] = useState(null)
   const [yellowRiskAcknowledged, setYellowRiskAcknowledged] = useState(false)
-  const [terraformPlanRunAcknowledged, setTerraformPlanRunAcknowledged] = useState(false)
-  const [terraformApplyAcknowledged, setTerraformApplyAcknowledged] = useState(false)
+  const [proxmoxMutationAcknowledged, setProxmoxMutationAcknowledged] = useState(false)
   const [loading, setLoading] = useState(false)
   const [approving, setApproving] = useState(false)
-  const [preparingTerraform, setPreparingTerraform] = useState(false)
+  const [previewingProxmox, setPreviewingProxmox] = useState(false)
   const [committing, setCommitting] = useState(false)
-  const [applying, setApplying] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
   const [options, setOptions] = useState({ nodes: [], templates: [], storages: [], networkPolicy: null, loading: true, error: null })
 
@@ -370,9 +371,9 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     })
     setModel(null)
     setApproval(null)
-    setTerraformPlanResult(null)
+    setProxmoxPreviewResult(null)
     setCommitResult(null)
-    setApplyResult(null)
+    setCreateResult(null)
     setError(null)
   }
 
@@ -459,11 +460,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     setLoading(true)
     setError(null)
     setApproval(null)
-    setTerraformPlanResult(null)
+    setProxmoxPreviewResult(null)
     setCommitResult(null)
-    setApplyResult(null)
-    setTerraformPlanRunAcknowledged(false)
-    setTerraformApplyAcknowledged(false)
+    setCreateResult(null)
+    setProxmoxMutationAcknowledged(false)
     try {
       const reviewModel = await loadCreateVmReviewModel(apiV1Client, form)
       setModel(reviewModel)
@@ -490,22 +490,20 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     }
   }
 
-  const prepareTerraformPlan = async ({ runPlan = false } = {}) => {
-    if (!approval?.canApprove || !model?.review?.canPrepareTerraformPlan) return
-    setPreparingTerraform(true)
+  const previewProxmoxCreate = async () => {
+    if (!approval?.canApprove || !model?.review?.canPreviewProxmox) return
+    setPreviewingProxmox(true)
     setError(null)
     try {
-      const result = await prepareCreateVmTerraformPlan(apiV1Client, model, {
+      const result = await previewCreateVmProxmox(apiV1Client, model, {
         yellowRiskAcknowledged,
-        runTerraformPlan: runPlan,
-        terraformPlanAcknowledged: runPlan && terraformPlanRunAcknowledged,
       })
-      setTerraformPlanResult(result)
+      setProxmoxPreviewResult(result)
     } catch (err) {
-      setError(err?.message || 'Terraform 파일 준비에 실패했습니다.')
-      setTerraformPlanResult(null)
+      setError(err?.message || 'Proxmox native 생성 미리보기에 실패했습니다.')
+      setProxmoxPreviewResult(null)
     } finally {
-      setPreparingTerraform(false)
+      setPreviewingProxmox(false)
     }
   }
 
@@ -524,35 +522,34 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     }
   }
 
-  const applyTerraformPlan = async () => {
-    if (!approval?.canApprove || !model?.review?.canApplyTerraform || !terraformPlanResult?.planRan || !commitResult?.commitSha) return
-    setApplying(true)
+  const createWithProxmox = async () => {
+    if (!approval?.canApprove || !model?.review?.canCreateProxmox || !commitResult?.commitSha) return
+    setCreating(true)
     setError(null)
     const jobId = model?.draft?.jobId || form.jobId
-    const applyPromise = applyCreateVmTerraformPlan(apiV1Client, model, {
+    const createPromise = createVmWithProxmox(apiV1Client, model, {
       yellowRiskAcknowledged,
       manifestCommitSha: commitResult.commitSha,
-      expectedPlanPath: terraformPlanResult.planPath,
-      terraformPlanAcknowledged: terraformPlanResult.planRan === true,
-      terraformApplyAcknowledged,
-      proxmoxMutationAcknowledged: terraformApplyAcknowledged,
+      proxmoxMutationAcknowledged,
     })
     navigate(`/jobs?job=${encodeURIComponent(jobId)}`)
     try {
-      const result = await applyPromise
-      setApplyResult(result)
+      const result = await createPromise
+      setCreateResult(result)
     } catch (err) {
-      setError(err?.message || 'VM 생성 apply에 실패했습니다.')
+      setError(err?.message || 'Proxmox native VM 생성에 실패했습니다.')
       const status = err?.details?.manifest_status
-      setApplyResult(status ? {
+      const observed = err?.details?.proxmox_create?.observed_after
+      setCreateResult(status ? {
         status: status.phase || 'apply_failed',
         tone: 'red',
-        statePath: '',
         manifestStatus: status,
-        operatorMessage: 'VM 생성 실패 상태가 IaC에 기록되었습니다.',
+        observedAfter: observed || null,
+        observedAfterPath: err?.details?.proxmox_create?.observed_after_artifact?.path || '',
+        operatorMessage: 'VM 생성 확인 실패 상태가 기록되었습니다.',
       } : null)
     } finally {
-      setApplying(false)
+      setCreating(false)
     }
   }
 
@@ -576,7 +573,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         </div>
 
         <div className="mt-5">
-          <StepIndicator model={model} approval={approval} terraformPlanResult={terraformPlanResult} commitResult={commitResult} applyResult={applyResult} />
+          <StepIndicator model={model} approval={approval} proxmoxPreviewResult={proxmoxPreviewResult} commitResult={commitResult} createResult={createResult} />
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -711,8 +708,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <StatusPill tone={toneForRiskLevel(model.readiness?.riskLevel)}>{riskLabel(model.readiness?.riskLevel)}</StatusPill>
               </div>
               <DetailRow label="코드 저장소" value={model.readiness?.readyForExecute ? '준비됨' : '확인 필요'} />
-              <DetailRow label="Terraform 준비" value={model.readiness?.readyForPlan ? '가능' : '차단'} />
-              <DetailRow label="상태 저장소" value={model.review.terraformStateRoot} />
+              <DetailRow label="Native 생성" value={model.review.canCreateProxmox ? '가능' : '요청 저장 필요'} />
               <DetailRow label="요청 저장 위치" value={model.review.iacRoot} />
             </section>
 
@@ -728,42 +724,31 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 검토 내용 승인
               </button>
-              <button type="button" onClick={() => prepareTerraformPlan()} disabled={!approval?.canApprove || !model.review.canPrepareTerraformPlan || preparingTerraform} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
-                {preparingTerraform ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                실행 준비 파일 만들기
-              </button>
-              <label className="mt-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2 text-sm text-blue-800">
-                <input type="checkbox" className="mt-1" checked={terraformPlanRunAcknowledged} onChange={(event) => setTerraformPlanRunAcknowledged(event.target.checked)} />
-                Proxmox 현재 상태를 읽어 생성 변경 미리보기를 만드는 것을 승인합니다.
-              </label>
-              <button type="button" onClick={() => prepareTerraformPlan({ runPlan: true })} disabled={!approval?.canApprove || !model.review.canPrepareTerraformPlan || !terraformPlanRunAcknowledged || preparingTerraform} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
-                {preparingTerraform ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                생성 변경 미리보기
+              <button type="button" onClick={previewProxmoxCreate} disabled={!approval?.canApprove || !model.review.canPreviewProxmox || previewingProxmox} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                {previewingProxmox ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                생성 최종 확인
               </button>
               <button type="button" onClick={commitManifest} disabled={!approval?.canApprove || !model.review.canCommitManifest || committing} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderGit2 className="h-4 w-4" />}
                 생성 요청 저장
               </button>
               <label className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800">
-                <input type="checkbox" className="mt-1" checked={terraformApplyAcknowledged} onChange={(event) => setTerraformApplyAcknowledged(event.target.checked)} />
+                <input type="checkbox" className="mt-1" checked={proxmoxMutationAcknowledged} onChange={(event) => setProxmoxMutationAcknowledged(event.target.checked)} />
                 Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.
               </label>
-              <button type="button" onClick={applyTerraformPlan} disabled={!approval?.canApprove || !model.review.canApplyTerraform || !terraformPlanResult?.planRan || !commitResult?.commitSha || !terraformApplyAcknowledged || applying} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
-                {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
-                꺼진 상태로 VM 만들기
+              <button type="button" onClick={createWithProxmox} disabled={!approval?.canApprove || !model.review.canCreateProxmox || !commitResult?.commitSha || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
+                Proxmox native create
               </button>
               {approval && (
                 <div className={`mt-3 rounded-lg border p-3 text-sm ${approvalToneClass(approval)}`}>
                   {approval.operatorMessage}
                 </div>
               )}
-              {terraformPlanResult && (
+              {proxmoxPreviewResult && (
                 <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-                  <div>{terraformPlanResult.operatorMessage}</div>
-                  <div className="mt-1 break-all text-xs text-blue-600">{terraformPlanResult.terraformDir}</div>
-                  {terraformPlanResult.planRan && (
-                    <div className="mt-1 text-xs font-medium text-blue-700">plan 파일: {terraformPlanResult.planPath}</div>
-                  )}
+                  <div>{proxmoxPreviewResult.operatorMessage}</div>
+                  <div className="mt-1 break-all text-xs text-blue-600">{proxmoxPreviewResult.clone?.endpoint}</div>
                 </div>
               )}
               {commitResult && (
@@ -775,13 +760,13 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                   <div className="mt-1 break-all text-xs text-green-600">{commitResult.commitSha}</div>
                 </div>
               )}
-              {applyResult && (
-                <div className={`mt-3 rounded-lg border p-3 text-sm ${applyResult.status === 'applied' ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
-                  <div>{applyResult.operatorMessage}</div>
-                  {applyResult.manifestStatus?.phase && (
-                    <div className="mt-2"><StatusPill tone={toneForManifestPhase(applyResult.manifestStatus.phase)}>상태: {manifestPhaseLabel(applyResult.manifestStatus.phase)}</StatusPill></div>
+              {createResult && (
+                <div className={`mt-3 rounded-lg border p-3 text-sm ${createResult.status === 'applied' ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
+                  <div>{createResult.operatorMessage}</div>
+                  {createResult.manifestStatus?.phase && (
+                    <div className="mt-2"><StatusPill tone={toneForManifestPhase(createResult.manifestStatus.phase)}>상태: {manifestPhaseLabel(createResult.manifestStatus.phase)}</StatusPill></div>
                   )}
-                  <div className={`mt-1 break-all text-xs ${applyResult.status === 'applied' ? 'text-green-600' : 'text-red-600'}`}>{applyResult.statePath}</div>
+                  <div className={`mt-1 break-all text-xs ${createResult.status === 'applied' ? 'text-green-600' : 'text-yellow-700'}`}>{createResult.observedAfterPath || createResult.fingerprintHash}</div>
                 </div>
               )}
             </section>

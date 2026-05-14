@@ -1,4 +1,4 @@
-const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 Terraform apply 승인 단계에서만 실행됩니다.'
+const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.'
 
 function present(value) {
   return value !== undefined && value !== null && String(value).trim() !== ''
@@ -49,7 +49,7 @@ function normalizeReadiness(readiness = {}) {
   return {
     sharedRoot: readiness.shared_root || '',
     iacRoot: readiness.iac_root || '',
-    terraformStateRoot: readiness.terraform_state_root || '',
+    legacyStateRoot: readiness.terraform_state_root || '',
     riskLevel: readiness.risk_level || 'unknown',
     readyForPlan: readiness.ready_for_plan === true,
     readyForExecute: readiness.ready_for_execute === true,
@@ -149,9 +149,9 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       template: review.template_id || plan.template_id,
       hardware: toCamelHardware(review.hardware || plan.hardware || draft.hardware),
       network: review.network || plan.network || draft.network || {},
-      terraformStatePath: review.terraform_state_path || plan.terraform_state_path || draft.terraform_state_path,
+      legacyStatePath: review.terraform_state_path || plan.terraform_state_path || draft.terraform_state_path,
       iacRoot: review.iac_root || plan.iac_root || preflight.iac_root || readiness.iacRoot,
-      terraformStateRoot: review.terraform_state_root || plan.terraform_state_root || preflight.terraform_state_root || readiness.terraformStateRoot,
+      legacyStateRoot: review.terraform_state_root || plan.terraform_state_root || preflight.terraform_state_root || readiness.legacyStateRoot,
       iacReadyForPlan: review.iac_ready_for_plan ?? plan.iac_ready_for_plan ?? preflight.iac_ready_for_plan ?? readiness.readyForPlan,
       iacReadyForExecute: review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute,
       firstPowerOnIncluded: Boolean(review.first_power_on_included ?? plan.first_power_on_included ?? draft.first_power_on_included),
@@ -163,9 +163,9 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       plannedGitDiffSummary: review.planned_git_diff_summary || '',
       reviewSummaryChecksum: review.review_summary_checksum || '',
       canApprove,
-      canPrepareTerraformPlan: canApprove && Boolean(review.iac_ready_for_plan ?? plan.iac_ready_for_plan ?? preflight.iac_ready_for_plan ?? readiness.readyForPlan),
+      canPreviewProxmox: canApprove,
       canCommitManifest: canApprove && Boolean(review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute),
-      canApplyTerraform: canApprove && Boolean(review.iac_ready_for_plan ?? plan.iac_ready_for_plan ?? preflight.iac_ready_for_plan ?? readiness.readyForPlan) && Boolean(review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute),
+      canCreateProxmox: canApprove && Boolean(review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute),
       canExecute: false,
       executeDisabledReason: LIVE_RUN_DISABLED_REASON,
     },
@@ -226,7 +226,7 @@ export async function commitCreateVmManifest(client, model, options = {}) {
     commitSha: response.commit_sha || '',
     manifestPath: response.manifest_path || '',
     manifestStatus: response.manifest_status || {},
-    applyEnabled: response.terraform_apply_enabled === true,
+    createEnabled: response.proxmox_create_enabled === true,
     proxmoxMutationEnabled: response.proxmox_mutation_enabled === true,
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
     operatorMessage: `생성 요청이 저장되었습니다: ${response.manifest_path || response.commit_sha || 'commit created'}`,
@@ -234,71 +234,58 @@ export async function commitCreateVmManifest(client, model, options = {}) {
   }
 }
 
-export async function prepareCreateVmTerraformPlan(client, model, options = {}) {
+export async function previewCreateVmProxmox(client, model, options = {}) {
   const payload = {
     ...(model.payload || {}),
     plan_artifact_id: model.review?.planArtifactId || '',
     review_summary_checksum: model.review?.reviewSummaryChecksum || '',
     yellow_risk_acknowledged: options.yellowRiskAcknowledged === true,
-    run_terraform_plan: options.runTerraformPlan === true,
-    terraform_plan_acknowledged: options.terraformPlanAcknowledged === true,
   }
-  const response = await client.prepareVmDraftTerraformPlan(model.draft.id, payload)
-  const commands = Array.isArray(response.commands) ? response.commands : []
-  const commandText = commands.map((command) => Array.isArray(command) ? command.join(' ') : String(command)).join('\n')
+  const response = await client.previewVmDraftProxmox(model.draft.id, payload)
   return {
-    status: response.terraform_plan_ran ? 'planned' : 'prepared',
+    status: 'previewed',
     tone: 'blue',
-    workspaceDir: response.workspace_dir || '',
-    terraformDir: response.terraform_dir || '',
-    tfvarsPath: response.tfvars_path || '',
-    statePath: response.state_path || '',
-    planPath: response.plan_path || '',
-    commandText,
-    planRan: response.terraform_plan_ran === true,
-    planResults: Array.isArray(response.terraform_plan_results) ? response.terraform_plan_results : [],
-    applyEnabled: response.terraform_apply_enabled === true,
+    clone: response.clone || {},
+    config: response.config || {},
+    postCheck: response.post_check || {},
+    artifacts: Array.isArray(response.artifacts) ? response.artifacts : [],
+    createEnabled: response.proxmox_create_enabled === true,
     proxmoxMutationEnabled: response.proxmox_mutation_enabled === true,
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
-    operatorMessage: response.terraform_plan_ran
-      ? 'Terraform 검토가 완료되었습니다.'
-      : 'Terraform 파일이 준비되었습니다.',
+    operatorMessage: 'Proxmox native 생성 미리보기가 준비되었습니다.',
     raw: response,
   }
 }
 
-export async function applyCreateVmTerraformPlan(client, model, options = {}) {
+export async function createVmWithProxmox(client, model, options = {}) {
   const payload = {
     ...(model.payload || {}),
     plan_artifact_id: model.review?.planArtifactId || '',
     review_summary_checksum: model.review?.reviewSummaryChecksum || '',
     yellow_risk_acknowledged: options.yellowRiskAcknowledged === true,
     manifest_commit_sha: options.manifestCommitSha || '',
-    expected_plan_path: options.expectedPlanPath || '',
-    terraform_plan_acknowledged: options.terraformPlanAcknowledged === true,
-    terraform_apply_acknowledged: options.terraformApplyAcknowledged === true,
     proxmox_mutation_acknowledged: options.proxmoxMutationAcknowledged === true,
   }
-  const response = await client.applyVmDraftTerraformPlan(model.draft.id, payload)
-  const results = Array.isArray(response.terraform_apply_results) ? response.terraform_apply_results : []
+  const response = await client.createVmDraftProxmox(model.draft.id, payload)
+  const created = response.proxmox_create_ran === true && response.proxmox_create_status === 'applied'
+  const observedAfterArtifact = response.observed_after_artifact || null
   return {
-    status: response.terraform_apply_ran ? 'applied' : 'blocked',
-    tone: response.terraform_apply_ran ? 'green' : 'red',
-    workspaceDir: response.workspace_dir || '',
-    terraformDir: response.terraform_dir || '',
-    statePath: response.state_path || '',
+    status: created ? 'applied' : (response.status || 'blocked'),
+    tone: created ? 'green' : 'red',
     manifestPath: response.manifest_path || '',
     manifestCommitSha: response.manifest_commit_sha || '',
     manifestStatus: response.manifest_status || {},
     manifestStatusCommitSha: response.manifest_status_commit_sha || '',
-    applyEnabled: response.terraform_apply_enabled === true,
+    createEnabled: response.proxmox_create_enabled === true,
     proxmoxMutationEnabled: response.proxmox_mutation_enabled === true,
+    observedAfter: response.observed_after || null,
+    observedAfterArtifact,
+    observedAfterPath: observedAfterArtifact?.path || '',
+    fingerprintHash: response.observed_after?.fingerprint?.hash || '',
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
-    results,
-    stdout: results.map((item) => item.stdout || '').filter(Boolean).join('\n'),
-    operatorMessage: response.terraform_apply_ran
-      ? 'VM 생성 apply가 실행되었습니다.'
-      : 'VM 생성 apply가 실행되지 않았습니다.',
+    operatorMessage: created
+      ? 'VM이 꺼진 상태로 생성되고 확인되었습니다.'
+      : 'VM 생성 확인이 완료되지 않았습니다.',
     raw: response,
   }
 }

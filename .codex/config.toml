@@ -1,8 +1,8 @@
-model = "gpt-5.4"
+model = "gpt-5.5"
 personality = "pragmatic"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "xhigh"
 
 [features]
 multi_agent = true

@@ -1,5 +1,11 @@
 # Gjallar UI Screens PRD
 
+> 2026-05-13 Create VM profile/template/network update: DRS Advisor remains the
+> current MVP source of truth. For Create VM UI details, use
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> Older single-profile, `server-net`/NetworkProfile, template catalog, and
+> first-power-on-in-create-flow text below is superseded where it conflicts.
+
 ## 0. 목적
 
 사람이 보는 화면을 먼저 정의한다.
@@ -126,8 +132,8 @@ VM Detail의 2차 전원 action:
 - graceful shutdown
 - reboot
 
-첫 구현 MVP에서는 VM 생성 flow 안의 first power on만 제공한다.
-기존 VM에 대한 독립 power on / graceful shutdown / reboot 버튼은 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice에서 노출한다.
+Create VM target은 생성 성공 시 powered-off/stopped로 완료한다.
+VM start와 기존 VM에 대한 독립 power on / graceful shutdown / reboot 버튼은 future Infra Explorer row action으로 Jobs/Runs audit를 붙여 노출한다.
 
 전원 action UX:
 
@@ -141,11 +147,16 @@ VM Detail의 2차 전원 action:
 
 Profile 기반 wizard.
 
-MVP profile 정책:
+2026-05-13 target profile/template/network 정책:
 
-- 실제 생성 가능한 profile은 `general-vm` 하나다.
-- `general-vm`은 일반 VM 생성용 기본 profile이다.
-- `runtime-server`, `dev-server`, `db-server`는 2차 profile 후보이며 MVP 화면에서는 숨긴다. 필요하면 API/schema에는 future 상태만 남긴다.
+- UI-visible enabled profile은 `general-vm`, `runtime-server`, `development-vm` 세 개다.
+- Profile은 read-only creation preset이며 target node/storage/network/template/power/version을 bind하지 않는다.
+- Template list는 Proxmox live inventory다. Profile requirement를 만족하지 못하는 template은 disabled reason과 함께 보이되 선택할 수 없다.
+- Network는 target node 선택 후 해당 node의 active live bridge를 선택한다.
+- Create VM target은 `network_id` 또는 `server-net`을 사용하지 않는다.
+- static mode는 `static_ip`, `prefix`, `gateway`를 모두 입력해야 한다.
+- DHCP mode는 허용하지만 later guest-agent/inventory discovery warning을 표시한다.
+- Network tab policy/subnet/range는 future integration이며 Create VM source of truth가 아니다.
 
 중요 UX:
 
@@ -164,9 +175,9 @@ Review & Confirm 표시 항목:
 4. storage
 5. template
 6. CPU/RAM/Disk
-7. network / IP
+7. bridge / IP mode / static IP fields
 8. Terraform state path
-9. 첫 power on 포함 여부
+9. power policy: `stopped`
 10. smoke timeout 요약
 11. red/yellow risk summary
 12. plan artifact link
@@ -261,11 +272,11 @@ Cleanup: 후보로만 표시, 자동 삭제 없음
 표시:
 
 - Proxmox endpoint/credential 상태
-- node/storage/network profile
-- template 목록
+- node/storage/live bridge inventory
+- live Proxmox template 목록
 - IaC repo 경로
 - Terraform state 위치
-- Network Profile source 상태
+- Network tab policy source 상태, 단 Create VM source of truth는 아님
 
 ## 8. 제외 화면
 

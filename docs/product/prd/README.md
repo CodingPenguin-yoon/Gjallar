@@ -54,4 +54,5 @@ Terraform, Ansible, Hermes, AI, and agent flows are supporting control plumbing 
 - Current MVP direction points to [`drs-advisor/`](drs-advisor/README.md); `24_DRS_ADVISOR_MVP_PRD.md` is only a numeric index.
 - Current repo-local state and verification belong under [`../status/`](../status/current.md) and [`../operations/`](../operations/runbook.md).
 - Create-first material is historical/supporting capability context only. It must not define the next MVP success line or implementation order.
+- Current Create VM profile/template/network target design is [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md); status docs identify what is not implemented yet.
 - Current engineering docs live under [`../../engineering/architecture/`](../../engineering/architecture/); historical feature, operations, and roadmap notes live under [`../../history/`](../../history/).

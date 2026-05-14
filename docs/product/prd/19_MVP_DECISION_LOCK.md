@@ -85,6 +85,20 @@ Warning examples:
 - guest agent unavailable
 - route evidence incomplete but not contradicted
 
+Create VM supporting capability target lock:
+
+- Create VM is supporting capability, not the DRS Advisor MVP success line.
+- Profile is a UI-visible creation preset, not a Proxmox template replacement.
+- Profile source of truth target is Gjallar DB seed, initially read-only in UI.
+- Initial seeded enabled profiles are `general-vm`, `runtime-server`, and `development-vm`.
+- Template source of truth is Proxmox live inventory; there is no target Gjallar template catalog or registration window.
+- Create VM network source of truth is selected target node plus active live bridge on that node.
+- Target Create VM removes `network_id`/`server-net`.
+- Static mode requires `static_ip`, `prefix`, and `gateway`; DHCP is allowed with warning.
+- Create VM always completes powered off/stopped by global create policy. Profile has no power policy.
+- VM start is future Infra Explorer row action work with Jobs/Runs audit.
+- Current code gap remains: built-in profiles, only `general-vm` enabled, `network_id`/`server-net`, and no static `prefix`/`gateway` requirement until implementation update.
+
 ## 1. 제품 정체성
 
 - Gjallar는 **Proxmox를 VMware처럼 쓰게 해주는 VM/인프라 운영 콘솔**이다.
@@ -98,7 +112,7 @@ MVP 포함:
 
 - Dashboard / Infra Explorer
 - Nodes / VMs / VM Detail
-- `general-vm` powered-off 생성
+- Create VM supporting capability with powered-off native create
 - first power on + guest-agent/IP/SSH/cloud-init smoke는 create-readiness slice로 분리
 - 리스크/경고 표시
 - preflight / plan / Review & Confirm
@@ -121,27 +135,34 @@ MVP 제외:
 - Runtime Target manifest/API/checkbox는 Runtime Target slice로 연기
 - Runtime Target `active=true` 자동 전환
 
-## 3. MVP 실제 생성 profile
+## 3. Create VM supporting profile target
 
-- MVP 실제 생성 profile과 화면 선택지는 `general-vm` 하나다.
+- Target seeded enabled profile과 화면 선택지는 `general-vm`, `runtime-server`, `development-vm` 세 개다.
 - `general-vm`은 일반 VM 생성용 기본 profile이다.
+- `runtime-server`는 서비스 실행용 VM preset이다.
+- `development-vm`은 개발/테스트용 VM preset이다.
+- Profile은 hardware default/min/max, template requirement, access recommendation만 가진다.
+- Profile에는 target node, storage, network/network_id, bridge, static IP, template VMID/name, power policy, profile version을 넣지 않는다.
 - 목적: template clone + hardware/network/cloud-init config를 powered-off 상태로 안전하게 검증하고, first power on + smoke는 다음 create-readiness slice에서 검증.
-- `runtime-server`, `dev-server`, `db-server`는 2차 profile 후보다.
-- Docker/Node/Python/uv/gh, DB, app runtime bootstrap은 `general-vm`에 넣지 않는다.
+- Docker/Node/Python/uv/gh, DB, app runtime bootstrap은 powered-off create 성공 기준에 넣지 않는다.
+
+Current implementation gap: 현재 code와 UI/API는 아직 `general-vm`만
+create-enabled다. `runtime-server`와 `development-vm`은 target seed profile이다.
 
 ## 4. 첫 fixture / live inventory 경계
 
 PRD fixture 후보:
 
 ```yaml
-profile_id: general-vm
 target_node_candidates:
   - yoonmanserver2
   - yoonmanserver3
-network_profile: server-net
-node_bridges:
-  yoonmanserver2: vmbr0
-  yoonmanserver3: vmbr0
+profile_candidates:
+  - general-vm
+  - runtime-server
+  - development-vm
+network_source: proxmox_live_bridge_inventory
+bridge_selection: selected_target_node_active_bridge
 ip_modes:
   allowed:
     - dhcp
@@ -157,21 +178,24 @@ mvp_create_ip_range: 192.168.2.140-150
 - node별 실제 bridge 목록
 - storage 이름/여유량
 - Ubuntu template VMID/name/storage/cloud-init/guest-agent capability
+- target node별 실제 active bridge 목록
 - 사용 가능한 IP
 
 ## 5. Network / IP 결정
 
-- NetworkProfile이 node별 bridge mapping의 source of truth다.
-- bridge는 VM 생성 요청에서 raw 값으로 받지 않는다.
-- Gjallar는 `node_id` + `network_id`로 `NetworkProfile.node_bridges[node_id]`를 resolve 한다.
-- 선택 target node에 mapping이 없거나 live inventory상 bridge가 없으면 red risk로 실행 차단한다.
+- Target Create VM network source of truth는 Proxmox live bridge inventory다.
+- 사용자는 target node를 고른 뒤 해당 node의 active live bridge를 선택한다.
+- Target Create VM request는 `network_id`/`server-net`에 의존하지 않는다.
+- 선택 target node에 live bridge가 없거나 선택 bridge가 존재하지 않으면 red risk로 실행 차단한다.
 - DHCP/static 둘 다 지원한다.
 - 기본/추천 IP mode는 static이다.
+- static mode에는 `static_ip`, `prefix`, `gateway`가 모두 필요하다.
 - Runtime Target 후보 slice에서는 static IP 또는 안정적 접근 주소가 필요하다. 첫 구현 MVP preflight blocker는 아니다.
 - DHCP 생성은 허용하지만 smoke에서는 guest-agent/IP discovery가 필수 evidence다.
-- IP 충돌 검사의 MVP evidence는 NetworkProfile manifest + Proxmox observed state다.
+- IP 충돌 검사의 target evidence는 Proxmox observed state와 future Network tab policy/IP evidence다.
 - DHCP/ARP/router lease 조회는 필요 시 read-only evidence로 추가한다.
 - 별도 IPAM은 MVP 제외다.
+- Network tab policy/subnet/gateway/range integration은 future다. Current/legacy policy route는 남아도 Create VM target source of truth가 아니다.
 
 ## 6. IaC / Manifest / State
 
@@ -181,7 +205,7 @@ mvp_create_ip_range: 192.168.2.140-150
 - Flow:
 
 ```text
-remote IaC repo -> local checkout/job workspace -> manifest/generated change -> schema/preflight/plan -> Review & Confirm -> commit -> push -> apply/create-powered-off -> first power on -> Stage A smoke -> DB/artifacts
+remote IaC repo -> local checkout/job workspace -> manifest/generated change -> schema/preflight/plan -> Review & Confirm -> commit -> push -> apply/create-powered-off -> DB/artifacts
 ```
 
 Stage B minimal Ansible verify와 Runtime Target manifest/API는 VM 생성 flow 안정화 후 별도 slice에서 붙인다.
@@ -257,9 +281,9 @@ Stage B — minimal Ansible verification:
   2. VMID
   3. target node
   4. storage
-  5. template
+  5. live Proxmox template
   6. CPU/RAM/Disk
-  7. network/IP
+  7. bridge/IP mode/static IP/prefix/gateway
   8. Terraform state path
   9. first power on 포함 여부
   10. smoke timeout summary
@@ -286,6 +310,8 @@ Stage B — minimal Ansible verification:
 - reboot
 
 현재 powered-off create slice에서는 VM 생성 flow 안의 first power on도 실행하지 않는다. 기존 VM에 대한 독립 power on / graceful shutdown / reboot는 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice로 구현한다.
+
+Profile에는 power policy가 없다. VM start는 future Infra Explorer VM row action으로 분리하고 Jobs/Runs audit를 남긴다.
 
 정책:
 

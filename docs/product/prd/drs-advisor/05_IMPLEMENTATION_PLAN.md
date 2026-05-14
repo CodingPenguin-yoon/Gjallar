@@ -13,7 +13,7 @@ Frontend:
 - `frontend/src/utils/jobsScreen.js`: job/artifact view model
 - `frontend/src/components/OperationalRiskDashboard.jsx`: Risks/Alerts UI
 - `frontend/src/utils/risksScreen.js`: risk sorting/view model
-- `frontend/src/components/CreateInstanceWizard.jsx`: Create VM wizard and approval/Terraform gates
+- `frontend/src/components/CreateInstanceWizard.jsx`: Create VM wizard and approval/Proxmox native create gates
 - `frontend/src/services/apiV1.js`: `/api/v1` client
 
 Backend:
@@ -27,7 +27,9 @@ Backend:
 - `backend/app/vm_create/planner.py`: artifact-backed plan/review
 - `backend/app/vm_create/approval.py`: review checksum and yellow risk gate
 - `backend/app/vm_create/gitops.py`: manifest commit/archive/status update
-- `backend/app/vm_create/terraform_runner.py`: Terraform workspace/plan/apply commands
+- `backend/app/proxmox/client.py`: native Proxmox mutation client for gated Create VM clone/config/status
+- `backend/app/vm_create/proxmox_runner.py`: native Create VM preview/create runner, UPID polling, post-check, observed_after/fingerprint artifacts
+- `backend/app/vm_create/terraform_runner.py`: optional/deprecated Terraform workspace/plan/apply commands
 
 Tests that lock useful current behavior:
 
@@ -51,6 +53,7 @@ Reuse:
 - job/artifact run storage concepts
 - risk display pattern
 - Create VM approval artifact/checksum pattern
+- Create VM native Proxmox UPID polling and observed_after/fingerprint artifact pattern
 - secret redaction
 - forbidden endpoint guard philosophy
 

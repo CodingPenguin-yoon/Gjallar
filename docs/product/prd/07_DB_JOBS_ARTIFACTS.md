@@ -12,7 +12,7 @@ DB, job, artifact가 각각 무엇을 저장하는지 정의한다.
 | 저장소 | 역할 |
 |---|---|
 | Manifest Git repo | desired state 원본 |
-| Terraform state | 실제 리소스 매핑. MVP local backend |
+| Terraform state | optional/deprecated legacy executor state. Active Create VM success uses Proxmox observed state |
 | Gjallar DB | job/approval/observed snapshot/artifact ref |
 | Proxmox | actual VM 상태 |
 | Artifact directory | plan/log/smoke 결과 원문, state backup/checksum ref |
@@ -59,6 +59,8 @@ Gjallar DB가 저장하는 값:
 
 DB observed snapshot은 UI cache와 과거 evidence다.
 실행 허가에는 사용할 수 없으며, final pre-check를 대체하지 않는다.
+
+Create VM도 같은 원칙을 따른다. 현재 active create success는 Terraform state가 아니라 Proxmox native post-check 결과다. `observed_after` artifact는 `/status/current`, `/config`, normalized fingerprint hash를 저장하며, VM missing/powered-on/task failure는 failed 또는 `needs_reconciliation`으로 남기고 manifest를 `applied`로 만들지 않는다.
 
 Re-attachable 원칙:
 
@@ -412,9 +414,9 @@ Gjallar는 Heimdall deploy target registry에 직접 write하지 않는다.
 
 공용 스토리지로 옮길지는 운영 정책에서 결정한다.
 
-## 3.1 Terraform state 저장 정책
+## 3.1 Legacy Terraform state 저장 정책
 
-MVP에서는 Terraform local backend를 사용한다.
+현재 active Create VM은 Proxmox native post-check를 성공 기준으로 사용한다. Terraform local backend는 optional/deprecated executor에서만 사용한다.
 
 기본 경로:
 
@@ -475,7 +477,7 @@ DB에는 아래 같은 비밀이 아닌 상태를 저장할 수 있다.
 - readiness_state: created_but_not_ready
 - cleanup_candidate: true/false
 - cleanup_reason: smoke_failed | expired_test_vm | user_cancelled_after_create
-- failed_stage: terraform_apply | proxmox_config | first_power_on | cloud_init | guest_agent | ip | ssh | ansible
+- failed_stage: native_create | proxmox_config | first_power_on | cloud_init | guest_agent | ip | ssh | ansible
 - retryable: true/false
 - runtime_target_active: false
 - timeout_policy_snapshot:
@@ -488,10 +490,10 @@ DB에는 아래 같은 비밀이 아닌 상태를 저장할 수 있다.
 - timed_out: true/false
 - timeout_stage: first_power_on | cloud_init | guest_agent | ip | ssh | ansible | null
 
-Terraform/Proxmox apply/config 실패로 첫 power on이 생략된 경우:
+Proxmox native create/config 실패로 첫 power on이 생략된 경우:
 
 - readiness_state: provision_failed_not_booted
 - boot_skipped: true
-- failed_stage: terraform_apply | proxmox_config
+- failed_stage: native_create | proxmox_config
 
 삭제/cleanup 실행 이력은 MVP 범위 밖이며, 2차 기능에서 typed confirmation과 승인 이력을 별도 저장한다.

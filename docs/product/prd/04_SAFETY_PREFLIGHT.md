@@ -3,6 +3,11 @@
 > Current MVP product source of truth is `drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 > This create-first safety material is historical/supporting capability context. DRS Advisor execution must use `drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md` final pre-check rules when there is any conflict.
 
+> 2026-05-13 Create VM profile/template/network update: for Create VM, use
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> Older `server-net`/NetworkProfile mapping, template catalog, single-profile,
+> and first-power-on-as-create-success text below is superseded by that target.
+
 ## 0. 목적
 
 VM/Proxmox 작업에서 치명적 실수를 막기 위한 risk, approval, preflight 정책을 정의한다.
@@ -74,7 +79,7 @@ Review & Confirm에 반드시 표시할 것:
 6. CPU/RAM/Disk
 7. network / IP
 8. Terraform state path
-9. 첫 power on 포함 여부
+9. power policy: `stopped`
 10. smoke timeout 요약
 11. red/yellow risk summary
 12. plan artifact link
@@ -84,8 +89,8 @@ VM 삭제, snapshot rollback, disk delete 같은 destructive 작업은 2차 기�
 
 ## 2.2 독립 전원 제어 정책 — deferred power-action slice
 
-현재 powered-off create slice에서 VM 생성 승인과 Terraform apply 승인은 첫 power on을 포함하지 않는다.
-첫 power on은 apply/config 성공 후 별도 create-readiness slice에서 명시 확인을 붙여 실행한다.
+Create VM target은 생성 성공 시 powered-off/stopped로 완료한다.
+첫 power on은 apply/config 성공 후 자동으로 이어지는 create success 조건이 아니라, 별도 follow-up action으로 둔다.
 이미 존재하는 VM의 전원 작업은 별도 action으로 본다.
 첫 구현 MVP에서는 이 별도 action을 구현하지 않는다.
 
@@ -116,28 +121,29 @@ VM 생성 전 최소 검사:
 2. template 존재/상태 검증
 3. target node 존재/online 검증
 4. storage 존재/여유 검증
-5. 선택 target node의 NetworkProfile bridge mapping 검증
-6. 선택 target node에 mapped bridge가 실제 존재하는지 Proxmox live inventory 검증
+5. 선택 target node의 selected live bridge 존재/active 검증
+6. `network_id`/`server-net`이 target Create VM contract에 들어오지 않았는지 검증
 7. `proxmox_vmid`/name 중복 검증
 8. CPU/RAM/Disk profile limit 검증
 9. 요청 디스크가 선택 템플릿 디스크보다 작지 않은지 검증
-9. static IP allowed range 검증
-10. reserved IP 검증
-11. 기존 VM/IP 충돌 검증
-12. Terraform state lock 검증
-13. plan에 destroy/delete 포함 여부 검증
-14. Proxmox credential scope 검증
-15. Runtime Target 등록 조건 검증은 첫 구현 MVP에서 제외하고 Runtime Target slice에서 추가
+10. static mode인 경우 `static_ip`, `prefix`, `gateway` 필수 검증
+11. static IP allowed/reserved/collision evidence 검증
+12. 기존 VM/IP 충돌 검증
+13. Terraform state lock 검증
+14. plan에 destroy/delete 포함 여부 검증
+15. Proxmox credential scope 검증
+16. Runtime Target 등록 조건 검증은 첫 구현 MVP에서 제외하고 Runtime Target slice에서 추가
 
 Network/Bridge/IP 결정:
 
-- NetworkProfile은 `yoonmanserver2`, `yoonmanserver3` 두 target node의 bridge mapping을 가진다.
-- 초기 fixture 후보는 두 노드 모두 `vmbr0`이다.
-- bridge는 선택 target node 기준으로 resolve 한다.
-- mapping 누락 또는 live inventory상 bridge 없음은 red risk다.
-- IP mode는 `dhcp`, `static` 둘 다 지원하고 기본/추천값은 `static`이다.
+- Create VM target은 NetworkProfile이나 `server-net`으로 bridge를 resolve하지 않는다.
+- 사용자가 target node를 먼저 고르고, 해당 node의 active live bridge를 선택한다.
+- 선택 bridge가 live inventory에 없거나 active가 아니면 red risk다.
+- IP mode는 `dhcp`, `static` 둘 다 지원한다.
+- static mode는 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
+- DHCP mode는 허용하지만 guest-agent/inventory discovery 필요 warning을 남긴다.
 
-IP 충돌 검사의 MVP evidence는 `Network Profile manifest + Proxmox observed state`다.
+IP 충돌 검사의 target evidence는 request static fields와 Proxmox observed state다.
 충돌 감지가 부족하면 DHCP/ARP/라우터 lease 조회를 read-only evidence로 추가한다.
 별도 IP inventory 또는 Gjallar 자체 IPAM은 MVP 범위 밖이다.
 
@@ -160,6 +166,9 @@ Terraform state 정책:
 - apply 후 state backup/checksum과 observed snapshot을 저장한다.
 
 ## 4. Smoke 단계
+
+이 section의 first power-on/smoke 흐름은 historical create-first readiness context다.
+2026-05-13 Create VM target success는 powered-off/stopped이며, 첫 power-on과 smoke는 별도 follow-up stage다.
 
 VM 생성 후 최소 검사:
 

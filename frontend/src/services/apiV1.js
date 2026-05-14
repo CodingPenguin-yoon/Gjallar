@@ -19,8 +19,8 @@ export const API_V1_ENDPOINTS = Object.freeze({
   vmCreatePreflight: (draftId) => `/vm-create/${encodePathPart(draftId)}/preflight`,
   vmCreatePlan: (draftId) => `/vm-create/${encodePathPart(draftId)}/plan`,
   vmCreateApprove: (draftId) => `/vm-create/${encodePathPart(draftId)}/approve`,
-  vmCreateTerraformPlan: (draftId) => `/vm-create/${encodePathPart(draftId)}/terraform-plan`,
-  vmCreateTerraformApply: (draftId) => `/vm-create/${encodePathPart(draftId)}/terraform-apply`,
+  vmCreateProxmoxPreview: (draftId) => `/vm-create/${encodePathPart(draftId)}/proxmox-preview`,
+  vmCreateProxmoxCreate: (draftId) => `/vm-create/${encodePathPart(draftId)}/proxmox-create`,
   vmCreateExecute: (draftId) => `/vm-create/${encodePathPart(draftId)}/execute`,
 })
 
@@ -46,8 +46,7 @@ function defaultFetchImpl() {
 
 function firstCommandError(detail) {
   const results = [
-    ...(Array.isArray(detail?.terraform_plan_results) ? detail.terraform_plan_results : []),
-    ...(Array.isArray(detail?.terraform_apply_results) ? detail.terraform_apply_results : []),
+    ...(Array.isArray(detail?.proxmox_create?.task?.polls) ? detail.proxmox_create.task.polls : []),
   ]
   const text = results.map((item) => item?.stderr || item?.stdout || '').find(Boolean) || ''
   return String(text).replace(/\u001b\[[0-9;]*m/g, '').trim()
@@ -119,8 +118,8 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     preflightVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePreflight(draftId), payload),
     planVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePlan(draftId), payload),
     approveVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateApprove(draftId), payload),
-    prepareVmDraftTerraformPlan: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateTerraformPlan(draftId), payload),
-    applyVmDraftTerraformPlan: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateTerraformApply(draftId), payload),
+    previewVmDraftProxmox: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateProxmoxPreview(draftId), payload),
+    createVmDraftProxmox: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateProxmoxCreate(draftId), payload),
     commitVmDraftManifest: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateExecute(draftId), payload),
   })
 }

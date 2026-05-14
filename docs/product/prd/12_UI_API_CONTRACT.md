@@ -53,7 +53,8 @@ Base path:
 - `/api/v1` response envelope
 - read-only cluster/node/VM/template/storage/network inventory
 - network policy read/write
-- Create VM draft/preflight/plan/approve/terraform-plan/terraform-apply/execute/archive
+- Create VM draft/preflight/plan/approve/execute/proxmox-preview/proxmox-create/archive
+- Terraform plan/apply as optional/deprecated legacy Create VM executor routes
 - read-only Jobs/Runs
 - read-only Risks/Alerts
 
@@ -142,15 +143,43 @@ PUT /networks/policy
 읽기 전용으로 시작한다.
 Template 생성/수정은 MVP 제외다.
 
+Target Create VM profile/template/network design은
+[`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)를 따른다.
+
+Target `GET /profiles`는 Gjallar DB seed source of truth를 반환한다. 초기
+UI에서는 read-only이며 profile create/edit/delete UI는 future다.
+
+초기 seeded enabled profiles:
+
+| Profile ID | Display name | Korean label | Enabled |
+|---|---|---|---:|
+| `general-vm` | General VM | 범용 VM | true |
+| `runtime-server` | Runtime Server | 서비스 실행용 VM | true |
+| `development-vm` | Development VM | 개발/테스트용 VM | true |
+
+각 profile은 hardware default/min/max, template requirement
+`require_cloud_init=true`, `require_qemu_guest_agent=true`, access
+recommendation `default_user=yoon`, `require_ssh_key=true`,
+`allow_password_login=false`, `allow_user_override=true`를 반환한다.
+
+Profile은 target node, storage, `network_id`, bridge, static IP, template
+VMID/name, power policy, profile version을 포함하지 않는다.
+
+Target template source of truth는 Proxmox live inventory다. Gjallar template
+catalog 또는 registration window는 target에 없다. UI는 live template을
+보여주고, 선택 profile 요구사항을 만족하지 못하는 template은 disabled reason과 함께 비활성화한다.
+Backend preflight는 같은 조건을 다시 검증하고 red-block한다.
+
 `GET /networks`는 Proxmox에서 발견한 live vmbr inventory다.
 `GET /networks/policy`는 live vmbr inventory와 공용 IaC의 `manifests/networks/network-profiles.yaml` 정책 파일을 합쳐 등록/미등록 상태를 반환한다.
 `PUT /networks/policy`는 해당 정책 파일을 저장하고, IaC root가 Git checkout이면 local commit을 만든다.
 정책 파일에는 vmbr의 display name, subnet, gateway, DNS, 고정 IP 범위 같은 Gjallar 의미 정보를 저장한다.
 고정 IP 범위는 여러 구간을 표현할 수 있도록 `static_ip_ranges: [{start, end}]` 배열로 저장한다.
 
-MVP `GET /profiles`는 기본적으로 실제 생성 가능한 `general-vm` 하나만 반환한다.
-`runtime-server`, `dev-server`, `db-server`는 2차 profile 후보로 문서/스키마 방향에만 남기고 MVP 화면 선택지에는 노출하지 않는다.
-만약 API가 future profile을 반환해야 한다면 `enabled=false`, `status=coming_soon`이어야 하며 create draft/plan/apply 대상이 될 수 없다.
+Current implementation gap: 현재 code는 아직 built-in/current profile 경로이며
+`general-vm`만 create-enabled다. 현재 Create VM 경로는 아직
+`network_id`/`server-net`와 NetworkPolicy bridge mapping을 사용하고, static
+mode에 `prefix`/`gateway`를 요구하지 않는다. 위 내용은 target contract다.
 
 ## 6. Create VM API
 
@@ -159,8 +188,11 @@ POST /vm-create/drafts
 POST /vm-create/{draft_id}/preflight
 POST /vm-create/{draft_id}/plan
 POST /vm-create/{draft_id}/approve
-POST /vm-create/{draft_id}/terraform-plan
 POST /vm-create/{draft_id}/execute
+POST /vm-create/{draft_id}/proxmox-preview
+POST /vm-create/{draft_id}/proxmox-create
+POST /vm-create/{draft_id}/terraform-plan        # legacy optional
+POST /vm-create/{draft_id}/terraform-apply       # legacy optional
 ```
 
 Draft request 핵심 필드:
@@ -168,20 +200,29 @@ Draft request 핵심 필드:
 ```json
 {
   "name": "gjallar-vm-20260508-a1b2",
-  "profile_id": "general-vm",
-  "node_id": "yoonmanserver2",
-  "template_id": "ubuntu-template",
-  "network_id": "server-net",
-  "ip_mode": "static",
-  "ip": "192.168.2.150",
-  "hardware_overrides": {
-    "cpu": 2,
-    "memory_mb": 4096,
-    "disk_gb": 50
+  "profile_id": "runtime-server",
+  "target_node_id": "yoonmanserver2",
+  "storage_id": "local-lvm",
+  "template": {
+    "node_id": "yoonmanserver2",
+    "vmid": 9000,
+    "name": "ubuntu-template"
+  },
+  "network": {
+    "bridge": "vmbr0",
+    "ip_mode": "static",
+    "static_ip": "192.168.2.150",
+    "prefix": 24,
+    "gateway": "192.168.2.1"
+  },
+  "hardware": {
+    "cpu": 4,
+    "memory_mb": 8192,
+    "disk_gb": 100
   },
   "access": {
-    "cloud_init_user": "yoon",
-    "ssh_key_source": "operator_default_public_key",
+    "username": "yoon",
+    "ssh_public_key": "ssh-ed25519 AAAA...",
     "password_login": false
   }
 }
@@ -194,11 +235,17 @@ MVP에서는 VMID를 draft request에서 직접 받지 않는다.
 Gjallar는 plan/preflight 단계에서 Proxmox `nextid`로 `proxmox_vmid`를 resolved 하고, apply 직전 중복을 다시 확인한다.
 `name`을 생략하면 `general-vm` profile은 `gjallar-vm-<YYYYMMDD>-<short_job_id>` 형식으로 추천한다.
 
-Bridge도 draft request에서 raw 값으로 직접 받지 않는다.
-Gjallar는 `node_id`와 `network_id`를 기준으로 `NetworkProfile.node_bridges[node_id]`를 resolve 한다.
-MVP NetworkProfile fixture는 `yoonmanserver2`, `yoonmanserver3` 두 target node를 모두 지원하고, 초기 bridge 후보는 두 노드 모두 `vmbr0`이다.
+Target draft request는 `network_id`를 받지 않는다. 사용자가 target node를
+선택한 뒤 해당 node의 live active bridge를 선택한다.
 `ip_mode`는 `dhcp`, `static` 둘 다 허용하지만 기본값은 `static`이다.
-`general-vm` 기본 access 값은 `cloud_init_user=yoon`, `ssh_key_source=operator_default_public_key`, `password_login=false`다.
+Static mode는 `static_ip`, `prefix`, `gateway`를 모두 요구한다. DHCP mode는
+허용하지만 이후 guest-agent/inventory discovery warning을 반환한다.
+`gateway`는 명시 입력값이며, backend/frontend/runner는 static IP에서 `.1`
+gateway를 추론하지 않는다.
+
+초기 seeded profile 공통 access 값은 `username=yoon`,
+`require_ssh_key=true`, `password_login=false`, `allow_user_override=true`다.
+기본 SSH public key는 environment-backed backend 설정에서 올 수 있다. key가 없으면 red block이다.
 API와 artifact에는 private key나 password 값을 저장/반환하지 않는다.
 
 Plan response에는 Review & Confirm payload가 포함되어야 한다.
@@ -212,9 +259,11 @@ Plan response에는 Review & Confirm payload가 포함되어야 한다.
     "vmid": 142,
     "target_node": "yoonmanserver3",
     "storage": "local-lvm",
-    "template": "ubuntu-template",
-    "hardware": { "cpu": 2, "memory_mb": 4096, "disk_gb": 50 },
-    "network": { "bridge": "vmbr0", "ip": "192.168.2.150" },
+    "profile": "runtime-server",
+    "template": { "node_id": "yoonmanserver2", "vmid": 9000, "name": "ubuntu-template" },
+    "hardware": { "cpu": 4, "memory_mb": 8192, "disk_gb": 100 },
+    "access": { "username": "yoon", "ssh_key_present": true, "password_login": false },
+    "network": { "bridge": "vmbr0", "ip_mode": "static", "static_ip": "192.168.2.150", "prefix": 24, "gateway": "192.168.2.1" },
     "terraform_state_path": "/mnt/hermes_data/IaC-state/gjallar/gjallar-vm-20260508-a1b2/terraform.tfstate",
     "first_power_on_included": false,
     "smoke_timeout_summary": {
@@ -247,12 +296,28 @@ red risk가 있으면 approve/execute는 실패해야 한다.
 
 현재 구현된 execute slice는 `gitops_commit_only`다.
 승인된 plan의 `VMInstance` manifest를 `IaC/manifests/vms/<manifest_id>.yaml`에 쓰고 local Git commit을 만든 뒤 종료한다.
-응답은 `terraform_apply_enabled=false`, `proxmox_mutation_enabled=false`를 명시해야 하며, Terraform apply와 Proxmox VM 생성은 아직 실행하지 않는다.
+응답은 `terraform_apply_enabled=false`, `proxmox_mutation_enabled=false`를 명시해야 하며, native Proxmox create와 legacy Terraform apply 모두 실행하지 않는다.
 
-현재 구현된 Terraform slice는 `terraform_plan_prepare_only`다.
-승인된 plan의 review checksum과 plan artifact id를 다시 검증한 뒤 temp job workspace에 `main.tf`, `backend.hcl`, `backend.tf`, `terraform.auto.tfvars.json`을 생성하고 `terraform init/plan` 명령 배열을 반환한다.
-기본값으로는 `terraform plan`도 실행하지 않는다.
-`run_terraform_plan=true`를 요청하려면 `terraform_plan_acknowledged=true`가 반드시 필요하며, 이 경우에도 응답은 `terraform_apply_enabled=false`, `proxmox_mutation_enabled=false`를 유지한다.
+현재 active 생성 slice는 Proxmox API native다.
+`proxmox-preview`는 승인된 plan의 review checksum과 plan artifact id를 다시 검증한 뒤 clone/config/post-check payload와 artifact를 반환한다. Proxmox mutation을 하지 않으며 응답은 `proxmox_mutation_enabled=false`, `terraform_apply_enabled=false`를 유지한다.
+
+`proxmox-create`는 실제 생성 endpoint다. 필수 gate:
+
+- approval metadata 재검증
+- red risk 없는 fresh preflight/plan
+- `manifest_commit_sha`
+- committed manifest verification
+- `proxmox_mutation_acknowledged=true`
+
+성공은 Proxmox actual state로만 판단한다. clone UPID task `OK`, requested `disk_gb` resize가 불필요하거나 완료됨, VM exists on target node, `/status/current.status=stopped`, `/config` read, `observed_after` artifact/fingerprint가 모두 필요하다. task failure, cloned disk size unknown, resize failure, VM missing, powered-on observed state는 failed 또는 `needs_reconciliation`으로 기록하고 manifest `applied`가 아니다.
+
+Terraform slice는 optional/deprecated legacy executor다. active UI는 `terraform-plan`/`terraform-apply`를 호출하지 않는다.
+
+Current implementation gap: target payload의 `template` object, live bridge
+network object, static `prefix`/`gateway`, DB seeded profiles, and three enabled
+profile choices are not all current code yet. 현재 code still uses built-in
+profiles, only `general-vm` enabled, and `network_id`/`server-net` until the
+implementation update lands.
 
 ## 7. Jobs API
 

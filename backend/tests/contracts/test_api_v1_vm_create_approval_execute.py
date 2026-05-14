@@ -90,6 +90,8 @@ networks:
     def test_approval_and_execute_routes_exist_under_api_v1(self):
         expected = {
             "/api/v1/vm-create/{draft_id}/approve",
+            "/api/v1/vm-create/{draft_id}/proxmox-preview",
+            "/api/v1/vm-create/{draft_id}/proxmox-create",
             "/api/v1/vm-create/{draft_id}/terraform-plan",
             "/api/v1/vm-create/{draft_id}/terraform-apply",
             "/api/v1/vm-create/{draft_id}/execute",
@@ -156,6 +158,216 @@ networks:
         self.assertFalse(decision["can_execute"])
         self.assertEqual([], decision["side_effects"])
         self.assertIn("checksum", decision["reason"].lower())
+
+    def test_proxmox_preview_after_approval_does_not_mutate(self):
+        draft_id = "draft-api-proxmox-preview"
+        payload = {
+            "operator_id": "api-proxmox-test",
+            "job_id": "job-api-proxmox-preview",
+            "static_ip": "192.168.2.142",
+        }
+        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
+        review = plan_response["data"]["review_confirm"]
+        before = _git(self.iac_root, "rev-parse", "HEAD")
+
+        with patch.object(self.api_v1_router, "run_proxmox_create") as mutation:
+            response = asyncio.run(
+                self.api_v1_router.preview_vm_draft_proxmox_create(
+                    draft_id,
+                    {
+                        **payload,
+                        "plan_artifact_id": review["plan_artifact_id"],
+                        "review_summary_checksum": review["review_summary_checksum"],
+                        "yellow_risk_acknowledged": False,
+                    },
+                )
+            )
+
+        after = _git(self.iac_root, "rev-parse", "HEAD")
+        self.assertTrue(response["ok"])
+        self.assertEqual("proxmox_native_preview_no_mutation", response["meta"]["mode"])
+        self.assertFalse(response["data"]["proxmox_mutation_enabled"])
+        self.assertFalse(response["data"]["terraform_apply_enabled"])
+        self.assertEqual([], response["data"]["side_effects"])
+        self.assertEqual("/nodes/yoonmanserver2/qemu/9000/clone", response["data"]["clone"]["endpoint"])
+        self.assertEqual(before, after)
+        mutation.assert_not_called()
+
+    def test_proxmox_create_blocks_without_ack_or_manifest_commit(self):
+        draft_id = "draft-api-proxmox-create-gates"
+        payload = {
+            "operator_id": "api-proxmox-test",
+            "job_id": "job-api-proxmox-create-gates",
+            "static_ip": "192.168.2.143",
+        }
+        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
+        review = plan_response["data"]["review_confirm"]
+        approved_payload = {
+            **payload,
+            "plan_artifact_id": review["plan_artifact_id"],
+            "review_summary_checksum": review["review_summary_checksum"],
+            "yellow_risk_acknowledged": False,
+        }
+
+        with self.assertRaises(HTTPException) as no_ack:
+            asyncio.run(self.api_v1_router.create_vm_draft_proxmox_native(draft_id, approved_payload))
+        self.assertEqual(409, no_ack.exception.status_code)
+        self.assertEqual("PROXMOX_CREATE_ACK_REQUIRED", no_ack.exception.detail["code"])
+
+        with self.assertRaises(HTTPException) as no_commit:
+            asyncio.run(
+                self.api_v1_router.create_vm_draft_proxmox_native(
+                    draft_id,
+                    {**approved_payload, "proxmox_mutation_acknowledged": True},
+                )
+            )
+        self.assertEqual(409, no_commit.exception.status_code)
+        self.assertEqual("PROXMOX_CREATE_MANIFEST_COMMIT_BLOCKED", no_commit.exception.detail["code"])
+
+    def test_proxmox_create_success_marks_applied_only_with_observed_after_artifact(self):
+        from app.jobs.artifacts import write_json_artifact
+
+        draft_id = "draft-api-proxmox-create-success"
+        payload = {
+            "operator_id": "api-proxmox-test",
+            "job_id": "job-api-proxmox-create-success",
+            "static_ip": "192.168.2.144",
+        }
+        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
+        review = plan_response["data"]["review_confirm"]
+        approved_payload = {
+            **payload,
+            "plan_artifact_id": review["plan_artifact_id"],
+            "review_summary_checksum": review["review_summary_checksum"],
+            "yellow_risk_acknowledged": False,
+        }
+        execute_response = asyncio.run(self.api_v1_router.execute_vm_draft(draft_id, approved_payload))
+        manifest_commit_sha = execute_response["data"]["commit_sha"]
+
+        def fake_create(plan, *, run_dir, client):
+            artifact = write_json_artifact(
+                run_dir=run_dir,
+                job_id=plan.job_id,
+                artifact_type="observed_after",
+                filename="observed_after.json",
+                payload={
+                    "vmid": plan.vmid,
+                    "target_node_id": plan.target_node_id,
+                    "exists": True,
+                    "status": "stopped",
+                    "fingerprint": {"hash": "sha256:" + "1" * 64},
+                },
+            )
+            return {
+                "job_id": plan.job_id,
+                "manifest_id": plan.manifest_id,
+                "vmid": plan.vmid,
+                "target_node_id": plan.target_node_id,
+                "success": True,
+                "status": "completed",
+                "message": "VM exists on target node and is stopped",
+                "task": {"upid": "UPID:yoonmanserver2:0001:test", "exitstatus": "OK"},
+                "observed_after": {"status": "stopped", "fingerprint": {"hash": "sha256:" + "1" * 64}},
+                "observed_after_artifact": artifact.to_dict(),
+                "artifacts": [artifact.to_dict()],
+                "side_effects": ["proxmox_clone_invoked", "proxmox_task_polled", "proxmox_config_updated", "proxmox_post_check_observed"],
+            }
+
+        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
+            with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+                response = asyncio.run(
+                    self.api_v1_router.create_vm_draft_proxmox_native(
+                        draft_id,
+                        {
+                            **approved_payload,
+                            "manifest_commit_sha": manifest_commit_sha,
+                            "proxmox_mutation_acknowledged": True,
+                        },
+                    )
+                )
+
+        manifest_path = self.iac_root / "manifests" / "vms" / "vm-job-api-proxmox-create-success.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        self.assertTrue(response["ok"])
+        self.assertEqual("proxmox_native_create_live_mutation", response["meta"]["mode"])
+        self.assertTrue(response["data"]["proxmox_create_ran"])
+        self.assertTrue(response["data"]["proxmox_mutation_enabled"])
+        self.assertFalse(response["data"]["terraform_apply_enabled"])
+        self.assertEqual("applied", response["data"]["manifest_status"]["phase"])
+        self.assertEqual("applied", manifest["status"]["phase"])
+        self.assertEqual("stopped", response["data"]["observed_after"]["status"])
+        self.assertTrue(Path(response["data"]["observed_after_artifact"]["path"]).is_file())
+
+    def test_proxmox_create_powered_on_post_check_needs_reconciliation_not_applied(self):
+        from app.jobs.artifacts import write_json_artifact
+
+        draft_id = "draft-api-proxmox-create-reconcile"
+        payload = {
+            "operator_id": "api-proxmox-test",
+            "job_id": "job-api-proxmox-create-reconcile",
+            "static_ip": "192.168.2.145",
+        }
+        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
+        review = plan_response["data"]["review_confirm"]
+        approved_payload = {
+            **payload,
+            "plan_artifact_id": review["plan_artifact_id"],
+            "review_summary_checksum": review["review_summary_checksum"],
+            "yellow_risk_acknowledged": False,
+        }
+        execute_response = asyncio.run(self.api_v1_router.execute_vm_draft(draft_id, approved_payload))
+        manifest_commit_sha = execute_response["data"]["commit_sha"]
+
+        def fake_create(plan, *, run_dir, client):
+            artifact = write_json_artifact(
+                run_dir=run_dir,
+                job_id=plan.job_id,
+                artifact_type="observed_after",
+                filename="observed_after.json",
+                payload={
+                    "vmid": plan.vmid,
+                    "target_node_id": plan.target_node_id,
+                    "exists": True,
+                    "status": "running",
+                    "fingerprint": {"hash": "sha256:" + "2" * 64},
+                },
+            )
+            return {
+                "job_id": plan.job_id,
+                "manifest_id": plan.manifest_id,
+                "vmid": plan.vmid,
+                "target_node_id": plan.target_node_id,
+                "success": False,
+                "status": "needs_reconciliation",
+                "message": "VM post-check expected stopped, observed running",
+                "observed_after": {"status": "running", "fingerprint": {"hash": "sha256:" + "2" * 64}},
+                "observed_after_artifact": artifact.to_dict(),
+                "artifacts": [artifact.to_dict()],
+                "side_effects": ["proxmox_clone_invoked", "proxmox_task_polled", "proxmox_config_updated", "proxmox_post_check_observed"],
+            }
+
+        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
+            with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+                with self.assertRaises(HTTPException) as raised:
+                    asyncio.run(
+                        self.api_v1_router.create_vm_draft_proxmox_native(
+                            draft_id,
+                            {
+                                **approved_payload,
+                                "manifest_commit_sha": manifest_commit_sha,
+                                "proxmox_mutation_acknowledged": True,
+                            },
+                        )
+                    )
+
+        manifest_path = self.iac_root / "manifests" / "vms" / "vm-job-api-proxmox-create-reconcile.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("PROXMOX_CREATE_NEEDS_RECONCILIATION", raised.exception.detail["code"])
+        self.assertEqual("needs_reconciliation", raised.exception.detail["manifest_status"]["phase"])
+        self.assertEqual("needs_reconciliation", manifest["status"]["phase"])
+        self.assertNotEqual("applied", manifest["status"]["phase"])
+        self.assertEqual("", _git(self.iac_root, "status", "--porcelain"))
 
 
     def test_string_false_does_not_acknowledge_yellow_risk(self):

@@ -8,6 +8,12 @@
 현재 MVP 방향은 `drs-advisor/README.md`가 우선한다.
 이 문서의 기존 create-first 내용은 보조 capability와 역사적 설계 맥락으로 유지하되, 현재 제품 중심은 DRS Advisor다.
 
+2026-05-13 Create VM profile/template/network update:
+Create VM의 현재 target design은
+[`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)다.
+아래 create-first 설명 중 `general-vm` 단일 생성, `server-net`/NetworkProfile mapping, template catalog/manifest, first power-on 포함 흐름은 이 target design으로 대체한다.
+DRS Advisor source-of-truth 우선순위는 그대로 유지한다.
+
 ## 1. 제품 정체성
 
 Gjallar는 **Proxmox 엔터프라이즈 운영 플랫폼**이다.
@@ -48,13 +54,13 @@ VM 생성은 삭제하지 않고 보조적인 기존 capability로 유지한다.
 - VM metadata/policy/fingerprint assertion
 - operation lock, migration approval, Proxmox UPID 추적, reconciliation 상태
 - VM 생성
-- VM 일반 전원 제어: power on / graceful shutdown / reboot, 단 첫 구현 MVP에서는 VM 생성 flow 안의 first power on만 구현
+- VM 일반 전원 제어: power on / graceful shutdown / reboot, 단 Create VM target은 생성 성공 시 powered-off/stopped로 완료하고 시작 action은 별도 follow-up으로 둔다
 - VM IP와 qemu-guest-agent 상태
 - 노드 CPU/RAM/Disk 상태
 - Proxmox 리스크/헬스/readiness
-- VM/Profile/Template/Network/Storage manifest
+- VM 생성 의도, profile seed, storage intent, VM manifest/job artifact. Template과 Network 실제 선택은 Proxmox live inventory에서 다시 읽는다.
 - VM 생성 전 preflight
-- VM 생성 후 smoke 검증
+- VM 생성 후 follow-up smoke 검증
 - Terraform/Ansible/Proxmox 작업 이력
 - 위험 작업 Review & Confirm
 
@@ -111,7 +117,7 @@ Heimdall 연계 MVP 경계:
 - VM 목록 보기
 - VM 상세 상태 보기
 - VM 생성
-- VM 생성 flow 안의 first power on
+- VM 생성 결과 powered-off/stopped 확인. First power-on은 별도 follow-up action.
 - VM IP / qemu-guest-agent 상태 확인
 - 노드 CPU/RAM/Disk 상태
 - 리스크/경고 표시
@@ -157,23 +163,26 @@ Nodes, VMs, VM Detail을 한 화면에서 이어서 본다.
 ### 6.3 Create VM
 
 VM 생성은 profile 기반 wizard로 진행한다.
-MVP에서 실제 생성 가능한 profile은 `general-vm` 하나다.
-`general-vm`은 일반 VM 생성용 기본 profile이며, 앱 실행 서버/개발 서버/DB 서버 bootstrap은 포함하지 않는다.
-`runtime-server`, `dev-server`, `db-server`는 2차 profile 후보로 남기되 MVP 화면 선택지에는 노출하지 않는다.
+현재 target profile은 UI-visible, read-only Gjallar DB seed preset이다.
+초기 enabled profile은 `general-vm`, `runtime-server`, `development-vm` 세 개다.
+Profile은 CPU/RAM/Disk 기본값과 limit, template requirement, access recommendation만 제공하며 target node/storage/network/template/power/version을 bind하지 않는다.
+`dev-server`, `db-server`는 초기 enabled profile이 아니다.
 
 기본 흐름:
 
 1. VM profile 선택
 2. target node 선택
-3. template 확인
-4. network profile 선택
+3. Proxmox live inventory에서 template 선택
+   - Gjallar template catalog/registration window는 target에 없다.
+   - 선택 profile requirement를 만족하지 못하는 template은 보이되 disabled 처리한다.
+4. 선택 target node의 active live bridge 선택
+   - Create VM target은 `network_id` 또는 `server-net`을 사용하지 않는다.
+   - Network tab policy/subnet/range는 future integration이며 Create VM source of truth가 아니다.
 5. IP mode 선택: DHCP 또는 static
-   - 기본/추천값은 static
-   - bridge는 선택 target node와 NetworkProfile의 node_bridges mapping으로 결정
-   - MVP target node `yoonmanserver2`, `yoonmanserver3`를 모두 지원
+   - static은 `static_ip`, `prefix`, `gateway`가 모두 필요하다.
+   - DHCP는 허용하지만 guest-agent/inventory discovery가 나중에 필요하다는 warning을 표시한다.
 6. CPU/RAM/Disk 기본값 확인 또는 제한 내 override
-   - 기본값: 2 vCPU / 4096MB RAM / 50GB disk
-   - profile limit 안에서만 override 허용
+   - 선택 profile 기본값으로 reset하며 profile limit 안에서만 override 허용
 7. cloud-init access 기본값 확인
    - user: `yoon`
    - SSH key: operator default public key
@@ -183,10 +192,9 @@ MVP에서 실제 생성 가능한 profile은 `general-vm` 하나다.
 10. Review & Confirm
 11. manifest commit
 12. Terraform/Proxmox apply: clone + hardware/cloud-init 설정을 powered-off 상태로 완료
-13. apply/config 성공 시 첫 power on
-14. smoke 검증: cloud-init/guest-agent/IP/SSH
-15. Stage B minimal Ansible 검증은 Stage A smoke 안정화 후 별도 slice에서 추가
-16. Runtime Target 후보 표시는 VM 생성 flow 안정화 후 별도 slice에서 추가
+13. 생성 성공 상태는 powered-off/stopped다.
+14. 첫 power-on, smoke, guest-agent discovery, SSH verification은 별도 follow-up stage다.
+15. Runtime Target 후보 표시는 VM 생성 flow 안정화 후 별도 slice에서 추가
 
 MVP VM 이름/`proxmox_vmid` 정책:
 
@@ -197,9 +205,12 @@ MVP VM 이름/`proxmox_vmid` 정책:
 - apply 직전 `proxmox_vmid`/name 중복을 다시 확인하고, 충돌하면 실행을 막고 plan refresh를 요구한다.
 - profile별 reserved VMID range 정책은 2차 기능으로 둔다.
 
-MVP readiness timeout 기본값:
+Readiness timeout 기본값:
 
-- first power on task timeout: 5분
+아래 timeout은 first power-on/smoke가 별도 follow-up stage로 구현될 때의 historical/default context다.
+2026-05-13 Create VM target success 조건은 powered-off/stopped 생성 완료다.
+
+- future first power-on task timeout: 5분
 - cloud-init timeout: 15분
 - guest-agent timeout: 5분
 - IP 발견 timeout: 5분
@@ -261,6 +272,7 @@ MVP에서는 두 실행 방식을 모두 지원한다.
 ## 8. Template / Hardware 설정 원칙
 
 VM은 template 기반으로 생성한다.
+아래 first power-on/smoke 단계는 별도 follow-up stage이며, Create VM target success는 powered-off/stopped다.
 
 기본 순서:
 
@@ -326,7 +338,7 @@ VM 생성 Review & Confirm에는 아래를 반드시 보여준다.
 6. CPU/RAM/Disk
 7. network / IP
 8. Terraform state path
-9. 첫 power on 포함 여부
+9. power policy: `stopped`
 10. smoke timeout 요약
 11. red/yellow risk summary
 12. plan artifact link
@@ -338,7 +350,7 @@ VM 생성에는 typed confirmation을 요구하지 않고, 삭제/rollback/destr
 
 독립 전원 제어 정책:
 
-- 현재 powered-off create slice에서 VM 생성 flow의 첫 power on은 별도 create-readiness slice로 분리한다.
+- 현재 Create VM target은 성공 시 powered-off/stopped로 완료한다.
 - 이미 존재하는 VM의 power on / graceful shutdown / reboot는 2차 power-action slice에서 일반 Confirm을 요구한다.
 - red risk가 있으면 차단한다.
 - yellow risk가 있으면 경고 체크박스를 요구한다.

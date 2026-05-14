@@ -3,6 +3,13 @@
 > Current MVP product source of truth is `drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 > This create-first material is historical/supporting capability context only. It must not define the next MVP success line or implementation order.
 
+> 2026-05-13 Create VM profile/template/network update: the target design is
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> For Create VM, profile comes from three enabled UI-visible DB seed profiles
+> (`general-vm`, `runtime-server`, `development-vm`); template and bridge come
+> from Proxmox live inventory; `network_id`/`server-net`, template catalogs, and
+> profile node/storage/network/template/power/version bindings are superseded.
+
 ## 0. 목적
 
 Gjallar의 VM 생성/관리 선언 데이터와 IaC 실행 구조를 정의한다.
@@ -129,45 +136,37 @@ scripts/**
 
 ### VM Profile Manifest
 
-Profile은 template + 기본 hardware + override 제한 + bootstrap role + safety policy다.
+Create VM target에서는 Profile manifest가 source of truth가 아니다.
+Profile은 Gjallar DB seed의 UI-visible read-only creation preset이며, template + node/storage/network binding이 아니다.
 
-MVP 실제 생성 profile은 `general-vm` 하나만 둔다.
+초기 enabled profile:
 
-2차 profile 후보는 문서상 방향으로만 남긴다.
-MVP에서 manifest fixture나 실제 apply 대상으로 만들지 않는다.
+- `general-vm`
+- `runtime-server`
+- `development-vm`
 
-- `runtime-server`: Docker 기반 앱 실행 VM
-- `dev-server`: Docker/Node/Python/uv/gh 포함 개발 VM
-- `db-server`: DB 전용 VM
+Profile에는 CPU/RAM/Disk default/limit, template requirement, access recommendation만 둔다.
+Profile에는 target node, storage, network/`network_id`, bridge, static IP, template VMID/name, power policy, profile version을 넣지 않는다.
 
 ### Template Manifest
 
-Proxmox template의 ID/name/storage/cloud-init 가능 여부를 정의한다.
-Template 생성/업데이트 자체는 MVP 범위 밖이다.
+Create VM target에서는 Gjallar template catalog나 registration window를 두지 않는다.
+Template source of truth는 Proxmox live inventory다.
+UI는 live template을 표시하고, 선택 profile requirement를 만족하지 못하는 template은 disabled reason과 함께 비활성화한다.
+Backend preflight는 실행 직전 live template requirement를 다시 검증한다.
 
 ### Network Profile Manifest
 
-네트워크 profile은 VM마다 붙는 임의 값이 아니라, 실제 Proxmox node bridge와 subnet 정책을 표현한다.
+Network Profile manifest는 historical create-first source of truth였다.
+Create VM target에서는 Network tab policy/subnet/range state가 future integration point일 뿐, Create VM source of truth가 아니다.
 
-포함 항목:
+Create VM target 결정:
 
-- network_id
-- node별 bridge mapping
-- subnet/gateway/DNS
-- DHCP/static 허용 여부
-- static allowed range
-- reserved IP
-- runtime target 허용 여부
-
-MVP 결정:
-
-- NetworkProfile이 node별 bridge mapping의 source of truth다.
-- `yoonmanserver2`, `yoonmanserver3` 두 target node를 모두 지원한다.
-- 초기 fixture 후보는 두 노드 모두 `vmbr0`이다.
-- bridge는 사용자가 고르는 raw 값이 아니라, 선택한 target node와 NetworkProfile mapping으로 결정한다.
-- plan/preflight는 선택 노드의 Proxmox live inventory에서 mapped bridge 존재를 확인한다.
-- 해당 노드에 mapping이 없거나 bridge가 없으면 red risk로 실행을 차단한다.
-- IP mode는 `dhcp`, `static` 둘 다 지원하고 기본값은 `static`이다.
+- `network_id`와 `server-net`을 사용하지 않는다.
+- 사용자가 target node를 먼저 고르고, 그 node의 active live bridge를 선택한다.
+- plan/preflight는 선택 node의 Proxmox live inventory에서 bridge 존재와 active 상태를 확인한다.
+- static mode는 `static_ip`, `prefix`, `gateway`가 모두 필요하다.
+- DHCP mode는 허용하지만 guest-agent 또는 inventory discovery가 나중에 필요하다는 warning을 남긴다.
 
 ### VM Instance Manifest
 
@@ -183,8 +182,8 @@ MVP 결정:
 - template
 - CPU/RAM/Disk
 - storage
-- network
-- IP mode / IP
+- selected live bridge
+- IP mode, static mode의 `static_ip`/`prefix`/`gateway`
 - owner / role
 - risk policy
 
@@ -206,13 +205,15 @@ MVP에서는 후보와 readiness만 표현하고, Heimdall deploy target registr
 
 ## 6. Network/IP source 원칙
 
-IP 정책은 Gjallar의 Network Profile manifest에서 명시한다.
+Create VM target의 network source of truth는 선택 target node의 Proxmox live bridge inventory와 request의 IP mode/static fields다.
+Network Profile manifest나 Network tab policy는 future integration/historical context이며 Create VM target source of truth가 아니다.
 잘못 전달된 외부 참고 자료를 PRD source of truth로 삼지 않는다.
 
-MVP 정책:
+Target 정책:
 
-- 최종 reserved/allowed range source는 Network Profile manifest에서 명시한다.
-- 1차 IP 충돌 검사는 Network Profile manifest와 Proxmox observed state를 사용한다.
+- `network_id`/`server-net`은 target Create VM draft contract에 넣지 않는다.
+- static IP는 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
+- 1차 bridge 검사는 Proxmox live inventory를 사용한다.
 - 실제 충돌 감지가 부족하면 DHCP/ARP/라우터 lease 조회를 read-only evidence로 추가한다.
 - 외부 IP inventory 연동과 Gjallar 자체 IPAM은 MVP 범위 밖이다.
 

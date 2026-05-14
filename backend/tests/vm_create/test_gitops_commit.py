@@ -97,7 +97,7 @@ networks:
         self.assertEqual(after, result.commit_sha)
         self.assertEqual("gitops_commit_only", result.execution_intent)
         self.assertFalse(result.apply_enabled)
-        self.assertEqual("terraform_apply_disabled", result.next_stage)
+        self.assertEqual("proxmox_create_pending", result.next_stage)
         self.assertEqual(["iac_manifest_written", "iac_git_commit_created"], result.side_effects)
         self.assertIn("kind: VMInstance", target.read_text(encoding="utf-8"))
         self.assertEqual("pending", result.manifest_status["phase"])

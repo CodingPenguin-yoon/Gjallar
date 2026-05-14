@@ -13,6 +13,7 @@ from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.network_policy import NetworkPolicyError, build_network_policy_view, save_network_policy
 from app.vm_create.approval import validate_approval_request
 from app.manifests.loader import load_builtin_profiles
+from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
 from app.proxmox.inventory import get_default_inventory_adapter
 from app.vm_create.drafts import build_default_vm_draft
 from app.vm_create.gitops import (
@@ -25,6 +26,7 @@ from app.vm_create.gitops import (
 from app.vm_create.iac_readiness import run_iac_readiness
 from app.vm_create.planner import build_vm_create_plan
 from app.vm_create.preflight import run_preflight
+from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
 from app.vm_create.terraform_runner import (
     TerraformRunnerError,
     build_terraform_workspace,
@@ -85,6 +87,18 @@ def _terraform_error_summary(results: list[dict[str, Any]], fallback: str) -> st
         if text:
             return text[:1000]
     return str(fallback or "Terraform apply failed")[:1000]
+
+
+def _native_error_summary(result: dict[str, Any] | None, fallback: str) -> str:
+    if isinstance(result, dict):
+        message = str(result.get("message") or "").strip()
+        if message:
+            return message[:1000]
+        task = result.get("task") if isinstance(result.get("task"), dict) else {}
+        exitstatus = str(task.get("exitstatus") or "").strip()
+        if exitstatus:
+            return f"Proxmox task exitstatus: {exitstatus}"[:1000]
+    return str(fallback or "Native Proxmox create failed")[:1000]
 
 
 def _risk_dicts_from_plan(plan) -> list[dict[str, Any]]:
@@ -164,6 +178,10 @@ def _record_plan_job(
             **(details or {}),
         },
     )
+
+
+def _artifacts_from_result(result: dict[str, Any]) -> list[Any]:
+    return [artifact for artifact in result.get("artifacts") or [] if isinstance(artifact, dict)]
 
 
 def _job_summary(run: dict[str, Any]) -> dict[str, Any]:
@@ -424,6 +442,271 @@ async def approve_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
         details={"approval": decision.to_dict()},
     )
     return success_response(decision.to_dict(), meta={"mode": "approval_validation_only"})
+
+
+@router.post("/vm-create/{draft_id}/proxmox-preview")
+async def preview_vm_draft_proxmox_create(draft_id: str, payload: dict | None = None) -> dict:
+    """Build a non-mutating native Proxmox create preview after approval."""
+    payload = payload or {}
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    decision = validate_approval_request(
+        plan,
+        plan_artifact_id=str(payload.get("plan_artifact_id", "")),
+        review_summary_checksum=str(payload.get("review_summary_checksum", "")),
+        yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
+        run_dir=_api_preview_run_dir(plan.job_id),
+    )
+    if not decision.can_execute:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="approval",
+            step_status="blocked",
+            message=f"Proxmox native 생성 미리보기가 차단되었습니다: {decision.reason}",
+            details={"approval": decision.to_dict()},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_PREVIEW_APPROVAL_GATE_BLOCKED",
+                "message": decision.reason,
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+
+    preview = build_proxmox_create_preview(plan, run_dir=_api_preview_run_dir(plan.job_id))
+    _record_plan_job(
+        plan,
+        status="in_progress",
+        stage="workspace",
+        step_status="completed",
+        message="Proxmox native 생성 미리보기가 준비되었습니다.",
+        artifacts=[*plan.artifacts, *_artifacts_from_result(preview)],
+        details={"approval": decision.to_dict(), "proxmox_preview": preview},
+    )
+    return success_response(
+        {
+            **preview,
+            "approval": decision.to_dict(),
+            "proxmox_create_enabled": False,
+            "proxmox_mutation_enabled": False,
+            "terraform_apply_enabled": False,
+        },
+        meta={"mode": "proxmox_native_preview_no_mutation"},
+    )
+
+
+@router.post("/vm-create/{draft_id}/proxmox-create")
+async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = None) -> dict:
+    """Create a powered-off VM through the native Proxmox API after commit and final acknowledgement."""
+    payload = payload or {}
+    plan = _api_preview_plan_from_payload(draft_id, payload)
+    decision = validate_approval_request(
+        plan,
+        plan_artifact_id=str(payload.get("plan_artifact_id", "")),
+        review_summary_checksum=str(payload.get("review_summary_checksum", "")),
+        yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
+        run_dir=_api_preview_run_dir(plan.job_id),
+    )
+    if not decision.can_execute:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_APPROVAL_GATE_BLOCKED",
+                "message": decision.reason,
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    if payload.get("proxmox_mutation_acknowledged") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_ACK_REQUIRED",
+                "message": "proxmox_mutation_acknowledged=true is required before native Proxmox create",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+    if plan.risk_summary.get("level") == "red":
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="preflight",
+            step_status="blocked",
+            message="생성 직전 사전 검토에서 차단 항목이 발견되었습니다.",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_PREFLIGHT_RED_RISK",
+                "message": "red risk blocks native Proxmox create",
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        )
+
+    try:
+        manifest_path = verify_plan_manifest_commit(plan, str(payload.get("manifest_commit_sha", "")))
+    except GitOpsCommitError as exc:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="commit",
+            step_status="blocked",
+            message=f"저장된 생성 요청 확인이 차단되었습니다: {exc}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_MANIFEST_COMMIT_BLOCKED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        ) from exc
+
+    _record_plan_job(
+        plan,
+        status="running",
+        stage="create",
+        step_status="running",
+        message="Proxmox native VM 생성 작업을 시작했습니다.",
+        details={"manifest_path": manifest_path, "approval": decision.to_dict()},
+    )
+    try:
+        applying_status = update_plan_manifest_status(plan, "applying")
+    except GitOpsCommitError as exc:
+        _record_plan_job(
+            plan,
+            status="blocked",
+            stage="create",
+            step_status="blocked",
+            message=f"생성 상태 기록이 차단되었습니다: {exc}",
+            details={"manifest_path": manifest_path},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_STATUS_BLOCKED",
+                "message": str(exc),
+                "draft_id": draft_id,
+                "side_effects": [],
+            },
+        ) from exc
+
+    status_side_effects = list(applying_status.side_effects)
+    try:
+        client = get_default_proxmox_mutation_client()
+        create_result = redact_secrets(
+            await run_in_threadpool(
+                run_proxmox_create,
+                plan,
+                run_dir=_api_preview_run_dir(plan.job_id),
+                client=client,
+            )
+        )
+    except ProxmoxMutationError as exc:
+        create_result = {"success": False, "status": "failed", "message": str(exc), "side_effects": []}
+
+    if create_result.get("success") is not True or not create_result.get("observed_after_artifact"):
+        phase = "needs_reconciliation" if create_result.get("status") == "needs_reconciliation" else "apply_failed"
+        manifest_status: dict[str, Any] = {}
+        manifest_status_commit_sha = ""
+        try:
+            failed_status = update_plan_manifest_status(
+                plan,
+                phase,
+                last_error=_native_error_summary(create_result, "native Proxmox create failed"),
+            )
+            manifest_status = failed_status.manifest_status
+            manifest_status_commit_sha = failed_status.commit_sha
+            status_side_effects.extend(failed_status.side_effects)
+        except GitOpsCommitError as status_exc:
+            status_side_effects.append("iac_manifest_status_update_failed")
+            manifest_status = {"phase": phase, "last_error": str(status_exc), "updated_at": ""}
+        _record_plan_job(
+            plan,
+            status="failed",
+            stage="create",
+            step_status=phase,
+            message=f"Proxmox native VM 생성 확인이 실패했습니다: {_native_error_summary(create_result, '')}",
+            artifacts=[*plan.artifacts, *_artifacts_from_result(create_result)],
+            details={
+                "manifest_path": manifest_path,
+                "manifest_status": manifest_status,
+                "proxmox_create": create_result,
+            },
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_NEEDS_RECONCILIATION" if phase == "needs_reconciliation" else "PROXMOX_CREATE_FAILED",
+                "message": _native_error_summary(create_result, "native Proxmox create failed"),
+                "draft_id": draft_id,
+                "side_effects": [*status_side_effects, *list(create_result.get("side_effects") or [])],
+                "proxmox_create": create_result,
+                "manifest_status": manifest_status,
+                "manifest_status_commit_sha": manifest_status_commit_sha,
+            },
+        )
+
+    try:
+        applied_status = update_plan_manifest_status(plan, "applied")
+    except GitOpsCommitError as exc:
+        _record_plan_job(
+            plan,
+            status="failed",
+            stage="create",
+            step_status="failed",
+            message=f"VM 생성은 확인됐지만 상태 기록이 실패했습니다: {exc}",
+            artifacts=[*plan.artifacts, *_artifacts_from_result(create_result)],
+            details={"manifest_path": manifest_path, "proxmox_create": create_result},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROXMOX_CREATE_STATUS_UPDATE_FAILED",
+                "message": f"Native Proxmox create was observed, but manifest status update failed: {exc}",
+                "draft_id": draft_id,
+                "side_effects": [*status_side_effects, *list(create_result.get("side_effects") or [])],
+                "proxmox_create": create_result,
+                "proxmox_create_ran": True,
+            },
+        ) from exc
+
+    status_side_effects.extend(applied_status.side_effects)
+    _record_plan_job(
+        plan,
+        status="completed",
+        stage="create",
+        step_status="completed",
+        message="Proxmox native VM 생성이 완료되었습니다.",
+        artifacts=[*plan.artifacts, *_artifacts_from_result(create_result)],
+        details={
+            "manifest_path": manifest_path,
+            "manifest_status": applied_status.manifest_status,
+            "proxmox_create": create_result,
+        },
+    )
+    return success_response(
+        {
+            **create_result,
+            "approval": decision.to_dict(),
+            "manifest_path": manifest_path,
+            "manifest_commit_sha": str(payload.get("manifest_commit_sha", "")),
+            "manifest_status": applied_status.manifest_status,
+            "manifest_status_commit_sha": applied_status.commit_sha,
+            "proxmox_create_ran": True,
+            "proxmox_create_status": "applied",
+            "proxmox_create_enabled": True,
+            "proxmox_mutation_enabled": True,
+            "terraform_apply_enabled": False,
+            "side_effects": [*status_side_effects, *list(create_result.get("side_effects") or [])],
+        },
+        meta={"mode": "proxmox_native_create_live_mutation"},
+    )
 
 
 @router.post("/vm-create/{draft_id}/terraform-plan")

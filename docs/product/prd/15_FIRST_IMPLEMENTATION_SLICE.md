@@ -4,6 +4,11 @@
 > Current MVP product source of truth is `drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 > This create-first material is historical/supporting capability context only. It must not define the next MVP success line or implementation order.
 > Next implementation work should follow `drs-advisor/05_IMPLEMENTATION_PLAN.md`.
+> 2026-05-13 Create VM profile/template/network update: if this historical slice
+> is reused for Create VM, use
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> The older `server-net`/NetworkProfile fixture, single `general-vm` target,
+> template catalog fixture, and first-power-on create success are superseded.
 
 ## 0. 목적
 
@@ -20,7 +25,7 @@
 
 - backend/frontend 새 skeleton
 - manifest parser skeleton
-- profile/template/network fixture
+- profile seed fixture plus live template/bridge inventory fixture adapter
 - Dashboard summary mock/live adapter
 - Nodes list
 - VMs list/detail
@@ -49,41 +54,47 @@
 ## 4. 필요한 fixture
 
 ```text
-profiles/general-vm.yaml
-templates/ubuntu-template.yaml
-networks/server-net.yaml
+profiles/seed-profiles.json
+inventory/proxmox-templates.json
+inventory/proxmox-node-bridges.json
 vms/example-draft.yaml
 ```
 
-초기 fixture 전제:
+2026-05-13 target fixture 전제:
 
 ```yaml
-profile_id: general-vm
-target_node_candidates:
-  - yoonmanserver2
-  - yoonmanserver3
-network_profile: server-net
-node_bridges:
-  yoonmanserver2: vmbr0
-  yoonmanserver3: vmbr0
-ip_modes:
-  allowed:
-    - dhcp
-    - static
-  default: static
+profiles:
+  - id: general-vm
+    enabled: true
+  - id: runtime-server
+    enabled: true
+  - id: development-vm
+    enabled: true
+profile_bindings_forbidden:
+  - target_node
+  - storage
+  - network_id
+  - bridge
+  - template_vmid
+  - power_policy
+  - profile_version
+template_source: proxmox_live_inventory
+network_source: selected_target_node_live_bridge
+network_id: not_used
+static_requires:
+  - static_ip
+  - prefix
+  - gateway
+dhcp: allowed_with_discovery_warning
 hardware:
-  cpu: 2
-  memory_mb: 4096
-  disk_gb: 50
+  source: selected_profile_defaults_and_limits
 access:
   cloud_init_user: yoon
   ssh_key_source: operator_default_public_key
   password_login: disabled
-template_family: ubuntu
-test_ip_range: 192.168.2.140-150
 ```
 
-storage 이름과 실제 Ubuntu template VMID/name은 구현 직전 live inventory로 확인한다.
+storage 이름, 실제 template VMID/name/capabilities, node bridge 목록은 구현 직전 Proxmox live inventory로 확인한다.
 
 ## 5. 이후 slice
 
@@ -100,7 +111,7 @@ Slice 3:
 
 Slice 4:
 
-- 승인 후 `general-vm` 실제 생성
+- 승인 후 selected enabled profile 기반 VM 생성
 - VM 생성 승인은 일반 Confirm 버튼으로 처리
 - yellow risk가 있으면 경고 체크박스 필요
 - red risk는 approve/execute 비활성화
@@ -109,11 +120,12 @@ Slice 4:
 - profile별 reserved VMID range는 2차로 둠
 - Terraform state는 local backend로 `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`에 저장
 - apply 전 state lock과 manifest/state `proxmox_vmid`/name 일치 확인
-- Terraform/Proxmox apply/config 성공 전에는 첫 power on 금지
-- apply/config 성공 후 첫 power on
-- smoke 저장
+- Terraform/Proxmox apply/config 성공 전에는 power on 금지
+- 2026-05-13 target 생성 성공은 powered-off/stopped 상태다.
+- first power-on, smoke, guest-agent discovery, SSH verification은 별도 follow-up stage다.
 
-Slice 4의 `general-vm` bootstrap은 먼저 Stage A smoke only로 구현한다.
+아래 Stage A/Stage B는 historical create-first readiness context다.
+현재 target design에서는 Create VM success 조건에 포함하지 않는다.
 
 Stage A:
 

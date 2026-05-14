@@ -1,6 +1,6 @@
 # Gjallar VM Operations Architecture
 
-Last reviewed against code: 2026-05-11
+Last reviewed against code: 2026-05-13
 
 Current MVP product source of truth is [`docs/product/prd/drs-advisor/`](../../product/prd/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 
@@ -12,6 +12,11 @@ environment controller, or LLM assistant product.
 Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
 DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
 
+Create VM profile/template/network target design is documented in
+[`CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+That design is the target for the Create VM supporting capability, while this
+document primarily describes current architecture and target gaps.
+
 ## Active System Shape
 
 ```text
@@ -21,11 +26,12 @@ React operator UI
     -> IaC-backed network policy helpers
     -> Create VM draft/preflight/plan/approval helpers
     -> file-backed Jobs/Runs and risk summaries
-    -> gated Terraform workspace/plan/apply helpers
+    -> gated Proxmox native clone/resize/config/post-check helpers
+    -> optional/deprecated Terraform workspace/plan/apply helpers
 ```
 
 The safe baseline is read-only. Any live Create VM side effect is behind
-explicit approval and Terraform acknowledgement gates.
+exact approval metadata, manifest commit verification, and Proxmox mutation acknowledgement gates.
 
 ## Frontend
 
@@ -39,7 +45,7 @@ Active routes:
 | `/` | `Dashboard` in `App.jsx` | Cluster summary from inventory, jobs, and risks. Uses partial-load behavior so NFS-backed job history failures do not blank the first screen. |
 | `/infra` | `InstanceList` | Read-only grouped VM inventory and detail evidence. |
 | `/networks` | `NetworkPolicyScreen` | Bridge inventory plus IaC network policy view and guarded policy write. |
-| `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Terraform gates. |
+| `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, manifest commit, Proxmox native preview/create gates. |
 | `/placement` | `PlacementScreen` | Read-only placement recommendations from inventory, storage, bridge, job, and risk evidence. |
 | `/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
 | `/risks` | `OperationalRiskDashboard` | Read-only risk summaries derived from job records. |
@@ -77,11 +83,12 @@ Active backend modules:
 | Module | Role |
 |---|---|
 | `app/api/v1/router.py` | API route composition, response envelopes, job progress recording, and gate orchestration. |
-| `app/proxmox/inventory.py` | Live read-only Proxmox inventory with fake fallback and safe connection context redaction. |
+| `app/proxmox/inventory.py` | Live read-only Proxmox inventory with fake fallback and safe connection context redaction. This module must not gain mutation methods. |
+| `app/proxmox/client.py` | Explicit native Proxmox mutation client for Create VM clone/resize/config/status calls. Reuses the inventory env but is imported only by gated mutation paths. |
 | `app/proxmox/models.py` | Inventory dataclasses for nodes, VMs, templates, storage, and networks. |
 | `app/manifests/*` | Built-in VM profile and manifest schema defaults. |
 | `app/network_policy.py` | IaC-backed network policy load/save and bridge-policy view composition. |
-| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest, GitOps, IaC readiness, and Terraform runner helpers. |
+| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest, GitOps, IaC readiness, native Proxmox runner, and legacy Terraform runner helpers. |
 | `app/jobs/*` | File-backed job status, artifacts, approval records, and risk source data. |
 | `app/core/redaction.py` | Secret redaction for responses, artifacts, and persisted job details. |
 
@@ -113,16 +120,50 @@ POST /api/v1/vm-create/drafts
 POST /api/v1/vm-create/{draft_id}/preflight
 POST /api/v1/vm-create/{draft_id}/plan
 POST /api/v1/vm-create/{draft_id}/approve
+POST /api/v1/vm-create/{draft_id}/proxmox-preview
+POST /api/v1/vm-create/{draft_id}/proxmox-create
 POST /api/v1/vm-create/{draft_id}/terraform-plan
 POST /api/v1/vm-create/{draft_id}/terraform-apply
 POST /api/v1/vm-create/{draft_id}/execute
 POST /api/v1/vm-create/{draft_id}/archive
 ```
 
-`PUT /api/v1/networks/policy` is the only current policy write path. Create VM
+`PUT /api/v1/networks/policy` is the current policy write path. Create VM
 execution writes artifacts/manifests only after the relevant approval gates pass.
+`terraform-plan` and `terraform-apply` remain legacy optional routes; the active UI uses `proxmox-preview` and `proxmox-create`.
 
 Target DRS Advisor API candidates are documented in [`../../product/prd/drs-advisor/05_IMPLEMENTATION_PLAN.md`](../../product/prd/drs-advisor/05_IMPLEMENTATION_PLAN.md) and [`../../product/prd/12_UI_API_CONTRACT.md`](../../product/prd/12_UI_API_CONTRACT.md). They are not current implementation.
+
+## Create VM Target Selection Model
+
+The current Create VM implementation is a supporting capability. Its target
+selection model is being updated as follows:
+
+- Profiles become Gjallar DB-seeded creation presets, initially read-only in the
+  UI. Initial enabled profiles are `general-vm`, `runtime-server`, and
+  `development-vm`.
+- Profiles define hardware defaults/min/max, template requirements, and access
+  recommendations only. They do not define target node, storage, network,
+  `network_id`, bridge, static IP, template VMID/name, power policy, or profile
+  version.
+- Template source of truth is Proxmox live inventory. There is no target
+  Gjallar template catalog or registration window.
+- The UI shows live Proxmox templates and disables templates that fail the
+  selected profile's cloud-init or qemu guest-agent requirements. Backend
+  preflight still red-blocks failing templates.
+- Create VM target networking removes `network_id`/`server-net`. The operator
+  selects target node, then an active live bridge on that node.
+- Static mode requires `static_ip`, `prefix`, and `gateway`. DHCP is allowed
+  with a warning and later guest-agent/inventory discovery.
+- Gateway is explicit operator input. Create VM must not infer a `.1` gateway
+  from the requested static IP.
+- Create success remains stopped/powered off by global create policy. VM start
+  is future Infra Explorer row action work with Jobs/Runs audit.
+
+Current implementation gap: code still has current built-in profile behavior,
+only `general-vm` create-enabled, `network_id`/`server-net` in the Create VM
+path, no required static `prefix`/`gateway`, and gateway derivation from static
+IP in create payload helpers until the implementation update.
 
 ## Main Data Flows
 
@@ -164,6 +205,26 @@ Create VM route records job progress
 If the runs root is unavailable, list reads fail open with an empty list so
 read-only screens remain available.
 
+### Native Create VM
+
+```text
+CreateInstanceWizard
+  -> createVmFlow.loadCreateVmReviewModel()
+  -> draft -> preflight -> plan -> approve
+  -> execute_vm_draft() commits VMInstance manifest only
+  -> preview_vm_draft_proxmox_create() writes non-mutating native preview artifact
+  -> create_vm_draft_proxmox_native()
+     -> run_proxmox_create()
+        -> clone full VM from template
+        -> poll clone UPID
+        -> inspect cloned config and resize boot disk if requested disk_gb is larger
+        -> set powered-off config
+        -> read status/current and config
+        -> write observed_after fingerprint artifact
+```
+
+Success requires Proxmox actual state, not planned state: requested disk resize must be unnecessary or completed, the VM must exist on the target node, `status/current` must report `stopped`, and an `observed_after` artifact with fingerprint hash must exist. Task failure, unknown cloned disk size, resize failure, VM missing, or powered-on observation marks the manifest `apply_failed` or `needs_reconciliation` and does not mark it `applied`.
+
 ### Network Policy
 
 ```text
@@ -175,6 +236,11 @@ Proxmox bridge inventory
 Policy writes are scoped to the configured IaC root and are guarded against path
 escape. Secret values are not returned by API responses.
 
+For target Create VM, this Network tab policy is not the source of truth for
+bridge selection. Create VM should use live Proxmox bridge inventory for the
+selected target node. Network policy/subnet/gateway/range integration may be
+added later as recommendations or validation evidence.
+
 ## Safety Boundaries
 
 Current MVP exclusions:
@@ -184,9 +250,12 @@ Current MVP exclusions:
 - No app deploy, arbitrary package bootstrap, DB migration, or raw shell flow.
 - No GitLab/staging registry writes.
 - No LLM/chat product route.
-- No first-power-on or post-creation smoke in the current Terraform apply slice.
+- No first-power-on or post-creation smoke in the current native create slice.
+- No profile-owned power policy.
+- No Gjallar template catalog or template registration window in the target
+  Create VM selection model.
 
-The current Create VM policy is powered-off only. Terraform may clone/configure
+The current Create VM policy is powered-off only. Native Proxmox create may clone/configure
 the VM after explicit acknowledgement, but first power-on and Stage A smoke are
 separate deferred stages.
 
@@ -200,6 +269,9 @@ Important environment variables:
 | `PROXMOX_API_URL` | Live Proxmox API base URL. |
 | `PROXMOX_API_TOKEN_ID` | Live Proxmox token id. |
 | `PROXMOX_API_TOKEN_SECRET` | Live Proxmox token secret. Must never be persisted or returned. |
+| `PROXMOX_TLS_INSECURE` | Reused by live inventory and native mutation clients. |
+| `PROXMOX_TASK_POLL_INTERVAL_SECONDS` / `GJALLAR_PROXMOX_TASK_POLL_INTERVAL_SECONDS` | Native Create VM clone task polling interval. |
+| `PROXMOX_TASK_TIMEOUT_SECONDS` / `GJALLAR_PROXMOX_TASK_TIMEOUT_SECONDS` | Native Create VM clone task timeout. |
 | `GJALLAR_SHARED_ROOT` | Shared root for IaC and state defaults. |
 | `GJALLAR_IAC_ROOT` | Explicit IaC repo root override. |
 | `GJALLAR_TF_STATE_ROOT` / `GJALLAR_TERRAFORM_STATE_ROOT` | Terraform state root override. |

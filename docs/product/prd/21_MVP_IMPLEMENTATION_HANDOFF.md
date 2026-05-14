@@ -4,6 +4,11 @@
 > Current MVP product source of truth is `drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 > This create-first material is historical/supporting capability context only. It must not define the next MVP success line or implementation order.
 > Do not use this document as the next handoff. Next implementation work should follow `drs-advisor/05_IMPLEMENTATION_PLAN.md`.
+> 2026-05-13 Create VM profile/template/network update: if any Create VM work is
+> resumed from this historical handoff, use
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> Older single-profile, `server-net`/NetworkProfile, template catalog, and
+> first-power-on-as-create-success assumptions are superseded.
 
 이 문서는 PRD 기준으로 첫 MVP 구현에 바로 들어가기 위한 실행 handoff다.
 구현자는 먼저 `19_MVP_DECISION_LOCK.md`를 읽고, 이 문서 순서대로 진행한다.
@@ -29,41 +34,50 @@ read-only inventory
 -> plan
 -> Review & Confirm
 -> GitOps commit/push guard
--> Terraform/Proxmox apply powered-off
--> first power on
--> smoke
+-> Terraform/Proxmox apply/configure powered-off
+-> stopped create result
 -> job/artifact 저장
 ```
 
 ## 2. 고정 fixture / 기본값
 
 ```yaml
-profile_id: general-vm
+profile_ids:
+  - general-vm
+  - runtime-server
+  - development-vm
+profile_source: gjallar_db_seed
+profile_bindings_forbidden:
+  - target_node
+  - storage
+  - network_id
+  - bridge
+  - template_vmid
+  - power_policy
+  - profile_version
 vm_name_pattern: gjallar-vm-<YYYYMMDD>-<short_job_id>
 hardware:
-  cpu: 2
-  memory_mb: 4096
-  disk_gb: 50
+  source: selected_profile_defaults_and_limits
 access:
   cloud_init_user: yoon
   ssh_key_source: operator_default_public_key
   password_login: disabled
-target_node_candidates:
-  - yoonmanserver2
-  - yoonmanserver3
-network_profile: server-net
-node_bridges:
-  yoonmanserver2: vmbr0
-  yoonmanserver3: vmbr0
+target_node: user_selected_live_node
+template_source: proxmox_live_inventory
+network_source: selected_target_node_active_live_bridge
+network_id: not_used
 ip_modes:
   allowed:
     - dhcp
     - static
-  default: static
-template_family: ubuntu
-mvp_create_ip_range: 192.168.2.140-150
+  static_requires:
+    - static_ip
+    - prefix
+    - gateway
+  dhcp_warning: guest_agent_or_inventory_discovery_required_later
 terraform_state_path: /mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate
 iac_repo: /mnt/hermes_data/IaC
+create_success_power_state: stopped
 ```
 
 ## 3. 구현 직전 live inventory 조회
@@ -71,12 +85,12 @@ iac_repo: /mnt/hermes_data/IaC
 질문하지 말고 조회한다.
 
 - Proxmox API node id 목록
-- 각 node bridge 목록
+- 각 node active live bridge 목록
 - storage 목록/여유량
-- Ubuntu template VMID/name/storage
+- Proxmox template VMID/name/storage/capabilities
 - template cloud-init/qemu-agent readiness
-- `192.168.2.140-150` 중 사용 가능한 IP
-- API Token 권한이 read/create/power/agent query에 충분한지
+- static mode 요청 시 `static_ip`/`prefix`/`gateway`와 IP 충돌 evidence
+- API Token 권한이 read/create/agent query에 충분한지. Future power action 권한은 별도 slice에서 재확인한다.
 
 조회 결과가 PRD fixture와 다르면 PRD를 바꾸기 전에 `live_inventory_report.json` artifact로 남기고 Review & Confirm에서 risk로 표시한다.
 
@@ -101,12 +115,13 @@ iac_repo: /mnt/hermes_data/IaC
 
 필수 테스트:
 
-- `general-vm` profile schema accepts defaults
-- future profiles are not create/apply enabled
-- NetworkProfile requires node_bridges
-- `yoonmanserver2` and `yoonmanserver3` resolve to `vmbr0`
-- DHCP/static both accepted, default static
-- hardware default is 2/4096/50
+- seed profiles expose enabled `general-vm`, `runtime-server`, `development-vm`
+- profiles do not bind node/storage/network/template/power/version
+- Create VM rejects `network_id`/`server-net`
+- selected target node active live bridge is required
+- DHCP/static both accepted, DHCP shows discovery warning
+- static mode requires `static_ip`, `prefix`, `gateway`
+- hardware defaults/limits come from selected profile
 - cloud-init user default is `yoon`
 - password login disabled
 - secrets never serialized
@@ -168,11 +183,12 @@ Preflight 필수 checks:
 - template 존재/상태
 - target node online
 - storage 존재/여유
-- selected node bridge mapping
-- mapped bridge live existence
+- selected node active live bridge existence
+- `network_id`/`server-net` absence
 - `proxmox_vmid`/name collision
 - hardware limit
-- static IP allowed range/reserved/IP collision
+- static mode `static_ip`/`prefix`/`gateway` required
+- static IP allowed/reserved/collision evidence
 - Terraform state lock
 - destroy/delete plan blocker
 - credential scope
@@ -188,10 +204,9 @@ Plan response는 아래를 포함한다.
 - storage
 - template
 - CPU/RAM/Disk
-- network/IP
+- bridge/IP mode/static IP fields
 - Terraform state path
-- first power on included
-- smoke timeout summary
+- power policy `stopped`
 - red/yellow risk summary
 - plan artifact link
 - planned Git diff summary
@@ -230,7 +245,7 @@ Approval request:
 
 - powered-off clone/config
 - hardware/cloud-init/network config
-- apply/config 성공 전 first power on 금지
+- apply/config 성공 후에도 Create VM success는 stopped 상태
 - state local backend 사용
 - state checksum/backup metadata 저장
 
@@ -243,6 +258,9 @@ failed_stage: terraform_apply | proxmox_config
 ```
 
 ### Slice 8 — First power on + smoke
+
+Historical follow-up slice only. 2026-05-13 Create VM target does not include
+first power-on or smoke in the create success path.
 
 목표:
 
@@ -309,7 +327,8 @@ MVP 완료 조건:
 - Review & Confirm에 13개 항목 표시
 - 승인 후 Git commit/push 완료 전에는 apply 안 함
 - apply/config 성공 전 VM이 부팅되지 않음
-- first power on 이후 smoke 결과 저장
+- 생성 성공 power state가 stopped로 기록됨
+- first power-on 이후 smoke 저장은 future follow-up slice
 - 실패 VM 자동 삭제 없음
 - job/artifact로 원인 추적 가능
 - hard stop/reset/delete/snapshot/rollback endpoint 없음

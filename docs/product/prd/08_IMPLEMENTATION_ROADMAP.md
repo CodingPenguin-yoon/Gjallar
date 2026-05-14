@@ -1,5 +1,12 @@
 # Gjallar Implementation Roadmap PRD
 
+> 2026-05-13 Create VM profile/template/network update: DRS Advisor remains the
+> current MVP source of truth. If Create VM work resumes, use
+> [`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+> Older roadmap items for single `general-vm`, future `dev-server`/`db-server`,
+> `server-net`/NetworkProfile mapping, template catalogs, and first-power-on as
+> part of create success are superseded by that design.
+
 ## 0. 목적
 
 PRD 확정 후 구현 순서를 정의한다.
@@ -25,7 +32,7 @@ PRD 확정 후 구현 순서를 정의한다.
 8. 첫 slice 테스트 작성
 
 현재 첫 MVP 완료선은 DRS Advisor에서 Allowed VM 대상 manual approved live migration을 실행/추적하고, timeout/restart 상황을 `needs_reconciliation`과 Reconcile Now로 처리하는 것이다.
-`general-vm` 생성 + Stage A smoke + job/artifact 추적은 보조 capability로 유지한다.
+Create VM powered-off/stopped 생성 + job/artifact 추적은 보조 capability로 유지한다.
 
 ## 2.1 Current DRS Advisor implementation order
 
@@ -80,9 +87,12 @@ PRD 확정 후 구현 순서를 정의한다.
 
 목표:
 
-- profile/template/network/vm manifest parser
-- MVP enabled profile은 `general-vm` 하나만 지원
-- future profile(`runtime-server`, `dev-server`, `db-server`)은 create/apply 차단
+- VM manifest/job artifact parser
+- Profile source는 Gjallar DB seed이며 enabled UI-visible profile은 `general-vm`, `runtime-server`, `development-vm`
+- Profile은 target node/storage/network/template/power/version을 bind하지 않음
+- Template source는 Proxmox live inventory이며 Gjallar template catalog 없음
+- Network는 target node 선택 후 active live bridge 선택, `network_id`/`server-net` 사용 안 함
+- static mode는 `static_ip`, `prefix`, `gateway` 필수, DHCP mode는 discovery warning과 함께 허용
 - schema tests
 - preflight engine
 - risk model
@@ -92,13 +102,12 @@ PRD 확정 후 구현 순서를 정의한다.
 
 목표:
 
-- Review & Confirm: VM 이름, VMID, node/storage/template, hardware, network/IP, Terraform state path, first power on, smoke timeout, risk summary, plan artifact, git diff 요약
+- Review & Confirm: VM 이름, VMID, node/storage/template, hardware, bridge/IP fields, Terraform state path, power policy `stopped`, risk summary, plan artifact, git diff 요약
 - 일반 Confirm 승인과 yellow risk 경고 체크박스
 - job workspace
 - manifest commit
-- apply
-- bootstrap
-- smoke
+- apply/configure powered-off
+- first power-on, smoke, guest-agent discovery, SSH verification은 별도 follow-up stage
 - artifact 저장
 
 실제 VM 생성은 테스트용 IP/노드로 제한한다.

@@ -8,6 +8,12 @@
 Gjallar 재구현은 테스트를 먼저 작성한다.
 AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것을 막는다.
 
+Create VM profile/template/network target contract은
+[`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)를 따른다.
+현재 code는 아직 built-in profiles, `general-vm` only enabled,
+`network_id`/`server-net`, no static `prefix`/`gateway` 상태이므로 아래 target
+tests는 구현 update와 함께 RED부터 추가한다.
+
 ## 1. 테스트 원칙
 
 1. PRD/API/manifest 계약을 테스트로 고정한다.
@@ -20,16 +26,26 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 
 ### Manifest schema tests
 
-- valid `general-vm` profile accepted
-- MVP create draft rejects disabled/future profiles such as `runtime-server`, `dev-server`, `db-server`
-- default `general-vm` hardware is 2 vCPU / 4096MB / 50GB
-- hardware override over max rejected
-- unknown template rejected
-- unknown network rejected
-- network profile resolves bridge by selected target node
-- create plan supports both `yoonmanserver2` and `yoonmanserver3` when mapped bridge exists
-- create plan rejects node/network combinations with missing bridge mapping
+- DB seed has enabled `general-vm`, `runtime-server`, and `development-vm`
+- `general-vm` hardware defaults/limits are CPU 2 default, 1-8; memory 4096 default, 1024-32768; disk 50 default, 50-500
+- `runtime-server` hardware defaults/limits are CPU 4 default, 2-16; memory 8192 default, 4096-65536; disk 100 default, 80-1000
+- `development-vm` hardware defaults/limits are CPU 2 default, 1-12; memory 4096 default, 2048-32768; disk 50 default, 50-500
+- all initial profiles require cloud-init and qemu guest agent
+- all initial profiles recommend `default_user=yoon`, require SSH key, disable password login, and allow username override
+- profile seed rejects target node, storage, network/network_id, bridge, static IP, template VMID/name, power policy, and profile version fields
+- hardware override over profile max rejected
+- hardware override under profile min rejected
+- changing selected profile resets CPU/RAM/Disk to the new profile defaults
+- unknown live template rejected
+- template failing selected profile cloud-init requirement rejected
+- template failing selected profile qemu guest-agent requirement rejected
+- requested disk below selected live template disk rejected
+- target node bridge selection uses active live bridge inventory
+- create plan rejects bridge not present on selected target node
+- target Create VM draft rejects `network_id`
+- static mode without `static_ip`, `prefix`, or `gateway` rejected
 - `dhcp` and `static` IP modes are both accepted; default is `static`
+- DHCP mode returns warning for later guest-agent/inventory discovery
 - first create MVP does not expose Runtime Target create option; Runtime Target readiness tests are added in the deferred Runtime Target slice
 
 ### Safety/preflight tests
@@ -43,6 +59,9 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 - duplicate IP red
 - reserved IP red
 - storage insufficient red
+- required SSH key missing red
+- password login true rejected for initial profiles
+- profile-owned power policy rejected
 - yellow requires approval
 - red cannot be overridden by approval
 
@@ -52,6 +71,9 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 - nodes list shape
 - VMs list/detail shape
 - create draft/preflight/plan/approve/execute state transition
+- `GET /profiles` returns the three enabled target profile seeds with hardware, template requirements, and access recommendations
+- `GET /templates`/template selector is backed by live Proxmox inventory, not a Gjallar template catalog
+- failing templates are returned disabled in the UI model and red-blocked in preflight
 - plan response includes Review & Confirm payload and checksum
 - approve request verifies plan artifact id and review summary checksum
 - jobs artifact links
@@ -65,11 +87,20 @@ AI가 구현 후 자기 코드에 맞춘 무의미한 테스트를 만드는 것
 - red risk disables approve/execute
 - yellow risk shows review and requires warning checkbox
 - VM create uses normal Confirm, not typed confirmation
-- create draft defaults access to cloud-init user `yoon`, operator default public key, password login disabled
+- profile list shows `general-vm`, `runtime-server`, and `development-vm`
+- profile change resets CPU/RAM/Disk controls to new defaults
+- profile hardware controls enforce min/max
+- template selector shows live Proxmox templates and disables templates that fail selected profile requirements
+- target node selection filters bridge options to active live bridges on that node
+- static mode requires static IP, prefix, and gateway fields
+- DHCP mode shows discovery warning
+- Create VM access section defaults username to `yoon`, can prefill public key from environment-backed backend config, and keeps password login disabled
+- no-key state shows red blocker when selected profile requires SSH key
 - API/artifacts never include private key, password, or token secret values
-- Review & Confirm shows VM name, VMID, node, storage, template, hardware, network/IP, Terraform state path, first power on, smoke timeout, risk summary, plan artifact link, git diff summary
+- Review & Confirm shows VM name, VMID, profile, node, storage, live template, hardware, access username/key presence, bridge, IP mode, static IP/prefix/gateway when used, Terraform state path or manifest path, first power on, smoke timeout, risk summary, plan artifact link, git diff summary
 - profile first, advanced hardware collapsed
 - Infra Explorer shows Nodes/VMs/Detail in one flow
+- start VM action remains absent until future Infra Explorer row action slice with Jobs/Runs audit
 - VM Detail power action confirm modal tests are deferred until the power-action slice
 - yellow risk on power action tests are deferred until the power-action slice
 - hard stop/reset actions are not shown in MVP

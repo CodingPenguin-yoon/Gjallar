@@ -18,7 +18,8 @@ The active repo-local documentation lives under [`docs/`](docs/README.md). Start
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
 - The current UI provides Dashboard, Infra Explorer, Networks, Create VM, read-only Placement, Jobs/Runs, and Risks/Alerts.
 - Current code has read-only Placement and Create VM as supporting capabilities; it does not yet implement backend DRS recommendation, identity/fingerprint policy, approved migration execution, UPID tracking, or reconciliation.
-- Create VM mutations remain approval-gated, Terraform-backed, and fail closed. Create VM is a supporting existing capability, not the next MVP success line.
+- Create VM mutations are now approval-gated Proxmox API native by default. Terraform remains optional/deprecated legacy executor code and is not the active UI path.
+- Native Create VM creates/configures a powered-off VM, polls the Proxmox clone UPID, and requires post-check `observed_after` evidence before marking the manifest applied.
 - There are no destructive VM list controls in the current UI.
 
 ## Local Runtime Env
@@ -42,5 +43,6 @@ Key values:
 
 - [Docs index](docs/README.md)
 - [Current implemented state](docs/product/status/current.md)
+- [Create VM native architecture](docs/engineering/architecture/CREATE_VM_NATIVE_ARCHITECTURE.md)
 - [Current runbook](docs/product/operations/runbook.md)
 - [Product PRD index](docs/product/prd/README.md)

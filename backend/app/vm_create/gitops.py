@@ -18,7 +18,7 @@ class GitOpsCommitError(RuntimeError):
     """Raised when an approved plan cannot be committed safely."""
 
 
-ACTIVE_PHASES = {"pending", "planned", "applying", "apply_failed", "applied", "archived"}
+ACTIVE_PHASES = {"pending", "planned", "applying", "apply_failed", "applied", "needs_reconciliation", "archived"}
 
 
 def _run_git(iac_root: Path, *args: str) -> str:
@@ -138,7 +138,7 @@ def commit_plan_manifest(plan: VmCreatePlan) -> GitOpsCommitResult:
                 manifest_path=relative_path,
                 commit_sha=commit_sha,
                 apply_enabled=False,
-                next_stage="terraform_apply_disabled",
+                next_stage="proxmox_create_pending",
                 side_effects=["iac_manifest_already_present"],
                 manifest_status=_manifest_status(existing_manifest),
             )
@@ -166,7 +166,7 @@ def commit_plan_manifest(plan: VmCreatePlan) -> GitOpsCommitResult:
         manifest_path=relative_path,
         commit_sha=commit_sha,
         apply_enabled=False,
-        next_stage="terraform_apply_disabled",
+        next_stage="proxmox_create_pending",
         side_effects=["iac_manifest_written", "iac_git_commit_created"],
         manifest_status={"phase": "pending", "last_error": "", "updated_at": ""},
     )
@@ -296,7 +296,7 @@ def verify_plan_manifest_commit(plan: VmCreatePlan, commit_sha: str) -> str:
     """Verify that an IaC commit contains this plan's VMInstance manifest."""
     commit_sha = str(commit_sha or "").strip()
     if not commit_sha:
-        raise GitOpsCommitError("manifest_commit_sha is required before Terraform apply")
+        raise GitOpsCommitError("manifest_commit_sha is required before native Proxmox create")
 
     iac_root = _iac_root_from_plan(plan)
 

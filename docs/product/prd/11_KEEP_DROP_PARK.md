@@ -10,6 +10,10 @@ This create-first classification is historical/supporting capability context onl
 
 Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
 
+2026-05-13 Create VM profile/template/network update: Create VM target design is
+[`docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
+For Create VM, three enabled UI-visible seed profiles replace the older single/future profile split, templates and bridges come from Proxmox live inventory, and `network_id`/`server-net`/NetworkProfile mapping is historical or future Network tab policy rather than Create VM source of truth.
+
 ## 0. Decision rule
 
 This document records Set 1's Keep / Drop / Park classification for the current repo on branch `rewrite/prd-v1-mvp`.
@@ -35,7 +39,7 @@ Safety rule:
 | Backend task/job storage ideas | `backend/app/domains/task/router.py`, `backend/app/shared/tasks.py`, `backend/app/shared/task_store.py`, initial task table migration | MVP needs jobs/runs/artifacts. | Replace with explicit job/artifact/approval models before Set 4. |
 | Backend preflight ideas | `backend/app/domains/deploy/readiness.py`, `resource_preflight.py`, related tests | PRD requires preflight and risk evidence. | Must be behind draft/preflight/plan contract; no direct execution. |
 | Frontend dashboard/monitoring/list patterns | `App.jsx`, `InstanceList.jsx`, `infraExplorerScreen.js`, `apiV1ViewModels.js` | Current Dashboard and Infra Explorer use `/api/v1` read-only models. | Keep lifecycle controls out of first MVP view. |
-| Frontend create wizard/readiness summaries | `CreateInstanceWizard.jsx`, `createVmFlow.js`, `createVmDefaults.js` | Supporting existing capability for `general-vm` creation and Review & Confirm. | Keep aligned to `/api/v1` draft/preflight/plan/review/approval and Terraform gates, but do not make it the next MVP success line. |
+| Frontend create wizard/readiness summaries | `CreateInstanceWizard.jsx`, `createVmFlow.js`, `createVmDefaults.js` | Supporting existing Create VM capability and Review & Confirm. | Align to the 2026-05-13 profile/template/network target: three enabled seed profiles, live template/bridge inventory, no `network_id`/`server-net`, static `static_ip`/`prefix`/`gateway`, DHCP warning, powered-off/stopped create result. Do not make it the next MVP success line. |
 | Frontend task board summary | `TaskBoard.jsx`, `jobsScreen.js` | Current Jobs/Runs UI reads `/api/v1/jobs` and artifacts. | Keep this aligned to the job/artifact substrate. |
 | Placement / DRS seed | `PlacementScreen.jsx`, `placement.js`, `placement.test.mjs` | Current read-only Placement model is useful as a seed for DRS Advisor load/recommendation presentation. | Move recommendation authority backend-side before execution; add identity/fingerprint/policy/final-pre-check/UPID/reconciliation contracts. |
 | Terraform VM create base | `infra/terraform/main.tf` | Product eventually uses Terraform-backed powered-off create/apply. | Only fake/dry-run/plan in autonomous work; live IaC/commit/push/apply requires user approval. |
@@ -58,7 +62,7 @@ Safety rule:
 | Area | Park candidate | Why park | Revisit when |
 |---|---|---|---|
 | Direct `/deploy` and `/provision` execution flow | `backend/app/domains/deploy/router.py`, `service.py`, legacy frontend API client | Contains reusable ideas but contract is wrong: it bypasses draft/plan/review/approval. | 2026-05-09: backend deploy package and legacy Terraform integration backed up and moved to archive. 2026-05-11: legacy frontend client/helpers are absent from active `src`. |
-| Network/IP pool helpers | `backend/app/shared/network.py`, `/network/ip-pool/*` routes | Adjacent to static IP preflight, but PRD says NetworkProfile + Proxmox observed state are MVP evidence. | If preflight needs supplemental IP evidence after manifest/live inventory tests. |
+| Network/IP pool helpers | `backend/app/shared/network.py`, `/network/ip-pool/*` routes | Adjacent to static IP preflight, but Create VM target uses selected live bridge plus static request fields and Proxmox observed state. Network tab policy is future integration, not Create VM source of truth. | If preflight needs supplemental IP evidence after live inventory tests. |
 | Operational risk thresholds/overrides/restore drills | risk config/overrides/state/restore modules and tests | Risks matter, but current policy editing/restore features exceed first create-flow MVP. | 2026-05-09: legacy backend risk modules/tests backed up and moved to archive; new `/api/v1/risks` remains to implement. |
 | Alembic operational risk/restore migrations | `20260503_0011_*` through `20260504_0015_*` | Useful historical model ideas but not the new baseline schema yet. | When job/risk persistence schema is designed by tests. |
 | Ansible bootstrap | `infra/ansible/playbook.yml` | Stage B minimal Ansible verify is deferred; current playbook contains app deploy/bootstrap behavior. | After Stage A smoke works and user approves later live/smoke scope. |
@@ -79,14 +83,14 @@ Recommended RED files/areas:
 |---|---|
 | `backend/tests/contracts/test_api_v1_shape.py` | `/api/v1` response/error shape exists and legacy `/api` routes are not the new contract. |
 | `backend/tests/contracts/test_forbidden_mvp_endpoints.py` | No MVP endpoints for LLM/chat, hard stop/reset, delete/snapshot/rollback, raw shell, app deploy, DB migration, Heimdall registry write, Runtime Target write/active, or independent existing-VM power actions. |
-| `backend/tests/manifests/test_profile_schema.py` | `general-vm` profile accepts defaults; future profiles are not create/apply enabled. |
-| `backend/tests/manifests/test_network_profile.py` | `NetworkProfile.node_bridges` required; `yoonmanserver2` and `yoonmanserver3` resolve to `vmbr0`; DHCP/static accepted; default static. |
+| `backend/tests/manifests/test_profile_schema.py` | Seed profiles expose enabled `general-vm`, `runtime-server`, `development-vm`; profiles do not bind node/storage/network/template/power/version. |
+| `backend/tests/manifests/test_network_profile.py` | Historical target superseded: Create VM rejects `network_id`/`server-net`, requires selected node active live bridge, requires `static_ip`/`prefix`/`gateway` for static, and allows DHCP with a discovery warning. |
 | `backend/tests/manifests/test_secret_redaction.py` | Raw secrets/token IDs/credentialed URLs are not serialized/logged; safe redaction marker appears. |
-| `backend/tests/vm_create/test_draft_contract.py` | Create draft contract hides/rejects manual VMID and uses `general-vm` only. |
+| `backend/tests/vm_create/test_draft_contract.py` | Create draft contract hides/rejects manual VMID and accepts only enabled seed profile ids. |
 | `backend/tests/vm_create/test_preflight_policy.py` | Red/yellow/green policy blocks red risk; yellow requires ack later. |
 | `frontend/tests/reviewSummary.test.mjs` | Review & Confirm shows required 13 fields. |
 | `frontend/tests/createVmFlow.test.mjs` and `backend/tests/vm_create/test_preflight_policy.py` | Red risk disables approve/execute; yellow requires explicit ack. |
-| `frontend/tests/createVmDefaults.test.mjs` | UI defaults match `general-vm`, static default, DHCP selectable, destructive controls absent. |
+| `frontend/tests/createVmDefaults.test.mjs` | UI defaults follow selected seed profile, template list is live inventory, bridge follows selected node live inventory, DHCP is selectable with warning, destructive controls absent. |
 
 Backend blocker resolved: current backend pytest passes, and `/api/v1/jobs` plus `/api/v1/risks` read APIs are implemented.
 

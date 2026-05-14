@@ -39,7 +39,7 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 - Jobs/Runs의 file-backed job/artifact status substrate
 - Risks/Alerts의 job-derived risk display
 - Proxmox read-only inventory adapter
-- Create VM의 approval, artifact, GitOps manifest, Terraform acknowledgement gate
+- Create VM의 approval, artifact, GitOps manifest, Proxmox native acknowledgement/post-check gate
 - secret redaction과 forbidden legacy endpoint guard
 
 현재 방향으로 바꿔야 하는 점:
@@ -91,7 +91,7 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 
 ## 5. Create VM의 위치
 
-Create VM Terraform/GitOps flow는 보조 기능으로 유지한다.
+Create VM Proxmox native/GitOps flow는 보조 기능으로 유지한다. Terraform은 optional/deprecated legacy executor이며 active UI 기본 경로가 아니다.
 현재 구현은 다음 capability를 제공하므로 DRS Advisor 작업에서도 재사용할 설계 힌트를 준다.
 
 - draft
@@ -101,7 +101,8 @@ Create VM Terraform/GitOps flow는 보조 기능으로 유지한다.
 - approval gate
 - yellow risk acknowledgement
 - GitOps manifest commit/archive
-- Terraform plan/apply acknowledgement
+- Proxmox native preview/create acknowledgement
+- UPID polling and observed_after/fingerprint artifact pattern
 - job status and artifact publication
 - secret redaction
 
