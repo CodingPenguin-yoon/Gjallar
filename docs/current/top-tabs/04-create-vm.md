@@ -2,7 +2,7 @@
 
 평가일: 2026-05-14
 
-검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 124 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 125 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -114,7 +114,7 @@ Create VM의 approval/artifact/GitOps/native acknowledgement/observed_after 패�
 
 ## 다음 구현 slice
 
-Create VM 다음 cleanup slice는 Terraform-named state/root compatibility metadata
-정리를 별도 결정으로 진행하는 것이다. DRS 작업에서는 approval checksum, artifact
-publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과
-final pre-check 계약을 먼저 만든다.
+Create VM의 Terraform executor와 Terraform-named state metadata는 active
+contract에서 제거됐다. DRS 작업에서는 approval checksum, artifact publication,
+job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final
+pre-check 계약을 먼저 만든다.

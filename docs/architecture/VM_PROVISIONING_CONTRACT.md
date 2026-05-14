@@ -212,8 +212,7 @@ Current checks include:
 - VMID uniqueness
 - VM name uniqueness
 - static field validity and observed static IP availability
-- IaC root/state readiness
-- Terraform state lock availability
+- IaC root readiness, Git checkout, and write allowlist availability
 
 Target checks remove `network_id` as the Create VM source of truth and add:
 
@@ -244,7 +243,6 @@ Plan output includes:
 - selected profile id and resolved profile defaults/limits
 - VM name and VMID
 - target node, storage, live template, hardware, access, and network selections
-- legacy Terraform state path retained in plan/review for compatibility
 - risk summary
 - Review & Confirm payload
 - generated artifacts
@@ -290,7 +288,7 @@ Success requires clone task `exitstatus=OK`, requested disk resize to be unneces
 
 ## Removed Terraform Plan And Apply
 
-`terraform-plan`, `terraform-apply`, `backend/app/vm_create/terraform_runner.py`, and `infra/terraform/` are removed from the active tree. Removed URLs are absent from the FastAPI route table and naturally return 404. Terraform-named state path/root fields remain compatibility metadata until manifest/audit compatibility cleanup is handled separately.
+`terraform-plan`, `terraform-apply`, `backend/app/vm_create/terraform_runner.py`, and `infra/terraform/` are removed from the active tree. Removed URLs are absent from the FastAPI route table and naturally return 404. Terraform-named state metadata is also removed from active draft, preflight, plan, review, manifest, API, frontend, and artifact contracts.
 
 ## Jobs, Artifacts, And Risks
 

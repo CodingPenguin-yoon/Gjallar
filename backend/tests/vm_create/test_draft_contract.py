@@ -132,7 +132,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("192.168.2.254", draft.network.gateway)
         self.assertNotIn("network_id", draft.to_dict()["network"])
 
-    def test_iac_state_path_can_be_relocated_with_environment(self):
+    def test_iac_root_can_be_relocated_with_shared_root_environment(self):
         from app.vm_create.drafts import build_default_vm_draft
         from app.vm_create.paths import iac_path_context
 
@@ -141,8 +141,6 @@ class VmCreateDraftContractTests(unittest.TestCase):
             {
                 "GJALLAR_SHARED_ROOT": "/Users/yoon/mnt/nfs",
                 "GJALLAR_IAC_ROOT": "",
-                "GJALLAR_TF_STATE_ROOT": "",
-                "GJALLAR_TERRAFORM_STATE_ROOT": "",
             },
             clear=False,
         ):
@@ -150,13 +148,9 @@ class VmCreateDraftContractTests(unittest.TestCase):
             context = iac_path_context()
 
         self.assertEqual("/Users/yoon/mnt/nfs/IaC", context["iac_root"])
-        self.assertEqual("/Users/yoon/mnt/nfs/IaC-state/gjallar", context["terraform_state_root"])
-        self.assertEqual(
-            "/Users/yoon/mnt/nfs/IaC-state/gjallar/vm-job-env-root/terraform.tfstate",
-            draft.terraform_state_path,
-        )
+        self.assertNotIn("network_id", draft.to_dict()["network"])
 
-    def test_explicit_iac_and_state_roots_override_shared_root(self):
+    def test_explicit_iac_root_overrides_shared_root(self):
         from app.vm_create.drafts import build_default_vm_draft
         from app.vm_create.paths import iac_path_context
 
@@ -165,23 +159,15 @@ class VmCreateDraftContractTests(unittest.TestCase):
             {
                 "GJALLAR_SHARED_ROOT": "/ignored/shared",
                 "GJALLAR_IAC_ROOT": "~/mnt/nfs/IaC",
-                "GJALLAR_TF_STATE_ROOT": "~/mnt/nfs/IaC-state/gjallar",
-                "GJALLAR_TERRAFORM_STATE_ROOT": "",
             },
             clear=False,
         ):
-            draft = build_default_vm_draft(operator_id="test-operator", job_id="job-explicit-root")
+            build_default_vm_draft(operator_id="test-operator", job_id="job-explicit-root")
             context = iac_path_context()
 
         self.assertTrue(context["iac_root"].endswith("/mnt/nfs/IaC"))
-        self.assertTrue(context["terraform_state_root"].endswith("/mnt/nfs/IaC-state/gjallar"))
-        self.assertTrue(
-            draft.terraform_state_path.endswith(
-                "/mnt/nfs/IaC-state/gjallar/vm-job-explicit-root/terraform.tfstate"
-            )
-        )
 
-    def test_explicit_iac_root_derives_state_sibling_when_state_root_is_not_set(self):
+    def test_iac_context_only_exposes_shared_and_iac_roots(self):
         from app.vm_create.paths import iac_path_context
 
         with patch.dict(
@@ -189,15 +175,13 @@ class VmCreateDraftContractTests(unittest.TestCase):
             {
                 "GJALLAR_SHARED_ROOT": "/ignored/shared",
                 "GJALLAR_IAC_ROOT": "/Users/yoon/mnt/nfs/IaC",
-                "GJALLAR_TF_STATE_ROOT": "",
-                "GJALLAR_TERRAFORM_STATE_ROOT": "",
             },
             clear=False,
         ):
             context = iac_path_context()
 
         self.assertEqual("/Users/yoon/mnt/nfs/IaC", context["iac_root"])
-        self.assertEqual("/Users/yoon/mnt/nfs/IaC-state/gjallar", context["terraform_state_root"])
+        self.assertEqual({"shared_root", "iac_root"}, set(context))
 
     def test_three_create_profiles_are_enabled(self):
         try:

@@ -29,7 +29,7 @@ Current error responses are not fully normalized. Many failures raise FastAPI `H
 | Jobs/artifacts | Many Create VM steps write job status and artifacts under `GJALLAR_RUNS_ROOT`, including `approval.json` whenever approval validation runs with a run directory. |
 | Manifest commit | `execute` commits desired-state manifest only. It does not create a VM. |
 | Native create | `proxmox-create` is the active live mutation path for powered-off VM creation. |
-| Terraform | Legacy plan/apply route surface and helper code are removed; Terraform-named state metadata remains compatibility-only. |
+| Terraform | Legacy plan/apply route surface, helper code, and Terraform-named state metadata are removed from active contracts. |
 | DRS | No current `/api/v1/drs/*` routes or migration execution. |
 
 ## Endpoint Table
@@ -41,7 +41,7 @@ Current error responses are not fully normalized. Many failures raise FastAPI `H
 | `GET /api/v1/vms` | Read-only VM inventory. | Inventory adapter. | None. | Dashboard, Infra Explorer, Placement. | Excludes templates; includes disks, tags, IP evidence, guest-agent evidence when available. |
 | `GET /api/v1/vms/{vmid}` | Read-only single VM detail. | Inventory adapter lookup by VMID. | None. | API client helper; no primary current tab call observed. | 404 when VMID is not found. |
 | `GET /api/v1/profiles` | Create VM profile options. | Transitional `static_seed` profiles. | None. | Create VM. | Current active profiles: `general-vm`, `runtime-server`, `development-vm`; all enabled/read-only. |
-| `GET /api/v1/vm-create/readiness` | IaC readiness for Create VM. | `run_iac_readiness()`. | None. | Create VM review model. | Checks shared root, IaC root, write allowlist, Git repo, and legacy Terraform state readiness. |
+| `GET /api/v1/vm-create/readiness` | IaC readiness for Create VM. | `run_iac_readiness()`. | None. | Create VM review model. | Checks shared root, IaC root, write allowlist, and Git repo. |
 | `GET /api/v1/templates` | Read-only Proxmox template inventory. | Inventory adapter. | None. | Create VM options. | Active template selection source. Missing cloud-init/guest-agent evidence is not ready. |
 | `GET /api/v1/storage` | Read-only storage candidates. | Inventory adapter. | None. | Dashboard, Create VM options, Placement. | Create VM filters by selected node, `images` content, and free capacity. |
 | `GET /api/v1/networks` | Read-only bridge inventory. | Inventory adapter. | None. | Dashboard, Create VM options, Placement. | Create VM uses active bridges on selected target node. |

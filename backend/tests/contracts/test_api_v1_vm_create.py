@@ -27,7 +27,6 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         (cls.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
         (cls.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (cls.shared_root / "IaC" / "generated").mkdir(parents=True)
-        (cls.shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
         (cls.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml").write_text(
             """apiVersion: gjallar/v1
 kind: NetworkPolicySet

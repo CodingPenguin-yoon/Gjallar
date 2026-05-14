@@ -92,7 +92,7 @@ Create VM success does not include first power-on, cloud-init smoke, guest-agent
 
 ## Removed Terraform Boundary
 
-Backend endpoints `terraform-plan` and `terraform-apply` have been removed. Old URLs are absent from FastAPI routes and naturally return 404. Terraform-named state path/root fields remain compatibility metadata pending a separate cleanup.
+Backend endpoints `terraform-plan` and `terraform-apply` have been removed. Old URLs are absent from FastAPI routes and naturally return 404. Terraform-named state metadata is also removed from active draft, preflight, plan, review, manifest, API, frontend, and artifact contracts.
 
 ## Current Gaps
 

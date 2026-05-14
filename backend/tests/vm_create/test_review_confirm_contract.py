@@ -22,7 +22,6 @@ class ReviewConfirmContractTests(unittest.TestCase):
         (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        (self.shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml").write_text(
             """apiVersion: gjallar/v1
 kind: NetworkPolicySet
@@ -85,7 +84,6 @@ networks:
                 "access",
                 "selected_template",
                 "selected_bridge",
-                "terraform_state_path",
                 "first_power_on_included",
                 "smoke_timeout_summary",
                 "risk_summary",

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 def test_drop_candidate_legacy_domains_are_not_active_import_packages():
@@ -38,3 +39,73 @@ def test_legacy_terraform_executor_is_removed_from_active_tree():
     offenders = [str(path.relative_to(repo_root)) for path in removed_paths if path.exists()]
 
     assert offenders == [], f"Legacy Terraform Create VM executor files must stay removed: {offenders}"
+
+
+def test_removed_state_metadata_symbols_are_absent_from_active_tree():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+    active_roots = [
+        backend_root / "app",
+        backend_root / "tests",
+        repo_root / "frontend/src",
+        repo_root / "frontend/tests",
+        repo_root / "docs/current",
+        repo_root / "docs/architecture",
+        repo_root / "docs/engineering",
+        repo_root / "docs/product",
+    ]
+    forbidden_patterns = [
+        "".join(parts)
+        for parts in [
+            ("terraform_", "state_path"),
+            ("terraform_", "state_root"),
+            ("GJALLAR_", "TF_STATE_ROOT"),
+            ("GJALLAR_", "TERRAFORM_STATE_ROOT"),
+            ("terraform", r"\.tf", "state"),
+            ("terraform_", "apply_enabled"),
+            ("legacy", "StateRoot"),
+            ("terraform_", "state_lock_available"),
+            ("state_", "backend"),
+        ]
+    ]
+    combined = re.compile("|".join(forbidden_patterns))
+    text_suffixes = {
+        ".css",
+        ".html",
+        ".js",
+        ".json",
+        ".jsx",
+        ".md",
+        ".mjs",
+        ".py",
+        ".toml",
+        ".txt",
+        ".yaml",
+        ".yml",
+    }
+    excluded_parts = {
+        ".git",
+        ".pytest_cache",
+        "__pycache__",
+        "dist",
+        "legacy-prd",
+        "node_modules",
+    }
+    offenders: list[str] = []
+
+    for root in active_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix not in text_suffixes:
+                continue
+            relative = path.relative_to(repo_root)
+            if excluded_parts & set(relative.parts):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                match = combined.search(line)
+                if match:
+                    offenders.append(f"{relative}:{line_number}: {match.group(0)}")
+
+    assert offenders == [], "Removed Terraform state/API symbols remain active: " + repr(offenders)

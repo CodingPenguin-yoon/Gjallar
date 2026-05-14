@@ -50,7 +50,6 @@ def run_iac_readiness() -> IacReadinessResult:
     context = iac_path_context()
     shared_root = Path(context["shared_root"])
     iac_root = Path(context["iac_root"])
-    state_root = Path(context["terraform_state_root"])
     checks: list[PreflightCheck] = []
     risks: list[RiskItem] = []
 
@@ -81,25 +80,6 @@ def run_iac_readiness() -> IacReadinessResult:
         fail_code="iac_root_not_writable",
         detail={"iac_root": str(iac_root)},
     )
-    _check(
-        checks,
-        risks,
-        code="terraform_state_root_available",
-        ok=_is_accessible_directory(state_root),
-        message="Terraform state root is present and readable",
-        fail_code="terraform_state_root_missing",
-        detail={"terraform_state_root": str(state_root)},
-    )
-    _check(
-        checks,
-        risks,
-        code="terraform_state_root_writable",
-        ok=_is_writable_directory(state_root),
-        message="Terraform state root is writable",
-        fail_code="terraform_state_root_not_writable",
-        detail={"terraform_state_root": str(state_root)},
-    )
-
     git_marker = iac_root / ".git"
     git_ready = git_marker.exists()
     _check(
@@ -133,7 +113,6 @@ def run_iac_readiness() -> IacReadinessResult:
     return IacReadinessResult(
         shared_root=str(shared_root),
         iac_root=str(iac_root),
-        terraform_state_root=str(state_root),
         risk_level=risk_level,
         ready_for_plan=ready_for_plan,
         ready_for_execute=ready_for_execute,

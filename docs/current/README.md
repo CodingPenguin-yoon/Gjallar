@@ -83,14 +83,15 @@ The target design is partially implemented, with these gaps still open:
 - Raw SSH public key material is used only transiently for native Proxmox
   `sshkeys` config and is not returned in API responses or written to
   draft/plan/review/manifest/preview/observed artifacts.
-- Terraform-named state path/root fields remain compatibility metadata pending a
-  separate manifest/audit compatibility cleanup.
+- Terraform executor routes/helper code and Terraform-named state metadata are
+  removed from active draft/preflight/plan/review/API/frontend/artifact
+  contracts.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `124 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `125 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.

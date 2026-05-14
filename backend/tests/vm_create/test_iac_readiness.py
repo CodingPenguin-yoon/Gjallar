@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 
 class VmCreateIacReadinessTests(unittest.TestCase):
-    def test_readiness_uses_iac_folder_and_state_sibling_from_shared_root(self):
+    def test_readiness_uses_iac_folder_from_shared_root(self):
         from app.vm_create.paths import iac_path_context
 
         with tempfile.TemporaryDirectory() as temp_root:
@@ -18,15 +18,13 @@ class VmCreateIacReadinessTests(unittest.TestCase):
                 {
                     "GJALLAR_SHARED_ROOT": str(shared_root),
                     "GJALLAR_IAC_ROOT": "",
-                    "GJALLAR_TF_STATE_ROOT": "",
-                    "GJALLAR_TERRAFORM_STATE_ROOT": "",
                 },
                 clear=False,
             ):
                 context = iac_path_context()
 
         self.assertEqual(str(shared_root / "IaC"), context["iac_root"])
-        self.assertEqual(str(shared_root / "IaC-state" / "gjallar"), context["terraform_state_root"])
+        self.assertEqual({"shared_root", "iac_root"}, set(context))
 
     def test_readiness_reports_plan_ready_without_git_and_execute_blocked(self):
         from app.vm_create.iac_readiness import run_iac_readiness
@@ -34,7 +32,6 @@ class VmCreateIacReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_root:
             shared_root = Path(temp_root) / "nfs"
             (shared_root / "IaC").mkdir(parents=True)
-            (shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
             with patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(shared_root)}, clear=False):
                 result = run_iac_readiness()
 
@@ -52,7 +49,6 @@ class VmCreateIacReadinessTests(unittest.TestCase):
             (shared_root / "IaC" / ".git").mkdir(parents=True)
             (shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
             (shared_root / "IaC" / "generated").mkdir(parents=True)
-            (shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
             with patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(shared_root)}, clear=False):
                 result = run_iac_readiness()
 
@@ -67,7 +63,6 @@ class VmCreateIacReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_root:
             shared_root = Path(temp_root) / "nfs"
             shared_root.mkdir()
-            (shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
             with patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(shared_root)}, clear=False):
                 result = run_iac_readiness()
 

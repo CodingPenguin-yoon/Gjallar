@@ -42,7 +42,7 @@ class ApiV1NetworkPolicyTests(unittest.TestCase):
         self.iac_root = self.shared_root / "IaC"
         (self.iac_root / "manifests" / "networks").mkdir(parents=True)
         _git(self.iac_root, "init")
-        (self.iac_root / ".gitignore").write_text("*.tfstate\n", encoding="utf-8")
+        (self.iac_root / "manifests" / "networks" / ".gitkeep").write_text("", encoding="utf-8")
         _git(self.iac_root, "add", ".")
         _git(self.iac_root, "commit", "-m", "chore: init network policy test")
         self._env = patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(self.shared_root)}, clear=False)

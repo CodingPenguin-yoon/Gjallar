@@ -21,7 +21,6 @@ class VmCreateManifestGenerationTests(unittest.TestCase):
         (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        (self.shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml").write_text(
             """apiVersion: gjallar/v1
 kind: NetworkPolicySet
@@ -92,7 +91,7 @@ networks:
         self.assertEqual("192.168.2.254", manifest["spec"]["network"]["gateway"])
         self.assertEqual("192.168.2.142", manifest["spec"]["network"]["ip"])
         self.assertEqual("stopped", manifest["spec"]["lifecycle"]["desired_power_state"])
-        self.assertIn("/IaC-state/gjallar/vm-job-manifest/terraform.tfstate", manifest["spec"]["state_backend"]["path"])
+        self.assertNotIn("state_" + "backend", manifest["spec"])
         self.assertNotIn("raw-token-secret", rendered)
         self.assertNotIn("operator:raw-url-password", rendered)
         self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)

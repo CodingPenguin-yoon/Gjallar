@@ -507,7 +507,6 @@ async def preview_vm_draft_proxmox_create(draft_id: str, payload: dict | None = 
             "approval": decision.to_dict(),
             "proxmox_create_enabled": False,
             "proxmox_mutation_enabled": False,
-            "terraform_apply_enabled": False,
         },
         meta={"mode": "proxmox_native_preview_no_mutation"},
     )
@@ -718,7 +717,6 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
             "proxmox_create_status": "applied",
             "proxmox_create_enabled": True,
             "proxmox_mutation_enabled": True,
-            "terraform_apply_enabled": False,
             "side_effects": [*status_side_effects, *list(create_result.get("side_effects") or [])],
         },
         meta={"mode": "proxmox_native_create_live_mutation"},
@@ -772,7 +770,6 @@ async def execute_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
             **result.to_dict(),
             "approval": decision.to_dict(),
             "proxmox_mutation_enabled": False,
-            "terraform_apply_enabled": False,
         },
         meta={"mode": "gitops_commit_only"},
     )
@@ -823,7 +820,6 @@ async def archive_vm_draft_manifest(draft_id: str, payload: dict | None = None) 
         {
             **result.to_dict(),
             "proxmox_mutation_enabled": False,
-            "terraform_apply_enabled": False,
         },
         meta={"mode": "gitops_archive_only"},
     )

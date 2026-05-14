@@ -349,7 +349,6 @@ def build_proxmox_create_preview(plan: VmCreatePlan, *, run_dir: str | Path) -> 
             "powered_on_success_allowed": False,
         },
         "proxmox_mutation_enabled": False,
-        "terraform_apply_enabled": False,
         "side_effects": [],
     }
     artifact = write_json_artifact(

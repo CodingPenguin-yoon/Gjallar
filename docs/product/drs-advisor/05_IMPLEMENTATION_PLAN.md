@@ -29,7 +29,7 @@ Backend:
 - `backend/app/vm_create/gitops.py`: manifest commit/archive/status update
 - `backend/app/proxmox/client.py`: native Proxmox mutation client for gated Create VM clone/config/status
 - `backend/app/vm_create/proxmox_runner.py`: native Create VM preview/create runner, UPID polling, post-check, observed_after/fingerprint artifacts
-- Terraform executor route/helper code is removed; Terraform-named state metadata remains compatibility-only
+- Terraform executor route/helper code and Terraform-named state metadata are removed from active contracts
 
 Tests that lock useful current behavior:
 

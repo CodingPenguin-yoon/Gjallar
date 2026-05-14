@@ -73,7 +73,6 @@ function normalizeReadiness(readiness = {}) {
   return {
     sharedRoot: readiness.shared_root || '',
     iacRoot: readiness.iac_root || '',
-    legacyStateRoot: readiness.terraform_state_root || '',
     riskLevel: readiness.risk_level || 'unknown',
     readyForPlan: readiness.ready_for_plan === true,
     readyForExecute: readiness.ready_for_execute === true,
@@ -288,9 +287,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       profileHardwareLimits: review.profile_hardware_limits || plan.profile_hardware_limits || {},
       network: review.network || plan.network || draft.network || {},
       access: accessEvidence,
-      legacyStatePath: review.terraform_state_path || plan.terraform_state_path || draft.terraform_state_path,
       iacRoot: review.iac_root || plan.iac_root || preflight.iac_root || readiness.iacRoot,
-      legacyStateRoot: review.terraform_state_root || plan.terraform_state_root || preflight.terraform_state_root || readiness.legacyStateRoot,
       iacReadyForPlan: review.iac_ready_for_plan ?? plan.iac_ready_for_plan ?? preflight.iac_ready_for_plan ?? readiness.readyForPlan,
       iacReadyForExecute: review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute,
       firstPowerOnIncluded: Boolean(review.first_power_on_included ?? plan.first_power_on_included ?? draft.first_power_on_included),

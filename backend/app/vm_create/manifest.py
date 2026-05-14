@@ -30,10 +30,6 @@ def build_vm_instance_manifest(draft: VmCreateDraft, preflight: PreflightResult)
                 "mode": "proxmox_nextid",
                 "resolved_at_plan": True,
             },
-            "state_backend": {
-                "type": "local",
-                "path": draft.terraform_state_path,
-            },
             "node": draft.target_node_id,
             "profile_id": draft.profile_id,
             "template_id": preflight.selected_template_id,

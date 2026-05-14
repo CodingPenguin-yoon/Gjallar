@@ -78,7 +78,6 @@ class VmCreateDraft:
     hardware: DraftHardware
     network: DraftNetwork
     access: DraftAccess
-    terraform_state_path: str
     first_power_on_included: bool = False
     side_effects: list[str] = field(default_factory=list)
 
@@ -100,7 +99,6 @@ class VmCreateDraft:
             "hardware": self.hardware.to_dict(),
             "network": self.network.to_dict(),
             "access": self.access.to_dict(),
-            "terraform_state_path": self.terraform_state_path,
             "first_power_on_included": self.first_power_on_included,
             "side_effects": list(self.side_effects),
         }
@@ -165,7 +163,6 @@ class PreflightResult:
     profile_id: str
     profile_hardware_limits: dict[str, Any]
     iac_root: str
-    terraform_state_root: str
     iac_ready_for_plan: bool
     iac_ready_for_execute: bool
     side_effects: list[str] = field(default_factory=list)
@@ -188,7 +185,6 @@ class PreflightResult:
             "profile_id": self.profile_id,
             "profile_hardware_limits": dict(self.profile_hardware_limits),
             "iac_root": self.iac_root,
-            "terraform_state_root": self.terraform_state_root,
             "iac_ready_for_plan": self.iac_ready_for_plan,
             "iac_ready_for_execute": self.iac_ready_for_execute,
             "side_effects": list(self.side_effects),
@@ -199,7 +195,6 @@ class PreflightResult:
 class IacReadinessResult:
     shared_root: str
     iac_root: str
-    terraform_state_root: str
     risk_level: str
     ready_for_plan: bool
     ready_for_execute: bool
@@ -211,7 +206,6 @@ class IacReadinessResult:
         return {
             "shared_root": self.shared_root,
             "iac_root": self.iac_root,
-            "terraform_state_root": self.terraform_state_root,
             "risk_level": self.risk_level,
             "ready_for_plan": self.ready_for_plan,
             "ready_for_execute": self.ready_for_execute,
@@ -239,7 +233,6 @@ class VmCreatePlan:
     access: dict[str, Any]
     selected_template: dict[str, Any]
     selected_bridge: dict[str, Any]
-    terraform_state_path: str
     first_power_on_included: bool
     smoke_timeout_summary: dict[str, int]
     risk_summary: dict[str, Any]
@@ -270,7 +263,6 @@ class VmCreatePlan:
             "access": dict(self.access),
             "selected_template": dict(self.selected_template),
             "selected_bridge": dict(self.selected_bridge),
-            "terraform_state_path": self.terraform_state_path,
             "first_power_on_included": self.first_power_on_included,
             "smoke_timeout_summary": dict(self.smoke_timeout_summary),
             "risk_summary": dict(self.risk_summary),
@@ -288,7 +280,6 @@ class GitOpsCommitResult:
     iac_root: str
     manifest_path: str
     commit_sha: str
-    apply_enabled: bool
     next_stage: str
     side_effects: list[str] = field(default_factory=list)
     manifest_status: dict[str, Any] = field(default_factory=dict)

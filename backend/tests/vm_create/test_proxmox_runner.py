@@ -83,7 +83,6 @@ class ProxmoxRunnerTests(unittest.TestCase):
         (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        (self.shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml").write_text(
             """apiVersion: gjallar/v1
 kind: NetworkPolicySet
@@ -145,7 +144,6 @@ networks:
         preview = build_proxmox_create_preview(plan, run_dir=self.root / "preview")
 
         self.assertFalse(preview["proxmox_mutation_enabled"])
-        self.assertFalse(preview["terraform_apply_enabled"])
         self.assertEqual("/nodes/yoonmanserver2/qemu/9000/clone", preview["clone"]["endpoint"])
         self.assertEqual(1, preview["clone"]["full"])
         self.assertEqual(306, preview["clone"]["newid"])

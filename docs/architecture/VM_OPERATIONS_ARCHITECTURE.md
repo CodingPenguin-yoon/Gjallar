@@ -271,9 +271,8 @@ Important environment variables:
 | `PROXMOX_TLS_INSECURE` | Reused by live inventory and native mutation clients. |
 | `PROXMOX_TASK_POLL_INTERVAL_SECONDS` / `GJALLAR_PROXMOX_TASK_POLL_INTERVAL_SECONDS` | Native Create VM clone task polling interval. |
 | `PROXMOX_TASK_TIMEOUT_SECONDS` / `GJALLAR_PROXMOX_TASK_TIMEOUT_SECONDS` | Native Create VM clone task timeout. |
-| `GJALLAR_SHARED_ROOT` | Shared root for IaC and state defaults. |
+| `GJALLAR_SHARED_ROOT` | Shared root for default IaC root resolution. |
 | `GJALLAR_IAC_ROOT` | Explicit IaC repo root override. |
-| `GJALLAR_TF_STATE_ROOT` / `GJALLAR_TERRAFORM_STATE_ROOT` | Terraform state root override. |
 | `GJALLAR_RUNS_ROOT` | File-backed Jobs/Runs status root. |
 
 ## Verification

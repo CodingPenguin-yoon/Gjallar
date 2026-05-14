@@ -21,7 +21,6 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
         (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        (self.shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
         self._write_default_network_policy()
         self._env = patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(self.shared_root)}, clear=False)
         self._env.start()
@@ -129,8 +128,6 @@ networks:
             "static_ip_available",
             "iac_root_available",
             "iac_git_repo_available",
-            "terraform_state_root_available",
-            "terraform_state_lock_available",
             "destroy_delete_plan_absent",
             "credential_scope_read_only",
         }:
@@ -618,9 +615,7 @@ networks:
         self.assertNotIn("network_id", rendered)
         self.assertNotIn("server-net", rendered)
         self.assertNotIn("profile_id:", manifest_text.split("network:", 1)[1])
-        self.assertIn("/IaC-state/gjallar/", plan.terraform_state_path)
         self.assertEqual(str(self.shared_root / "IaC"), plan.review_confirm["iac_root"])
-        self.assertEqual(str(self.shared_root / "IaC-state" / "gjallar"), plan.review_confirm["terraform_state_root"])
         self.assertTrue(plan.review_confirm["iac_ready_for_plan"])
         self.assertTrue(plan.review_confirm["iac_ready_for_execute"])
         self.assertFalse(plan.first_power_on_included)

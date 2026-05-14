@@ -53,9 +53,6 @@ const CHECK_LABELS = {
   iac_root_writable: '코드 저장소 쓰기',
   iac_git_repo_available: 'Git 저장소',
   iac_write_allowlist_ready: '쓰기 경로',
-  terraform_state_root_available: '레거시 상태 저장소',
-  terraform_state_root_writable: '레거시 상태 저장소 쓰기',
-  terraform_state_lock_available: '상태 잠금',
   destroy_delete_plan_absent: '삭제 계획 없음',
   credential_scope_read_only: '인증 범위',
 }

@@ -13,7 +13,6 @@ from app.vm_create.models import (
     DraftNetwork,
     VmCreateDraft,
 )
-from app.vm_create.paths import terraform_state_path
 
 DEFAULT_PROFILE_ID = "general-vm"
 
@@ -198,6 +197,5 @@ def build_default_vm_draft(
             ssh_key_validation_error=ssh_validation.error_code,
             _transient_ssh_public_key=resolved_ssh_key.transient_public_key,
         ),
-        terraform_state_path=terraform_state_path(manifest_id),
         first_power_on_included=False,
     )

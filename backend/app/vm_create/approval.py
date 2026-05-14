@@ -22,7 +22,6 @@ REVIEW_CONFIRM_REQUIRED_KEYS = (
     "access",
     "selected_template",
     "selected_bridge",
-    "terraform_state_path",
     "first_power_on_included",
     "smoke_timeout_summary",
     "risk_summary",

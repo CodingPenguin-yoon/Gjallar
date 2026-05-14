@@ -11,7 +11,7 @@ MVP 중심은 DRS Advisor이며, VMware DRS 대체품이라고 주장하지 않�
 Gjallar는 Proxmox-native inventory, migration, HA, storage, task state를 관찰하고, CPU/Memory 중심 추천을 만들고, 운영자 승인 후 Proxmox live migration을 실행/추적하는 advisor/control tower다.
 
 Create VM native Proxmox/GitOps flow는 삭제하지 않는다.
-현재 구현된 보조 capability로 유지하고, legacy Terraform executor route/helper code는 제거됐다. Terraform-named state metadata는 compatibility-only로 남아 있다. DRS Advisor는 기존 Dashboard, Placement, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate를 확장한다.
+현재 구현된 보조 capability로 유지하고, legacy Terraform executor route/helper code와 Terraform-named state metadata는 active contract에서 제거됐다. DRS Advisor는 기존 Dashboard, Placement, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate를 확장한다.
 
 ## 문서 구성
 

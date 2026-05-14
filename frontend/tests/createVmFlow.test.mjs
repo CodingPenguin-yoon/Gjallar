@@ -185,7 +185,6 @@ const fakeClient = {
     return {
       shared_root: '/Users/yoon/mnt/nfs',
       iac_root: '/Users/yoon/mnt/nfs/IaC',
-      terraform_state_root: '/Users/yoon/mnt/nfs/IaC-state/gjallar',
       ready_for_plan: true,
       ready_for_execute: false,
       risk_level: 'yellow',
@@ -225,7 +224,6 @@ const fakeClient = {
         fingerprint: payload.access?.ssh_public_key ? TEST_SSH_FINGERPRINT : '',
         source: payload.access?.ssh_public_key ? 'request' : 'backend_default_env',
       },
-      terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
       side_effects: [],
     }
@@ -293,7 +291,6 @@ const fakeClient = {
       },
       selected_template: { template_id: payload.template_id, vmid: payload.template_vmid, node_id: payload.template_node_id },
       selected_bridge: { bridge_id: payload.bridge_id, node_id: payload.target_node_id, active: true },
-      terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
       risk_summary: { level: 'green', red: [], yellow: [] },
@@ -331,9 +328,7 @@ const fakeClient = {
         },
         selected_template: { template_id: payload.template_id, vmid: payload.template_vmid, node_id: payload.template_node_id },
         selected_bridge: { bridge_id: payload.bridge_id, node_id: payload.target_node_id, active: true },
-        terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
         iac_root: '/Users/yoon/mnt/nfs/IaC',
-        terraform_state_root: '/Users/yoon/mnt/nfs/IaC-state/gjallar',
         iac_ready_for_plan: true,
         iac_ready_for_execute: false,
         first_power_on_included: false,
@@ -377,7 +372,6 @@ const fakeClient = {
       post_check: { required_status: 'stopped', powered_on_success_allowed: false },
       proxmox_create_enabled: false,
       proxmox_mutation_enabled: false,
-      terraform_apply_enabled: false,
       artifacts: [{ artifact_id: 'artifact-proxmox-preview', type: 'proxmox_create_preview', path: '/tmp/proxmox_create_preview.json' }],
       side_effects: [],
     }
@@ -395,7 +389,6 @@ const fakeClient = {
       proxmox_create_status: 'applied',
       proxmox_create_enabled: true,
       proxmox_mutation_enabled: true,
-      terraform_apply_enabled: false,
       observed_after: {
         status: 'stopped',
         exists: true,
@@ -412,7 +405,6 @@ const fakeClient = {
       manifest_path: 'manifests/vms/vm-job-ui-create.yaml',
       manifest_status: { phase: 'pending', last_error: '', updated_at: '' },
       commit_sha: 'abc123',
-      terraform_apply_enabled: false,
       proxmox_create_enabled: false,
       proxmox_mutation_enabled: false,
       side_effects: ['iac_manifest_written', 'iac_git_commit_created'],
@@ -423,7 +415,6 @@ const fakeClient = {
 const model = await loadCreateVmReviewModel(fakeClient, input)
 assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft'])
 assert.equal(model.readiness.iacRoot, '/Users/yoon/mnt/nfs/IaC')
-assert.equal(model.readiness.legacyStateRoot, '/Users/yoon/mnt/nfs/IaC-state/gjallar')
 assert.equal(model.readiness.readyForPlan, true)
 assert.equal(model.readiness.readyForExecute, false)
 assert.equal(model.draft.id, 'draft-job-ui-create')

@@ -289,6 +289,6 @@ flow but still has selection-model gaps:
 - There is no DRS DB identity/fingerprint table yet; Create VM fingerprint is artifact evidence, not a reusable DRS identity substrate.
 - Restart reconciliation for native create is not implemented as a background service.
 - First power-on, cloud-init readiness, guest-agent/IP discovery, SSH smoke, and Ansible verification are deferred.
-- Terraform-named state path/root fields remain compatibility metadata until a separate cleanup.
+- Terraform-named state metadata is removed from active code/API/artifact contracts.
 - DB profile seed source remains future work.
 - DRS Advisor migration will need its own final pre-check, operation lock, migration UPID tracking, and reconciliation flow; Create VM native runner is not a DRS migration executor.

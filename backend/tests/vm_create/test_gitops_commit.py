@@ -33,9 +33,7 @@ class VmCreateGitOpsCommitTests(unittest.TestCase):
         (self.iac_root / "manifests" / "vms").mkdir(parents=True)
         (self.iac_root / "manifests" / "networks").mkdir(parents=True)
         (self.iac_root / "generated").mkdir(parents=True)
-        (self.shared_root / "IaC-state" / "gjallar").mkdir(parents=True)
         _git(self.iac_root, "init")
-        (self.iac_root / ".gitignore").write_text("*.tfstate\n", encoding="utf-8")
         (self.iac_root / "manifests" / "vms" / ".gitkeep").write_text("", encoding="utf-8")
         (self.iac_root / "manifests" / "networks" / "network-profiles.yaml").write_text(
             """apiVersion: gjallar/v1
@@ -99,7 +97,6 @@ networks:
         self.assertNotEqual(before, after)
         self.assertEqual(after, result.commit_sha)
         self.assertEqual("gitops_commit_only", result.execution_intent)
-        self.assertFalse(result.apply_enabled)
         self.assertEqual("proxmox_create_pending", result.next_stage)
         self.assertEqual(["iac_manifest_written", "iac_git_commit_created"], result.side_effects)
         self.assertIn("kind: VMInstance", target.read_text(encoding="utf-8"))

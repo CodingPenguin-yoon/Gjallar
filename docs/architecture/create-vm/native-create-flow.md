@@ -14,7 +14,7 @@ This document covers the implemented native Proxmox Create VM path. It does not 
 | Validate approval | `validate_approval_request()` checks plan artifact id, review checksum, and yellow acknowledgement. |
 | Build preview | `build_proxmox_create_preview()` builds clone/config/post-check payloads. |
 | Write artifact | Writes `proxmox_create_preview.json` under the job run directory. |
-| Return flags | `proxmox_create_enabled=false`, `proxmox_mutation_enabled=false`, `terraform_apply_enabled=false`. |
+| Return flags | `proxmox_create_enabled=false`, `proxmox_mutation_enabled=false`. |
 
 ## Approval Recheck
 

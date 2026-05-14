@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ipaddress import ip_address
-from typing import Callable
 
 from app.manifests.loader import load_builtin_profiles
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
@@ -177,7 +176,6 @@ def run_preflight(
     draft: VmCreateDraft,
     *,
     inventory_adapter: FakeProxmoxInventoryAdapter | None = None,
-    state_lock_checker: Callable[[str], bool] | None = None,
 ) -> PreflightResult:
     """Evaluate a Create VM draft without live Proxmox/IaC mutation."""
     adapter = inventory_adapter or get_default_inventory_adapter()
@@ -540,20 +538,9 @@ def run_preflight(
             )
         )
 
-    state_lock_ok = True if state_lock_checker is None else bool(state_lock_checker(draft.terraform_state_path))
     iac_readiness = run_iac_readiness()
     checks.extend(iac_readiness.checks)
     risks.extend(iac_readiness.risks)
-
-    _check(
-        checks,
-        risks,
-        code="terraform_state_lock_available",
-        ok=state_lock_ok,
-        message="Terraform state lock is available for dry-run planning",
-        fail_code="terraform_state_lock_unavailable",
-        detail={"terraform_state_path": draft.terraform_state_path},
-    )
 
     _check(
         checks,
@@ -589,7 +576,6 @@ def run_preflight(
         profile_id=draft.profile_id,
         profile_hardware_limits=_profile_limits_dict(profile),
         iac_root=iac_readiness.iac_root,
-        terraform_state_root=iac_readiness.terraform_state_root,
         iac_ready_for_plan=iac_readiness.ready_for_plan,
         iac_ready_for_execute=iac_readiness.ready_for_execute,
         side_effects=[],
