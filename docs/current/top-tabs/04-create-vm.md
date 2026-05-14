@@ -2,11 +2,11 @@
 
 평가일: 2026-05-14
 
-검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 133 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 124 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
-Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan/review/approval/GitOps manifest commit과 Proxmox API native preview/create gate가 구현되어 있지만, DRS Advisor의 success line은 아니다. Terraform plan/apply는 optional/deprecated legacy executor로 남아 있고 active UI 경로가 아니다.
+Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan/review/approval/GitOps manifest commit과 Proxmox API native preview/create gate가 구현되어 있지만, DRS Advisor의 success line은 아니다. Terraform plan/apply legacy executor route surface는 제거됐다.
 
 ## 구현 API/endpoints
 
@@ -20,13 +20,11 @@ Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan
 - `POST /api/v1/vm-create/{draft_id}/archive`
 - `POST /api/v1/vm-create/{draft_id}/proxmox-preview`
 - `POST /api/v1/vm-create/{draft_id}/proxmox-create`
-- `POST /api/v1/vm-create/{draft_id}/terraform-plan`
-- `POST /api/v1/vm-create/{draft_id}/terraform-apply`
 
 ## 관련 파일
 
 - Frontend: [frontend/src/components/CreateInstanceWizard.jsx](../../../frontend/src/components/CreateInstanceWizard.jsx), [frontend/src/utils/createVmFlow.js](../../../frontend/src/utils/createVmFlow.js), [frontend/src/utils/createVmDefaults.js](../../../frontend/src/utils/createVmDefaults.js), [frontend/src/services/apiV1.js](../../../frontend/src/services/apiV1.js)
-- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/vm_create/drafts.py](../../../backend/app/vm_create/drafts.py), [backend/app/vm_create/preflight.py](../../../backend/app/vm_create/preflight.py), [backend/app/vm_create/planner.py](../../../backend/app/vm_create/planner.py), [backend/app/vm_create/approval.py](../../../backend/app/vm_create/approval.py), [backend/app/vm_create/gitops.py](../../../backend/app/vm_create/gitops.py), [backend/app/vm_create/proxmox_runner.py](../../../backend/app/vm_create/proxmox_runner.py), [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py), [backend/app/vm_create/terraform_runner.py](../../../backend/app/vm_create/terraform_runner.py), [backend/app/vm_create/manifest.py](../../../backend/app/vm_create/manifest.py), [backend/app/vm_create/iac_readiness.py](../../../backend/app/vm_create/iac_readiness.py)
+- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/vm_create/drafts.py](../../../backend/app/vm_create/drafts.py), [backend/app/vm_create/preflight.py](../../../backend/app/vm_create/preflight.py), [backend/app/vm_create/planner.py](../../../backend/app/vm_create/planner.py), [backend/app/vm_create/approval.py](../../../backend/app/vm_create/approval.py), [backend/app/vm_create/gitops.py](../../../backend/app/vm_create/gitops.py), [backend/app/vm_create/proxmox_runner.py](../../../backend/app/vm_create/proxmox_runner.py), [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py), [backend/app/vm_create/manifest.py](../../../backend/app/vm_create/manifest.py), [backend/app/vm_create/iac_readiness.py](../../../backend/app/vm_create/iac_readiness.py)
 - Shared substrate: [backend/app/jobs/runs.py](../../../backend/app/jobs/runs.py), [backend/app/jobs/artifacts.py](../../../backend/app/jobs/artifacts.py), [backend/app/jobs/models.py](../../../backend/app/jobs/models.py)
 - Tests: [frontend/tests/createVmFlow.test.mjs](../../../frontend/tests/createVmFlow.test.mjs), [frontend/tests/createVmDefaults.test.mjs](../../../frontend/tests/createVmDefaults.test.mjs), [backend/tests/contracts/test_api_v1_vm_create.py](../../../backend/tests/contracts/test_api_v1_vm_create.py), [backend/tests/contracts/test_api_v1_vm_create_approval_execute.py](../../../backend/tests/contracts/test_api_v1_vm_create_approval_execute.py), [backend/tests/vm_create/test_preflight_plan_contract.py](../../../backend/tests/vm_create/test_preflight_plan_contract.py)
 
@@ -45,7 +43,7 @@ raw public key는 반환하거나 artifact에 쓰지 않는다.
 
 Native create는 `/nodes/{template_node}/qemu/{template_vmid}/clone` full clone, task polling, cloned config 기반 boot disk resize 필요 여부 판단, `/nodes/{node}/qemu/{vmid}/config`, `/status/current` + `/config` post-check 순서다. 요청 `disk_gb`가 cloned boot disk보다 크면 config 전 `/resize`를 호출하고, unknown/resize failure는 `needs_reconciliation`이다. VM exists + target node + `stopped`가 확인되고 `observed_after`/fingerprint artifact가 있어야 applied다.
 
-Terraform apply는 legacy route에 남아 있지만 active UI에서 사용하지 않는다.
+Removed Terraform plan/apply URLs are absent from the route table and return FastAPI 404.
 
 현재 생성 정책은 powered-off creation/config다. plan/review는 `first_power_on_included=false`를 기록하고, 생성되는 VMInstance manifest는 `desired_power_state: stopped`를 요청한다. first power-on과 Stage A smoke는 deferred다.
 
@@ -116,7 +114,7 @@ Create VM의 approval/artifact/GitOps/native acknowledgement/observed_after 패�
 
 ## 다음 구현 slice
 
-Create VM 다음 cleanup slice는 Terraform legacy 제거를 별도 계획으로 진행하는
-것이다. DRS 작업에서는 approval checksum, artifact publication, job status 기록
-패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저
-만든다.
+Create VM 다음 cleanup slice는 Terraform-named state/root compatibility metadata
+정리를 별도 결정으로 진행하는 것이다. DRS 작업에서는 approval checksum, artifact
+publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과
+final pre-check 계약을 먼저 만든다.

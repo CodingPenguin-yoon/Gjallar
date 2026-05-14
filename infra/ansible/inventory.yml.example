@@ -1,7 +1,7 @@
 # Ansible Inventory 예제 파일
 #
 # 이 파일을 inventory.yml로 복사하여 사용하세요.
-# Terraform으로 생성된 VM의 IP 주소를 여기에 추가합니다.
+# Gjallar/Proxmox로 생성된 VM의 IP 주소를 여기에 추가합니다.
 #
 # 사용 방법:
 #   cp inventory.yml.example inventory.yml
@@ -11,7 +11,7 @@ all:
   children:
     proxmox_vms:
       hosts:
-        # 예제: Terraform으로 생성된 VM
+        # 예제: Gjallar/Proxmox로 생성된 VM
         # <vm-name-1>:
         #   ansible_host: <vm-ip-or-dns>
         #   ansible_user: <ssh-user>

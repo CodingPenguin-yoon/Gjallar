@@ -256,7 +256,7 @@ Create VM 화면은 보조 capability로 유지한다.
 - artifact-backed plan/review
 - job progress display
 - GitOps manifest status
-- Terraform side-effect acknowledgement
+- Proxmox native mutation acknowledgement
 
 DRS Advisor는 Create VM UI를 우회하지 않는다.
 DRS Advisor의 migration execution은 별도 final pre-check와 operation lock을 사용한다.

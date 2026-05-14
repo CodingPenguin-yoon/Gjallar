@@ -33,7 +33,6 @@ The current frontend loads options from live/read-only APIs, builds a review mod
 | `backend/app/vm_create/proxmox_runner.py` | Builds native preview and performs clone/resize/config/post-check. |
 | `backend/app/proxmox/client.py` | Separate Proxmox mutation client for native create only. |
 | `backend/app/jobs/*` | Job status and artifact persistence. |
-| `backend/app/vm_create/terraform_runner.py` | Legacy/deprecated Terraform path. |
 
 ## Current Profiles
 
@@ -91,9 +90,9 @@ Create VM success means the clone task completed with `exitstatus=OK`, requested
 
 Create VM success does not include first power-on, cloud-init smoke, guest-agent IP discovery, SSH, or Ansible verification. Those are deferred.
 
-## Legacy/Deprecated Terraform Boundary
+## Removed Terraform Boundary
 
-Backend endpoints `terraform-plan` and `terraform-apply` still exist. They are legacy/deprecated compatibility paths and are not active frontend client calls.
+Backend endpoints `terraform-plan` and `terraform-apply` have been removed. Old URLs are absent from FastAPI routes and naturally return 404. Terraform-named state path/root fields remain compatibility metadata pending a separate cleanup.
 
 ## Current Gaps
 

@@ -11,7 +11,7 @@ MVP 중심은 DRS Advisor이며, VMware DRS 대체품이라고 주장하지 않�
 Gjallar는 Proxmox-native inventory, migration, HA, storage, task state를 관찰하고, CPU/Memory 중심 추천을 만들고, 운영자 승인 후 Proxmox live migration을 실행/추적하는 advisor/control tower다.
 
 Create VM native Proxmox/GitOps flow는 삭제하지 않는다.
-현재 구현된 보조 capability로 유지하고, Terraform은 optional/deprecated legacy executor로 내린다. DRS Advisor는 기존 Dashboard, Placement, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate를 확장한다.
+현재 구현된 보조 capability로 유지하고, legacy Terraform executor route/helper code는 제거됐다. Terraform-named state metadata는 compatibility-only로 남아 있다. DRS Advisor는 기존 Dashboard, Placement, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate를 확장한다.
 
 ## 문서 구성
 
@@ -34,7 +34,7 @@ Create VM native Proxmox/GitOps flow는 삭제하지 않는다.
 - Risks/Alerts는 `/api/v1/risks`를 읽어 job-derived risk를 높은 위험도부터 보여준다.
 - Backend `/api/v1`은 read-only Proxmox inventory, Jobs/Runs, Risks, Create VM draft/preflight/plan/approval/GitOps manifest commit/Proxmox native create gates를 제공한다.
 - Proxmox inventory adapter는 현재 read-only이며 node CPU/Memory current usage, VM disk volume, tags, IP/guest-agent 일부 evidence를 수집한다.
-- Create VM flow는 `general-vm` 중심 draft/preflight/plan, artifact-backed review, approval checksum, GitOps manifest commit/archive, Proxmox native preview/create acknowledgement gate를 갖고 있다. Terraform plan/apply는 legacy optional route다.
+- Create VM flow는 `general-vm` 중심 draft/preflight/plan, artifact-backed review, approval checksum, GitOps manifest commit/archive, Proxmox native preview/create acknowledgement gate를 갖고 있다. Active mutation은 Proxmox native create이며 Terraform plan/apply route surface는 제거됐다.
 
 ## DRS Advisor로 확장할 gap
 

@@ -432,8 +432,8 @@ As of 2026-05-14, current code partially matches this target design.
   wizard username/key input, backend default key fallback, missing/malformed key
   red preflight, fixed disabled password login, safe access evidence in
   preflight/plan/review/manifest, and redacted native preview/observed output.
-- Terraform plan/apply routes and helper code remain legacy/present until the
-  next cleanup slice.
+- Terraform plan/apply routes and helper code are removed; Terraform-named
+  state path/root fields remain compatibility metadata for a separate cleanup.
 
 ## Implementation Checklist
 
@@ -468,6 +468,6 @@ As of 2026-05-14, current code partially matches this target design.
 18. Add future Infra Explorer start action separately with Jobs/Runs audit.
 19. Update plan, review, job, and artifact schemas to record the target fields.
     Implemented for current profile/template/network/access evidence; DB seed
-    source and Terraform cleanup remain separate work.
+    source and Terraform-named state metadata cleanup remain separate work.
 20. Update tests to lock the current-code gap closed only after implementation
     is actually changed.

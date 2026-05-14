@@ -88,7 +88,7 @@ Operations:
 - Legacy `/api/instances`, `/api/provision`, task/log, deploy, and LLM surfaces are not active.
 - Inventory is read-only and may use a fake fallback when live Proxmox inventory is unavailable.
 - Create VM is a gated draft -> preflight -> plan -> approval -> manifest commit -> Proxmox native create path.
-- Terraform remains optional/deprecated legacy executor code and is not the active UI default.
+- Terraform legacy executor routes and helper code are removed; Terraform-named state metadata remains compatibility-only.
 - Live native create remains explicit-acknowledgement only and creates/configures a powered-off VM after Proxmox post-check/`observed_after`.
 - Target Create VM profile/template/network design uses DB-seeded profiles, Proxmox live templates, and selected target-node live bridges; current code still has known implementation gaps documented in status.
 - Read-only Placement exists today; target direction is DRS Advisor.

@@ -84,8 +84,8 @@ when it supports the agreed task and improves maintainability.
 For Gjallar, this means:
 
 - Proxmox native Create VM is the active create path.
-- Terraform Create VM code is legacy/deprecated and should be removed through a
-  planned cleanup slice.
+- Terraform Create VM executor routes/helper code have been removed; do not
+  reintroduce them without an explicit product decision.
 - Read-only inventory and mutation clients must stay separate.
 - DRS Advisor migration work must not reuse Create VM mutation semantics as if
   they were migration authorization.

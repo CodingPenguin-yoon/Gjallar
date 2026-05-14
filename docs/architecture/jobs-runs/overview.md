@@ -63,7 +63,7 @@ This is latest-state persistence, not an immutable append-only audit log.
 | `preflight` | Preflight | Read-only checks complete or block. |
 | `plan` | Create plan | Artifacts and review packet created. |
 | `approval` | Approval check | Review metadata accepted or blocked. |
-| `workspace` | Create preparation | Native preview or legacy Terraform workspace. |
+| `workspace` | Create preparation | Native preview preparation. |
 | `commit` | Request saved | VMInstance manifest committed or archived. |
 | `create` | VM create | Native Proxmox create running/completed/failed. |
 

@@ -38,7 +38,7 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 | Backend API | `backend/app/api/v1/router.py` | `/api/v1` routes and job progress orchestration. |
 | Read-only inventory | `backend/app/proxmox/inventory.py` | Fake/live Proxmox read-only adapter. |
 | Proxmox mutation | `backend/app/proxmox/client.py` | Separate native mutation client used by Create VM only. |
-| Create VM | `backend/app/vm_create/*` | Draft, preflight, plan, approval, GitOps manifest, native create, legacy Terraform helpers. |
+| Create VM | `backend/app/vm_create/*` | Draft, preflight, plan, approval, GitOps manifest, and native create. |
 | Network policy | `backend/app/network_policy.py` | IaC policy load/save and live bridge policy view. |
 | Jobs/artifacts | `backend/app/jobs/*` | File-backed job status, artifacts, approval records. |
 | Manifests | `backend/app/manifests/*` | Transitional static Create VM profile seed and manifest helpers. |
@@ -64,4 +64,4 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 - No direct VM start/stop/reset/delete/snapshot controls.
 - No first power-on, cloud-init smoke, guest-agent discovery, SSH smoke, or Ansible verification after Create VM.
 - No Proxmox bridge creation/deletion/update from Gjallar.
-- No active frontend Terraform plan/apply flow.
+- No Terraform plan/apply route surface.

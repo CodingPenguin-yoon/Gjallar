@@ -1,7 +1,7 @@
 ---
 # Ansible Playbook
 #
-# 이 Playbook은 Terraform으로 생성된 인프라에 대한 추가 설정을 수행합니다.
+# 이 Playbook은 Gjallar/Proxmox로 생성된 VM에 대한 추가 설정을 수행합니다.
 # 프론트엔드에서 선택한 패키지와 역할을 설치합니다.
 #
 # 실행 방법:

@@ -31,7 +31,7 @@ Do not copy old PRD statements blindly. Several early PRD slices describe single
 |---|---|
 | Current | Implemented in the active app as of 2026-05-14 and reachable through current routes or API handlers. |
 | Target | Product or architecture direction that is not implemented yet. |
-| Legacy/deprecated | Code path that still exists for compatibility or emergency use but is not the active frontend flow. |
+| Legacy/deprecated | Historical or compatibility behavior that may be documented for context; do not assume it exists in current code. |
 | Deferred | Known follow-up work with no current implementation. |
 
 Important boundaries:
@@ -40,7 +40,7 @@ Important boundaries:
 - Current Create VM live mutation is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
 - `POST /api/v1/vm-create/{draft_id}/execute` is manifest commit only with mode `gitops_commit_only`.
 - Current Create VM networking uses selected target-node active live bridge plus explicit `bridge_id`, `static_ip`, `prefix`, and `gateway`.
-- Terraform plan/apply endpoints still exist as legacy backend paths, but the active frontend uses native Proxmox preview/create.
+- Terraform plan/apply endpoints are removed; the active frontend uses native Proxmox preview/create.
 - Jobs/Runs and Risks/Alerts are read-only UI surfaces. Jobs are file-backed under `GJALLAR_RUNS_ROOT`; risks are derived from recorded job risks.
 
 ## Domain Index

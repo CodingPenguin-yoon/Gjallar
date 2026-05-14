@@ -91,7 +91,7 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 
 ## 5. Create VM의 위치
 
-Create VM Proxmox native/GitOps flow는 보조 기능으로 유지한다. Terraform은 optional/deprecated legacy executor이며 active UI 기본 경로가 아니다.
+Create VM Proxmox native/GitOps flow는 보조 기능으로 유지한다. Legacy Terraform executor route/helper code는 제거됐고, Terraform-named state metadata만 compatibility-only로 남아 있다.
 현재 구현은 다음 capability를 제공하므로 DRS Advisor 작업에서도 재사용할 설계 힌트를 준다.
 
 - draft

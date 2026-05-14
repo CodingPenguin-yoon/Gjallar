@@ -36,8 +36,9 @@ Use `AGENTS.md` for execution mode:
 - Gjallar's next MVP success line is DRS Advisor.
 - Create VM is a supporting capability, not the MVP success line.
 - Active Create VM mutation path is Proxmox native API.
-- Terraform Create VM executor code is legacy/deprecated and should be removed
-  only as part of planned cleanup slices.
+- Terraform Create VM executor routes/helper code are removed from the active
+  tree; Terraform-named state fields remain compatibility metadata for a
+  separate cleanup decision.
 - Create VM profile/template/network target design is documented in
   `docs/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`.
 
@@ -71,7 +72,8 @@ Use `AGENTS.md` for execution mode:
     request or backend env/file default key, missing/malformed key red
     preflight, fixed disabled password login, safe fingerprint/source evidence,
     and native preview/observed sanitization
-- Terraform routes/helper/module/tests still exist as legacy code.
+- Terraform routes/helper/module/tests are removed; Terraform-named state fields
+  remain compatibility metadata.
 
 ## Workstream A: Preserve Principles And Context
 
@@ -138,22 +140,22 @@ Planned slices:
 
 ## Workstream D: Terraform Legacy Cleanup
 
-Status: not started.
+Status: executor removal implemented; state-field compatibility cleanup deferred.
 
 Goal: remove legacy Terraform Create VM executor code after native-only
 contracts are locked.
 
 Planned slices:
 
-- [ ] Lock native-only API contract tests.
-- [ ] Remove Terraform plan/apply routes from active API.
-- [ ] Remove Terraform imports from `backend/app/api/v1/router.py`.
-- [ ] Remove `backend/app/vm_create/terraform_runner.py`.
-- [ ] Remove Terraform-specific backend tests.
-- [ ] Remove or park `infra/terraform/` after active references are gone.
+- [x] Lock native-only API contract tests.
+- [x] Remove Terraform plan/apply routes from active API.
+- [x] Remove Terraform imports from `backend/app/api/v1/router.py`.
+- [x] Remove `backend/app/vm_create/terraform_runner.py`.
+- [x] Remove Terraform-specific backend tests.
+- [x] Remove or park `infra/terraform/` after active references are gone.
 - [ ] Rename or retire Terraform-named state fields only after native
   manifest/audit compatibility is verified.
-- [ ] Update docs from "optional/deprecated legacy" to "removed" when removal
+- [x] Update docs from "optional/deprecated legacy" to "removed" when removal
   actually lands.
 
 ## Workstream E: Documentation And Status Hygiene
@@ -192,8 +194,8 @@ pnpm --dir frontend build
 
 - Profile seed source is currently transitional `source: static_seed`.
   A real DB/ORM seed source remains a later implementation decision.
-- Whether removed Terraform endpoints should disappear as 404 or return an
-  explicit gone/deprecated error for one transition slice.
+- Removed Terraform endpoints disappear from the route table and naturally return
+  FastAPI 404.
 - Whether Terraform-named state path fields should be renamed immediately or
   kept until persisted artifact compatibility is handled.
 - Whether Network tab policy should provide future recommendations for gateway
@@ -203,7 +205,8 @@ pnpm --dir frontend build
 
 Recommended next implementation slice:
 
-1. Lock native-only API contract tests around Terraform legacy removal.
-2. Remove or explicitly retire Terraform plan/apply routes and helper code.
-3. Keep Terraform-named state/root fields until manifest/audit compatibility is
+1. Keep Terraform-named state/root fields until manifest/audit compatibility is
    verified.
+2. Decide DB/ORM profile seed source for Create VM profiles.
+3. Start DRS Advisor read model and final pre-check contract work without
+   reusing Create VM mutation semantics.

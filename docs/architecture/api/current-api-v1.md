@@ -29,7 +29,7 @@ Current error responses are not fully normalized. Many failures raise FastAPI `H
 | Jobs/artifacts | Many Create VM steps write job status and artifacts under `GJALLAR_RUNS_ROOT`, including `approval.json` whenever approval validation runs with a run directory. |
 | Manifest commit | `execute` commits desired-state manifest only. It does not create a VM. |
 | Native create | `proxmox-create` is the active live mutation path for powered-off VM creation. |
-| Terraform | Backend legacy/deprecated paths remain; active frontend does not call them. |
+| Terraform | Legacy plan/apply route surface and helper code are removed; Terraform-named state metadata remains compatibility-only. |
 | DRS | No current `/api/v1/drs/*` routes or migration execution. |
 
 ## Endpoint Table
@@ -57,11 +57,9 @@ Current error responses are not fully normalized. Many failures raise FastAPI `H
 | `POST /api/v1/vm-create/{draft_id}/approve` | Validate review approval metadata. | Rebuilt plan artifacts and approval payload. | Writes or refreshes `approval.json`; records approval job status. | Create VM approval step. | Requires exact `plan_artifact_id`, `review_summary_checksum`, and yellow acknowledgement when needed. |
 | `POST /api/v1/vm-create/{draft_id}/proxmox-preview` | Build native create preview. | Approved rebuilt plan. | Revalidates approval and may refresh `approval.json`; writes preview artifact; records job status. | Create VM final confirmation. | Approval-gated but non-mutating. Preview config redacts `sshkeys`. |
 | `POST /api/v1/vm-create/{draft_id}/proxmox-create` | Active live native Proxmox VM creation. | Approved rebuilt plan, committed manifest, Proxmox mutation client. | Revalidates approval and may refresh `approval.json`; calls Proxmox clone/task/config/resize/post-check; updates manifest status; writes job/artifacts. | Create VM final mutation button. | Requires `manifest_commit_sha`, valid approval, no red fresh risk, and `proxmox_mutation_acknowledged=true`. Native config uses reviewed username and transient SSH public key; API/artifacts return only redacted/safe evidence. |
-| `POST /api/v1/vm-create/{draft_id}/terraform-plan` | Legacy Terraform workspace/plan preparation. | Approved rebuilt plan, Terraform helper. | Revalidates approval and may refresh `approval.json`; writes workspace files; optionally runs live Terraform plan when acknowledged. | Not active frontend client call. | Legacy/deprecated backend path. |
-| `POST /api/v1/vm-create/{draft_id}/terraform-apply` | Legacy Terraform apply. | Approved rebuilt plan, committed manifest, Terraform helper. | Revalidates approval and may refresh `approval.json`; runs Terraform apply when acknowledged; updates manifest/job status. | Not active frontend client call. | Legacy/deprecated backend path. |
 | `POST /api/v1/vm-create/{draft_id}/execute` | Commit approved VMInstance manifest. | Approved rebuilt plan and IaC root. | Revalidates approval and may refresh `approval.json`; writes and commits manifest if needed; records pending job status. | Create VM "save request" step. | Mode is `gitops_commit_only`. It does not create a VM or call Proxmox. |
 | `POST /api/v1/vm-create/{draft_id}/archive` | Archive an unapplied VMInstance manifest. | Rebuilt plan and IaC root. | Moves manifest to `manifests/archive/vms/` and commits. | No primary current frontend call in `apiV1.js`. | Requires `archive_acknowledged=true`; refuses applied manifests. |
 
 ## Current Frontend Client Coverage
 
-The frontend client does not expose Terraform plan/apply or archive helpers, even though those backend routes currently exist. The active client covers inventory, network policy, jobs, risks, readiness, draft/preflight/plan/approve, native preview, manifest commit, and native create.
+The frontend client does not expose Terraform plan/apply helpers, and the backend routes no longer exist. The active client covers inventory, network policy, jobs, risks, readiness, draft/preflight/plan/approve, native preview, manifest commit, and native create.

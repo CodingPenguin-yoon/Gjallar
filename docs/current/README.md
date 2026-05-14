@@ -27,7 +27,7 @@ This file is the docs source of truth for implemented behavior after active code
   `/api/v1/templates`; builtin template defaults are not an active selection
   source.
 - Current Create VM create policy is powered-off only: native Proxmox clone, boot disk resize when needed, and config may run after exact approval metadata, manifest commit verification, and `proxmox_mutation_acknowledged=true`; first power-on and Stage A smoke are separate deferred stages.
-- Terraform plan/apply routes remain optional/deprecated legacy executor paths and are not used by the active UI.
+- Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
 - `/placement` is currently a read-only Placement screen. The target product direction is to relabel and expand this route into DRS Advisor.
 
@@ -83,14 +83,14 @@ The target design is partially implemented, with these gaps still open:
 - Raw SSH public key material is used only transiently for native Proxmox
   `sshkeys` config and is not returned in API responses or written to
   draft/plan/review/manifest/preview/observed artifacts.
-- Terraform plan/apply routes and helper code remain legacy/present until a
-  later cleanup slice; do not treat them as removed.
+- Terraform-named state path/root fields remain compatibility metadata pending a
+  separate manifest/audit compatibility cleanup.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `133 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `124 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.

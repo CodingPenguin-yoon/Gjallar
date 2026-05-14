@@ -27,7 +27,6 @@ React operator UI
     -> Create VM draft/preflight/plan/approval helpers
     -> file-backed Jobs/Runs and risk summaries
     -> gated Proxmox native clone/resize/config/post-check helpers
-    -> optional/deprecated Terraform workspace/plan/apply helpers
 ```
 
 The safe baseline is read-only. Any live Create VM side effect is behind
@@ -88,7 +87,7 @@ Active backend modules:
 | `app/proxmox/models.py` | Inventory dataclasses for nodes, VMs, templates, storage, and networks. |
 | `app/manifests/*` | Built-in VM profile and manifest schema defaults. |
 | `app/network_policy.py` | IaC-backed network policy load/save and bridge-policy view composition. |
-| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest, GitOps, IaC readiness, native Proxmox runner, and legacy Terraform runner helpers. |
+| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest, GitOps, IaC readiness, and native Proxmox runner helpers. |
 | `app/jobs/*` | File-backed job status, artifacts, approval records, and risk source data. |
 | `app/core/redaction.py` | Secret redaction for responses, artifacts, and persisted job details. |
 
@@ -122,15 +121,13 @@ POST /api/v1/vm-create/{draft_id}/plan
 POST /api/v1/vm-create/{draft_id}/approve
 POST /api/v1/vm-create/{draft_id}/proxmox-preview
 POST /api/v1/vm-create/{draft_id}/proxmox-create
-POST /api/v1/vm-create/{draft_id}/terraform-plan
-POST /api/v1/vm-create/{draft_id}/terraform-apply
 POST /api/v1/vm-create/{draft_id}/execute
 POST /api/v1/vm-create/{draft_id}/archive
 ```
 
 `PUT /api/v1/networks/policy` is the current policy write path. Create VM
 execution writes artifacts/manifests only after the relevant approval gates pass.
-`terraform-plan` and `terraform-apply` remain legacy optional routes; the active UI uses `proxmox-preview` and `proxmox-create`.
+`terraform-plan` and `terraform-apply` have been removed from the active API; the active UI uses `proxmox-preview` and `proxmox-create`.
 
 Target DRS Advisor API candidates are documented in [`../product/drs-advisor/05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) and [`../product/legacy-prd/12_UI_API_CONTRACT.md`](../product/legacy-prd/12_UI_API_CONTRACT.md). They are not current implementation.
 

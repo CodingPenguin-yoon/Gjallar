@@ -25,3 +25,16 @@ def test_legacy_task_domain_is_not_active_after_jobs_api_replacement():
         "PRD v1 MVP should use /api/v1/jobs and /api/v1/jobs/{job_id}/artifacts "
         "instead of keeping the legacy task/status/log domain importable"
     )
+
+
+def test_legacy_terraform_executor_is_removed_from_active_tree():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+
+    removed_paths = [
+        backend_root / "app/vm_create/terraform_runner.py",
+        repo_root / "infra/terraform",
+    ]
+    offenders = [str(path.relative_to(repo_root)) for path in removed_paths if path.exists()]
+
+    assert offenders == [], f"Legacy Terraform Create VM executor files must stay removed: {offenders}"

@@ -15,7 +15,7 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 | Create VM may infer gateway from static IP, such as `.1`. | Current native config uses explicit operator `gateway`; missing gateway is a red static-mode preflight risk. |
 | Create VM uses `NetworkPolicy`, `network_id`, or `server-net` as its source of truth. | Current Create VM uses selected target node active live bridge plus explicit network fields. Incoming `network_id`/`networkId` is ignored and not echoed. |
 | `POST /api/v1/vm-create/{draft_id}/execute` creates the VM. | `execute` is manifest commit only with mode `gitops_commit_only`. Live mutation is `proxmox-create`. |
-| Terraform is the active Create VM UI path. | Terraform endpoints still exist as legacy/deprecated backend paths. Active frontend uses native Proxmox preview/create. |
+| Terraform is the active Create VM UI path. | Terraform endpoints are removed. Active frontend uses native Proxmox preview/create. |
 | Create VM success includes first boot, smoke, SSH, guest-agent discovery, or Ansible. | Current success is powered-off/stopped only after Proxmox post-check and `observed_after` artifact. |
 
 ## Network

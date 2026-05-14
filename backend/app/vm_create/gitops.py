@@ -116,8 +116,9 @@ def _validate_vm_manifest(plan: VmCreatePlan, manifest: dict[str, Any]) -> None:
 def commit_plan_manifest(plan: VmCreatePlan) -> GitOpsCommitResult:
     """Write the approved VMInstance manifest and create a local IaC commit.
 
-    This function deliberately does not push, run Terraform, call Proxmox, or
-    power on anything. It is the first state-changing GitOps step after approval.
+    This function deliberately does not push, run external executors, call
+    Proxmox, or power on anything. It is the first state-changing GitOps step
+    after approval.
     """
     iac_root = _iac_root_from_plan(plan)
     if dict(plan.review_confirm).get("iac_ready_for_execute") is not True:

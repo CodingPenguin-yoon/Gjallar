@@ -49,7 +49,7 @@ Gjallar DB가 저장할 값:
 - `backend/app/proxmox/inventory.py`: fake/live read-only adapter
 - `backend/app/jobs/runs.py`: file-backed job status and artifact metadata
 - `backend/app/jobs/artifacts.py`: artifact writer
-- `backend/app/vm_create/*`: Create VM draft/preflight/plan/approval/GitOps/Terraform flow
+- `backend/app/vm_create/*`: Create VM draft/preflight/plan/approval/GitOps/native Proxmox flow
 - `/api/v1/jobs` and `/api/v1/risks`: read-only job/risk views
 
 현재 inventory model은 disk volume id, storage id, tags, IP/guest-agent evidence를 일부 제공한다.

@@ -24,4 +24,4 @@
 
 DRS Advisor는 목표 제품 방향이다. 아직 backend DRS recommendation API, `/api/v1/drs/*`, identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
 
-Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Terraform이 아니라 Proxmox API native create다. `execute`는 manifest commit-only이고, 실제 생성은 `proxmox-create`가 clone UPID polling, 필요한 boot disk resize, config, stopped post-check, `observed_after` artifact를 끝낸 뒤에만 applied로 기록한다. Terraform plan/apply는 optional/deprecated legacy executor로 남아 있고 active UI에서는 호출하지 않는다. first power-on과 smoke는 deferred다.
+Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. `execute`는 manifest commit-only이고, 실제 생성은 `proxmox-create`가 clone UPID polling, 필요한 boot disk resize, config, stopped post-check, `observed_after` artifact를 끝낸 뒤에만 applied로 기록한다. Terraform plan/apply executor route surface는 제거됐고 old URL은 404다. first power-on과 smoke는 deferred다.

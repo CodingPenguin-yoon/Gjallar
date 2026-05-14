@@ -295,19 +295,3 @@ class GitOpsCommitResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass(frozen=True)
-class TerraformWorkspaceResult:
-    job_id: str
-    manifest_id: str
-    workspace_dir: str
-    terraform_dir: str
-    backend_config_path: str
-    tfvars_path: str
-    plan_path: str
-    state_path: str
-    side_effects: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)

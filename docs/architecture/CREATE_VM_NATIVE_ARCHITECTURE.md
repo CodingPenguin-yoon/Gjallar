@@ -2,7 +2,7 @@
 
 Last reviewed against code: 2026-05-14
 
-This document describes the current implemented Create VM path. The active enterprise direction is Proxmox API native create. Terraform remains optional/deprecated legacy executor code and is not the active UI default.
+This document describes the current implemented Create VM path. The active enterprise direction is Proxmox API native create. The legacy Terraform executor route surface and helper code are removed.
 
 The target profile/template/network model is documented in
 [`CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
@@ -12,7 +12,7 @@ are called out separately when the implementation has not caught up.
 ## Active Direction
 
 - Primary create path: Proxmox API native clone/resize-if-needed/config/post-check.
-- Legacy executor: `backend/app/vm_create/terraform_runner.py` and `infra/terraform/main.tf`.
+- Legacy Terraform executor: removed from the active tree.
 - Powered-off policy: create/config only; first power-on and smoke are deferred.
 - Source of truth: Proxmox actual state. A create is not successful unless post-check reads Proxmox state and writes `observed_after`.
 - Inventory boundary: `backend/app/proxmox/inventory.py` remains read-only. Mutation code lives in `backend/app/proxmox/client.py`.
@@ -67,7 +67,7 @@ API client functions in `frontend/src/services/apiV1.js`:
 - `previewVmDraftProxmox()`
 - `createVmDraftProxmox()`
 
-The active frontend does not call Terraform plan/apply helpers.
+The active frontend does not call Terraform plan/apply helpers, and the backend routes are absent.
 
 ## Backend Endpoint Flow
 
@@ -289,6 +289,6 @@ flow but still has selection-model gaps:
 - There is no DRS DB identity/fingerprint table yet; Create VM fingerprint is artifact evidence, not a reusable DRS identity substrate.
 - Restart reconciliation for native create is not implemented as a background service.
 - First power-on, cloud-init readiness, guest-agent/IP discovery, SSH smoke, and Ansible verification are deferred.
-- Terraform legacy code still exists and should not be mistaken for the active UI path.
-- DB profile seed source and Terraform legacy removal remain future work.
+- Terraform-named state path/root fields remain compatibility metadata until a separate cleanup.
+- DB profile seed source remains future work.
 - DRS Advisor migration will need its own final pre-check, operation lock, migration UPID tracking, and reconciliation flow; Create VM native runner is not a DRS migration executor.

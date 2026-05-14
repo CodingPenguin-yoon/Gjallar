@@ -17,7 +17,7 @@ live bridge model. Sections below call out where current code still differs.
 ## Contract Goal
 
 Create VM is an operator-reviewed workflow for producing a powered-off Proxmox
-VM from a known template. The active enterprise path is Proxmox API native. It is intentionally split into draft, preflight, plan, approval, manifest commit, native preview, and native create stages so the UI can show risk evidence before any live side effect. Terraform remains optional/deprecated legacy executor code.
+VM from a known template. The active enterprise path is Proxmox API native. It is intentionally split into draft, preflight, plan, approval, manifest commit, native preview, and native create stages so the UI can show risk evidence before any live side effect. The legacy Terraform executor route surface and helper code are removed.
 
 ```text
 draft request
@@ -41,8 +41,6 @@ POST /api/v1/vm-create/{draft_id}/plan
 POST /api/v1/vm-create/{draft_id}/approve
 POST /api/v1/vm-create/{draft_id}/proxmox-preview
 POST /api/v1/vm-create/{draft_id}/proxmox-create
-POST /api/v1/vm-create/{draft_id}/terraform-plan
-POST /api/v1/vm-create/{draft_id}/terraform-apply
 POST /api/v1/vm-create/{draft_id}/execute
 POST /api/v1/vm-create/{draft_id}/archive
 ```
@@ -62,7 +60,6 @@ The backend implementation lives in:
 - `backend/app/jobs/*`
 - `backend/app/proxmox/client.py`
 - `backend/app/vm_create/proxmox_runner.py`
-- `infra/terraform/main.tf`
 
 ## Draft Request
 
@@ -263,8 +260,8 @@ Approval validates the exact plan artifact metadata supplied by the frontend:
 - `review_summary_checksum`
 - `yellow_risk_acknowledged`
 
-Approval is validation-only. It records job progress but does not itself apply
-Terraform or create a VM.
+Approval is validation-only. It records job progress but does not itself create
+a VM.
 
 ## Native Proxmox Preview And Create
 
@@ -291,9 +288,9 @@ The native runner uses `backend/app/proxmox/client.py` and `backend/app/vm_creat
 
 Success requires clone task `exitstatus=OK`, requested disk resize to be unnecessary or completed, VM existence on the target node, observed `status=stopped`, and an `observed_after` artifact. If the task fails, the cloned disk size is unknown, resize fails, the VM is missing, or Proxmox reports it powered on, the route records failed/`needs_reconciliation` and does not mark the manifest `applied`.
 
-## Legacy Terraform Plan And Apply
+## Removed Terraform Plan And Apply
 
-`terraform-plan`, `terraform-apply`, `backend/app/vm_create/terraform_runner.py`, and `infra/terraform/main.tf` remain for compatibility and emergency/legacy workflows. They are not the active UI default and should not be required for enterprise Create VM or DRS Advisor basics.
+`terraform-plan`, `terraform-apply`, `backend/app/vm_create/terraform_runner.py`, and `infra/terraform/` are removed from the active tree. Removed URLs are absent from the FastAPI route table and naturally return 404. Terraform-named state path/root fields remain compatibility metadata until manifest/audit compatibility cleanup is handled separately.
 
 ## Jobs, Artifacts, And Risks
 

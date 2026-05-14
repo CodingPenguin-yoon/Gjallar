@@ -6,7 +6,7 @@ FastAPI backend for the Gjallar Proxmox operations console.
 
 Current MVP product source of truth is `docs/product/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 
-The target direction is DRS Advisor. The current backend provides read-only Proxmox inventory, Jobs/Runs, Risks, and approval-gated Create VM support. Create VM's active mutation path is native Proxmox API clone/config/post-check; Terraform remains optional/deprecated legacy executor code. The backend does not yet provide `/api/v1/drs/*`, DRS identity/fingerprint tables, backend recommendation generation, final pre-check, Proxmox live migration execution, operation locks, or reconciliation.
+The target direction is DRS Advisor. The current backend provides read-only Proxmox inventory, Jobs/Runs, Risks, and approval-gated Create VM support. Create VM's active mutation path is native Proxmox API clone/config/post-check; the legacy Terraform executor route surface and helper code are removed. The backend does not yet provide `/api/v1/drs/*`, DRS identity/fingerprint tables, backend recommendation generation, final pre-check, Proxmox live migration execution, operation locks, or reconciliation.
 
 Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
 
@@ -17,7 +17,7 @@ DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or aut
 - Public API contract: `/api/v1`
 - Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
 - Create VM: draft, preflight, plan, approval, IaC manifest commit, Proxmox native preview/create for powered-off creation
-- Legacy Create VM executor: Terraform plan/apply routes and `app/vm_create/terraform_runner.py` remain available for compatibility, but the active UI path does not call them
+- Legacy Terraform Create VM executor: removed; old plan/apply URLs naturally 404
 - Jobs/Runs and Risks: read-only MVP summaries
 
 Legacy `/api` deploy/provision/task/log/LLM routes are not part of the active backend.
