@@ -6,7 +6,7 @@ The active repo-local documentation lives under [`docs/`](docs/README.md). Start
 
 ## Current product direction
 
-- Current MVP product source of truth is [`docs/product/prd/drs-advisor/`](docs/product/prd/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
+- Current MVP product source of truth is [`docs/product/drs-advisor/`](docs/product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 - DRS Advisor is the next MVP success line: Proxmox-native migration recommendations, approval-gated live migration, Proxmox task tracking, audit, and reconciliation.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
@@ -42,7 +42,7 @@ Key values:
 ## Where to read next
 
 - [Docs index](docs/README.md)
-- [Current implemented state](docs/product/status/current.md)
-- [Create VM native architecture](docs/engineering/architecture/CREATE_VM_NATIVE_ARCHITECTURE.md)
-- [Current runbook](docs/product/operations/runbook.md)
-- [Product PRD index](docs/product/prd/README.md)
+- [Current implemented state](docs/current/README.md)
+- [Create VM native architecture](docs/architecture/CREATE_VM_NATIVE_ARCHITECTURE.md)
+- [Current runbook](docs/operations/runbook.md)
+- [Product docs](docs/product/README.md)

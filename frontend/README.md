@@ -4,7 +4,7 @@ React + Vite operator UI for Gjallar.
 
 ## Product Direction vs Current UI
 
-Current MVP product source of truth is `docs/product/prd/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
+Current MVP product source of truth is `docs/product/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 
 The target direction is DRS Advisor. The current frontend still exposes a read-only `Placement` screen and a Create VM wizard as supporting capabilities. It does not yet provide the full DRS Advisor table/detail flow, identity/fingerprint status, final pre-check, Approve & Migrate, UPID tracking, or Reconcile Now UI.
 

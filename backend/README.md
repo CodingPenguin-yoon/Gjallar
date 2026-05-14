@@ -4,7 +4,7 @@ FastAPI backend for the Gjallar Proxmox operations console.
 
 ## Product Direction vs Current Backend
 
-Current MVP product source of truth is `docs/product/prd/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
+Current MVP product source of truth is `docs/product/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 
 The target direction is DRS Advisor. The current backend provides read-only Proxmox inventory, Jobs/Runs, Risks, and approval-gated Create VM support. Create VM's active mutation path is native Proxmox API clone/config/post-check; Terraform remains optional/deprecated legacy executor code. The backend does not yet provide `/api/v1/drs/*`, DRS identity/fingerprint tables, backend recommendation generation, final pre-check, Proxmox live migration execution, operation locks, or reconciliation.
 

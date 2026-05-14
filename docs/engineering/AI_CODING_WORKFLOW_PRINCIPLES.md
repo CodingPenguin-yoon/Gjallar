@@ -4,8 +4,8 @@ Source: `/Users/yoon/Library/Mobile Documents/com~apple~CloudDocs/AI 설�
 
 This file records the repo-local operating principles to use when working on
 Gjallar with AI coding agents. Treat it as workflow guidance, not product
-requirements. Product behavior still follows `docs/product/prd/drs-advisor/`
-and the current implementation status docs.
+requirements. Product behavior still follows `docs/product/drs-advisor/`
+and current implementation state still follows `docs/current/README.md`.
 
 ## Core Problems To Avoid
 
@@ -49,9 +49,9 @@ decision document. Include:
 
 For this repo, prefer updating current docs under:
 
-- `docs/product/prd/drs-advisor/`
-- `docs/product/status/`
-- `docs/engineering/architecture/`
+- `docs/product/drs-advisor/`
+- `docs/current/`
+- `docs/architecture/`
 
 ### 3. TDD Before Broad Implementation
 

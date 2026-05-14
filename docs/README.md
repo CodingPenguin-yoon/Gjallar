@@ -2,38 +2,85 @@
 
 This is the single repo-local documentation entrypoint for Gjallar.
 
+## Current
+
+Use this section for implemented behavior and current UI/API snapshots.
+
+- [Current implemented state](current/README.md)
+- [Current top-tab snapshots](current/top-tabs/README.md)
+
 ## Product
 
-Use this section for product direction, current implemented state, operational guidance, and PRD navigation.
+Use this section for active product direction and older PRD context.
 
 - [Product docs](product/README.md)
-- [Current implemented state](product/status/current.md)
-- [Current runbook](product/operations/runbook.md)
-- [Product PRD index](product/prd/README.md)
-- [DRS Advisor source of truth](product/prd/drs-advisor/README.md)
+- [DRS Advisor target direction](product/drs-advisor/README.md)
+- [Legacy PRD index](product/legacy-prd/README.md)
 
-## Engineering
+## Architecture
 
-Use this section for current code-oriented architecture notes and implementation contracts.
+Use this section for current and target architecture notes, implementation contracts, and known stale statements.
 
-- [Engineering architecture](engineering/architecture/)
-- [VM operations architecture](engineering/architecture/VM_OPERATIONS_ARCHITECTURE.md)
-- [Create VM contract](engineering/architecture/VM_PROVISIONING_CONTRACT.md)
-- [Create VM native architecture](engineering/architecture/CREATE_VM_NATIVE_ARCHITECTURE.md)
-- [Create VM profile/template/network target design](engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)
+- [Architecture index](architecture/README.md)
+- [VM operations architecture](architecture/VM_OPERATIONS_ARCHITECTURE.md)
+- [Create VM contract](architecture/VM_PROVISIONING_CONTRACT.md)
+- [Create VM native architecture](architecture/CREATE_VM_NATIVE_ARCHITECTURE.md)
+- [Create VM profile/template/network target design](architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md)
 - [Backend README](../backend/README.md)
 - [Frontend README](../frontend/README.md)
 
-## History
+## Operations
 
-Use this section for older implementation notes, planning records, refresh notes, and audit history. These files are background only and do not override the current product source of truth.
+Use this section for current verification and operator safety notes.
 
-- [Historical feature notes](history/features/)
-- [Historical operations notes](history/operations/)
-- [Historical roadmap notes](history/roadmap/)
-- [Historical status refreshes](history/status/)
+- [Current runbook](operations/runbook.md)
 
-Current MVP product source of truth is [`docs/product/prd/drs-advisor/`](product/prd/drs-advisor/README.md). If another document conflicts with that folder, `drs-advisor/` wins.
+## Engineering
+
+Use this section for repo-local execution workflow and current work planning.
+
+- [AI coding workflow principles](engineering/AI_CODING_WORKFLOW_PRINCIPLES.md)
+- [Current work plan](engineering/GJALLAR_CURRENT_WORK_PLAN.md)
+
+## Archive
+
+Use this section for older implementation notes, planning records, refresh notes, and audit history. These files are background only.
+
+- [Archived feature notes](archive/features/)
+- [Archived operations notes](archive/operations/)
+- [Archived roadmap notes](archive/roadmap/)
+- [Archived status refreshes](archive/status/)
+
+## Source Of Truth Order
+
+Current implemented behavior:
+
+1. Active code and tests.
+2. [`docs/current/README.md`](current/README.md).
+3. [`docs/current/top-tabs/`](current/top-tabs/README.md).
+4. [`docs/architecture/`](architecture/README.md) current-architecture docs.
+5. [`docs/product/drs-advisor/`](product/drs-advisor/README.md) only for target direction and planned gaps.
+6. [`docs/product/legacy-prd/`](product/legacy-prd/README.md) and [`docs/archive/`](archive/) as context only.
+
+Product target / MVP direction:
+
+1. [`docs/product/drs-advisor/`](product/drs-advisor/README.md).
+2. [`docs/architecture/`](architecture/README.md) target architecture docs.
+3. [`docs/current/README.md`](current/README.md) and [`docs/current/top-tabs/`](current/top-tabs/README.md) for current gaps.
+4. [`docs/product/legacy-prd/`](product/legacy-prd/README.md) as older design context only.
+5. [`docs/archive/`](archive/) as historical notes only.
+
+Workflow / execution:
+
+1. [`AGENTS.md`](../AGENTS.md).
+2. [`docs/engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](engineering/AI_CODING_WORKFLOW_PRINCIPLES.md).
+3. [`docs/engineering/GJALLAR_CURRENT_WORK_PLAN.md`](engineering/GJALLAR_CURRENT_WORK_PLAN.md).
+
+Operations:
+
+1. [`docs/operations/runbook.md`](operations/runbook.md).
+2. Current status verification notes in [`docs/current/README.md`](current/README.md).
+3. Archived operations notes only as history.
 
 ## Active Contract Summary
 

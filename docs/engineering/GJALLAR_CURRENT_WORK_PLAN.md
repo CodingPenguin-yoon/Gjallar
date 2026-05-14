@@ -9,8 +9,8 @@ implementation work. Read this before starting a new slice, then update it as
 work is completed or decisions change.
 
 This is not a replacement for product requirements. Product direction remains
-under `docs/product/prd/drs-advisor/`, and current implemented state remains
-under `docs/product/status/current.md`.
+under `docs/product/drs-advisor/`, and current implemented state remains
+under `docs/current/README.md`.
 
 ## Operating Principles
 
@@ -39,7 +39,7 @@ Use `AGENTS.md` for execution mode:
 - Terraform Create VM executor code is legacy/deprecated and should be removed
   only as part of planned cleanup slices.
 - Create VM profile/template/network target design is documented in
-  `docs/engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`.
+  `docs/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`.
 
 ## Current Implementation Baseline
 
@@ -80,7 +80,7 @@ Status: in progress.
 - [x] Keep global Codex memory limited to the user's general AI design
   principles, not Gjallar-specific work state.
 - [x] Add this living work plan.
-- [ ] Keep `docs/product/status/current.md` linked to the living work plan.
+- [ ] Keep `docs/current/README.md` linked to the living work plan.
 - [ ] Update this file after each completed slice.
 
 ## Workstream B: Create VM Profile/Template/Network Target
@@ -160,7 +160,7 @@ Status: ongoing.
 - [ ] Do not claim implementation is complete until tests and code match.
 - [ ] Keep DRS Advisor product direction separate from Create VM supporting
   capability.
-- [ ] Update `docs/product/status/current.md` after code changes.
+- [ ] Update `docs/current/README.md` after code changes.
 - [ ] Update top-tab status docs when UI/API behavior changes.
 - [ ] Keep historical docs historical; do not rewrite history unless a current
   doc points to stale behavior.

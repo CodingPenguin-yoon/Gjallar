@@ -1,26 +1,33 @@
-# Gjallar Docs
+# Gjallar Product Docs
 
-Gjallar is a human-facing Proxmox Operations & Risk Console.
+Gjallar is a human-facing Proxmox Operations & Risk Console / operations platform.
 
-This product tree is the active repo-local product documentation set. Use it for current product direction, implementation status, runbook guidance, and PRD navigation.
+This product tree is focused on product direction. Current implemented status, operational runbooks, and architecture docs live outside this folder.
 
-Current MVP product source of truth is [`prd/drs-advisor/`](prd/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
+## Start Here
 
-## Start here
+- [DRS Advisor target direction](drs-advisor/README.md)
+- [Legacy PRD index](legacy-prd/README.md)
+- [Current implemented state](../current/README.md)
+- [Architecture index](../architecture/README.md)
 
-- [Current status](status/current.md)
-- [Operations runbook](operations/runbook.md)
-- [PRD index](prd/README.md)
-- [Historical docs refresh note](../history/status/refresh-2026-05-09.md)
+## Product Framing
 
-## Current product framing
-
-- Current MVP direction: DRS Advisor.
-- Active frontend contract: `/api/v1`
-- Safe live surface: read-only Proxmox inventory, with fallback data when live inventory is unavailable
-- Current implementation: read-only inventory, read-only Placement, Jobs/Runs/Risks summaries, and approval-gated Create VM support
-- Target gap: backend DRS recommendation, identity/fingerprint policy, final pre-check, approved live migration, Proxmox UPID tracking, and reconciliation are not implemented yet
-- Create VM is a supporting existing capability, not the next MVP success line or implementation order
-- Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
-- DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
+- DRS Advisor is the next MVP success line.
+- Create VM is a supporting capability, not the MVP success line.
+- Proxmox is the source of truth for actual VM/node/task/HA/storage state.
+- Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
+- DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, automatic DRS for Proxmox, or a backup product.
 - PBS/Veeam references are backup evidence or future integration context only.
+
+## Current Boundaries
+
+- The active contract is `/api/v1`.
+- Old `/api/instances`, `/api/provision`, deploy/task/log/LLM surfaces are not active.
+- Current `/placement` is a read-only Placement seed; the target direction is DRS Advisor.
+- There is no `/api/v1/drs/*`, identity/fingerprint DB, final pre-check, live migration, operation locks, UPID tracking, or reconciliation yet.
+- The active Create VM path is native Proxmox preview/create, not Terraform.
+- Terraform remains an optional/deprecated legacy executor until removed.
+- Create VM success is powered-off/stopped only after Proxmox post-check and `observed_after`.
+- Inventory is read-only with fake fallback.
+- Dashboard and read-only screens should remain usable when NFS-backed job history is unavailable.
