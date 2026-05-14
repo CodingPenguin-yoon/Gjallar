@@ -23,6 +23,9 @@ const {
   validateTemplateSelection,
 } = await importExpected('../src/utils/createVmFlow.js', 'Create VM native flow utility')
 
+const TEST_SSH_PUBLIC_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g gjallar@test'
+const TEST_SSH_FINGERPRINT = 'SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4'
+
 const input = {
   operatorId: 'hermes-ui',
   jobId: 'job-ui-create',
@@ -39,6 +42,8 @@ const input = {
   templateVmid: 9000,
   templateNodeId: 'yoonmanserver2',
   hardware: { cpu: 2, memoryMb: 4096, diskGb: 50 },
+  cloudInitUser: 'ubuntu',
+  sshPublicKey: TEST_SSH_PUBLIC_KEY,
 }
 
 assert.deepEqual(buildCreateVmPayload(input), {
@@ -56,8 +61,14 @@ assert.deepEqual(buildCreateVmPayload(input), {
   template_vmid: 9000,
   template_node_id: 'yoonmanserver2',
   hardware_overrides: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
+  access: {
+    cloud_init_user: 'ubuntu',
+    ssh_public_key: TEST_SSH_PUBLIC_KEY,
+    password_login: false,
+  },
 })
 assert.equal('network_id' in buildCreateVmPayload(input), false)
+assert.equal('ssh_public_key' in buildCreateVmPayload(input), false)
 
 assert.deepEqual(buildCreateVmPayload({
   operatorId: 'nested-test',
@@ -76,6 +87,23 @@ assert.deepEqual(buildCreateVmPayload({
   prefix: 25,
   gateway: '192.168.2.254',
   ip_mode: 'static',
+  access: { password_login: false },
+})
+
+assert.deepEqual(buildCreateVmPayload({
+  operatorId: 'nested-access',
+  access: {
+    username: 'debian',
+    sshPublicKey: TEST_SSH_PUBLIC_KEY,
+    passwordLogin: true,
+  },
+}), {
+  operator_id: 'nested-access',
+  access: {
+    cloud_init_user: 'debian',
+    ssh_public_key: TEST_SSH_PUBLIC_KEY,
+    password_login: false,
+  },
 })
 
 assert.deepEqual(buildCreateVmInputFromConfig({
@@ -105,6 +133,9 @@ assert.deepEqual(buildCreateVmInputFromConfig({
   templateVmid: '',
   templateNodeId: '',
   templateKey: '',
+  cloudInitUser: 'yoon',
+  sshPublicKey: '',
+  passwordLogin: false,
 })
 
 const strictTemplateProfile = { templateRequirements: { requireCloudInit: true, requireQemuGuestAgent: true } }
@@ -185,6 +216,15 @@ const fakeClient = {
         gateway: payload.gateway,
         bridge_id: payload.bridge_id,
       },
+      access: {
+        username: payload.access?.cloud_init_user || 'yoon',
+        cloud_init_user: payload.access?.cloud_init_user || 'yoon',
+        password_login: false,
+        ssh_key_present: Boolean(payload.access?.ssh_public_key),
+        ssh_key_valid: Boolean(payload.access?.ssh_public_key),
+        fingerprint: payload.access?.ssh_public_key ? TEST_SSH_FINGERPRINT : '',
+        source: payload.access?.ssh_public_key ? 'request' : 'backend_default_env',
+      },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
       side_effects: [],
@@ -202,6 +242,15 @@ const fakeClient = {
       selected_template_vmid: payload.template_vmid,
       selected_template_node_id: payload.template_node_id,
       selected_bridge_id: payload.bridge_id,
+      access: {
+        username: payload.access?.cloud_init_user || 'yoon',
+        cloud_init_user: payload.access?.cloud_init_user || 'yoon',
+        password_login: false,
+        ssh_key_present: Boolean(payload.access?.ssh_public_key),
+        ssh_key_valid: Boolean(payload.access?.ssh_public_key),
+        fingerprint: payload.access?.ssh_public_key ? TEST_SSH_FINGERPRINT : '',
+        source: payload.access?.ssh_public_key ? 'request' : 'backend_default_env',
+      },
       side_effects: [],
     }
   },
@@ -233,6 +282,17 @@ const fakeClient = {
         gateway: payload.gateway,
         ip_address: payload.static_ip,
       },
+      access: {
+        username: payload.access?.cloud_init_user || 'yoon',
+        cloud_init_user: payload.access?.cloud_init_user || 'yoon',
+        password_login: false,
+        ssh_key_present: Boolean(payload.access?.ssh_public_key),
+        ssh_key_valid: Boolean(payload.access?.ssh_public_key),
+        fingerprint: payload.access?.ssh_public_key ? TEST_SSH_FINGERPRINT : '',
+        source: payload.access?.ssh_public_key ? 'request' : 'backend_default_env',
+      },
+      selected_template: { template_id: payload.template_id, vmid: payload.template_vmid, node_id: payload.template_node_id },
+      selected_bridge: { bridge_id: payload.bridge_id, node_id: payload.target_node_id, active: true },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
@@ -260,6 +320,17 @@ const fakeClient = {
           gateway: payload.gateway,
           ip_address: payload.static_ip,
         },
+        access: {
+          username: payload.access?.cloud_init_user || 'yoon',
+          cloud_init_user: payload.access?.cloud_init_user || 'yoon',
+          password_login: false,
+          ssh_key_present: Boolean(payload.access?.ssh_public_key),
+          ssh_key_valid: Boolean(payload.access?.ssh_public_key),
+          fingerprint: payload.access?.ssh_public_key ? TEST_SSH_FINGERPRINT : '',
+          source: payload.access?.ssh_public_key ? 'request' : 'backend_default_env',
+        },
+        selected_template: { template_id: payload.template_id, vmid: payload.template_vmid, node_id: payload.template_node_id },
+        selected_bridge: { bridge_id: payload.bridge_id, node_id: payload.target_node_id, active: true },
         terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
         iac_root: '/Users/yoon/mnt/nfs/IaC',
         terraform_state_root: '/Users/yoon/mnt/nfs/IaC-state/gjallar',
@@ -379,6 +450,14 @@ assert.equal('networkId' in model.payload, false)
 assert.equal(model.review.network.static_ip, '192.168.2.149')
 assert.equal(model.review.network.prefix, 25)
 assert.equal(model.review.network.gateway, '192.168.2.254')
+assert.equal(model.payload.access.cloud_init_user, 'ubuntu')
+assert.equal(model.payload.access.ssh_public_key, TEST_SSH_PUBLIC_KEY)
+assert.equal(model.payload.access.password_login, false)
+assert.equal(model.review.access.username, 'ubuntu')
+assert.equal(model.review.access.sshKeyPresent, true)
+assert.equal(model.review.access.fingerprint, TEST_SSH_FINGERPRINT)
+assert.equal(model.review.access.source, 'request')
+assert.ok(!JSON.stringify(model.review).includes(TEST_SSH_PUBLIC_KEY.split(' ')[1]))
 assert.equal(model.artifacts[0].id, 'artifact-plan')
 assert.deepEqual(model.sideEffects, [])
 
@@ -465,6 +544,8 @@ assert.ok(!source.includes('applyVmDraftTerraformPlan'), 'active frontend flow m
 const wizardSource = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx', import.meta.url), 'utf8')
 assert.ok(wizardSource.includes('apiV1Client.listNetworks()'), 'Create VM wizard must load live bridge inventory')
 assert.ok(wizardSource.includes('apiV1Client.listProfiles()'), 'Create VM wizard must load profile inventory')
+assert.ok(wizardSource.includes('sshPublicKey'), 'Create VM wizard must expose SSH public key input')
+assert.ok(wizardSource.includes('cloudInitUser'), 'Create VM wizard must expose cloud-init user input')
 assert.ok(!wizardSource.includes('apiV1Client.getNetworkPolicy()'), 'Create VM wizard must not use NetworkPolicy as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from re import sub
+from re import compile, sub
 from typing import Any
 
 REDACTED = "[REDACTED]"
@@ -17,17 +17,33 @@ _SECRET_KEY_MARKERS = (
     "database_url",
     "connection_string",
 )
+_SECRET_EXACT_KEYS = {
+    "sshkeys",
+    "sshkey",
+    "ssh_public_key",
+    "sshpublickey",
+    "public_key",
+    "publickey",
+}
 _SAFE_KEYS = {"password_login"}
+_SSH_PUBLIC_KEY_VALUE_PATTERN = compile(
+    r"(?m)(?:^|\s)((?:sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-ed25519|ssh-rsa|rsa-sha2-256|rsa-sha2-512|ecdsa-sha2-[A-Za-z0-9@._+-]+)\s+[A-Za-z0-9+/=]+(?:\s+[^\r\n]+)?)"
+)
 
 
 def _is_secret_key(key: Any) -> bool:
-    if str(key).lower() in _SAFE_KEYS:
+    normalized = str(key).replace("-", "_").lower()
+    compact = normalized.replace("_", "")
+    if normalized in _SAFE_KEYS:
         return False
-    return any(marker in str(key).lower() for marker in _SECRET_KEY_MARKERS)
+    if normalized in _SECRET_EXACT_KEYS or compact in _SECRET_EXACT_KEYS:
+        return True
+    return any(marker in normalized for marker in _SECRET_KEY_MARKERS)
 
 
 def _redact_string(value: str) -> str:
     """Mask credential material embedded in URLs or key/value-like strings."""
+    value = _SSH_PUBLIC_KEY_VALUE_PATTERN.sub("[REDACTED_SSH_PUBLIC_KEY]", value)
     if "://" in value and "@" in value:
         return sub(
             r"(://[^:/@]+:)[^@]+(@)",

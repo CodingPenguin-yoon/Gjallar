@@ -5,6 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
+
 
 class VmCreateManifestGenerationTests(unittest.TestCase):
     def setUp(self):
@@ -74,6 +81,10 @@ networks:
         self.assertEqual("yoonmanserver2", manifest["spec"]["template_source"]["node"])
         self.assertEqual(9000, manifest["spec"]["template_source"]["vmid"])
         self.assertEqual("local-lvm", manifest["spec"]["storage"])
+        self.assertEqual("yoon", manifest["spec"]["access"]["username"])
+        self.assertFalse(manifest["spec"]["access"]["password_login"])
+        self.assertTrue(manifest["spec"]["access"]["ssh_key_present"])
+        self.assertEqual(TEST_SSH_FINGERPRINT, manifest["spec"]["access"]["fingerprint"])
         self.assertEqual("vmbr0", manifest["spec"]["network"]["bridge_id"])
         self.assertNotIn("profile_id", manifest["spec"]["network"])
         self.assertEqual("192.168.2.142", manifest["spec"]["network"]["static_ip"])
@@ -84,6 +95,7 @@ networks:
         self.assertIn("/IaC-state/gjallar/vm-job-manifest/terraform.tfstate", manifest["spec"]["state_backend"]["path"])
         self.assertNotIn("raw-token-secret", rendered)
         self.assertNotIn("operator:raw-url-password", rendered)
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)
 
     def test_plan_writes_manifest_artifact_and_git_diff_summary(self):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter

@@ -5,6 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
+
 
 class VmCreatePreflightPlanContractTests(unittest.TestCase):
     def setUp(self):
@@ -99,6 +106,10 @@ networks:
             "profile_cpu_range",
             "profile_memory_mb_range",
             "profile_disk_gb_range",
+            "access_cloud_init_user_present",
+            "access_password_login_disabled",
+            "access_ssh_key_present",
+            "access_ssh_key_valid",
             "template_available",
             "template_cloud_init_ready",
             "template_guest_agent_ready",
@@ -124,6 +135,52 @@ networks:
             "credential_scope_read_only",
         }:
             self.assertIn(code, check_codes)
+        self.assertEqual("backend_default_env", result.access["source"])
+        self.assertTrue(result.access["ssh_key_present"])
+        self.assertTrue(result.access["ssh_key_valid"])
+        self.assertEqual(TEST_SSH_FINGERPRINT, result.access["fingerprint"])
+
+    def test_preflight_red_blocks_missing_required_ssh_key(self):
+        with patch.dict(
+            "os.environ",
+            {"GJALLAR_DEFAULT_SSH_PUBLIC_KEY": "", "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE": ""},
+            clear=False,
+        ):
+            draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        checks = {check.code: check for check in result.checks}
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertEqual("red", checks["access_ssh_key_present"].level)
+        self.assertIn("ssh_public_key_missing", red_codes)
+        self.assertFalse(result.access["ssh_key_present"])
+        self.assertIsNone(result.access["fingerprint"])
+
+    def test_preflight_red_blocks_private_or_malformed_ssh_public_key(self):
+        cases = {
+            "private": ("-----BEGIN OPENSSH PRIVATE KEY-----\nnot-a-public-key", "ssh_private_key_not_allowed"),
+            "malformed": ("ssh-ed25519 not-base64 comment", "ssh_public_key_malformed"),
+        }
+        for name, (ssh_public_key, expected_code) in cases.items():
+            with self.subTest(name=name):
+                draft = self._default_draft(
+                    target_node_id="yoonmanserver2",
+                    static_ip="192.168.2.142",
+                    access_overrides={"ssh_public_key": ssh_public_key},
+                )
+
+                result = self._preflight(draft)
+
+                self.assertEqual("red", result.risk_level)
+                checks = {check.code: check for check in result.checks}
+                red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+                self.assertEqual("red", checks["access_ssh_key_valid"].level)
+                self.assertIn(expected_code, red_codes)
+                self.assertEqual("request", result.access["source"])
+                self.assertTrue(result.access["ssh_key_present"])
+                self.assertFalse(result.access["ssh_key_valid"])
 
     def test_preflight_uses_explicit_node_storage_selection(self):
         draft = self._default_draft(
@@ -547,6 +604,13 @@ networks:
         self.assertEqual("192.168.2.254", plan.network["gateway"])
         self.assertEqual("192.168.2.142", plan.network["ip_address"])
         self.assertEqual(plan.network, plan.review_confirm["network"])
+        self.assertEqual(plan.access, plan.review_confirm["access"])
+        self.assertEqual(TEST_SSH_FINGERPRINT, plan.access["fingerprint"])
+        self.assertEqual("ubuntu-template", plan.selected_template["template_id"])
+        self.assertEqual(9000, plan.selected_template["vmid"])
+        self.assertEqual("vmbr0", plan.selected_bridge["bridge_id"])
+        self.assertEqual(plan.selected_template, plan.review_confirm["selected_template"])
+        self.assertEqual(plan.selected_bridge, plan.review_confirm["selected_bridge"])
         self.assertEqual("general-vm", plan.review_confirm["profile_id"])
         self.assertEqual(plan.profile_hardware_limits, plan.review_confirm["profile_hardware_limits"])
         self.assertNotIn("network_id", plan.network)
@@ -570,6 +634,7 @@ networks:
         self.assertIn("planned_git_diff_summary", plan.review_confirm)
         self.assertNotIn("raw-token-secret", rendered)
         self.assertNotIn("operator:raw-url-password", rendered)
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)
 
     def test_set6_modules_expose_no_live_side_effect_operations(self):
         try:

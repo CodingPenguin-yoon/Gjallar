@@ -43,11 +43,7 @@ def build_vm_instance_manifest(draft: VmCreateDraft, preflight: PreflightResult)
             },
             "hardware": draft.hardware.to_dict(),
             "storage": preflight.selected_storage_id,
-            "access": {
-                "cloud_init_user": draft.access.cloud_init_user,
-                "ssh_key_source": draft.access.ssh_key_source,
-                "password_login": "enabled" if draft.access.password_login else "disabled",
-            },
+            "access": dict(preflight.access),
             "network": {
                 "bridge_id": preflight.selected_bridge_id,
                 "ip_mode": draft.network.ip_mode,

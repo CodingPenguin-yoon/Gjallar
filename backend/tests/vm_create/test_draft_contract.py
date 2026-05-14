@@ -3,6 +3,13 @@
 import unittest
 from unittest.mock import patch
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
+
 
 class VmCreateDraftContractTests(unittest.TestCase):
     def _build_default_draft(self):
@@ -30,6 +37,36 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
         self.assertFalse(draft.first_power_on_included)
+
+    def test_draft_access_keeps_raw_ssh_key_transient_only(self):
+        from app.vm_create.drafts import build_default_vm_draft
+
+        draft = build_default_vm_draft(
+            operator_id="test-operator",
+            access_overrides={"username": "ubuntu", "sshPublicKey": f"  {TEST_SSH_PUBLIC_KEY}  "},
+        )
+        data = draft.to_dict()
+        rendered = repr(data)
+
+        self.assertEqual("ubuntu", data["access"]["cloud_init_user"])
+        self.assertEqual("request", data["access"]["source"])
+        self.assertTrue(data["access"]["ssh_key_present"])
+        self.assertTrue(data["access"]["ssh_key_valid"])
+        self.assertEqual(TEST_SSH_FINGERPRINT, data["access"]["fingerprint"])
+        self.assertEqual(TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0], draft.access.transient_ssh_public_key)
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)
+        self.assertNotIn("ssh_public_key", rendered)
+
+    def test_draft_forces_password_login_false_when_profile_disallows_it(self):
+        from app.vm_create.drafts import build_default_vm_draft
+
+        draft = build_default_vm_draft(
+            operator_id="test-operator",
+            access_overrides={"passwordLogin": True, "sshPublicKey": TEST_SSH_PUBLIC_KEY},
+        )
+
+        self.assertFalse(draft.access.password_login)
+        self.assertFalse(draft.to_dict()["access"]["password_login"])
 
     def test_default_draft_accepts_resolved_inventory_vmid(self):
         from app.vm_create.drafts import build_default_vm_draft

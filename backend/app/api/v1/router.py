@@ -53,6 +53,7 @@ def _jobs_meta() -> dict[str, str]:
 def _api_draft_from_payload(draft_id: str, payload: dict | None):
     payload = payload or {}
     network_payload = payload.get("network") if isinstance(payload.get("network"), dict) else {}
+    access_payload = payload.get("access") if isinstance(payload.get("access"), dict) else {}
     hardware_payload = payload.get("hardware_overrides") if isinstance(payload.get("hardware_overrides"), dict) else {}
     if not hardware_payload and isinstance(payload.get("hardware"), dict):
         hardware_payload = payload.get("hardware") or {}
@@ -64,6 +65,15 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
         for key in keys:
             if key in network_payload:
                 return network_payload.get(key)
+        return None
+
+    def access_value(*keys: str):
+        for key in keys:
+            if key in payload:
+                return payload.get(key)
+        for key in keys:
+            if key in access_payload:
+                return access_payload.get(key)
         return None
 
     adapter = _inventory_adapter()
@@ -84,6 +94,11 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
         template_vmid=payload.get("template_vmid"),
         template_node_id=payload.get("template_node_id"),
         hardware_overrides=hardware_payload,
+        access_overrides={
+            "cloud_init_user": access_value("cloud_init_user", "cloudInitUser", "username", "user"),
+            "ssh_public_key": access_value("ssh_public_key", "sshPublicKey", "public_key", "publicKey"),
+            "password_login": access_value("password_login", "passwordLogin"),
+        },
     )
 
 

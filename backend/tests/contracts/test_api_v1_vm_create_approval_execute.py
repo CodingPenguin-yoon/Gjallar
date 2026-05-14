@@ -14,6 +14,12 @@ from fastapi import HTTPException
 
 from app.vm_create.terraform_runner import TerraformRunnerError
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+
 
 def _git(repo: Path, *args: str) -> str:
     completed = subprocess.run(
@@ -70,6 +76,7 @@ networks:
             {
                 "GJALLAR_SHARED_ROOT": str(cls.shared_root),
                 "GJALLAR_RUNS_ROOT": str(Path(cls._temp_dir.name) / "runs"),
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
             },
             clear=False,
         )

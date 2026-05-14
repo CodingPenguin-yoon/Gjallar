@@ -23,9 +23,29 @@ class DraftAccess:
     cloud_init_user: str
     ssh_key_source: str
     password_login: bool
+    ssh_key_present: bool = False
+    ssh_key_valid: bool = False
+    ssh_key_fingerprint: str | None = None
+    ssh_key_validation_error: str | None = None
+    _transient_ssh_public_key: str = field(default="", repr=False, compare=False)
+
+    @property
+    def transient_ssh_public_key(self) -> str:
+        return self._transient_ssh_public_key
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "username": self.cloud_init_user,
+            "cloud_init_user": self.cloud_init_user,
+            "password_login": bool(self.password_login),
+            "ssh_key_present": bool(self.ssh_key_present),
+            "ssh_key_valid": bool(self.ssh_key_valid),
+            "fingerprint": self.ssh_key_fingerprint,
+            "ssh_key_fingerprint": self.ssh_key_fingerprint,
+            "source": self.ssh_key_source,
+            "ssh_key_source": self.ssh_key_source,
+            "ssh_key_validation_error": self.ssh_key_validation_error,
+        }
 
 
 @dataclass(frozen=True)
@@ -139,6 +159,9 @@ class PreflightResult:
     selected_template_vmid: int | None
     selected_template_node_id: str | None
     selected_bridge_id: str | None
+    access: dict[str, Any]
+    selected_template: dict[str, Any]
+    selected_bridge: dict[str, Any]
     profile_id: str
     profile_hardware_limits: dict[str, Any]
     iac_root: str
@@ -159,6 +182,9 @@ class PreflightResult:
             "selected_template_vmid": self.selected_template_vmid,
             "selected_template_node_id": self.selected_template_node_id,
             "selected_bridge_id": self.selected_bridge_id,
+            "access": dict(self.access),
+            "selected_template": dict(self.selected_template),
+            "selected_bridge": dict(self.selected_bridge),
             "profile_id": self.profile_id,
             "profile_hardware_limits": dict(self.profile_hardware_limits),
             "iac_root": self.iac_root,
@@ -210,6 +236,9 @@ class VmCreatePlan:
     hardware: dict[str, int]
     profile_hardware_limits: dict[str, Any]
     network: dict[str, Any]
+    access: dict[str, Any]
+    selected_template: dict[str, Any]
+    selected_bridge: dict[str, Any]
     terraform_state_path: str
     first_power_on_included: bool
     smoke_timeout_summary: dict[str, int]
@@ -217,6 +246,11 @@ class VmCreatePlan:
     review_confirm: dict[str, Any]
     artifacts: list[ArtifactRecord]
     side_effects: list[str] = field(default_factory=list)
+    _transient_ssh_public_key: str = field(default="", repr=False, compare=False)
+
+    @property
+    def transient_ssh_public_key(self) -> str:
+        return self._transient_ssh_public_key
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -233,6 +267,9 @@ class VmCreatePlan:
             "hardware": dict(self.hardware),
             "profile_hardware_limits": dict(self.profile_hardware_limits),
             "network": dict(self.network),
+            "access": dict(self.access),
+            "selected_template": dict(self.selected_template),
+            "selected_bridge": dict(self.selected_bridge),
             "terraform_state_path": self.terraform_state_path,
             "first_power_on_included": self.first_power_on_included,
             "smoke_timeout_summary": dict(self.smoke_timeout_summary),

@@ -7,6 +7,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+
 
 class TerraformRunnerTests(unittest.TestCase):
     def setUp(self):
@@ -40,7 +46,7 @@ networks:
             "os.environ",
             {
                 "GJALLAR_SHARED_ROOT": str(self.shared_root),
-                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": "ssh-ed25519 AAAATEST gjallar@test",
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
                 "PROXMOX_API_URL": "https://pve.example.invalid:8006/api2/json",
                 "PROXMOX_API_TOKEN_ID": "root@pam!terraform",
                 "PROXMOX_API_TOKEN_SECRET": "token-secret",
@@ -89,7 +95,7 @@ networks:
         self.assertEqual(["vmbr0"], vars_payload["network_ids"])
         self.assertEqual("192.168.2.142/25", vars_payload["vm_ip"])
         self.assertEqual("192.168.2.254", vars_payload["vm_gateway"])
-        self.assertEqual("ssh-ed25519 AAAATEST gjallar@test", vars_payload["ssh_public_key"])
+        self.assertEqual(TEST_SSH_PUBLIC_KEY, vars_payload["ssh_public_key"])
         self.assertFalse(vars_payload["start_on_create"])
         self.assertFalse(vars_payload["on_boot"])
         self.assertNotIn("proxmox_api_token_secret", vars_payload)

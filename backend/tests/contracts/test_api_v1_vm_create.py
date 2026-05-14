@@ -8,6 +8,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
+
 
 class ApiV1VmCreateRoutesTests(unittest.TestCase):
     @classmethod
@@ -42,6 +51,7 @@ networks:
             {
                 "GJALLAR_SHARED_ROOT": str(cls.shared_root),
                 "GJALLAR_RUNS_ROOT": str(Path(cls._temp_dir.name) / "runs"),
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
             },
             clear=False,
         )
@@ -202,6 +212,46 @@ networks:
                 self.assertNotIn("networkId", rendered)
                 self.assertNotIn("evil-net", rendered)
                 self.assertNotIn("server-net", rendered)
+
+    def test_nested_access_payload_is_preserved_safely_in_plan_review(self):
+        for suffix, access in {
+            "camel": {"username": "ubuntu", "sshPublicKey": TEST_SSH_PUBLIC_KEY, "passwordLogin": True},
+            "snake": {"cloud_init_user": "debian", "ssh_public_key": TEST_SSH_PUBLIC_KEY, "password_login": True},
+        }.items():
+            with self.subTest(suffix=suffix):
+                payload = {
+                    "operator_id": "api-access-test",
+                    "job_id": f"job-api-access-{suffix}",
+                    "target_node_id": "yoonmanserver2",
+                    "bridge_id": "vmbr0",
+                    "static_ip": "192.168.2.150",
+                    "prefix": 24,
+                    "gateway": "192.168.2.1",
+                    "access": access,
+                }
+
+                draft_response = asyncio.run(self.api_v1_router.create_vm_draft(payload))
+                preflight_response = asyncio.run(self.api_v1_router.preflight_vm_draft(f"draft-job-api-access-{suffix}", payload))
+                plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(f"draft-job-api-access-{suffix}", payload))
+
+                username = access.get("username") or access.get("cloud_init_user")
+                self.assertTrue(draft_response["ok"])
+                self.assertEqual(username, draft_response["data"]["access"]["username"])
+                self.assertFalse(draft_response["data"]["access"]["password_login"])
+                self.assertTrue(preflight_response["ok"])
+                self.assertEqual(username, preflight_response["data"]["access"]["username"])
+                self.assertFalse(preflight_response["data"]["access"]["password_login"])
+                self.assertEqual(TEST_SSH_FINGERPRINT, preflight_response["data"]["access"]["fingerprint"])
+                self.assertTrue(plan_response["ok"])
+                self.assertEqual(username, plan_response["data"]["review_confirm"]["access"]["username"])
+                self.assertFalse(plan_response["data"]["review_confirm"]["access"]["password_login"])
+                self.assertEqual(TEST_SSH_FINGERPRINT, plan_response["data"]["access"]["fingerprint"])
+                artifacts_by_type = {artifact["type"]: artifact for artifact in plan_response["data"]["artifacts"]}
+                manifest = yaml.safe_load(Path(artifacts_by_type["vm_instance_manifest"]["path"]).read_text(encoding="utf-8"))
+                self.assertFalse(manifest["spec"]["access"]["password_login"])
+                rendered = repr(plan_response["data"])
+                self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)
+                self.assertNotIn("ssh_public_key", rendered)
 
     def test_selected_profile_and_hardware_overrides_are_preserved_in_active_api_outputs(self):
         payload = {

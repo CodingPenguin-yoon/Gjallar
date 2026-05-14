@@ -25,6 +25,30 @@ function toSnakeHardware(hardware = {}) {
   return Object.keys(payload).length ? payload : undefined
 }
 
+function toSnakeAccess(input = {}) {
+  const access = input.access || {}
+  const payload = pickDefined([
+    ['cloud_init_user', input.cloudInitUser ?? input.cloud_init_user ?? input.username ?? access.cloudInitUser ?? access.cloud_init_user ?? access.username],
+    ['ssh_public_key', input.sshPublicKey ?? input.ssh_public_key ?? access.sshPublicKey ?? access.ssh_public_key],
+    ['password_login', false],
+  ])
+  return Object.keys(payload).length ? payload : undefined
+}
+
+function normalizeAccessEvidence(access = {}) {
+  const username = access.username || access.cloud_init_user || access.cloudInitUser || ''
+  const fingerprint = access.fingerprint || access.ssh_key_fingerprint || access.sshKeyFingerprint || ''
+  return {
+    username,
+    cloudInitUser: username,
+    passwordLogin: access.password_login ?? access.passwordLogin ?? false,
+    sshKeyPresent: access.ssh_key_present ?? access.sshKeyPresent ?? Boolean(fingerprint),
+    sshKeyValid: access.ssh_key_valid ?? access.sshKeyValid ?? Boolean(fingerprint),
+    fingerprint,
+    source: access.source || access.ssh_key_source || access.sshKeySource || '',
+  }
+}
+
 function normalizeArtifacts(artifacts = []) {
   return Array.isArray(artifacts)
     ? artifacts.map((artifact) => ({
@@ -183,6 +207,7 @@ export function buildCreateVmPayload(input = {}) {
     ['template_vmid', input.templateVmid ?? input.template_vmid ?? input.template?.vmid],
     ['template_node_id', input.templateNodeId ?? input.template_node_id ?? input.template?.nodeId ?? input.template?.node_id],
     ['hardware_overrides', toSnakeHardware(input.hardware || input.hardware_overrides || {})],
+    ['access', toSnakeAccess(input)],
   ])
 }
 
@@ -202,6 +227,9 @@ export function buildCreateVmInputFromConfig(config = {}, fallback = {}) {
     templateVmid: config.templateVmid || config.template?.vmid || fallback.templateVmid || '',
     templateNodeId: config.templateNodeId || config.template?.nodeId || fallback.templateNodeId || '',
     templateKey: config.templateKey || fallback.templateKey || '',
+    cloudInitUser: config.cloudInitUser || config.cloud_init_user || config.username || config.access?.cloudInitUser || config.access?.cloud_init_user || config.access?.username || fallback.cloudInitUser || 'yoon',
+    sshPublicKey: config.sshPublicKey || config.ssh_public_key || config.access?.sshPublicKey || config.access?.ssh_public_key || fallback.sshPublicKey || '',
+    passwordLogin: false,
   }
 }
 
@@ -215,6 +243,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
   const preflight = await client.preflightVmDraft(draftId, payload)
   const plan = await client.planVmDraft(draftId, payload)
   const review = plan.review_confirm || {}
+  const accessEvidence = normalizeAccessEvidence(review.access || plan.access || preflight.access || draft.access || {})
   const artifacts = normalizeArtifacts(plan.artifacts)
   const planArtifact = artifacts.find((artifact) => artifact.type === 'plan') || artifacts[0] || null
   const risks = risksFromPlan(plan)
@@ -235,6 +264,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       templateId: draft.template_id || plan.template_id || payload.template_id,
       templateVmid: draft.template_vmid ?? plan.template_vmid ?? payload.template_vmid,
       templateNodeId: draft.template_node_id || plan.template_node_id || payload.template_node_id,
+      access: normalizeAccessEvidence(draft.access || {}),
       sideEffects: Array.isArray(draft.side_effects) ? draft.side_effects : [],
     },
     preflight: {
@@ -257,6 +287,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       hardware: toCamelHardware(review.hardware || plan.hardware || draft.hardware),
       profileHardwareLimits: review.profile_hardware_limits || plan.profile_hardware_limits || {},
       network: review.network || plan.network || draft.network || {},
+      access: accessEvidence,
       legacyStatePath: review.terraform_state_path || plan.terraform_state_path || draft.terraform_state_path,
       iacRoot: review.iac_root || plan.iac_root || preflight.iac_root || readiness.iacRoot,
       legacyStateRoot: review.terraform_state_root || plan.terraform_state_root || preflight.terraform_state_root || readiness.legacyStateRoot,

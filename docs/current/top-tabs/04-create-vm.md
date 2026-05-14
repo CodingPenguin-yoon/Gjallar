@@ -2,7 +2,7 @@
 
 평가일: 2026-05-14
 
-검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 127 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 133 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -33,6 +33,13 @@ Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan
 ## 현재 구현
 
 flow는 default draft 생성, read-only preflight, artifact-backed dry-run plan, review checksum, approval validation, GitOps manifest commit/archive, Proxmox native preview/create gate로 이어진다.
+
+Access/SSH는 현재 구현되어 있다. Wizard는 cloud-init user와 SSH public key
+입력을 보낸다. Backend는 request key 또는 backend env/file default key를
+사용하고, profile이 SSH key를 요구할 때 missing/malformed/private-key-looking
+값을 red preflight로 차단한다. Review/plan/manifest/preview/observed evidence는
+username, password-login disabled, key presence/source/fingerprint만 포함하고
+raw public key는 반환하거나 artifact에 쓰지 않는다.
 
 `proxmox-preview`는 승인 뒤에도 mutation하지 않고 clone/config/post-check payload와 artifact만 만든다. `proxmox-create`는 `proxmox_mutation_acknowledged=true`와 `manifest_commit_sha`를 요구하며, mutation 직전에 preflight/plan을 다시 만든 뒤 red risk면 차단한다.
 
@@ -92,6 +99,9 @@ Target design은
 - Static mode는 현재 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
 - Gateway와 prefix는 사용자가 입력한 값을 그대로 사용하며, native create는
   static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지 않는다.
+- Access section, SSH public key collection, missing-key red gate, safe
+  fingerprint evidence, and fixed disabled password-login gate are current
+  behavior.
 - Profile에는 power policy가 없다. Create VM은 global create policy로 stopped/powered-off 완료이며, VM start는 future Infra Explorer row action과 Jobs/Runs audit 대상이다.
 
 ## DRS Advisor 기준 gaps
@@ -106,6 +116,7 @@ Create VM의 approval/artifact/GitOps/native acknowledgement/observed_after 패�
 
 ## 다음 구현 slice
 
-Create VM 다음 slice는 Access/SSH-key contract 정렬이다. DRS 작업에서는
-approval checksum, artifact publication, job status 기록 패턴만 참고하고,
-별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.
+Create VM 다음 cleanup slice는 Terraform legacy 제거를 별도 계획으로 진행하는
+것이다. DRS 작업에서는 approval checksum, artifact publication, job status 기록
+패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저
+만든다.

@@ -1,6 +1,6 @@
 # Create VM Native Architecture
 
-Last reviewed against code: 2026-05-13
+Last reviewed against code: 2026-05-14
 
 This document describes the current implemented Create VM path. The active enterprise direction is Proxmox API native create. Terraform remains optional/deprecated legacy executor code and is not the active UI default.
 
@@ -35,6 +35,9 @@ sources:
   `network_id`/`server-net` is not the target Create VM source of truth.
 - Static mode requires `static_ip`, `prefix`, and `gateway`; DHCP is allowed
   with a warning and later discovery.
+- Access/SSH uses reviewed cloud-init username plus a request-supplied or
+  backend env/file default SSH public key. Raw public key material is transient
+  only; artifacts and API responses contain presence/source/fingerprint.
 - Create success remains powered off/stopped by global create policy.
 - Starting a VM is future Infra Explorer row action work with Jobs/Runs audit,
   not part of profile policy.
@@ -131,17 +134,18 @@ All routes are mounted in `backend/app/api/v1/router.py`.
 
 - `run_preflight()` checks template, node, storage, network, VMID/name, IP, IaC readiness, and read-only adapter scope.
 - It must use the read-only inventory adapter only.
-- Target preflight additionally red-blocks selected templates that fail
+- Current preflight also red-blocks selected templates that fail
   `require_cloud_init` or `require_qemu_guest_agent`, static network requests
-  missing `prefix`/`gateway`, and missing required SSH public key.
+  missing `prefix`/`gateway`, missing required SSH public key, malformed or
+  private-key-looking SSH input, and password login true.
 
 `backend/app/vm_create/planner.py`
 
 - `build_vm_create_plan()` writes artifact-backed review evidence.
 - It builds the `VMInstance` manifest artifact through `build_vm_instance_manifest()`.
-- Target plan evidence should include selected profile defaults/limits, live
+- Current plan evidence includes selected profile defaults/limits, live
   template evidence, live bridge evidence, static prefix/gateway when used, and
-  access username/key fingerprint without secret material.
+  access username/key presence/source/fingerprint without raw key material.
 
 `backend/app/vm_create/approval.py`
 
@@ -166,6 +170,8 @@ All routes are mounted in `backend/app/api/v1/router.py`.
 - `build_proxmox_create_preview()` writes the non-mutating preview artifact.
 - `clone_payload_from_plan()` builds full-clone parameters.
 - `config_payload_from_plan()` builds CPU/memory/agent/onboot/network/cloud-init config.
+- It uses the reviewed access username for `ciuser` and the transient public
+  key for Proxmox `sshkeys`; preview/result artifacts redact `sshkeys`.
 - `run_proxmox_create()` performs clone, polling, boot disk resize when needed, config, post-check, and observed artifact creation.
 
 `backend/app/jobs/runs.py` and `backend/app/jobs/artifacts.py`
@@ -205,6 +211,7 @@ Native create uses this order:
 6. Artifact:
    - `observed_after.json`
    - Contains observed status/config and a fingerprint hash from `smbios1`, `vmgenid`, MAC list, and disk volume ID list.
+   - Observed config redacts `sshkeys` and public key material.
 
 ## Success And Failure Criteria
 
@@ -270,6 +277,10 @@ flow but still has selection-model gaps:
   draft/plan/review/manifest/job output.
 - Current static network handling requires explicit `static_ip`, `prefix`, and
   `gateway`.
+- Current Access/SSH handling accepts nested access payload aliases, requires a
+  valid SSH public key from request or backend default for current profiles,
+  keeps password login disabled, records safe fingerprint evidence, and uses
+  raw key material only transiently for native Proxmox config.
 - Network tab policy remains current/legacy support; it is not the target Create
   VM network source of truth.
 
@@ -279,6 +290,5 @@ flow but still has selection-model gaps:
 - Restart reconciliation for native create is not implemented as a background service.
 - First power-on, cloud-init readiness, guest-agent/IP discovery, SSH smoke, and Ansible verification are deferred.
 - Terraform legacy code still exists and should not be mistaken for the active UI path.
-- The profile/template/network target requires implementation and tests before
-  docs can describe it as current code.
+- DB profile seed source and Terraform legacy removal remain future work.
 - DRS Advisor migration will need its own final pre-check, operation lock, migration UPID tracking, and reconciliation flow; Create VM native runner is not a DRS migration executor.

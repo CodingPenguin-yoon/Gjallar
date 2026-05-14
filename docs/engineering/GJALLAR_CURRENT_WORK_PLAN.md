@@ -67,6 +67,10 @@ Use `AGENTS.md` for execution mode:
   - all three initial profiles require cloud-init and qemu guest-agent capable
     templates; the UI disables failing live templates and backend preflight
     red-blocks selected templates that fail required capabilities
+  - Access/SSH is implemented for current profiles: wizard username/key input,
+    request or backend env/file default key, missing/malformed key red
+    preflight, fixed disabled password login, safe fingerprint/source evidence,
+    and native preview/observed sanitization
 - Terraform routes/helper/module/tests still exist as legacy code.
 
 ## Workstream A: Preserve Principles And Context
@@ -105,12 +109,12 @@ Planned slices:
 - [x] Select target node first, then active live bridge for that node.
 - [x] Add static `static_ip`, `prefix`, and `gateway` fields.
 - [x] Stop gateway inference from static IP; use operator-supplied gateway.
-- [ ] Add Access section with username and SSH public key.
-- [ ] Red-block missing SSH key when selected profile requires one.
-- [ ] Keep password login disabled/fixed for initial profiles.
+- [x] Add Access section with username and SSH public key.
+- [x] Red-block missing SSH key when selected profile requires one.
+- [x] Keep password login disabled/fixed for initial profiles.
 - [x] Record selected profile and resolved profile hardware limits in plan,
   review, and artifacts.
-- [ ] Update review/plan/artifacts to record live template evidence, bridge,
+- [x] Update review/plan/artifacts to record live template evidence, bridge,
   static network fields, access username, and SSH key presence/fingerprint
   without storing secrets.
 
@@ -126,7 +130,7 @@ Planned slices:
 - [ ] Preserve manifest commit verification before live create.
 - [ ] Preserve `proxmox_mutation_acknowledged=true` gate.
 - [ ] Preserve stopped/powered-off success policy.
-- [ ] Ensure plan/preview/create all use the same reviewed network/access
+- [x] Ensure plan/preview/create all use the same reviewed network/access
   fields.
 - [ ] Replace any implicit gateway/default network behavior with reviewed input.
 - [ ] Keep read-only inventory adapter separate from mutation client.
@@ -199,7 +203,7 @@ pnpm --dir frontend build
 
 Recommended next implementation slice:
 
-1. Add the Create VM Access section with username and SSH public key handling.
-2. Red-block missing SSH key only when the selected profile requires one.
-3. Keep password login fixed disabled for the initial profiles and leave
-   Terraform legacy cleanup deferred until native-only contracts are locked.
+1. Lock native-only API contract tests around Terraform legacy removal.
+2. Remove or explicitly retire Terraform plan/apply routes and helper code.
+3. Keep Terraform-named state/root fields until manifest/audit compatibility is
+   verified.

@@ -110,6 +110,42 @@ def _template_requirement_level(profile, requirement_name: str) -> str:
     return "red" if getattr(requirements, requirement_name, False) else "yellow"
 
 
+def _profile_requires_ssh_key(profile) -> bool:
+    if profile is None:
+        return True
+    access = getattr(profile, "access", None)
+    return bool(getattr(access, "require_ssh_key", True))
+
+
+def _profile_allows_password_login(profile) -> bool:
+    if profile is None:
+        return False
+    access = getattr(profile, "access", None)
+    return bool(getattr(access, "allow_password_login", False))
+
+
+def _template_evidence(template: TemplateInventory | None, draft: VmCreateDraft) -> dict:
+    if template is None:
+        return {
+            "requested_template_id": draft.template_id,
+            "requested_template_vmid": draft.template_vmid,
+            "requested_template_node_id": draft.template_node_id,
+            "source": "live_inventory_missing",
+        }
+    return {**template.to_dict(), "source": "live_inventory"}
+
+
+def _bridge_evidence(live_bridge, *, selected_bridge: str | None, node_id: str) -> dict:
+    if live_bridge is None:
+        return {
+            "bridge_id": selected_bridge,
+            "node_id": node_id,
+            "active": False,
+            "source": "live_inventory_missing",
+        }
+    return {**live_bridge.to_dict(), "source": "live_inventory"}
+
+
 def _check_hardware_range(
     checks: list[PreflightCheck],
     risks: list[RiskItem],
@@ -193,6 +229,53 @@ def run_preflight(
             field_name="disk_gb",
             requested=draft.hardware.disk_gb,
         )
+
+    access_evidence = draft.access.to_dict()
+    _check(
+        checks,
+        risks,
+        code="access_cloud_init_user_present",
+        ok=_present(draft.access.cloud_init_user),
+        message="cloud-init username is present",
+        fail_code="cloud_init_user_missing",
+        detail={
+            "username": draft.access.cloud_init_user or None,
+            "cloud_init_user": draft.access.cloud_init_user or None,
+        },
+    )
+    _check(
+        checks,
+        risks,
+        code="access_password_login_disabled",
+        ok=draft.access.password_login is False,
+        message="password login is disabled for the selected profile",
+        fail_code="password_login_enabled",
+        detail={
+            "password_login": bool(draft.access.password_login),
+            "profile_allows_password_login": _profile_allows_password_login(profile),
+        },
+    )
+    _check(
+        checks,
+        risks,
+        code="access_ssh_key_present",
+        ok=not _profile_requires_ssh_key(profile) or draft.access.ssh_key_present,
+        message="required SSH public key is available from the request or backend default",
+        fail_code="ssh_public_key_missing",
+        detail={
+            **access_evidence,
+            "profile_requires_ssh_key": _profile_requires_ssh_key(profile),
+        },
+    )
+    _check(
+        checks,
+        risks,
+        code="access_ssh_key_valid",
+        ok=not draft.access.ssh_key_present or draft.access.ssh_key_valid,
+        message="SSH public key is a valid OpenSSH public key",
+        fail_code=draft.access.ssh_key_validation_error or "ssh_public_key_malformed",
+        detail=access_evidence,
+    )
 
     templates = list(adapter.list_templates())
     template = _select_template(templates, draft)
@@ -510,4 +593,7 @@ def run_preflight(
         iac_ready_for_plan=iac_readiness.ready_for_plan,
         iac_ready_for_execute=iac_readiness.ready_for_execute,
         side_effects=[],
+        access=access_evidence,
+        selected_template=_template_evidence(template, draft),
+        selected_bridge=_bridge_evidence(live_bridge, selected_bridge=selected_bridge, node_id=draft.target_node_id),
     )

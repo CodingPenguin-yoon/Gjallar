@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from datetime import datetime, timezone
 from ipaddress import ip_address
@@ -19,22 +18,40 @@ _DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
 _DISK_SIZE_PATTERN = re.compile(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGTP]?)", re.IGNORECASE)
 _DISK_BUS_ORDER = {"scsi": 0, "virtio": 1, "sata": 2, "ide": 3}
 _MAC_PATTERN = re.compile(r"(?i)([0-9a-f]{2}(?::[0-9a-f]{2}){5})")
+_SSH_PUBLIC_KEY_PATTERN = re.compile(
+    r"(?m)(?:^|\s)((?:sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-ed25519|ssh-rsa|rsa-sha2-256|rsa-sha2-512|ecdsa-sha2-[A-Za-z0-9@._+-]+)\s+[A-Za-z0-9+/=]+(?:\s+[^\r\n]+)?)"
+)
+_SSH_KEY_CONFIG_KEYS = {"sshkeys", "sshkey", "ssh_public_key", "sshpublickey"}
 
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _ssh_public_key() -> str:
-    configured = os.getenv("GJALLAR_DEFAULT_SSH_PUBLIC_KEY", "").strip()
-    if configured:
-        return configured
-    key_path = os.getenv("GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE", "").strip()
-    if key_path:
-        path = Path(key_path).expanduser()
-        if path.is_file():
-            return path.read_text(encoding="utf-8").strip()
-    return ""
+def _sanitize_public_key_material(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[Any, Any] = {}
+        for key, item in value.items():
+            key_text = str(key).replace("-", "_").lower()
+            if key_text in _SSH_KEY_CONFIG_KEYS:
+                sanitized[key] = "[REDACTED]"
+            else:
+                sanitized[key] = _sanitize_public_key_material(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_public_key_material(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_public_key_material(item) for item in value)
+    if isinstance(value, str):
+        return _SSH_PUBLIC_KEY_PATTERN.sub("[REDACTED_SSH_PUBLIC_KEY]", value)
+    return value
+
+
+def _access_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
+    access = dict(getattr(plan, "access", {}) or {})
+    if not access:
+        access = dict((dict(plan.review_confirm).get("access") or {}))
+    return access
 
 
 def _template_vmid(plan: VmCreatePlan) -> int:
@@ -103,21 +120,25 @@ def clone_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
 def config_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
     """Return the post-clone VM config payload for native Proxmox create."""
     network = dict(plan.network or {})
+    access = _access_from_plan(plan)
     bridge_id = str(network.get("bridge_id") or "").strip()
     if not bridge_id:
         raise ProxmoxMutationError("plan network is missing bridge_id")
     ip_mode = str(network.get("ip_mode") or "").lower()
     if ip_mode not in {"static", "dhcp"}:
         raise ProxmoxMutationError("plan network ip_mode must be static or dhcp")
+    username = str(access.get("cloud_init_user") or access.get("username") or "").strip()
+    if not username:
+        raise ProxmoxMutationError("plan access is missing cloud_init_user")
     payload: dict[str, Any] = {
         "cores": int(plan.hardware.get("cpu") or 1),
         "memory": int(plan.hardware.get("memory_mb") or 1024),
         "agent": "enabled=1",
         "onboot": 0,
         "net0": f"virtio,bridge={bridge_id}",
-        "ciuser": os.getenv("GJALLAR_DEFAULT_CLOUD_INIT_USER", "yoon"),
+        "ciuser": username,
     }
-    ssh_key = _ssh_public_key()
+    ssh_key = str(getattr(plan, "transient_ssh_public_key", "") or "").strip()
     if ssh_key:
         payload["sshkeys"] = ssh_key
     if ip_mode == "dhcp":
@@ -312,6 +333,7 @@ def _fingerprint_from_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def build_proxmox_create_preview(plan: VmCreatePlan, *, run_dir: str | Path) -> dict[str, Any]:
     """Build a non-mutating native Proxmox create preview artifact."""
+    raw_config = config_payload_from_plan(plan)
     payload = {
         "job_id": plan.job_id,
         "manifest_id": plan.manifest_id,
@@ -319,7 +341,7 @@ def build_proxmox_create_preview(plan: VmCreatePlan, *, run_dir: str | Path) -> 
         "vm_name": plan.vm_name,
         "target_node_id": plan.target_node_id,
         "clone": clone_payload_from_plan(plan),
-        "config": config_payload_from_plan(plan),
+        "config": _sanitize_public_key_material(raw_config),
         "post_check": {
             "status_endpoint": f"/nodes/{plan.target_node_id}/qemu/{int(plan.vmid)}/status/current",
             "config_endpoint": f"/nodes/{plan.target_node_id}/qemu/{int(plan.vmid)}/config",
@@ -364,7 +386,7 @@ def _observed_after_payload(
         "powered_on_success_allowed": False,
         "fingerprint": _fingerprint_from_config(config),
         "status_current": status,
-        "config": config,
+        "config": _sanitize_public_key_material(config),
     }
 
 
@@ -402,7 +424,7 @@ def run_proxmox_create(
             "status": "failed",
             "message": str(exc),
             "clone": clone,
-            "config": config_payload,
+            "config": _sanitize_public_key_material(config_payload),
             "task": task_result or getattr(exc, "details", {}),
             "artifacts": [],
             "side_effects": side_effects,
@@ -418,7 +440,7 @@ def run_proxmox_create(
             "status": "failed",
             "message": f"Proxmox clone task failed: {task_result.get('exitstatus') or 'unknown'}",
             "clone": clone,
-            "config": config_payload,
+            "config": _sanitize_public_key_material(config_payload),
             "task": task_result,
             "artifacts": [],
             "side_effects": side_effects,
@@ -445,7 +467,7 @@ def run_proxmox_create(
             "status": "needs_reconciliation",
             "message": f"Unable to inspect cloned VM disk before resize: {exc}",
             "clone": clone,
-            "config": config_payload,
+            "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
             "task": task_result,
             "artifacts": [],
@@ -482,7 +504,7 @@ def run_proxmox_create(
                 "status": "needs_reconciliation",
                 "message": f"Proxmox disk resize failed: {exc}",
                 "clone": clone,
-                "config": config_payload,
+                "config": _sanitize_public_key_material(config_payload),
                 "resize": resize_result,
                 "task": task_result,
                 "artifacts": [],
@@ -499,7 +521,7 @@ def run_proxmox_create(
             "status": "needs_reconciliation",
             "message": f"Unable to confirm cloned boot disk size: {resize_result.get('reason')}",
             "clone": clone,
-            "config": config_payload,
+            "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
             "task": task_result,
             "artifacts": [],
@@ -521,7 +543,7 @@ def run_proxmox_create(
             "status": "needs_reconciliation",
             "message": str(exc),
             "clone": clone,
-            "config": config_payload,
+            "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
             "task": task_result,
             "artifacts": [],
@@ -562,7 +584,7 @@ def run_proxmox_create(
             "status": "needs_reconciliation",
             "message": message,
             "clone": clone,
-            "config": config_payload,
+            "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
             "task": task_result,
             "observed_after": observed_after,
@@ -599,7 +621,7 @@ def run_proxmox_create(
         "status": result_status,
         "message": message,
         "clone": clone,
-        "config": config_payload,
+        "config": _sanitize_public_key_material(config_payload),
         "resize": resize_result,
         "task": task_result,
         "observed_after": observed_after,

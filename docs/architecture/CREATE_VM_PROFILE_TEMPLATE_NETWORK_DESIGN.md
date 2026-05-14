@@ -148,8 +148,9 @@ Profiles do not include:
 
 ## Target Payload Examples
 
-These examples describe the target contract. They are not the exact current
-implementation contract until the implementation gap is closed.
+These examples describe the target contract. Profile DB seeding is still
+future, but the current API now accepts nested Access data and keeps raw SSH
+public keys out of responses and artifacts.
 
 ### Profiles Response
 
@@ -353,8 +354,8 @@ not sufficient.
 - The Create VM form has an Access section with username and SSH public key.
 - Username defaults to `yoon`; operator edits are allowed for the initial
   profiles.
-- SSH public key may be prefilled from backend environment-backed config. If no
-  key is present, the UI shows a red blocker.
+- SSH public key may be provided by the operator or by backend env/file default
+  configuration. If no key is present, preflight returns a red blocker.
 - Password login is shown as disabled/fixed or omitted as an editable control.
 - Static IP mode shows `static_ip`, `prefix`, and `gateway` fields.
 - DHCP mode shows a warning about later discovery.
@@ -379,7 +380,7 @@ Expected evidence:
 - selected live bridge and collection timestamp
 - network mode and static IP fields when static mode is used
 - access username
-- SSH public key presence and fingerprint/hash, not private key material
+- SSH public key presence, source, and fingerprint/hash, not raw key material
 - password login fixed false
 - preflight checks and red/yellow/green risks
 - plan/review checksum and artifact ids
@@ -390,6 +391,7 @@ Expected evidence:
 The following must not be persisted in API responses, job logs, or artifacts:
 
 - private SSH keys
+- raw SSH public keys outside the transient Proxmox config call
 - passwords
 - Proxmox token secrets
 - raw environment values
@@ -426,8 +428,12 @@ As of 2026-05-14, current code partially matches this target design.
   requirement false, missing readiness remains advisory/yellow; unknown
   profiles stay red through profile checks without borrowing fallback profile
   requirements.
-- Access UI, SSH key collection, missing-key red blocks, and password-login
-  gating remain target/future work.
+- Current Access/SSH behavior is implemented for the active Create VM path:
+  wizard username/key input, backend default key fallback, missing/malformed key
+  red preflight, fixed disabled password login, safe access evidence in
+  preflight/plan/review/manifest, and redacted native preview/observed output.
+- Terraform plan/apply routes and helper code remain legacy/present until the
+  next cleanup slice.
 
 ## Implementation Checklist
 
@@ -453,10 +459,15 @@ As of 2026-05-14, current code partially matches this target design.
     of truth for Create VM.
 14. Load default SSH public key from configured backend environment when
     available.
+    Implemented through env/file default fallback.
 15. Red-block preflight when required SSH key is absent.
+    Implemented.
 16. Keep password login disabled for initial profiles.
+    Implemented.
 17. Keep create success powered off/stopped by global policy.
 18. Add future Infra Explorer start action separately with Jobs/Runs audit.
 19. Update plan, review, job, and artifact schemas to record the target fields.
+    Implemented for current profile/template/network/access evidence; DB seed
+    source and Terraform cleanup remain separate work.
 20. Update tests to lock the current-code gap closed only after implementation
     is actually changed.

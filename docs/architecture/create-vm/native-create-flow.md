@@ -43,7 +43,11 @@ Native create then calls `verify_plan_manifest_commit(plan, manifest_commit_sha)
 
 ## Config Payload
 
-`config_payload_from_plan()` builds `cores`, `memory`, `agent=enabled=1`, `onboot=0`, `net0=virtio,bridge=<bridge_id>`, `ciuser`, optional `sshkeys`, and `ipconfig0`.
+`config_payload_from_plan()` builds `cores`, `memory`, `agent=enabled=1`, `onboot=0`, `net0=virtio,bridge=<bridge_id>`, reviewed access `ciuser`, optional transient `sshkeys`, and `ipconfig0`.
+
+Raw SSH public key material is used only for the live Proxmox config call.
+Preview/result payloads and artifacts redact `sshkeys` and expose only safe
+access fingerprint evidence.
 
 Static mode requires explicit `static_ip`, `prefix`, and `gateway`. The current code does not infer `/24` or `.1`.
 
@@ -61,7 +65,7 @@ Unobservable boot disk or unknown current size returns `needs_reconciliation`, b
 
 ## Observed After
 
-`observed_after.json` is the current post-mutation evidence artifact. It includes operation identifiers, existence/power status, `powered_on_success_allowed=false`, raw status/config evidence, and a fingerprint hash from `smbios1`, `vmgenid`, MAC addresses, and disk volume ids.
+`observed_after.json` is the current post-mutation evidence artifact. It includes operation identifiers, existence/power status, `powered_on_success_allowed=false`, sanitized status/config evidence, and a fingerprint hash from `smbios1`, `vmgenid`, MAC addresses, and disk volume ids.
 
 This artifact is not a DB identity record. It is current job evidence and a useful future input for identity work.
 

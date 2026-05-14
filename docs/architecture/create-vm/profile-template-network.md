@@ -67,8 +67,22 @@ The current Create VM path does not use `NetworkPolicy`, `network_id`, or `serve
 
 Gateway is never inferred. A missing gateway is a red preflight risk in static mode.
 
-## Remaining Access/SSH Gap
+## Current Access And SSH
 
-Profiles currently expose access recommendations, and native config can include an env/file-backed default SSH public key. However, the UI access section, operator-entered SSH key, missing-key red preflight, password-login UI gate, and SSH key fingerprint artifacts are not implemented as first-class current behavior.
+Profiles expose access recommendations and all current profiles require an SSH
+public key with password login disabled.
 
-Do not document SSH access verification as current Create VM success. First login and SSH smoke are deferred.
+| Field | Current behavior |
+|---|---|
+| Username | Wizard input; defaults from profile `default_user=yoon`; sent as `access.cloud_init_user`. |
+| SSH public key | Wizard textarea or backend default from `GJALLAR_DEFAULT_SSH_PUBLIC_KEY` / `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE`. |
+| Validation | Backend preflight red-blocks missing required keys, private-key-looking values, and malformed OpenSSH public keys. |
+| Fingerprint | OpenSSH-style `SHA256:<base64>` over the decoded public key blob. Comments and extra whitespace do not change it. |
+| Password login | Fixed disabled for current profiles and red-blocked if requested true. |
+| Evidence | Draft/preflight/plan/review/manifest record username, disabled password login, key presence/source/fingerprint only. |
+
+Raw SSH public key material is not returned in API responses and is not written
+to plan, review, manifest, preview, or observed artifacts. It is held only
+transiently for native Proxmox `sshkeys` config.
+
+Do not document SSH login verification as current Create VM success. First login and SSH smoke are deferred.

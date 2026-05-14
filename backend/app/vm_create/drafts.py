@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from app.manifests.loader import load_builtin_profiles
+from app.vm_create.access import resolve_ssh_public_key
 from app.vm_create.models import (
     CreateProfileOption,
     DraftAccess,
@@ -35,6 +36,19 @@ def _optional_text(value: object) -> str | None:
     return text or None
 
 
+def _optional_bool(value: object) -> bool | None:
+    if value is None or str(value).strip() == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return bool(value)
+
+
 def _optional_prefix(value: object) -> int | str | None:
     if value is None or str(value).strip() == "":
         return None
@@ -52,6 +66,13 @@ def _hardware_value(overrides: dict, key: str, default: int) -> int:
         raw_value = overrides.get(aliases[key])
     value = _optional_int(raw_value)
     return value if value is not None else default
+
+
+def _alias_value(values: dict, *keys: str):
+    for key in keys:
+        if key in values:
+            return values.get(key)
+    return None
 
 
 def _profiles_by_id():
@@ -96,10 +117,16 @@ def build_default_vm_draft(
     template_vmid: int | None = None,
     template_node_id: str | None = None,
     hardware_overrides: dict | None = None,
+    access_overrides: dict | None = None,
+    cloud_init_user: str | None = None,
+    username: str | None = None,
+    ssh_public_key: str | None = None,
+    password_login: object | None = None,
 ) -> VmCreateDraft:
     """Build a non-mutating default draft for the Create VM flow."""
     requested_profile_id, profile = _profile_for_draft_defaults(profile_id)
     hardware_override_values = dict(hardware_overrides or {})
+    access_override_values = dict(access_overrides or {})
     chosen_node = target_node_id or profile.target_node_candidates[0]
     selected_bridge_id = _optional_text(bridge_id)
     requested_ip_mode = ip_mode or profile.default_ip_mode
@@ -111,6 +138,26 @@ def build_default_vm_draft(
     suffix = _safe_identifier(job_id)
     manifest_id = f"vm-{suffix}"
     draft_id = f"draft-{suffix}"
+    requested_user = (
+        _optional_text(_alias_value(access_override_values, "cloud_init_user", "cloudInitUser", "username", "user"))
+        or _optional_text(cloud_init_user)
+        or _optional_text(username)
+        or profile.access.cloud_init_user
+    )
+    requested_password_login = _optional_bool(
+        _alias_value(access_override_values, "password_login", "passwordLogin")
+    )
+    if requested_password_login is None:
+        requested_password_login = _optional_bool(password_login)
+    if requested_password_login is None:
+        requested_password_login = profile.access.password_login
+    resolved_password_login = bool(requested_password_login) if profile.access.allow_password_login else False
+    requested_ssh_public_key = (
+        _optional_text(_alias_value(access_override_values, "ssh_public_key", "sshPublicKey", "public_key", "publicKey"))
+        or _optional_text(ssh_public_key)
+    )
+    resolved_ssh_key = resolve_ssh_public_key(requested_ssh_public_key)
+    ssh_validation = resolved_ssh_key.validation
     return VmCreateDraft(
         draft_id=draft_id,
         job_id=job_id,
@@ -142,9 +189,14 @@ def build_default_vm_draft(
             bridge_id=selected_bridge_id,
         ),
         access=DraftAccess(
-            cloud_init_user=profile.access.cloud_init_user,
-            ssh_key_source=profile.access.ssh_key_source,
-            password_login=profile.access.password_login,
+            cloud_init_user=requested_user,
+            ssh_key_source=resolved_ssh_key.source,
+            password_login=resolved_password_login,
+            ssh_key_present=ssh_validation.supplied,
+            ssh_key_valid=ssh_validation.valid,
+            ssh_key_fingerprint=ssh_validation.fingerprint,
+            ssh_key_validation_error=ssh_validation.error_code,
+            _transient_ssh_public_key=resolved_ssh_key.transient_public_key,
         ),
         terraform_state_path=terraform_state_path(manifest_id),
         first_power_on_included=False,

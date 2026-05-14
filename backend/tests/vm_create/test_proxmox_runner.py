@@ -5,6 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+
 
 class RecordingProxmoxClient:
     def __init__(
@@ -100,7 +106,7 @@ networks:
             "os.environ",
             {
                 "GJALLAR_SHARED_ROOT": str(self.shared_root),
-                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": "ssh-ed25519 AAAATEST gjallar@test",
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
             },
             clear=False,
         )
@@ -132,9 +138,11 @@ networks:
         return build_vm_create_plan(draft, preflight, run_dir=self.root / job_id / "plan")
 
     def test_preview_is_non_mutating_and_contains_native_payload(self):
-        from app.vm_create.proxmox_runner import build_proxmox_create_preview
+        from app.vm_create.proxmox_runner import build_proxmox_create_preview, config_payload_from_plan
 
-        preview = build_proxmox_create_preview(self._plan(), run_dir=self.root / "preview")
+        plan = self._plan()
+        raw_config = config_payload_from_plan(plan)
+        preview = build_proxmox_create_preview(plan, run_dir=self.root / "preview")
 
         self.assertFalse(preview["proxmox_mutation_enabled"])
         self.assertFalse(preview["terraform_apply_enabled"])
@@ -145,8 +153,12 @@ networks:
         self.assertEqual("local-lvm", preview["clone"]["storage"])
         self.assertEqual("enabled=1", preview["config"]["agent"])
         self.assertEqual(0, preview["config"]["onboot"])
+        self.assertEqual("yoon", raw_config["ciuser"])
+        self.assertEqual(TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0], raw_config["sshkeys"])
+        self.assertEqual("[REDACTED]", preview["config"]["sshkeys"])
         self.assertEqual("ip=192.168.2.142/25,gw=192.168.2.254", preview["config"]["ipconfig0"])
         self.assertTrue(Path(preview["artifacts"][0]["path"]).is_file())
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], Path(preview["artifacts"][0]["path"]).read_text(encoding="utf-8"))
 
     def test_create_success_requires_ok_task_stopped_post_check_and_observed_after(self):
         from app.vm_create.proxmox_runner import run_proxmox_create
@@ -168,13 +180,32 @@ networks:
             [call[0] for call in client.calls],
         )
         self.assertEqual("not_needed", result["resize"]["action"])
+        self.assertEqual("[REDACTED]", result["config"]["sshkeys"])
+        set_config_call = next(call for call in client.calls if call[0] == "set_vm_config")[1]
+        self.assertEqual(TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0], set_config_call["config"]["sshkeys"])
         self.assertEqual("UPID:yoonmanserver2:0001:test", result["task"]["upid"])
         self.assertEqual("stopped", result["observed_after"]["status"])
         self.assertEqual("sha256:", result["observed_after"]["fingerprint"]["hash"][:7])
         self.assertEqual(["aa:bb:cc:dd:ee:ff"], result["observed_after"]["fingerprint"]["mac_addresses"])
         self.assertEqual(["local-lvm:vm-306-disk-0"], result["observed_after"]["fingerprint"]["disk_volume_ids"])
         self.assertTrue(Path(result["observed_after_artifact"]["path"]).is_file())
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], repr(result))
         self.assertIn("proxmox_post_check_observed", result["side_effects"])
+
+    def test_observed_after_sanitizes_public_key_material_from_proxmox_config(self):
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        class SshkeysObservingClient(RecordingProxmoxClient):
+            def get_vm_config(self, **kwargs):
+                config = super().get_vm_config(**kwargs)
+                return {**config, "sshkeys": TEST_SSH_PUBLIC_KEY}
+
+        result = run_proxmox_create(self._plan(job_id="job-proxmox-sshkeys-observed"), run_dir=self.root / "observed", client=SshkeysObservingClient())
+
+        self.assertTrue(result["success"])
+        self.assertEqual("[REDACTED]", result["observed_after"]["config"]["sshkeys"])
+        artifact_text = Path(result["observed_after_artifact"]["path"]).read_text(encoding="utf-8")
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], artifact_text)
 
     def test_requested_disk_larger_than_cloned_scsi0_invokes_resize_before_config(self):
         from app.vm_create.proxmox_runner import run_proxmox_create

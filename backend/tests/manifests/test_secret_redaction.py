@@ -23,6 +23,23 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertNotIn("password-should-not-leak", serialized)
         self.assertIn("[REDACTED]", serialized)
 
+    def test_ssh_public_key_fields_are_redacted_without_hiding_fingerprints(self):
+        from app.core.redaction import redact_secrets
+
+        payload = {
+            "sshkeys": "ssh-ed25519 AAAASHOULDNOTLEAK operator@test",
+            "ssh_public_key": "ssh-ed25519 AAAASHOULDNOTLEAK operator@test",
+            "message": "provider echoed ssh-ed25519 AAAASHOULDNOTLEAK operator@test",
+            "ssh_key_fingerprint": "SHA256:safe-fingerprint",
+            "password_login": False,
+        }
+        redacted = redact_secrets(payload)
+        serialized = repr(redacted)
+
+        self.assertNotIn("AAAASHOULDNOTLEAK", serialized)
+        self.assertEqual("SHA256:safe-fingerprint", redacted["ssh_key_fingerprint"])
+        self.assertFalse(redacted["password_login"])
+
 
 if __name__ == "__main__":
     unittest.main()

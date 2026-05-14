@@ -6,6 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+TEST_SSH_PUBLIC_KEY = (
+    "ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g "
+    "gjallar@test"
+)
+TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
+
 
 class ReviewConfirmContractTests(unittest.TestCase):
     def setUp(self):
@@ -75,6 +82,9 @@ networks:
                 "hardware",
                 "profile_hardware_limits",
                 "network",
+                "access",
+                "selected_template",
+                "selected_bridge",
                 "terraform_state_path",
                 "first_power_on_included",
                 "smoke_timeout_summary",
@@ -103,9 +113,15 @@ networks:
             self.assertEqual(500, review["profile_hardware_limits"]["disk_gb"]["max"])
             self.assertEqual(25, review["network"]["prefix"])
             self.assertEqual("192.168.2.254", review["network"]["gateway"])
+            self.assertEqual("yoon", review["access"]["username"])
+            self.assertFalse(review["access"]["password_login"])
+            self.assertEqual(TEST_SSH_FINGERPRINT, review["access"]["fingerprint"])
+            self.assertEqual("ubuntu-template", review["selected_template"]["template_id"])
+            self.assertEqual("vmbr0", review["selected_bridge"]["bridge_id"])
             self.assertFalse(review["first_power_on_included"])
             self.assertFalse(summary_payload["first_power_on_included"])
             self.assertEqual(review["planned_git_diff_summary"], summary_payload["planned_git_diff_summary"])
+            self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], repr(summary_payload))
 
     def test_approval_request_requires_plan_artifact_id_and_matching_review_checksum(self):
         try:

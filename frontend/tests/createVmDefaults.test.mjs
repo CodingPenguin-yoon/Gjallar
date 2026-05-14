@@ -28,7 +28,11 @@ assert.equal(defaults.network.gateway, '')
 assert.equal('networkId' in defaults.network, false)
 assert.equal('nodeBridges' in defaults.network, false)
 assert.equal(defaults.access.cloudInitUser, 'yoon')
+assert.equal(defaults.access.sshPublicKey, '')
 assert.equal(defaults.access.passwordLogin, false)
+assert.equal(defaults.access.requireSshKey, true)
+assert.equal(defaults.access.allowPasswordLogin, false)
+assert.equal(defaults.access.sshKeySource, 'request_or_backend_default')
 assert.deepEqual(
   defaults.profileOptions.filter((option) => option.createEnabled).map((option) => option.profileId),
   ['general-vm', 'runtime-server', 'development-vm'],
@@ -67,6 +71,7 @@ const normalized = normalizeCreateVmProfiles([
       require_ssh_key: true,
       allow_password_login: false,
       allow_user_override: true,
+      ssh_key_source: 'request_or_backend_default',
     },
     source: 'static_seed',
     management: 'read_only',
@@ -75,6 +80,8 @@ const normalized = normalizeCreateVmProfiles([
 assert.equal(normalized[0].profileId, 'runtime-server')
 assert.equal(normalized[0].displayNameKo, '서비스 실행용 VM')
 assert.equal(normalized[0].hardware.memoryMb.default, 8192)
+assert.equal(normalized[0].accessRecommendations.requireSshKey, true)
+assert.equal(normalized[0].accessRecommendations.sshKeySource, 'request_or_backend_default')
 
 const wrapped = normalizeCreateVmProfiles({
   profiles: [

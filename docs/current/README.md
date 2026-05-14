@@ -73,16 +73,24 @@ The target design is partially implemented, with these gaps still open:
   preview/create.
 - Native create no longer infers a `.1` gateway or `/24` prefix from
   `static_ip`.
+- Create VM Access/SSH is implemented: the wizard accepts a cloud-init user
+  and SSH public key, backend preflight red-blocks missing or malformed keys
+  when the selected profile requires one, password login is fixed disabled, and
+  plan/review/manifest/preview/observed evidence records only safe SSH key
+  presence/source/fingerprint metadata.
 - Profile has no power policy; create remains stopped/powered off. VM start is
   future Infra Explorer row action work with Jobs/Runs audit.
-- Access/SSH key collection and missing-key red gating remain future Create VM
-  work.
+- Raw SSH public key material is used only transiently for native Proxmox
+  `sshkeys` config and is not returned in API responses or written to
+  draft/plan/review/manifest/preview/observed artifacts.
+- Terraform plan/apply routes and helper code remain legacy/present until a
+  later cleanup slice; do not treat them as removed.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `127 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `133 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.

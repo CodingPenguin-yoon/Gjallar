@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, FileText, FolderGit2, Loader2, Network, Rocket, Server, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, FileText, FolderGit2, KeyRound, Loader2, Network, Rocket, Server, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile } from '../utils/createVmDefaults'
@@ -22,6 +22,10 @@ const CHECK_LABELS = {
   profile_cpu_range: 'CPU 범위',
   profile_memory_mb_range: '메모리 범위',
   profile_disk_gb_range: '디스크 범위',
+  access_cloud_init_user_present: '접속 사용자',
+  access_password_login_disabled: '비밀번호 로그인',
+  access_ssh_key_present: 'SSH 키',
+  access_ssh_key_valid: 'SSH 키 형식',
   profile_template_disk_limit: '프로필 디스크',
   template_available: '템플릿',
   template_matches_profile: '템플릿 프로필',
@@ -290,6 +294,9 @@ function buildInitialForm(config) {
     prefix: defaults.network.prefix,
     gateway: defaults.network.gateway,
     ipMode: defaults.network.ipMode,
+    cloudInitUser: defaults.access.cloudInitUser,
+    sshPublicKey: defaults.access.sshPublicKey,
+    passwordLogin: defaults.access.passwordLogin,
   })
   const profile = defaults.profileOptions.find((item) => item.profileId === input.profileId) || defaults.profileOptions[0]
   return {
@@ -300,6 +307,9 @@ function buildInitialForm(config) {
     bridgeId: input.bridgeId || '',
     prefix: input.prefix || defaults.network.prefix,
     gateway: input.gateway || defaults.network.gateway,
+    cloudInitUser: input.cloudInitUser || profile.accessRecommendations.defaultUser || defaults.access.cloudInitUser,
+    sshPublicKey: input.sshPublicKey || defaults.access.sshPublicKey,
+    passwordLogin: false,
   }
 }
 
@@ -357,6 +367,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const selectedBridge = bridgeOptions.find((bridge) => bridge.bridgeId === form.bridgeId) || null
   const selectedIpModeLabel = form.ipMode === 'dhcp' ? 'DHCP' : '고정 IP'
   const reviewedNetwork = model?.review?.network || {}
+  const reviewedAccess = model?.review?.access || {}
   const reviewedStaticIp = reviewedNetwork.static_ip || reviewedNetwork.staticIp || reviewedNetwork.ip_address || reviewedNetwork.ipAddress || form.staticIp
   const reviewedPrefix = reviewedNetwork.prefix ?? form.prefix
   const reviewedGateway = reviewedNetwork.gateway || form.gateway
@@ -368,6 +379,9 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const memoryMb = hardware.memoryMb ?? hardware.memory_mb ?? hardwareLimits.memoryMb?.default ?? 4096
   const diskGb = hardware.diskGb ?? hardware.disk_gb ?? hardwareLimits.diskGb?.default ?? 50
   const staticIpPlaceholder = firstRangeStart(selectedBridge) || '예: 192.168.2.142'
+  const reviewedSshKeySummary = reviewedAccess.sshKeyPresent
+    ? (reviewedAccess.fingerprint || '키 있음')
+    : '없음'
 
   useEffect(() => {
     let cancelled = false
@@ -485,6 +499,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       templateVmid: template?.vmid || '',
       templateNodeId: template?.nodeId || '',
       hardware: resetHardwareForProfile(profile, template?.diskGb),
+      cloudInitUser: form.cloudInitUser || profile.accessRecommendations.defaultUser || 'yoon',
+      passwordLogin: false,
     })
   }
 
@@ -791,6 +807,30 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
           </label>
         </div>
 
+        <div className="mt-6 border-t border-slate-100 pt-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-slate-600" />
+              <h3 className="text-sm font-semibold text-slate-950">Access</h3>
+            </div>
+            <StatusPill tone="slate">Password login disabled</StatusPill>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">접속 사용자</span>
+              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.cloudInitUser || ''} onChange={(event) => updateForm('cloudInitUser', event.target.value)} />
+            </label>
+            <div className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">비밀번호 로그인</span>
+              <div className="flex min-h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Disabled</div>
+            </div>
+            <label className="space-y-1 md:col-span-2">
+              <span className="text-sm font-medium text-slate-700">SSH public key</span>
+              <textarea className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900" value={form.sshPublicKey || ''} onChange={(event) => updateForm('sshPublicKey', event.target.value)} spellCheck="false" />
+            </label>
+          </div>
+        </div>
+
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <button type="button" onClick={runReview} disabled={loading || options.loading || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
@@ -834,6 +874,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <SummaryTile label="스토리지" value={model.review.storage} />
                 <SummaryTile label="템플릿" value={model.review.template} />
                 <SummaryTile label="네트워크" value={`${selectedIpModeLabel} / ${model.review.network.bridge_id || model.review.network.bridgeId || form.bridgeId || ''}`} icon={Network} />
+                <SummaryTile label="접속 사용자" value={reviewedAccess.username || reviewedAccess.cloudInitUser || form.cloudInitUser} icon={KeyRound} />
+                <SummaryTile label="SSH 키" value={reviewedSshKeySummary} icon={KeyRound} />
                 <SummaryTile label="첫 부팅" value={model.review.firstPowerOnIncluded ? '포함' : '별도 단계'} />
               </div>
             </section>

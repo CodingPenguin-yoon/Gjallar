@@ -57,6 +57,7 @@ DB-seeded profiles remain future work. Do not describe DB seed as current.
 | Template | `GET /api/v1/templates`. | Live/fake Proxmox inventory; failing templates are visible but disabled. |
 | Storage | `GET /api/v1/storage`. | Filtered by target node, `images` content, and free capacity. |
 | Bridge | `GET /api/v1/networks`. | Filtered to active bridges on selected target node. |
+| Access | Wizard input plus backend default SSH public key env/file fallback. | Password login fixed disabled; raw public key is transient only. |
 | Static networking | Operator input. | Static mode requires explicit `static_ip`, `prefix`, and `gateway`; no gateway inference. |
 | Network policy | Networks tab IaC policy only. | Not Create VM source of truth. |
 
@@ -72,6 +73,11 @@ DB-seeded profiles remain future work. Do not describe DB seed as current.
 | Native create | `createVmWithProxmox()` | `POST /proxmox-create` | Live Proxmox clone/resize/config/post-check after gates. |
 
 The UI navigates to `/jobs?job=<job_id>` when native create starts so the operator can inspect job progress.
+
+Access/SSH evidence is part of the current review model. The review displays
+cloud-init username, password-login disabled, SSH key presence/source, and
+fingerprint only. Request-supplied or backend-default raw public key material is
+used transiently for Proxmox `sshkeys` config and is not persisted or returned.
 
 ## Current Approval And Mutation Gates
 
@@ -95,7 +101,7 @@ Backend endpoints `terraform-plan` and `terraform-apply` still exist. They are l
 |---|---|
 | DB-seeded profiles | Future. Current profiles are `static_seed`. |
 | Profile management UI | Future. Current profiles are read-only. |
-| Access section with SSH public key collection | Future. Native config can use env-backed default SSH key, but the UI does not collect or red-block missing SSH key. |
+| Access section with SSH public key collection | Implemented for current profiles with safe fingerprint evidence; first-login SSH smoke remains deferred. |
 | First power-on | Deferred. |
 | Guest-agent discovery and smoke | Deferred. |
 | SSH/Ansible verification | Deferred. |
