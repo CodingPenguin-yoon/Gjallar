@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Callable
 
@@ -52,21 +53,6 @@ def _terraform_env() -> dict[str, str]:
     return env
 
 
-def _static_ip_cidr(ip_address: str | None) -> str:
-    if not ip_address:
-        return ""
-    return ip_address if "/" in ip_address else f"{ip_address}/24"
-
-
-def _default_gateway(ip_address: str | None) -> str:
-    if not ip_address:
-        return ""
-    parts = ip_address.split("/", 1)[0].split(".")
-    if len(parts) == 4:
-        return ".".join([parts[0], parts[1], parts[2], "1"])
-    return ""
-
-
 def _ssh_public_key() -> str:
     configured = os.getenv("GJALLAR_DEFAULT_SSH_PUBLIC_KEY", "").strip()
     if configured:
@@ -79,6 +65,52 @@ def _ssh_public_key() -> str:
     return ""
 
 
+def _required_bridge_id(plan: VmCreatePlan) -> str:
+    bridge_id = str(plan.network.get("bridge_id") or "").strip()
+    if not bridge_id:
+        raise TerraformRunnerError("plan network is missing bridge_id")
+    return bridge_id
+
+
+def _required_ipv4(value: object, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise TerraformRunnerError(f"plan network is missing {field_name}")
+    try:
+        parsed = ip_address(text)
+    except ValueError as exc:
+        raise TerraformRunnerError(f"plan network has invalid {field_name}") from exc
+    if parsed.version != 4:
+        raise TerraformRunnerError(f"plan network {field_name} must be IPv4")
+    return text
+
+
+def _required_prefix(value: object) -> int:
+    text = str(value or "").strip()
+    if not text:
+        raise TerraformRunnerError("plan network is missing prefix")
+    try:
+        prefix = int(text)
+    except (TypeError, ValueError) as exc:
+        raise TerraformRunnerError("plan network has invalid prefix") from exc
+    if not 1 <= prefix <= 32:
+        raise TerraformRunnerError("plan network prefix must be between 1 and 32")
+    return prefix
+
+
+def _terraform_static_ip_config(plan: VmCreatePlan) -> tuple[str, str]:
+    network = dict(plan.network)
+    ip_mode = str(network.get("ip_mode") or "").lower()
+    if ip_mode == "dhcp":
+        return "", ""
+    if ip_mode != "static":
+        raise TerraformRunnerError("plan network ip_mode must be static or dhcp")
+    static_ip = _required_ipv4(network.get("static_ip") or network.get("ip_address"), "static_ip")
+    prefix = _required_prefix(network.get("prefix"))
+    gateway = _required_ipv4(network.get("gateway"), "gateway")
+    return f"{static_ip}/{prefix}", gateway
+
+
 def terraform_vars_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
     review = dict(plan.review_confirm)
     template_vmid = review.get("template_vmid")
@@ -86,7 +118,7 @@ def terraform_vars_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
     if not template_vmid:
         raise TerraformRunnerError("plan review is missing template_vmid")
     template_id = f"{template_node}/{template_vmid}" if template_node else str(template_vmid)
-    ip_address = str(plan.network.get("ip_address") or "")
+    vm_ip, vm_gateway = _terraform_static_ip_config(plan)
     memory_mb = int(plan.hardware.get("memory_mb") or 0)
     return {
         "vm_id": int(plan.vmid),
@@ -97,11 +129,11 @@ def terraform_vars_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
         "memory_gb": max(memory_mb // 1024, 1),
         "disk_size_gb": int(plan.hardware.get("disk_gb") or 0),
         "storage_id": plan.storage_id,
-        "network_ids": [plan.network.get("bridge_id") or "vmbr0"],
+        "network_ids": [_required_bridge_id(plan)],
         "ssh_user": "yoon",
         "ssh_public_key": _ssh_public_key(),
-        "vm_ip": _static_ip_cidr(ip_address),
-        "vm_gateway": _default_gateway(ip_address),
+        "vm_ip": vm_ip,
+        "vm_gateway": vm_gateway,
         "start_on_create": False,
         "on_boot": False,
     }

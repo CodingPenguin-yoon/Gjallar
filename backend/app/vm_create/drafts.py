@@ -26,6 +26,23 @@ def _optional_int(value: object) -> int | None:
     return int(value)
 
 
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_prefix(value: object) -> int | str | None:
+    if value is None or str(value).strip() == "":
+        return None
+    text = str(value).strip()
+    try:
+        return int(text)
+    except ValueError:
+        return text
+
+
 def _hardware_value(overrides: dict, key: str, default: int) -> int:
     aliases = {"memory_mb": "memoryMb", "disk_gb": "diskGb"}
     raw_value = overrides.get(key)
@@ -76,6 +93,8 @@ def build_default_vm_draft(
     network_id: str | None = None,
     bridge_id: str | None = None,
     static_ip: str | None = None,
+    prefix: object | None = None,
+    gateway: str | None = None,
     ip_mode: str | None = None,
     proposed_vmid: int | None = None,
     template_id: str | None = None,
@@ -92,7 +111,9 @@ def build_default_vm_draft(
     requested_ip_mode = ip_mode or profile.network.default_ip_mode
     if requested_ip_mode not in {"static", "dhcp"}:
         raise ValueError("ip_mode must be either 'static' or 'dhcp'")
-    resolved_static_ip = None if requested_ip_mode == "dhcp" else static_ip or "192.168.2.142"
+    resolved_static_ip = None if requested_ip_mode == "dhcp" else _optional_text(static_ip)
+    resolved_prefix = None if requested_ip_mode == "dhcp" else _optional_prefix(prefix)
+    resolved_gateway = None if requested_ip_mode == "dhcp" else _optional_text(gateway)
     suffix = _safe_identifier(job_id)
     manifest_id = f"vm-{suffix}"
     draft_id = f"draft-{suffix}"
@@ -123,6 +144,8 @@ def build_default_vm_draft(
             network_id=network_profile.network_id,
             ip_mode=requested_ip_mode,
             static_ip=resolved_static_ip,
+            prefix=resolved_prefix,
+            gateway=resolved_gateway,
             bridge_id=selected_bridge_id,
         ),
         access=DraftAccess(

@@ -54,11 +54,9 @@ Target design은
 - Target UI는 선택 profile의 `require_cloud_init=true`, `require_qemu_guest_agent=true` 조건을 만족하지 못하는 live template을 disabled로 보여주고, backend preflight가 red-block한다.
 - Target network source of truth는 selected target node의 active live bridge다.
 - Current code는 아직 `network_id`/`server-net`와 bridge mapping을 사용한다.
-- Target static mode는 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
-- Target gateway는 사용자가 입력한 값을 그대로 사용하며, `.1` 자동 추론을
-  하지 않는다.
-- Current code는 아직 static `prefix`/`gateway`를 요구하지 않고, 일부 create
-  helper가 static IP에서 gateway를 추론한다.
+- Static mode는 현재 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
+- Gateway와 prefix는 사용자가 입력한 값을 그대로 사용하며, native create는
+  static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지 않는다.
 - Profile에는 power policy가 없다. Create VM은 global create policy로 stopped/powered-off 완료이며, VM start는 future Infra Explorer row action과 Jobs/Runs audit 대상이다.
 
 ## DRS Advisor 기준 gaps

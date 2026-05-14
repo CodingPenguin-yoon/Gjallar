@@ -53,6 +53,17 @@ def _jobs_meta() -> dict[str, str]:
 
 def _api_draft_from_payload(draft_id: str, payload: dict | None):
     payload = payload or {}
+    network_payload = payload.get("network") if isinstance(payload.get("network"), dict) else {}
+
+    def network_value(*keys: str):
+        for key in keys:
+            if key in payload:
+                return payload.get(key)
+        for key in keys:
+            if key in network_payload:
+                return network_payload.get(key)
+        return None
+
     adapter = _inventory_adapter()
     proposed_vmid = adapter.suggest_next_vmid() if hasattr(adapter, "suggest_next_vmid") else None
     return build_default_vm_draft(
@@ -60,10 +71,12 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
         job_id=str(payload.get("job_id", draft_id)),
         target_node_id=payload.get("target_node_id"),
         storage_id=payload.get("storage_id"),
-        network_id=payload.get("network_id"),
-        bridge_id=payload.get("bridge_id"),
-        static_ip=payload.get("static_ip"),
-        ip_mode=payload.get("ip_mode"),
+        network_id=network_value("network_id", "networkId"),
+        bridge_id=network_value("bridge_id", "bridgeId"),
+        static_ip=network_value("static_ip", "staticIp"),
+        prefix=network_value("prefix"),
+        gateway=network_value("gateway"),
+        ip_mode=network_value("ip_mode", "ipMode"),
         proposed_vmid=proposed_vmid,
         template_id=payload.get("template_id"),
         template_vmid=payload.get("template_vmid"),

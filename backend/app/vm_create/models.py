@@ -32,7 +32,9 @@ class DraftAccess:
 class DraftNetwork:
     network_id: str
     ip_mode: str
-    static_ip: str | None
+    static_ip: str | None = None
+    prefix: int | str | None = None
+    gateway: str | None = None
     bridge_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:

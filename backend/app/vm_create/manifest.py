@@ -52,6 +52,9 @@ def build_vm_instance_manifest(draft: VmCreateDraft, preflight: PreflightResult)
                 "profile_id": draft.network.network_id,
                 "bridge_id": preflight.selected_bridge_id,
                 "ip_mode": draft.network.ip_mode,
+                "static_ip": draft.network.static_ip,
+                "prefix": draft.network.prefix,
+                "gateway": draft.network.gateway,
                 "ip": draft.network.static_ip,
             },
             "lifecycle": {

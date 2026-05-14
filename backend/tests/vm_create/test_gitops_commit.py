@@ -76,6 +76,8 @@ networks:
             job_id=job_id,
             target_node_id="yoonmanserver2",
             static_ip="192.168.2.142",
+            prefix=24,
+            gateway="192.168.2.1",
             proposed_vmid=305,
         )
         preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())

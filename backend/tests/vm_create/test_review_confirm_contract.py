@@ -52,6 +52,8 @@ networks:
             job_id="job-set7-review",
             target_node_id="yoonmanserver2",
             static_ip="192.168.2.143",
+            prefix=25,
+            gateway="192.168.2.254",
         )
         preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
         self.assertEqual("green", preflight.risk_level)
@@ -93,6 +95,9 @@ networks:
             for key in required_keys:
                 self.assertIn(key, summary_payload)
             self.assertEqual(review["vm_name"], summary_payload["vm_name"])
+            self.assertEqual("192.168.2.143", review["network"]["static_ip"])
+            self.assertEqual(25, review["network"]["prefix"])
+            self.assertEqual("192.168.2.254", review["network"]["gateway"])
             self.assertFalse(review["first_power_on_included"])
             self.assertFalse(summary_payload["first_power_on_included"])
             self.assertEqual(review["planned_git_diff_summary"], summary_payload["planned_git_diff_summary"])

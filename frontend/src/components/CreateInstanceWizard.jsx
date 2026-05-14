@@ -27,6 +27,12 @@ const CHECK_LABELS = {
   network_policy_registered: '네트워크 정책',
   static_ip_range_configured: '고정 IP 범위',
   static_ip_in_policy_range: 'IP 범위 확인',
+  static_ip_present: '고정 IP 입력',
+  static_ip_valid: '고정 IP 형식',
+  static_prefix_present: 'Prefix 입력',
+  static_prefix_valid: 'Prefix 형식',
+  static_gateway_present: 'Gateway 입력',
+  static_gateway_valid: 'Gateway 형식',
   vmid_available: 'VMID',
   name_available: 'VM 이름',
   static_ip_available: '고정 IP',
@@ -263,7 +269,7 @@ function selectPreferredBridge(model, nodeId, currentBridgeId = '') {
 
 function firstRangeStart(bridge) {
   const range = bridge?.staticIpRanges?.find((item) => item?.start)
-  return range?.start || '192.168.2.149'
+  return range?.start || ''
 }
 
 function buildInitialForm(config) {
@@ -279,6 +285,8 @@ function buildInitialForm(config) {
     bridgeId: defaults.network.nodeBridges.yoonmanserver2,
     storageId: '',
     staticIp: '',
+    prefix: defaults.network.prefix,
+    gateway: defaults.network.gateway,
     ipMode: defaults.network.ipMode,
   })
   return {
@@ -288,6 +296,8 @@ function buildInitialForm(config) {
     storageId: input.storageId || '',
     networkId: input.networkId || defaults.network.networkId,
     bridgeId: input.bridgeId || defaults.network.nodeBridges[input.targetNodeId] || '',
+    prefix: input.prefix || defaults.network.prefix,
+    gateway: input.gateway || defaults.network.gateway,
   }
 }
 
@@ -329,10 +339,17 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const selectedTemplateKey = form.templateKey || (form.templateNodeId && form.templateVmid ? `${form.templateNodeId}/${form.templateVmid}` : form.templateId)
   const selectedBridge = bridgeOptions.find((bridge) => bridge.bridgeId === form.bridgeId) || null
   const selectedIpModeLabel = form.ipMode === 'dhcp' ? 'DHCP' : '고정 IP'
+  const reviewedNetwork = model?.review?.network || {}
+  const reviewedStaticIp = reviewedNetwork.static_ip || reviewedNetwork.staticIp || reviewedNetwork.ip_address || reviewedNetwork.ipAddress || form.staticIp
+  const reviewedPrefix = reviewedNetwork.prefix ?? form.prefix
+  const reviewedGateway = reviewedNetwork.gateway || form.gateway
+  const reviewedIpSummary = form.ipMode === 'dhcp'
+    ? selectedIpModeLabel
+    : [reviewedStaticIp, reviewedPrefix ? `/${reviewedPrefix}` : '', reviewedGateway ? `gw ${reviewedGateway}` : ''].join(' ').replace(' /', '/').trim()
   const hardware = form.hardware || {}
   const memoryMb = hardware.memoryMb || hardware.memory_mb || 4096
   const diskGb = hardware.diskGb || hardware.disk_gb || 50
-  const staticIpPlaceholder = firstRangeStart(selectedBridge)
+  const staticIpPlaceholder = firstRangeStart(selectedBridge) || '예: 192.168.2.142'
 
   useEffect(() => {
     let cancelled = false
@@ -412,11 +429,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       const bridge = selectPreferredBridge(networkPolicyModel, next.targetNodeId, next.bridgeId)
       if (bridge && (!next.bridgeId || next.bridgeId !== bridge.bridgeId || !next.networkId)) {
         next.bridgeId = bridge.bridgeId
-        next.networkId = bridge.networkId || next.networkId || 'server-net'
-        changed = true
-      }
-      if (bridge && next.ipMode === 'static' && !next.staticIp) {
-        next.staticIp = firstRangeStart(bridge)
+        next.networkId = bridge.networkId || next.networkId || ''
         changed = true
       }
       if (changed) onConfigChange(next)
@@ -431,8 +444,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       targetNodeId: nodeId,
       storageId: storage?.id || '',
       bridgeId: bridge?.bridgeId || '',
-      networkId: bridge?.networkId || form.networkId || 'server-net',
-      staticIp: form.ipMode === 'static' && !form.staticIp ? firstRangeStart(bridge) : form.staticIp,
+      networkId: bridge?.networkId || form.networkId || '',
+      staticIp: form.staticIp,
     })
   }
 
@@ -451,8 +464,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     const bridge = bridgeOptions.find((item) => item.bridgeId === bridgeId)
     applyFormPatch({
       bridgeId,
-      networkId: bridge?.networkId || form.networkId || 'server-net',
-      staticIp: form.ipMode === 'static' && !form.staticIp ? firstRangeStart(bridge) : form.staticIp,
+      networkId: bridge?.networkId || form.networkId || '',
+      staticIp: form.staticIp,
     })
   }
 
@@ -634,6 +647,14 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
             <span className="text-sm font-medium text-slate-700">고정 IP</span>
             <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.staticIp} onChange={(event) => updateForm('staticIp', event.target.value)} placeholder={staticIpPlaceholder} disabled={form.ipMode === 'dhcp'} />
           </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">Prefix</span>
+            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.prefix || ''} onChange={(event) => updateForm('prefix', event.target.value)} placeholder="예: 24" disabled={form.ipMode === 'dhcp'} inputMode="numeric" />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">Gateway</span>
+            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.gateway || ''} onChange={(event) => updateForm('gateway', event.target.value)} placeholder="예: 192.168.2.254" disabled={form.ipMode === 'dhcp'} />
+          </label>
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -673,11 +694,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <SummaryTile label="VM 이름" value={model.review.vmName} icon={Server} />
                 <SummaryTile label="VMID" value={model.review.vmid} />
                 <SummaryTile label="생성 노드" value={model.review.targetNode} icon={Server} />
-                <SummaryTile label="IP" value={model.review.network.ip_address || model.review.network.ipAddress || form.staticIp || selectedIpModeLabel} icon={Network} />
+                <SummaryTile label="IP" value={reviewedIpSummary} icon={Network} />
                 <SummaryTile label="사양" value={`${model.review.hardware.cpu} CPU / ${model.review.hardware.memoryMb} MB / ${model.review.hardware.diskGb} GB`} />
                 <SummaryTile label="스토리지" value={model.review.storage} />
                 <SummaryTile label="템플릿" value={model.review.template} />
-                <SummaryTile label="네트워크" value={`${selectedIpModeLabel} / ${model.review.network.bridge_id || model.review.network.bridgeId || 'vmbr0'}`} icon={Network} />
+                <SummaryTile label="네트워크" value={`${selectedIpModeLabel} / ${model.review.network.bridge_id || model.review.network.bridgeId || form.bridgeId || ''}`} icon={Network} />
                 <SummaryTile label="첫 부팅" value={model.review.firstPowerOnIncluded ? '포함' : '별도 단계'} />
               </div>
             </section>

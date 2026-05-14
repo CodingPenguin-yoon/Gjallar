@@ -22,6 +22,9 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual(4096, draft.hardware.memory_mb)
         self.assertEqual(50, draft.hardware.disk_gb)
         self.assertEqual("static", draft.network.ip_mode)
+        self.assertIsNone(draft.network.static_ip)
+        self.assertIsNone(draft.network.prefix)
+        self.assertIsNone(draft.network.gateway)
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
         self.assertFalse(draft.first_power_on_included)
@@ -56,6 +59,9 @@ class VmCreateDraftContractTests(unittest.TestCase):
             template_node_id="yoonmanserver2",
             network_id="server-net",
             bridge_id="vmbr0",
+            static_ip="192.168.2.142",
+            prefix=25,
+            gateway="192.168.2.254",
         )
 
         self.assertEqual("nas-server", draft.storage_id)
@@ -64,6 +70,9 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("yoonmanserver2", draft.template_node_id)
         self.assertEqual("server-net", draft.network.network_id)
         self.assertEqual("vmbr0", draft.network.bridge_id)
+        self.assertEqual("192.168.2.142", draft.network.static_ip)
+        self.assertEqual(25, draft.network.prefix)
+        self.assertEqual("192.168.2.254", draft.network.gateway)
 
     def test_iac_state_path_can_be_relocated_with_environment(self):
         from app.vm_create.drafts import build_default_vm_draft

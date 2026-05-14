@@ -35,9 +35,11 @@ source of truth로 사용하지 않는다. Target은 사용자가 target node를
 guest-agent/inventory discovery warning과 함께 허용한다.
 
 현재 code는 아직 Create VM에서 `network_id`/`server-net`와 bridge mapping을
-사용하고, static `prefix`/`gateway`를 요구하지 않는다. 이 Networks tab은
-current/legacy policy support 또는 future recommendation/validation evidence로
-남을 수 있지만, target Create VM source of truth는 아니다.
+사용한다. Static mode는 이제 `static_ip`, `prefix`, `gateway`를 명시적으로
+요구하고, native create는 static IP에서 `.1` gateway 또는 `/24` prefix를
+추론하지 않는다. 이 Networks tab은 current/legacy policy support 또는 future
+recommendation/validation evidence로 남을 수 있지만, target Create VM source
+of truth는 아니다.
 
 ## DRS Advisor 기준 gaps
 

@@ -14,6 +14,8 @@ export function buildCreateVmDefaults() {
     },
     network: {
       ipMode: 'static',
+      prefix: '',
+      gateway: '',
       networkId: 'server-net',
       nodeBridges: {
         yoonmanserver2: 'vmbr0',

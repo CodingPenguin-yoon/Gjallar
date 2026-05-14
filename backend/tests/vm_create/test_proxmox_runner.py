@@ -121,6 +121,8 @@ networks:
             job_id=job_id,
             target_node_id="yoonmanserver2",
             static_ip="192.168.2.142",
+            prefix=25,
+            gateway="192.168.2.254",
             proposed_vmid=306,
             hardware_overrides=hardware_overrides,
         )
@@ -142,7 +144,7 @@ networks:
         self.assertEqual("local-lvm", preview["clone"]["storage"])
         self.assertEqual("enabled=1", preview["config"]["agent"])
         self.assertEqual(0, preview["config"]["onboot"])
-        self.assertEqual("ip=192.168.2.142/24,gw=192.168.2.1", preview["config"]["ipconfig0"])
+        self.assertEqual("ip=192.168.2.142/25,gw=192.168.2.254", preview["config"]["ipconfig0"])
         self.assertTrue(Path(preview["artifacts"][0]["path"]).is_file())
 
     def test_create_success_requires_ok_task_stopped_post_check_and_observed_after(self):

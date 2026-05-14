@@ -19,6 +19,8 @@ assert.equal(defaults.hardware.cpu, 2)
 assert.equal(defaults.hardware.memoryMb, 4096)
 assert.equal(defaults.hardware.diskGb, 50)
 assert.equal(defaults.network.ipMode, 'static')
+assert.equal(defaults.network.prefix, '')
+assert.equal(defaults.network.gateway, '')
 assert.equal(defaults.network.networkId, 'server-net')
 assert.deepEqual(defaults.network.nodeBridges, {
   yoonmanserver2: 'vmbr0',

@@ -64,6 +64,8 @@ networks:
             job_id="job-terraform-runner",
             target_node_id="yoonmanserver2",
             static_ip="192.168.2.142",
+            prefix=25,
+            gateway="192.168.2.254",
             proposed_vmid=306,
         )
         preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
@@ -84,8 +86,8 @@ networks:
         self.assertEqual(50, vars_payload["disk_size_gb"])
         self.assertEqual("local-lvm", vars_payload["storage_id"])
         self.assertEqual(["vmbr0"], vars_payload["network_ids"])
-        self.assertEqual("192.168.2.142/24", vars_payload["vm_ip"])
-        self.assertEqual("192.168.2.1", vars_payload["vm_gateway"])
+        self.assertEqual("192.168.2.142/25", vars_payload["vm_ip"])
+        self.assertEqual("192.168.2.254", vars_payload["vm_gateway"])
         self.assertEqual("ssh-ed25519 AAAATEST gjallar@test", vars_payload["ssh_public_key"])
         self.assertFalse(vars_payload["start_on_create"])
         self.assertFalse(vars_payload["on_boot"])

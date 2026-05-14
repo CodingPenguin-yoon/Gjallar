@@ -28,7 +28,14 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
             from app.vm_create.drafts import build_default_vm_draft
         except ModuleNotFoundError as exc:
             self.fail(f"Expected app.vm_create.drafts for Set 6 draft contract: {exc}")
-        return build_default_vm_draft(operator_id="test-operator", job_id="job-set6-test", **kwargs)
+        draft_kwargs = {
+            "target_node_id": "yoonmanserver2",
+            "static_ip": "192.168.2.142",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
+        }
+        draft_kwargs.update(kwargs)
+        return build_default_vm_draft(operator_id="test-operator", job_id="job-set6-test", **draft_kwargs)
 
     def _write_default_network_policy(self):
         policy_path = self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml"
@@ -91,6 +98,12 @@ networks:
             "network_policy_registered",
             "static_ip_range_configured",
             "static_ip_in_policy_range",
+            "static_ip_present",
+            "static_ip_valid",
+            "static_prefix_present",
+            "static_prefix_valid",
+            "static_gateway_present",
+            "static_gateway_valid",
             "vmid_available",
             "name_available",
             "static_ip_available",
@@ -187,12 +200,62 @@ networks:
         self.assertIn("static_ip_out_of_range", red_codes)
         self.assertNotIn("static_ip_unavailable", red_codes)
 
+    def test_static_mode_missing_static_ip_is_red(self):
+        draft = self._default_draft(static_ip=None)
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("static_ip_missing", red_codes)
+
+    def test_static_mode_missing_prefix_is_red(self):
+        draft = self._default_draft(prefix=None)
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("static_prefix_missing", red_codes)
+
+    def test_static_mode_missing_gateway_is_red(self):
+        draft = self._default_draft(gateway=None)
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("static_gateway_missing", red_codes)
+
+    def test_static_mode_invalid_prefix_is_red(self):
+        draft = self._default_draft(prefix=33)
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("static_prefix_invalid", red_codes)
+
+    def test_static_mode_invalid_gateway_is_red(self):
+        draft = self._default_draft(gateway="192.168.2.999")
+
+        result = self._preflight(draft)
+
+        self.assertEqual("red", result.risk_level)
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("static_gateway_invalid", red_codes)
+
     def test_plan_response_contains_review_ready_fields_and_real_artifacts(self):
         try:
             from app.vm_create.planner import build_vm_create_plan
         except ModuleNotFoundError as exc:
             self.fail(f"Expected app.vm_create.planner for Set 6 plan contract: {exc}")
-        draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
+        draft = self._default_draft(
+            target_node_id="yoonmanserver2",
+            static_ip="192.168.2.142",
+            prefix=25,
+            gateway="192.168.2.254",
+        )
         preflight = self._preflight(draft)
         self.assertEqual("green", preflight.risk_level)
 
@@ -210,7 +273,11 @@ networks:
         self.assertEqual("ubuntu-template", plan.template_id)
         self.assertEqual({"cpu": 2, "memory_mb": 4096, "disk_gb": 50}, plan.hardware)
         self.assertEqual("vmbr0", plan.network["bridge_id"])
+        self.assertEqual("192.168.2.142", plan.network["static_ip"])
+        self.assertEqual(25, plan.network["prefix"])
+        self.assertEqual("192.168.2.254", plan.network["gateway"])
         self.assertEqual("192.168.2.142", plan.network["ip_address"])
+        self.assertEqual(plan.network, plan.review_confirm["network"])
         self.assertIn("/IaC-state/gjallar/", plan.terraform_state_path)
         self.assertEqual(str(self.shared_root / "IaC"), plan.review_confirm["iac_root"])
         self.assertEqual(str(self.shared_root / "IaC-state" / "gjallar"), plan.review_confirm["terraform_state_root"])

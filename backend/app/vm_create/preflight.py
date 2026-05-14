@@ -54,6 +54,20 @@ def _valid_static_ipv4(value: str) -> bool:
     return ip.version == 4
 
 
+def _present(value: object) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _valid_static_prefix(value: object) -> bool:
+    if not _present(value):
+        return False
+    try:
+        prefix = int(str(value).strip())
+    except (TypeError, ValueError):
+        return False
+    return 1 <= prefix <= 32
+
+
 def _select_template(templates: list[TemplateInventory], draft: VmCreateDraft) -> TemplateInventory | None:
     if draft.template_vmid is not None:
         return next(
@@ -276,7 +290,63 @@ def run_preflight(
 
     observed_ips = {addr for vm in vms for addr in vm.ip_addresses}
     if draft.network.ip_mode == "static":
-        static_ip = draft.network.static_ip or ""
+        static_ip = str(draft.network.static_ip or "").strip()
+        gateway = str(draft.network.gateway or "").strip()
+        prefix = draft.network.prefix
+        _check(
+            checks,
+            risks,
+            code="static_ip_present",
+            ok=_present(static_ip),
+            message="static mode includes operator-supplied static_ip",
+            fail_code="static_ip_missing",
+            detail={"static_ip": static_ip or None},
+        )
+        _check(
+            checks,
+            risks,
+            code="static_prefix_present",
+            ok=_present(prefix),
+            message="static mode includes operator-supplied prefix",
+            fail_code="static_prefix_missing",
+            detail={"prefix": prefix},
+        )
+        _check(
+            checks,
+            risks,
+            code="static_gateway_present",
+            ok=_present(gateway),
+            message="static mode includes operator-supplied gateway",
+            fail_code="static_gateway_missing",
+            detail={"gateway": gateway or None},
+        )
+        _check(
+            checks,
+            risks,
+            code="static_ip_valid",
+            ok=_valid_static_ipv4(static_ip),
+            message="static IP is a valid IPv4 address",
+            fail_code="static_ip_invalid",
+            detail={"static_ip": static_ip or None},
+        )
+        _check(
+            checks,
+            risks,
+            code="static_prefix_valid",
+            ok=_valid_static_prefix(prefix),
+            message="static prefix is a valid IPv4 CIDR prefix length",
+            fail_code="static_prefix_invalid",
+            detail={"prefix": prefix},
+        )
+        _check(
+            checks,
+            risks,
+            code="static_gateway_valid",
+            ok=_valid_static_ipv4(gateway),
+            message="static gateway is a valid IPv4 address",
+            fail_code="static_gateway_invalid",
+            detail={"gateway": gateway or None},
+        )
         try:
             policy = load_network_policy()
             policy_error = None

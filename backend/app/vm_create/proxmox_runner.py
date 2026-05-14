@@ -7,6 +7,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 
@@ -22,21 +23,6 @@ _MAC_PATTERN = re.compile(r"(?i)([0-9a-f]{2}(?::[0-9a-f]{2}){5})")
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def _static_ip_cidr(ip_address: str | None) -> str:
-    if not ip_address:
-        return ""
-    return ip_address if "/" in ip_address else f"{ip_address}/24"
-
-
-def _default_gateway(ip_address: str | None) -> str:
-    if not ip_address:
-        return ""
-    parts = ip_address.split("/", 1)[0].split(".")
-    if len(parts) == 4:
-        return ".".join([parts[0], parts[1], parts[2], "1"])
-    return ""
 
 
 def _ssh_public_key() -> str:
@@ -65,6 +51,39 @@ def _template_node(plan: VmCreatePlan) -> str:
     return value
 
 
+def _required_ipv4(value: object, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ProxmoxMutationError(f"plan network is missing {field_name}")
+    try:
+        parsed = ip_address(text)
+    except ValueError as exc:
+        raise ProxmoxMutationError(f"plan network has invalid {field_name}") from exc
+    if parsed.version != 4:
+        raise ProxmoxMutationError(f"plan network {field_name} must be IPv4")
+    return text
+
+
+def _required_prefix(value: object) -> int:
+    text = str(value or "").strip()
+    if not text:
+        raise ProxmoxMutationError("plan network is missing prefix")
+    try:
+        prefix = int(text)
+    except (TypeError, ValueError) as exc:
+        raise ProxmoxMutationError("plan network has invalid prefix") from exc
+    if not 1 <= prefix <= 32:
+        raise ProxmoxMutationError("plan network prefix must be between 1 and 32")
+    return prefix
+
+
+def _static_ipconfig_from_network(network: dict[str, Any]) -> str:
+    static_ip = _required_ipv4(network.get("static_ip") or network.get("ip_address"), "static_ip")
+    prefix = _required_prefix(network.get("prefix"))
+    gateway = _required_ipv4(network.get("gateway"), "gateway")
+    return f"ip={static_ip}/{prefix},gw={gateway}"
+
+
 def clone_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
     """Return the Proxmox clone payload without invoking the API."""
     if not plan.storage_id:
@@ -84,9 +103,12 @@ def clone_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
 def config_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
     """Return the post-clone VM config payload for native Proxmox create."""
     network = dict(plan.network or {})
-    bridge_id = str(network.get("bridge_id") or "vmbr0")
-    ip_mode = str(network.get("ip_mode") or "static").lower()
-    ip_address = str(network.get("ip_address") or "").strip()
+    bridge_id = str(network.get("bridge_id") or "").strip()
+    if not bridge_id:
+        raise ProxmoxMutationError("plan network is missing bridge_id")
+    ip_mode = str(network.get("ip_mode") or "").lower()
+    if ip_mode not in {"static", "dhcp"}:
+        raise ProxmoxMutationError("plan network ip_mode must be static or dhcp")
     payload: dict[str, Any] = {
         "cores": int(plan.hardware.get("cpu") or 1),
         "memory": int(plan.hardware.get("memory_mb") or 1024),
@@ -100,12 +122,8 @@ def config_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
         payload["sshkeys"] = ssh_key
     if ip_mode == "dhcp":
         payload["ipconfig0"] = "ip=dhcp"
-    elif ip_address:
-        ipconfig = f"ip={_static_ip_cidr(ip_address)}"
-        gateway = _default_gateway(ip_address)
-        if gateway:
-            ipconfig = f"{ipconfig},gw={gateway}"
-        payload["ipconfig0"] = ipconfig
+    else:
+        payload["ipconfig0"] = _static_ipconfig_from_network(network)
     return payload
 
 

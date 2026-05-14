@@ -51,6 +51,8 @@ networks:
             job_id="job-manifest",
             target_node_id="yoonmanserver2",
             static_ip="192.168.2.142",
+            prefix=25,
+            gateway="192.168.2.254",
             proposed_vmid=303,
         )
         preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
@@ -72,6 +74,9 @@ networks:
         self.assertEqual(9000, manifest["spec"]["template_source"]["vmid"])
         self.assertEqual("local-lvm", manifest["spec"]["storage"])
         self.assertEqual("vmbr0", manifest["spec"]["network"]["bridge_id"])
+        self.assertEqual("192.168.2.142", manifest["spec"]["network"]["static_ip"])
+        self.assertEqual(25, manifest["spec"]["network"]["prefix"])
+        self.assertEqual("192.168.2.254", manifest["spec"]["network"]["gateway"])
         self.assertEqual("192.168.2.142", manifest["spec"]["network"]["ip"])
         self.assertEqual("stopped", manifest["spec"]["lifecycle"]["desired_power_state"])
         self.assertIn("/IaC-state/gjallar/vm-job-manifest/terraform.tfstate", manifest["spec"]["state_backend"]["path"])
@@ -89,6 +94,8 @@ networks:
             job_id="job-manifest-plan",
             target_node_id="yoonmanserver2",
             static_ip="192.168.2.142",
+            prefix=24,
+            gateway="192.168.2.1",
             proposed_vmid=304,
         )
         preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())

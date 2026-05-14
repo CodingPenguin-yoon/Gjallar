@@ -11,6 +11,7 @@ async function importExpected(path, description) {
 
 const {
   buildCreateVmPayload,
+  buildCreateVmInputFromConfig,
   loadCreateVmReviewModel,
   approveCreateVmReview,
   commitCreateVmManifest,
@@ -26,6 +27,8 @@ const input = {
   networkId: 'server-net',
   bridgeId: 'vmbr0',
   staticIp: '192.168.2.149',
+  prefix: 25,
+  gateway: '192.168.2.254',
   ipMode: 'static',
   templateId: 'ubuntu-template',
   templateVmid: 9000,
@@ -41,11 +44,60 @@ assert.deepEqual(buildCreateVmPayload(input), {
   network_id: 'server-net',
   bridge_id: 'vmbr0',
   static_ip: '192.168.2.149',
+  prefix: 25,
+  gateway: '192.168.2.254',
   ip_mode: 'static',
   template_id: 'ubuntu-template',
   template_vmid: 9000,
   template_node_id: 'yoonmanserver2',
   hardware_overrides: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
+})
+
+assert.deepEqual(buildCreateVmPayload({
+  operatorId: 'nested-test',
+  network: {
+    networkId: 'server-net',
+    bridgeId: 'vmbr0',
+    staticIp: '192.168.2.149',
+    prefix: 25,
+    gateway: '192.168.2.254',
+    ipMode: 'static',
+  },
+}), {
+  operator_id: 'nested-test',
+  network_id: 'server-net',
+  bridge_id: 'vmbr0',
+  static_ip: '192.168.2.149',
+  prefix: 25,
+  gateway: '192.168.2.254',
+  ip_mode: 'static',
+})
+
+assert.deepEqual(buildCreateVmInputFromConfig({
+  network: {
+    staticIp: '192.168.2.151',
+    prefix: 26,
+    gateway: '192.168.2.253',
+  },
+}, {
+  operatorId: 'fallback-operator',
+  jobId: 'fallback-job',
+  targetNodeId: 'yoonmanserver2',
+}), {
+  operatorId: 'fallback-operator',
+  jobId: 'fallback-job',
+  targetNodeId: 'yoonmanserver2',
+  storageId: '',
+  networkId: '',
+  bridgeId: '',
+  staticIp: '192.168.2.151',
+  prefix: 26,
+  gateway: '192.168.2.253',
+  ipMode: 'static',
+  templateId: '',
+  templateVmid: '',
+  templateNodeId: '',
+  templateKey: '',
 })
 
 const calls = []
@@ -78,7 +130,14 @@ const fakeClient = {
       template_vmid: payload.template_vmid,
       template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
-      network: { network_id: payload.network_id, ip_mode: payload.ip_mode, static_ip: payload.static_ip, bridge_id: payload.bridge_id },
+      network: {
+        network_id: payload.network_id,
+        ip_mode: payload.ip_mode,
+        static_ip: payload.static_ip,
+        prefix: payload.prefix,
+        gateway: payload.gateway,
+        bridge_id: payload.bridge_id,
+      },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
       side_effects: [],
@@ -113,7 +172,15 @@ const fakeClient = {
       template_vmid: payload.template_vmid,
       template_node_id: payload.template_node_id,
       hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
-      network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
+      network: {
+        network_id: payload.network_id,
+        bridge_id: payload.bridge_id,
+        ip_mode: payload.ip_mode,
+        static_ip: payload.static_ip,
+        prefix: payload.prefix,
+        gateway: payload.gateway,
+        ip_address: payload.static_ip,
+      },
       terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
       first_power_on_included: false,
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
@@ -127,7 +194,15 @@ const fakeClient = {
         template_vmid: payload.template_vmid,
         template_node_id: payload.template_node_id,
         hardware: { cpu: 2, memory_mb: 4096, disk_gb: 50 },
-        network: { network_id: payload.network_id, bridge_id: payload.bridge_id, ip_mode: payload.ip_mode, ip_address: payload.static_ip },
+        network: {
+          network_id: payload.network_id,
+          bridge_id: payload.bridge_id,
+          ip_mode: payload.ip_mode,
+          static_ip: payload.static_ip,
+          prefix: payload.prefix,
+          gateway: payload.gateway,
+          ip_address: payload.static_ip,
+        },
         terraform_state_path: '/tmp/gjallar-state/job-ui-create.tfstate',
         iac_root: '/Users/yoon/mnt/nfs/IaC',
         terraform_state_root: '/Users/yoon/mnt/nfs/IaC-state/gjallar',
@@ -170,7 +245,7 @@ const fakeClient = {
         storage: 'nas-server',
         full: 1,
       },
-      config: { cores: 2, memory: 4096, agent: 'enabled=1', onboot: 0, net0: 'virtio,bridge=vmbr0', ipconfig0: 'ip=192.168.2.149/24,gw=192.168.2.1' },
+      config: { cores: 2, memory: 4096, agent: 'enabled=1', onboot: 0, net0: 'virtio,bridge=vmbr0', ipconfig0: 'ip=192.168.2.149/25,gw=192.168.2.254' },
       post_check: { required_status: 'stopped', powered_on_success_allowed: false },
       proxmox_create_enabled: false,
       proxmox_mutation_enabled: false,
@@ -236,6 +311,11 @@ assert.equal(model.review.canCreateProxmox, false)
 assert.equal(model.review.canExecute, false, 'UI must not expose direct create before manifest commit and final acknowledgement')
 assert.equal(model.review.firstPowerOnIncluded, false)
 assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.')
+assert.equal(model.payload.prefix, 25)
+assert.equal(model.payload.gateway, '192.168.2.254')
+assert.equal(model.review.network.static_ip, '192.168.2.149')
+assert.equal(model.review.network.prefix, 25)
+assert.equal(model.review.network.gateway, '192.168.2.254')
 assert.equal(model.artifacts[0].id, 'artifact-plan')
 assert.deepEqual(model.sideEffects, [])
 

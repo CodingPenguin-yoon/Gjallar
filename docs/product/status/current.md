@@ -52,8 +52,11 @@ The target design is not current implementation yet:
 - Target Create VM networking should select target node, then an active live
   bridge on that node.
 - Current code still uses `network_id`/`server-net` and bridge mapping.
-- Target static mode should require `static_ip`, `prefix`, and `gateway`.
-- Current code does not yet require static `prefix`/`gateway`.
+- Static mode now requires explicit `static_ip`, `prefix`, and `gateway`
+  across draft, preflight, plan/review, manifest, and native create
+  preview/create.
+- Native create no longer infers a `.1` gateway or `/24` prefix from
+  `static_ip`.
 - Profile has no power policy; create remains stopped/powered off. VM start is
   future Infra Explorer row action work with Jobs/Runs audit.
 
@@ -61,7 +64,7 @@ The target design is not current implementation yet:
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend pytest -q backend/tests`: `100 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `110 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.

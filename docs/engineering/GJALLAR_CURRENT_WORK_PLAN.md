@@ -53,8 +53,9 @@ Use `AGENTS.md` for execution mode:
   - only `general-vm` is create-enabled
   - profiles are still current built-in data rather than DB seed source
   - network still uses `network_id`/`server-net` in parts of the flow
-  - static `prefix`/`gateway` are not fully required yet
-  - gateway is still inferred from static IP in some create payload helpers
+  - static mode now requires explicit `static_ip`, `prefix`, and `gateway`
+    across draft, preflight, plan, manifest, and native create preview/create
+  - native create no longer infers `.1` gateway or `/24` prefix from static IP
 - Terraform routes/helper/module/tests still exist as legacy code.
 
 ## Workstream A: Preserve Principles And Context
@@ -91,8 +92,8 @@ Planned slices:
   cloud-init or qemu guest-agent checks.
 - [ ] Remove Create VM dependency on `network_id`/`server-net`.
 - [ ] Select target node first, then active live bridge for that node.
-- [ ] Add static `static_ip`, `prefix`, and `gateway` fields.
-- [ ] Stop gateway inference from static IP; use operator-supplied gateway.
+- [x] Add static `static_ip`, `prefix`, and `gateway` fields.
+- [x] Stop gateway inference from static IP; use operator-supplied gateway.
 - [ ] Add Access section with username and SSH public key.
 - [ ] Red-block missing SSH key when selected profile requires one.
 - [ ] Keep password login disabled/fixed for initial profiles.
@@ -183,13 +184,11 @@ pnpm --dir frontend build
 
 ## Next Slice Candidate
 
-Recommended first implementation slice:
+Recommended next implementation slice:
 
-1. Lock tests for explicit static gateway behavior.
-2. Add `gateway` to draft/payload/plan/review/native preview.
-3. Stop `.1` gateway inference.
-4. Add frontend gateway input.
-5. Run focused backend/frontend tests.
-
-This slice is small, user-visible, and directly supports the target network
-contract without requiring the entire profile/template/network redesign at once.
+1. Remove Create VM dependency on `network_id`/`server-net`.
+2. Select target node first, then use active live bridge inventory as the
+   network source of truth.
+3. Preserve existing flat payload compatibility only for the planned transition
+   window.
+4. Keep Terraform legacy cleanup deferred until native-only contracts are locked.

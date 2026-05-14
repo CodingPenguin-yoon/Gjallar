@@ -106,6 +106,8 @@ networks:
             "operator_id": "api-approval-test",
             "job_id": draft_id,
             "static_ip": "192.168.2.144",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -136,6 +138,8 @@ networks:
             "operator_id": "api-approval-test",
             "job_id": draft_id,
             "static_ip": "192.168.2.145",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -165,6 +169,8 @@ networks:
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-preview",
             "static_ip": "192.168.2.142",
+            "prefix": 25,
+            "gateway": "192.168.2.254",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -199,6 +205,8 @@ networks:
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-create-gates",
             "static_ip": "192.168.2.143",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -232,6 +240,8 @@ networks:
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-create-success",
             "static_ip": "192.168.2.144",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -306,6 +316,8 @@ networks:
             "operator_id": "api-proxmox-test",
             "job_id": "job-api-proxmox-create-reconcile",
             "static_ip": "192.168.2.145",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -408,6 +420,8 @@ networks:
                     "operator_id": "api-approval-test",
                     "job_id": "/tmp/gjallar-path-escape",
                     "static_ip": "192.168.2.146",
+                    "prefix": 24,
+                    "gateway": "192.168.2.1",
                 },
             )
         )
@@ -438,6 +452,8 @@ networks:
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-plan",
             "static_ip": "192.168.2.148",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -484,6 +500,8 @@ networks:
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-plan-ack",
             "static_ip": "192.168.2.149",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -512,6 +530,8 @@ networks:
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-plan-run",
             "static_ip": "192.168.2.150",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -560,6 +580,8 @@ networks:
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-apply-ack",
             "static_ip": "192.168.2.149",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -588,6 +610,8 @@ networks:
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-apply-run",
             "static_ip": "192.168.2.146",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -680,6 +704,8 @@ networks:
             "operator_id": "api-terraform-test",
             "job_id": "job-api-terraform-apply-fail",
             "static_ip": "192.168.2.142",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -748,6 +774,8 @@ networks:
             "operator_id": "api-archive-test",
             "job_id": "job-api-archive",
             "static_ip": "192.168.2.143",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
@@ -787,6 +815,8 @@ networks:
             "operator_id": "api-execute-test",
             "job_id": "job-api-execute-commit",
             "static_ip": "192.168.2.147",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]

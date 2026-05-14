@@ -100,6 +100,8 @@ networks:
             "operator_id": "api-progress-test",
             "job_id": job_id,
             "static_ip": "192.168.2.150",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
         }
 
         asyncio.run(self.api_v1_router.create_vm_draft(payload))
@@ -119,6 +121,44 @@ networks:
         artifact_response = asyncio.run(self.api_v1_router.list_job_artifacts(job_id))
         self.assertEqual(job_id, detail_response["data"]["job_id"])
         self.assertTrue(any(artifact["type"] == "plan" for artifact in artifact_response["data"]))
+
+    def test_nested_network_payload_is_preserved_in_plan_review(self):
+        for suffix, network in {
+            "camel": {
+                "bridgeId": "vmbr0",
+                "staticIp": "192.168.2.150",
+                "prefix": 25,
+                "gateway": "192.168.2.254",
+                "ipMode": "static",
+            },
+            "snake": {
+                "bridge_id": "vmbr0",
+                "static_ip": "192.168.2.149",
+                "prefix": 25,
+                "gateway": "192.168.2.254",
+                "ip_mode": "static",
+            },
+        }.items():
+            with self.subTest(suffix=suffix):
+                payload = {
+                    "operator_id": "api-nested-network-test",
+                    "job_id": f"job-api-nested-network-{suffix}",
+                    "target_node_id": "yoonmanserver2",
+                    "network_id": "server-net",
+                    "network": network,
+                }
+
+                response = asyncio.run(self.api_v1_router.plan_vm_draft(f"draft-api-nested-network-{suffix}", payload))
+
+                self.assertTrue(response["ok"])
+                plan_network = response["data"]["network"]
+                review_network = response["data"]["review_confirm"]["network"]
+                expected_static_ip = network.get("staticIp") or network.get("static_ip")
+                self.assertEqual("vmbr0", plan_network["bridge_id"])
+                self.assertEqual(expected_static_ip, plan_network["static_ip"])
+                self.assertEqual(25, plan_network["prefix"])
+                self.assertEqual("192.168.2.254", plan_network["gateway"])
+                self.assertEqual(plan_network, review_network)
 
 
 if __name__ == "__main__":
