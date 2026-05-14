@@ -23,6 +23,9 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
 - Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP selections, manifest commit, and gated Proxmox native create.
 - Create VM profile/template/network target design is documented in [`../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../../engineering/architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md), and is partially implemented through transitional static profile seed data plus live template/network inventory.
+- Create VM template selection uses read-only Proxmox inventory from
+  `/api/v1/templates`; builtin template defaults are not an active selection
+  source.
 - Current Create VM create policy is powered-off only: native Proxmox clone, boot disk resize when needed, and config may run after exact approval metadata, manifest commit verification, and `proxmox_mutation_acknowledged=true`; first power-on and Stage A smoke are separate deferred stages.
 - Terraform plan/apply routes remain optional/deprecated legacy executor paths and are not used by the active UI.
 - Read-only inventory is the safe baseline.
@@ -35,6 +38,11 @@ Current MVP product source of truth is [`../prd/drs-advisor/`](../prd/drs-adviso
 - Create VM plan/review records `first_power_on_included=false`; the generated VMInstance manifest requests `desired_power_state: stopped`.
 - `GET /api/v1/profiles` exposes exactly three enabled read-only `static_seed` profiles: `general-vm`, `runtime-server`, and `development-vm`.
 - Profile selection controls draft defaults for CPU/RAM/Disk. Backend preflight red-blocks unknown/disabled profiles and requested CPU/RAM/Disk outside the selected profile min/max.
+- All three initial profiles require cloud-init and qemu guest-agent capable
+  templates. The wizard keeps all live templates visible but disables those
+  that fail the selected profile requirements, and backend preflight red-blocks
+  selected templates that fail required readiness. Missing or unknown live
+  Proxmox `agent` config is not treated as guest-agent-ready evidence.
 - `general-vm` defaults to 2 CPU / 4096 MB RAM / 50 GB disk to match the live Ubuntu template size; preflight blocks requests smaller than the selected template disk and blocks template/requested disks above the selected profile disk max.
 - There are no destructive VM list controls.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
@@ -50,8 +58,8 @@ The target design is partially implemented, with these gaps still open:
 - Current code uses transitional static seed data (`source: static_seed`) rather
   than a DB/ORM seed source, but all three initial profiles are active Create VM
   choices.
-- Target templates come from Proxmox live inventory with no Gjallar template
-  catalog or registration window.
+- Templates come from Proxmox live inventory with no Gjallar template catalog
+  or registration window in the active Create VM selection path.
 - Target Create VM networking should select target node, then an active live
   bridge on that node.
 - Current code now uses explicit `bridge_id` from active live bridge inventory
@@ -67,12 +75,14 @@ The target design is partially implemented, with these gaps still open:
   `static_ip`.
 - Profile has no power policy; create remains stopped/powered off. VM start is
   future Infra Explorer row action work with Jobs/Runs audit.
+- Access/SSH key collection and missing-key red gating remain future Create VM
+  work.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `120 passed`.
+- Backend `PYTHONPATH=backend python3 -m pytest -q backend/tests`: `127 passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.

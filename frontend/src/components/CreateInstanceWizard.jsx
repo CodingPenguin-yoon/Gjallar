@@ -9,7 +9,11 @@ import {
   commitCreateVmManifest,
   createVmWithProxmox,
   loadCreateVmReviewModel,
+  normalizeTemplateOptions,
   previewCreateVmProxmox,
+  selectPreferredTemplate,
+  templateRequirementStatus,
+  validateTemplateSelection,
 } from '../utils/createVmFlow'
 
 const CHECK_LABELS = {
@@ -186,31 +190,6 @@ function normalizeNodeOptions(nodes = []) {
     : []
 }
 
-function normalizeTemplateOptions(templates = []) {
-  return Array.isArray(templates)
-    ? templates
-      .map((template) => {
-        const vmid = template.vmid ?? template.template_vmid
-        const nodeId = template.node_id || template.nodeId || ''
-        const templateId = template.template_id || template.templateId || template.name || ''
-        return {
-          key: nodeId && vmid ? `${nodeId}/${vmid}` : templateId,
-          templateId,
-          vmid,
-          nodeId,
-          name: template.name || templateId,
-          family: template.family || '',
-          cpu: Number(template.cpu ?? 0),
-          memoryMb: Number(template.memory_mb ?? template.memoryMb ?? 0),
-          diskGb: Number(template.disk_gb ?? template.diskGb ?? 0),
-          ready: template.cloud_init_ready !== false && template.guest_agent_ready !== false,
-        }
-      })
-      .filter((template) => template.key)
-      .sort((left, right) => `${left.nodeId}/${left.vmid}`.localeCompare(`${right.nodeId}/${right.vmid}`, undefined, { numeric: true }))
-    : []
-}
-
 function normalizeStorageOptions(storages = []) {
   return Array.isArray(storages)
     ? storages
@@ -252,9 +231,10 @@ function storageLabel(storage) {
   return [storage.id, storage.type, free].filter(Boolean).join(' · ')
 }
 
-function templateLabel(template) {
+function templateLabel(template, disabledReason = '') {
   const disk = template.diskGb > 0 ? `${template.diskGb} GB` : ''
-  return [template.name, `${template.nodeId}/${template.vmid}`, disk].filter(Boolean).join(' · ')
+  const label = [template.name, `${template.nodeId}/${template.vmid}`, disk].filter(Boolean).join(' · ')
+  return disabledReason ? `${label} - ${disabledReason}` : label
 }
 
 function profileDisplayName(profile) {
@@ -359,6 +339,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const storageOptions = useMemo(() => normalizeStorageOptions(options.storages), [options.storages])
   const allBridgeOptions = useMemo(() => normalizeBridgeOptions(options.networks), [options.networks])
   const profileOptions = useMemo(() => normalizeCreateVmProfiles(options.profiles), [options.profiles])
+  const selectedProfile = profileOptions.find((profile) => profile.profileId === form.profileId) || profileOptions[0]
   const nodeStorageOptions = useMemo(
     () => storageOptions.filter((storage) => storage.nodeId === form.targetNodeId && storage.content.includes('images') && storage.freeGb > 0),
     [storageOptions, form.targetNodeId],
@@ -368,8 +349,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     [allBridgeOptions, form.targetNodeId],
   )
   const selectedTemplateKey = form.templateKey || (form.templateNodeId && form.templateVmid ? `${form.templateNodeId}/${form.templateVmid}` : form.templateId)
-  const selectedTemplate = templateOptions.find((template) => template.key === selectedTemplateKey) || null
-  const selectedProfile = profileOptions.find((profile) => profile.profileId === form.profileId) || profileOptions[0]
+  const templateSelection = useMemo(
+    () => validateTemplateSelection(templateOptions, selectedProfile, selectedTemplateKey),
+    [templateOptions, selectedProfile, selectedTemplateKey],
+  )
   const hardwareLimits = selectedProfile?.hardware || {}
   const selectedBridge = bridgeOptions.find((bridge) => bridge.bridgeId === form.bridgeId) || null
   const selectedIpModeLabel = form.ipMode === 'dhcp' ? 'DHCP' : '고정 IP'
@@ -445,12 +428,20 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         next.targetNodeId = fallbackNode
         changed = true
       }
-      const template = templateOptions.find((item) => item.key === (next.templateKey || selectedTemplateKey)) || templateOptions[0]
-      if (template && !next.templateKey && !next.templateVmid && !next.templateId) {
+      const currentTemplateKey = next.templateKey || (next.templateNodeId && next.templateVmid ? `${next.templateNodeId}/${next.templateVmid}` : next.templateId)
+      const template = selectPreferredTemplate(templateOptions, selectedProfile, currentTemplateKey)
+      if (template && currentTemplateKey !== template.key) {
         next.templateKey = template.key
         next.templateId = template.templateId
         next.templateVmid = template.vmid
         next.templateNodeId = template.nodeId
+        changed = true
+      }
+      if (!template && (next.templateKey || next.templateVmid || next.templateId || next.templateNodeId)) {
+        next.templateKey = ''
+        next.templateId = ''
+        next.templateVmid = ''
+        next.templateNodeId = ''
         changed = true
       }
       const alignedHardware = hardwareForTemplate(next.hardware, template)
@@ -471,7 +462,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       if (changed) onConfigChange(next)
       return changed ? next : current
     })
-  }, [nodeOptions, templateOptions, storageOptions, allBridgeOptions, options.loading, onConfigChange, selectedTemplateKey])
+  }, [nodeOptions, templateOptions, storageOptions, allBridgeOptions, options.loading, onConfigChange, selectedProfile])
 
   const handleNodeChange = (nodeId) => {
     const bridge = selectPreferredBridge(allBridgeOptions, nodeId)
@@ -486,9 +477,14 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
 
   const handleProfileChange = (profileId) => {
     const profile = profileOptions.find((item) => item.profileId === profileId) || profileOptions[0]
+    const template = selectPreferredTemplate(templateOptions, profile, selectedTemplateKey)
     applyFormPatch({
       profileId,
-      hardware: resetHardwareForProfile(profile, selectedTemplate?.diskGb),
+      templateKey: template?.key || '',
+      templateId: template?.templateId || '',
+      templateVmid: template?.vmid || '',
+      templateNodeId: template?.nodeId || '',
+      hardware: resetHardwareForProfile(profile, template?.diskGb),
     })
   }
 
@@ -504,6 +500,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
 
   const handleTemplateChange = (templateKey) => {
     const template = templateOptions.find((item) => item.key === templateKey)
+    const status = templateRequirementStatus(template, selectedProfile)
+    if (!template || status.disabled) {
+      setError(status.reason ? `선택한 템플릿은 ${status.reason} 조건을 만족하지 않습니다.` : '요구사항을 만족하는 템플릿을 선택하세요.')
+      return
+    }
     applyFormPatch({
       templateKey,
       templateId: template?.templateId || '',
@@ -521,6 +522,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   }
 
   const runReview = async () => {
+    const selection = validateTemplateSelection(templateOptions, selectedProfile, selectedTemplateKey)
+    if (!selection.ok) {
+      setError(selection.reason)
+      return
+    }
     setLoading(true)
     setError(null)
     setApproval(null)
@@ -732,12 +738,19 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
             <span className="text-sm font-medium text-slate-700">템플릿</span>
             <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={selectedTemplateKey || ''} onChange={(event) => handleTemplateChange(event.target.value)}>
               {templateOptions.length === 0 && <option value="">템플릿 없음</option>}
-              {templateOptions.map((template) => (
-                <option key={template.key} value={template.key}>
-                  {templateLabel(template)}
-                </option>
-              ))}
+              {templateOptions.length > 0 && !templateSelection.options.some((template) => !template.disabled) && <option value="">요구사항 만족 템플릿 없음</option>}
+              {templateOptions.map((template) => {
+                const status = templateRequirementStatus(template, selectedProfile)
+                return (
+                  <option key={template.key} value={template.key} disabled={status.disabled}>
+                    {templateLabel(template, status.reason)}
+                  </option>
+                )
+              })}
             </select>
+            {!options.loading && templateSelection.reason && (
+              <span className="block text-xs font-medium text-red-600">{templateSelection.reason}</span>
+            )}
           </label>
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">스토리지</span>
@@ -779,7 +792,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={runReview} disabled={loading || options.loading} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="button" onClick={runReview} disabled={loading || options.loading || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
             검토 시작
           </button>

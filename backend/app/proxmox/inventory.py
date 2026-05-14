@@ -345,10 +345,35 @@ def _extract_tags(config_data: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _config_guest_agent_enabled(config_data: dict[str, Any]) -> bool:
+    if "agent" not in config_data:
+        return False
     raw = str(config_data.get("agent") or "").strip().lower()
     if not raw:
-        return True
-    return raw not in {"0", "false", "off", "disabled", "no"}
+        return False
+    true_values = {"1", "true", "on", "enabled", "yes"}
+    false_values = {"0", "false", "off", "disabled", "no"}
+    enabled = False
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        key, separator, value = token.partition("=")
+        if separator:
+            key = key.strip()
+            if key == "enabled":
+                normalized = value.strip()
+                if normalized in false_values:
+                    return False
+                if normalized in true_values:
+                    enabled = True
+                else:
+                    return False
+            continue
+        if token in false_values:
+            return False
+        if token in true_values:
+            enabled = True
+    return enabled
 
 
 def _config_cloud_init_ready(config_data: dict[str, Any]) -> bool:
@@ -664,8 +689,8 @@ class LiveProxmoxInventoryAdapter:
             node_id=node_id,
             storage_id=str(detail.get("storage_id") or "unknown"),
             family=_template_family(name),
-            cloud_init_ready=bool(detail.get("cloud_init_ready", True)),
-            guest_agent_ready=bool(detail.get("guest_agent_configured", True)),
+            cloud_init_ready=detail.get("cloud_init_ready") is True,
+            guest_agent_ready=detail.get("guest_agent_configured") is True,
             cpu=_safe_int(vm_row.get("cpus") or vm_row.get("cpu") or vm_row.get("cores")),
             memory_mb=_bytes_to_mb(vm_row.get("maxmem") or vm_row.get("mem") or vm_row.get("memory")),
             disk_gb=_safe_int(detail.get("disk_gb")),

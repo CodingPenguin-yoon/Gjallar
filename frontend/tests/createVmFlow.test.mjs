@@ -16,7 +16,11 @@ const {
   approveCreateVmReview,
   commitCreateVmManifest,
   createVmWithProxmox,
+  decorateTemplateOptionsForProfile,
+  normalizeTemplateOptions,
   previewCreateVmProxmox,
+  selectPreferredTemplate,
+  validateTemplateSelection,
 } = await importExpected('../src/utils/createVmFlow.js', 'Create VM native flow utility')
 
 const input = {
@@ -102,6 +106,46 @@ assert.deepEqual(buildCreateVmInputFromConfig({
   templateNodeId: '',
   templateKey: '',
 })
+
+const strictTemplateProfile = { templateRequirements: { requireCloudInit: true, requireQemuGuestAgent: true } }
+const relaxedTemplateProfile = { templateRequirements: { requireCloudInit: false, requireQemuGuestAgent: false } }
+const normalizedTemplates = normalizeTemplateOptions([
+  { template_id: 'ubuntu-no-cloudinit', vmid: 9001, node_id: 'node-a', name: 'ubuntu-no-cloudinit', cloud_init_ready: false, guest_agent_ready: true, disk_gb: 50 },
+  { template_id: 'ubuntu-no-agent', vmid: 9002, node_id: 'node-a', name: 'ubuntu-no-agent', cloud_init_ready: true, guest_agent_ready: false, disk_gb: 50 },
+  { template_id: 'ubuntu-ready', vmid: 9003, node_id: 'node-a', name: 'ubuntu-ready', cloud_init_ready: true, guest_agent_ready: true, disk_gb: 50 },
+  { template_id: 'ubuntu-unknown', vmid: 9004, node_id: 'node-a', name: 'ubuntu-unknown', disk_gb: 50 },
+])
+
+assert.equal(normalizedTemplates.length, 4, 'all live templates remain listed after normalization')
+assert.equal(normalizedTemplates.find((template) => template.templateId === 'ubuntu-ready').cloudInitReady, true)
+assert.equal(normalizedTemplates.find((template) => template.templateId === 'ubuntu-ready').guestAgentReady, true)
+assert.equal(normalizedTemplates.find((template) => template.templateId === 'ubuntu-unknown').cloudInitReady, false)
+assert.equal(normalizedTemplates.find((template) => template.templateId === 'ubuntu-unknown').guestAgentReady, false)
+
+const strictDecoratedTemplates = decorateTemplateOptionsForProfile(normalizedTemplates, strictTemplateProfile)
+assert.equal(strictDecoratedTemplates.length, 4, 'disabling templates must not remove them from the option list')
+assert.deepEqual(
+  strictDecoratedTemplates.find((template) => template.templateId === 'ubuntu-no-cloudinit').requirementFailures.map((failure) => failure.code),
+  ['cloud_init_required'],
+)
+assert.deepEqual(
+  strictDecoratedTemplates.find((template) => template.templateId === 'ubuntu-no-agent').requirementFailures.map((failure) => failure.code),
+  ['guest_agent_required'],
+)
+assert.equal(strictDecoratedTemplates.find((template) => template.templateId === 'ubuntu-ready').disabled, false)
+assert.equal(selectPreferredTemplate(normalizedTemplates, strictTemplateProfile, 'node-a/9001').templateId, 'ubuntu-ready')
+assert.equal(validateTemplateSelection(normalizedTemplates, strictTemplateProfile, 'node-a/9003').ok, true)
+
+const relaxedDecoratedTemplates = decorateTemplateOptionsForProfile(normalizedTemplates, relaxedTemplateProfile)
+assert.equal(relaxedDecoratedTemplates.find((template) => template.templateId === 'ubuntu-unknown').disabled, false)
+
+const allInvalidTemplateGuard = validateTemplateSelection(
+  normalizedTemplates.filter((template) => template.templateId !== 'ubuntu-ready'),
+  strictTemplateProfile,
+  '',
+)
+assert.equal(allInvalidTemplateGuard.ok, false)
+assert.match(allInvalidTemplateGuard.reason, /요구사항|템플릿/)
 
 const calls = []
 const fakeClient = {

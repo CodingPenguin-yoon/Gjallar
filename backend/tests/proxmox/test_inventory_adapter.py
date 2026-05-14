@@ -215,6 +215,91 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(303, adapter.suggest_next_vmid())
         self.assertEqual(1, call_counts["/cluster/nextid"])
 
+    def test_live_template_with_cloud_init_disk_but_no_agent_config_is_not_guest_agent_ready(self):
+        from app.proxmox.inventory import LiveProxmoxInventoryAdapter
+
+        payloads = {
+            "/nodes": [{"node": "node2", "status": "online", "maxcpu": 24, "cpu": 0.18, "mem": 1, "maxmem": 2}],
+            "/nodes/node2/qemu": [
+                {"vmid": 9001, "name": "ubuntu-cloudinit-no-agent", "status": "stopped", "template": 1, "cpus": 2, "maxmem": 2147483648},
+            ],
+            "/nodes/node2/storage": [
+                {"storage": "local-lvm", "type": "lvmthin", "total": 536870912000, "avail": 322122547200, "content": "images,rootdir"}
+            ],
+            "/nodes/node2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1}],
+            "/nodes/node2/qemu/9001/config": {
+                "scsi0": "local-lvm:vm-9001-disk-0,size=50G",
+                "ide2": "local-lvm:cloudinit",
+            },
+        }
+
+        def fake_get(path, *, timeout=None):
+            if path not in payloads:
+                raise AssertionError(f"unexpected path requested: {path}")
+            return payloads[path]
+
+        adapter = LiveProxmoxInventoryAdapter(
+            api_url="https://pve.example.invalid:8006/api2/json",
+            token_id="root@pam!inventory",
+            token_secret="top-secret",
+            request_get=fake_get,
+        )
+
+        templates = [template.to_dict() for template in adapter.list_templates()]
+
+        self.assertEqual([9001], [template["vmid"] for template in templates])
+        self.assertTrue(templates[0]["cloud_init_ready"])
+        self.assertFalse(templates[0]["guest_agent_ready"])
+
+    def test_live_template_guest_agent_config_requires_explicit_enabled_evidence(self):
+        from app.proxmox.inventory import LiveProxmoxInventoryAdapter
+
+        def guest_agent_ready(agent_config):
+            payloads = {
+                "/nodes": [{"node": "node2", "status": "online", "maxcpu": 24, "cpu": 0.18, "mem": 1, "maxmem": 2}],
+                "/nodes/node2/qemu": [
+                    {"vmid": 9002, "name": "ubuntu-cloudinit-agent-case", "status": "stopped", "template": 1, "cpus": 2, "maxmem": 2147483648},
+                ],
+                "/nodes/node2/storage": [
+                    {"storage": "local-lvm", "type": "lvmthin", "total": 536870912000, "avail": 322122547200, "content": "images,rootdir"}
+                ],
+                "/nodes/node2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1}],
+                "/nodes/node2/qemu/9002/config": {
+                    "scsi0": "local-lvm:vm-9002-disk-0,size=50G",
+                    "ide2": "local-lvm:cloudinit",
+                    "agent": agent_config,
+                },
+            }
+
+            def fake_get(path, *, timeout=None):
+                if path not in payloads:
+                    raise AssertionError(f"unexpected path requested: {path}")
+                return payloads[path]
+
+            adapter = LiveProxmoxInventoryAdapter(
+                api_url="https://pve.example.invalid:8006/api2/json",
+                token_id="root@pam!inventory",
+                token_secret="top-secret",
+                request_get=fake_get,
+            )
+            return adapter.list_templates()[0].guest_agent_ready
+
+        cases = {
+            "1": True,
+            "1,type=virtio": True,
+            "enabled=1": True,
+            "enabled=true,type=virtio": True,
+            "0": False,
+            "0,type=virtio": False,
+            "enabled=0": False,
+            "enabled=false": False,
+            "type=virtio": False,
+            "unknown-value": False,
+        }
+        for agent_config, expected in cases.items():
+            with self.subTest(agent_config=agent_config):
+                self.assertEqual(expected, guest_agent_ready(agent_config))
+
     @pytest.mark.live_inventory
     def test_adapter_exposes_no_mutating_proxmox_methods(self):
         from app.proxmox.inventory import get_default_inventory_adapter

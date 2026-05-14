@@ -61,6 +61,12 @@ Use `AGENTS.md` for execution mode:
   - static mode now requires explicit `static_ip`, `prefix`, and `gateway`
     across draft, preflight, plan, manifest, and native create preview/create
   - native create no longer infers `.1` gateway or `/24` prefix from static IP
+  - Create VM templates come from read-only Proxmox inventory through
+    `/api/v1/templates`; active selection does not use builtin template
+    catalog defaults
+  - all three initial profiles require cloud-init and qemu guest-agent capable
+    templates; the UI disables failing live templates and backend preflight
+    red-blocks selected templates that fail required capabilities
 - Terraform routes/helper/module/tests still exist as legacy code.
 
 ## Workstream A: Preserve Principles And Context
@@ -91,9 +97,9 @@ Planned slices:
 - [x] Add profile hardware default/min/max contract.
 - [x] Reset CPU/RAM/Disk to profile defaults when profile changes in UI.
 - [x] Enforce profile hardware min/max in UI and backend preflight.
-- [ ] Use Proxmox live template inventory as the template source of truth.
-- [ ] Disable UI templates that fail selected profile requirements.
-- [ ] Red-block backend preflight when selected template fails required
+- [x] Use Proxmox live template inventory as the template source of truth.
+- [x] Disable UI templates that fail selected profile requirements.
+- [x] Red-block backend preflight when selected template fails required
   cloud-init or qemu guest-agent checks.
 - [x] Remove Create VM dependency on `network_id`/`server-net`.
 - [x] Select target node first, then active live bridge for that node.
@@ -193,8 +199,7 @@ pnpm --dir frontend build
 
 Recommended next implementation slice:
 
-1. Expose the three target enabled seed profiles:
-   `general-vm`, `runtime-server`, `development-vm`.
-2. Add profile hardware default/min/max contract and reset UI hardware when the
-   selected profile changes.
-3. Keep Terraform legacy cleanup deferred until native-only contracts are locked.
+1. Add the Create VM Access section with username and SSH public key handling.
+2. Red-block missing SSH key only when the selected profile requires one.
+3. Keep password login fixed disabled for the initial profiles and leave
+   Terraform legacy cleanup deferred until native-only contracts are locked.

@@ -1,6 +1,6 @@
 # Gjallar Create VM Contract
 
-Last reviewed against code: 2026-05-13
+Last reviewed against code: 2026-05-14
 
 Current MVP product source of truth is [`docs/product/prd/drs-advisor/`](../../product/prd/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 
@@ -174,6 +174,13 @@ selected profile's cloud-init or qemu guest-agent requirements. Backend
 preflight re-checks and red-blocks failing templates even if the UI already
 disabled them.
 
+Current active selection uses `/api/v1/templates`, backed by read-only live or
+fake Proxmox inventory. Builtin template defaults are not an active Create VM
+selection source. Frontend normalization preserves separate `cloudInitReady`
+and `guestAgentReady` fields; missing capability evidence is not ready by
+default. In live Proxmox inventory, missing `agent` config reports
+`guest_agent_ready=false`.
+
 Template inventory includes hardware evidence:
 
 - `cpu`
@@ -198,8 +205,8 @@ Current checks include:
 - profile availability
 - profile hardware min/max
 - template availability and family match
-- template cloud-init readiness
-- template guest-agent readiness
+- template cloud-init readiness, red when the selected profile requires it
+- template guest-agent readiness, red when the selected profile requires it
 - template disk floor
 - target node online
 - storage availability and capacity
@@ -219,6 +226,11 @@ Target checks remove `network_id` as the Create VM source of truth and add:
 - static mode has `static_ip`, `prefix`, and `gateway`
 - required SSH key is present through request or configured default
 - password login remains disabled
+
+If a future profile has a template requirement set false, missing readiness may
+remain yellow/advisory. Unknown profiles stay red through `unknown_profile` and
+`disabled_profile`; preflight does not borrow fallback profile requirements for
+template capability severity when the requested profile is unknown.
 
 Red risks block approval and execution. Yellow risks require explicit operator
 acknowledgement where the approval contract allows it.
@@ -325,13 +337,15 @@ The current code still differs from the target profile/template/network design:
   source of truth
 - `general-vm`, `runtime-server`, and `development-vm` are current active
   enabled choices with hardware defaults/min/max
+- template source, UI disabled-state, auto-selection, and backend red gates now
+  follow selected profile cloud-init/qemu guest-agent requirements
 - current Create VM uses explicit `bridge_id` selected from target-node active
   live bridge inventory; incoming `network_id`/`networkId` is ignored and is
   not echoed in active outputs
 - current static networking requires explicit `static_ip`, `prefix`, and
   `gateway`
-- profile management UI, template catalog UI, and VM start action are not part
-  of the current implementation
+- Access UI, SSH key red gating, profile management UI, template catalog UI,
+  and VM start action are not part of the current implementation
 
 ## Explicit Non-Goals
 
@@ -369,4 +383,6 @@ Relevant frontend tests:
 node frontend/tests/createVmDefaults.test.mjs
 node frontend/tests/createVmFlow.test.mjs
 node frontend/tests/apiV1Client.test.mjs
+pnpm --dir frontend lint
+pnpm --dir frontend build
 ```

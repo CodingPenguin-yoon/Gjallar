@@ -174,6 +174,160 @@ networks:
         self.assertIn("disabled_profile", red_codes)
         self.assertEqual("unknown-profile", result.profile_id)
 
+    def test_preflight_red_blocks_required_cloud_init_missing_on_selected_template(self):
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import TemplateInventory
+
+        class MissingCloudInitAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self):
+                super().__init__()
+                self._templates = (
+                    TemplateInventory(
+                        template_id="ubuntu-no-cloudinit",
+                        vmid=9002,
+                        name="ubuntu-no-cloudinit",
+                        node_id="yoonmanserver2",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=False,
+                        guest_agent_ready=True,
+                        disk_gb=50,
+                    ),
+                )
+
+        draft = self._default_draft(static_ip="192.168.2.142", template_id="ubuntu-no-cloudinit")
+
+        result = self._preflight_with_adapter(draft, MissingCloudInitAdapter())
+
+        self.assertEqual("red", result.risk_level)
+        checks = {check.code: check for check in result.checks}
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertEqual("red", checks["template_cloud_init_ready"].level)
+        self.assertIn("template_cloud_init_unverified", red_codes)
+
+    def test_preflight_red_blocks_required_guest_agent_missing_on_selected_template(self):
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import TemplateInventory
+
+        class MissingGuestAgentAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self):
+                super().__init__()
+                self._templates = (
+                    TemplateInventory(
+                        template_id="ubuntu-no-agent",
+                        vmid=9003,
+                        name="ubuntu-no-agent",
+                        node_id="yoonmanserver2",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=True,
+                        guest_agent_ready=False,
+                        disk_gb=50,
+                    ),
+                )
+
+        draft = self._default_draft(static_ip="192.168.2.142", template_id="ubuntu-no-agent")
+
+        result = self._preflight_with_adapter(draft, MissingGuestAgentAdapter())
+
+        self.assertEqual("red", result.risk_level)
+        checks = {check.code: check for check in result.checks}
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertEqual("red", checks["template_guest_agent_ready"].level)
+        self.assertIn("template_guest_agent_unverified", red_codes)
+
+    def test_preflight_keeps_missing_template_readiness_yellow_when_future_profile_does_not_require_it(self):
+        from dataclasses import replace
+
+        from app.manifests.loader import load_builtin_profiles
+        from app.manifests.models import TemplateRequirements
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import TemplateInventory
+
+        class AdvisoryTemplateAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self):
+                super().__init__()
+                self._templates = (
+                    TemplateInventory(
+                        template_id="ubuntu-advisory-template",
+                        vmid=9004,
+                        name="ubuntu-advisory-template",
+                        node_id="yoonmanserver2",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=False,
+                        guest_agent_ready=False,
+                        disk_gb=50,
+                    ),
+                )
+
+        profiles = [
+            replace(
+                profile,
+                template_requirements=TemplateRequirements(
+                    require_cloud_init=False,
+                    require_qemu_guest_agent=False,
+                ),
+            )
+            if profile.profile_id == "general-vm"
+            else profile
+            for profile in load_builtin_profiles()
+        ]
+        draft = self._default_draft(static_ip="192.168.2.142", template_id="ubuntu-advisory-template")
+
+        with patch("app.vm_create.preflight.load_builtin_profiles", return_value=profiles):
+            result = self._preflight_with_adapter(draft, AdvisoryTemplateAdapter())
+
+        self.assertEqual("yellow", result.risk_level)
+        checks = {check.code: check for check in result.checks}
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        yellow_codes = {risk.code for risk in result.risks if risk.level == "yellow"}
+        self.assertEqual("yellow", checks["template_cloud_init_ready"].level)
+        self.assertEqual("yellow", checks["template_guest_agent_ready"].level)
+        self.assertNotIn("template_cloud_init_unverified", red_codes)
+        self.assertNotIn("template_guest_agent_unverified", red_codes)
+        self.assertIn("template_cloud_init_unverified", yellow_codes)
+        self.assertIn("template_guest_agent_unverified", yellow_codes)
+
+    def test_unknown_profile_does_not_borrow_template_requirements_for_red_template_checks(self):
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import TemplateInventory
+
+        class MissingCapabilityAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self):
+                super().__init__()
+                self._templates = (
+                    TemplateInventory(
+                        template_id="ubuntu-unknown-capability",
+                        vmid=9005,
+                        name="ubuntu-unknown-capability",
+                        node_id="yoonmanserver2",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=False,
+                        guest_agent_ready=False,
+                        disk_gb=50,
+                    ),
+                )
+
+        draft = self._default_draft(
+            profile_id="unknown-profile",
+            static_ip="192.168.2.142",
+            template_id="ubuntu-unknown-capability",
+        )
+
+        result = self._preflight_with_adapter(draft, MissingCapabilityAdapter())
+
+        self.assertEqual("red", result.risk_level)
+        checks = {check.code: check for check in result.checks}
+        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
+        self.assertIn("unknown_profile", red_codes)
+        self.assertIn("disabled_profile", red_codes)
+        self.assertNotIn("template_cloud_init_unverified", red_codes)
+        self.assertNotIn("template_guest_agent_unverified", red_codes)
+        self.assertEqual("yellow", checks["template_cloud_init_ready"].level)
+        self.assertEqual("yellow", checks["template_guest_agent_ready"].level)
+
     def test_preflight_red_blocks_profile_hardware_outside_limits(self):
         cases = {
             "cpu": ({"cpu": 9}, "profile_cpu_out_of_range"),

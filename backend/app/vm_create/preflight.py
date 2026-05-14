@@ -101,6 +101,15 @@ def _profile_limits_dict(profile) -> dict:
     return profile.hardware.to_dict()
 
 
+def _template_requirement_level(profile, requirement_name: str) -> str:
+    if profile is None:
+        return "yellow"
+    requirements = getattr(profile, "template_requirements", None)
+    if requirements is None:
+        return "yellow"
+    return "red" if getattr(requirements, requirement_name, False) else "yellow"
+
+
 def _check_hardware_range(
     checks: list[PreflightCheck],
     risks: list[RiskItem],
@@ -222,7 +231,7 @@ def run_preflight(
             ok=template.cloud_init_ready,
             message="template cloud-init readiness is verified",
             fail_code="template_cloud_init_unverified",
-            fail_level="yellow",
+            fail_level=_template_requirement_level(profile, "require_cloud_init"),
             detail={"template_id": template.template_id, "template_vmid": template.vmid},
         )
         _check(
@@ -232,7 +241,7 @@ def run_preflight(
             ok=template.guest_agent_ready,
             message="template guest-agent readiness is verified",
             fail_code="template_guest_agent_unverified",
-            fail_level="yellow",
+            fail_level=_template_requirement_level(profile, "require_qemu_guest_agent"),
             detail={"template_id": template.template_id, "template_vmid": template.vmid},
         )
         template_disk_gb = int(template.disk_gb or 0)

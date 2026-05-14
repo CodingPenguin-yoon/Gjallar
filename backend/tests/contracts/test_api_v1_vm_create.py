@@ -236,6 +236,51 @@ networks:
         self.assertNotIn("networkId", rendered)
         self.assertNotIn("evil-net", rendered)
 
+    def test_preflight_api_returns_red_for_selected_live_template_missing_required_capability(self):
+        from app.proxmox.inventory import FakeProxmoxInventoryAdapter
+        from app.proxmox.models import TemplateInventory
+
+        class MissingCapabilityAdapter(FakeProxmoxInventoryAdapter):
+            def __init__(self):
+                super().__init__()
+                self._templates = (
+                    TemplateInventory(
+                        template_id="ubuntu-api-no-agent",
+                        vmid=9006,
+                        name="ubuntu-api-no-agent",
+                        node_id="yoonmanserver2",
+                        storage_id="local-lvm",
+                        family="ubuntu",
+                        cloud_init_ready=True,
+                        guest_agent_ready=False,
+                        disk_gb=50,
+                    ),
+                )
+
+        payload = {
+            "operator_id": "api-template-test",
+            "job_id": "job-api-template-requirements",
+            "profile_id": "general-vm",
+            "target_node_id": "yoonmanserver2",
+            "bridge_id": "vmbr0",
+            "static_ip": "192.168.2.150",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
+            "template_id": "ubuntu-api-no-agent",
+            "template_vmid": 9006,
+            "template_node_id": "yoonmanserver2",
+        }
+
+        with patch.object(self.api_v1_router, "_inventory_adapter", return_value=MissingCapabilityAdapter()):
+            preflight_response = asyncio.run(
+                self.api_v1_router.preflight_vm_draft("draft-job-api-template-requirements", payload)
+            )
+
+        self.assertTrue(preflight_response["ok"])
+        self.assertEqual("red", preflight_response["data"]["risk_level"])
+        red_codes = {risk["code"] for risk in preflight_response["data"]["risks"] if risk["level"] == "red"}
+        self.assertIn("template_guest_agent_unverified", red_codes)
+
     def test_unknown_profile_red_blocks_preflight_without_rewriting_profile_id(self):
         payload = {
             "operator_id": "api-profile-test",

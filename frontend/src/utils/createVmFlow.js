@@ -66,6 +66,107 @@ function risksFromPlan(plan = {}) {
   return [...red, ...yellow]
 }
 
+function readinessReady(value) {
+  return value === true
+}
+
+function normalizeTemplateRequirements(profile = {}) {
+  const requirements = profile.template_requirements || profile.templateRequirements || {}
+  return {
+    requireCloudInit: requirements.require_cloud_init ?? requirements.requireCloudInit ?? true,
+    requireQemuGuestAgent: requirements.require_qemu_guest_agent ?? requirements.requireQemuGuestAgent ?? true,
+  }
+}
+
+export function normalizeTemplateOptions(templates = []) {
+  return Array.isArray(templates)
+    ? templates
+      .map((template) => {
+        const vmid = template.vmid ?? template.template_vmid
+        const nodeId = template.node_id || template.nodeId || ''
+        const templateId = template.template_id || template.templateId || template.name || ''
+        const cloudInitReady = readinessReady(template.cloud_init_ready ?? template.cloudInitReady)
+        const guestAgentReady = readinessReady(template.guest_agent_ready ?? template.guestAgentReady)
+        return {
+          key: nodeId && vmid ? `${nodeId}/${vmid}` : templateId,
+          templateId,
+          vmid,
+          nodeId,
+          name: template.name || templateId,
+          family: template.family || '',
+          cpu: Number(template.cpu ?? 0),
+          memoryMb: Number(template.memory_mb ?? template.memoryMb ?? 0),
+          diskGb: Number(template.disk_gb ?? template.diskGb ?? 0),
+          cloudInitReady,
+          guestAgentReady,
+          ready: cloudInitReady && guestAgentReady,
+        }
+      })
+      .filter((template) => template.key)
+      .sort((left, right) => `${left.nodeId}/${left.vmid}`.localeCompare(`${right.nodeId}/${right.vmid}`, undefined, { numeric: true }))
+    : []
+}
+
+export function templateRequirementFailures(template, profile = {}) {
+  const requirements = normalizeTemplateRequirements(profile)
+  const failures = []
+  if (requirements.requireCloudInit && template?.cloudInitReady !== true) {
+    failures.push({ code: 'cloud_init_required', label: 'cloud-init 필요' })
+  }
+  if (requirements.requireQemuGuestAgent && template?.guestAgentReady !== true) {
+    failures.push({ code: 'guest_agent_required', label: 'guest-agent 필요' })
+  }
+  return failures
+}
+
+export function templateRequirementStatus(template, profile = {}) {
+  const failures = templateRequirementFailures(template, profile)
+  return {
+    disabled: failures.length > 0,
+    passes: failures.length === 0,
+    failures,
+    reason: failures.map((failure) => failure.label).join(', '),
+  }
+}
+
+export function decorateTemplateOptionsForProfile(templates = [], profile = {}) {
+  return (Array.isArray(templates) ? templates : []).map((template) => {
+    const status = templateRequirementStatus(template, profile)
+    return {
+      ...template,
+      disabled: status.disabled,
+      disabledReason: status.reason,
+      requirementFailures: status.failures,
+    }
+  })
+}
+
+export function selectPreferredTemplate(templates = [], profile = {}, currentKey = '') {
+  const decorated = decorateTemplateOptionsForProfile(templates, profile)
+  const current = decorated.find((template) => template.key === currentKey)
+  if (current && !current.disabled) return current
+  return decorated.find((template) => !template.disabled) || null
+}
+
+export function validateTemplateSelection(templates = [], profile = {}, selectedKey = '') {
+  const decorated = decorateTemplateOptionsForProfile(templates, profile)
+  const passing = decorated.filter((template) => !template.disabled)
+  const selected = decorated.find((template) => template.key === selectedKey) || null
+  if (!decorated.length) {
+    return { ok: false, reason: '템플릿 인벤토리가 비어 있습니다.', selected: null, options: decorated }
+  }
+  if (!passing.length) {
+    return { ok: false, reason: '선택한 프로필 요구사항을 만족하는 템플릿이 없습니다.', selected: null, options: decorated }
+  }
+  if (!selected) {
+    return { ok: false, reason: '요구사항을 만족하는 템플릿을 선택하세요.', selected: null, options: decorated }
+  }
+  if (selected.disabled) {
+    return { ok: false, reason: `선택한 템플릿은 ${selected.disabledReason} 조건을 만족하지 않습니다.`, selected, options: decorated }
+  }
+  return { ok: true, reason: '', selected, options: decorated }
+}
+
 export function buildCreateVmPayload(input = {}) {
   return pickDefined([
     ['operator_id', input.operatorId ?? input.operator_id],

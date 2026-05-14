@@ -1,6 +1,6 @@
 # Create VM Profile, Template, And Network Design
 
-Last updated: 2026-05-13
+Last updated: 2026-05-14
 
 This document is the target design for the Create VM profile, template, and
 network selection model. It is not a statement that all behavior is implemented
@@ -96,6 +96,8 @@ Profiles do not include:
 - Template capability checks for the initial profiles:
   - cloud-init capable
   - qemu guest agent expected/enabled
+- Missing or unknown capability evidence is not treated as ready. In live
+  Proxmox inventory, missing `agent` config means `guest_agent_ready=false`.
 - Template disk size remains evidence for disk floor checks. Requested disk size
   cannot be smaller than the selected template disk.
 
@@ -413,9 +415,19 @@ As of 2026-05-14, current code partially matches this target design.
   from `static_ip`; it uses explicit operator input.
 - Current Network tab policy support may remain as current/legacy functionality,
   but it is not the target Create VM network source of truth.
-- Current template handling already uses live Proxmox inventory in important
-  paths, but the target "no Gjallar template catalog or registration window"
-  rule should be preserved as implementation continues.
+- Current template handling uses read-only Proxmox inventory from
+  `/api/v1/templates` as the active template selection source. Builtin template
+  defaults are not used for active Create VM selection.
+- Current UI keeps all live templates listed, disables templates that fail the
+  selected profile's cloud-init or qemu guest-agent requirements, and blocks
+  review when no passing template is selected.
+- Current backend preflight red-blocks selected templates that fail required
+  cloud-init or qemu guest-agent readiness. If a future profile marks a
+  requirement false, missing readiness remains advisory/yellow; unknown
+  profiles stay red through profile checks without borrowing fallback profile
+  requirements.
+- Access UI, SSH key collection, missing-key red blocks, and password-login
+  gating remain target/future work.
 
 ## Implementation Checklist
 
@@ -427,9 +439,12 @@ As of 2026-05-14, current code partially matches this target design.
 4. Update Create VM form state so profile changes reset CPU/RAM/Disk to
    defaults.
 5. Enforce hardware min/max in UI and backend preflight.
-6. Load templates from live Proxmox inventory only.
+6. Load templates from live Proxmox inventory only. Implemented for the active
+   selection path through `/api/v1/templates`.
 7. Disable UI template options that fail selected profile requirements.
-8. Re-check template requirements in backend preflight.
+   Implemented.
+8. Re-check template requirements in backend preflight. Implemented with
+   profile-derived red severity for required capabilities.
 9. Remove target Create VM dependency on `network_id`/`server-net`.
 10. After target node selection, load active live bridge options for that node.
 11. Add target static network fields: `static_ip`, `prefix`, and `gateway`.

@@ -2,7 +2,7 @@
 
 평가일: 2026-05-14
 
-검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 120 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-14에 backend `PYTHONPATH=backend python3 -m pytest -q backend/tests` -> 127 passed, frontend `node --test frontend/tests/*.mjs` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -57,6 +57,15 @@ reset한 뒤 선택 template disk가 더 크면 disk만 올린다. Backend prefl
 검증한다. Plan/review/review-summary checksum에는 `profile_id`와 resolved
 profile hardware limits가 포함된다.
 
+Template 선택은 `/api/v1/templates`의 read-only Proxmox inventory만 사용한다.
+초기 세 profile은 모두 cloud-init과 qemu guest-agent capable template을
+요구한다. Wizard는 live template을 모두 보여주되 선택 profile requirements를
+통과하지 못하는 option을 disabled reason과 함께 비활성화하고, passing
+template이 없으면 review 시작을 막는다. Backend preflight는 authoritative
+gate로 selected template의 required cloud-init 또는 guest-agent readiness
+부족을 red risk로 반환한다. Live inventory에서 Proxmox `agent` config가
+없거나 unknown이면 guest-agent-ready로 보지 않는다.
+
 ## Profile / Template / Network target gap
 
 Target design은
@@ -67,8 +76,11 @@ Target design은
 - Target seeded enabled profiles는 `general-vm`, `runtime-server`, `development-vm`이다.
 - Current code는 DB seed가 아니라 transitional `static_seed` profile source를
   사용하지만, 세 initial profile 모두 active Create VM choice다.
-- Target template source of truth는 Proxmox live inventory이며, Gjallar template catalog/registration window는 없다.
-- Target UI는 선택 profile의 `require_cloud_init=true`, `require_qemu_guest_agent=true` 조건을 만족하지 못하는 live template을 disabled로 보여주고, backend preflight가 red-block한다.
+- Template source of truth는 Proxmox live inventory이며, Gjallar template
+  catalog/registration window는 active selection에 없다.
+- Current UI는 선택 profile의 `require_cloud_init=true`,
+  `require_qemu_guest_agent=true` 조건을 만족하지 못하는 live template을
+  disabled로 보여주고, backend preflight가 red-block한다.
 - Target network source of truth는 selected target node의 active live bridge다.
 - Current code는 selected target node의 active live bridge를 source of truth로
   사용한다. `bridge_id`가 없거나 target node에서 missing/inactive이면 red
@@ -94,7 +106,6 @@ Create VM의 approval/artifact/GitOps/native acknowledgement/observed_after 패�
 
 ## 다음 구현 slice
 
-Create VM 다음 slice는 template requirement disabled-state와 backend red gate,
-또는 Access/SSH-key contract 정렬이다. DRS 작업에서는 approval checksum,
-artifact publication, job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*`
-read model과 final pre-check 계약을 먼저 만든다.
+Create VM 다음 slice는 Access/SSH-key contract 정렬이다. DRS 작업에서는
+approval checksum, artifact publication, job status 기록 패턴만 참고하고,
+별도 `/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.
