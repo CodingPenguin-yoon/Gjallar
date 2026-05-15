@@ -1,0 +1,86 @@
+# Current API V1
+
+> 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
+
+기준 문서: [영어 Current API V1](../../../architecture/api/current-api-v1.md), [Current implemented state](../../../current/README.md), [VM provisioning contract](../../../architecture/VM_PROVISIONING_CONTRACT.md).
+
+이 문서는 현재 `/api/v1` route가 무엇을 하는지, backend에서 어떻게 구현되는지, frontend의 어떤 함수가 호출하는지 설명합니다. Active route table은 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/router.py)와 [backend/app/main.py](../../../../backend/app/main.py)가 기준입니다.
+
+## 응답 envelope와 client
+
+성공 응답은 보통 다음 형태입니다.
+
+```json
+{
+  "ok": true,
+  "data": {},
+  "meta": {}
+}
+```
+
+Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)의 `createApiV1Client()`입니다. 이 client는 `unwrapApiV1Envelope()`로 성공 envelope를 풀고, HTTP error에서는 FastAPI `detail` object와 error body를 모두 처리합니다.
+
+## Root와 health
+
+| Route | Backend 함수 | 하는 일 | Frontend 사용 |
+|---|---|---|---|
+| `GET /` | `root()` in [backend/app/main.py](../../../../backend/app/main.py) | 서비스 root metadata를 반환합니다. | Primary app data client가 쓰는 `/api/v1` 화면 API는 아닙니다. |
+| `GET /health` | `health()` in [backend/app/main.py](../../../../backend/app/main.py) | health check 용도입니다. | 배포/운영 확인용입니다. |
+
+## Inventory와 summary APIs
+
+| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
+|---|---|---|---|---|
+| `GET /api/v1/cluster/summary` | `cluster_summary()` | `_inventory_adapter()`로 adapter를 만들고 cluster/node/vm/template count와 mode metadata를 반환합니다. | `apiV1Client.clusterSummary()`; Dashboard와 `loadPlacementModel()` | Read-only. DRS 15분 average/peak나 blocker authority가 아닙니다. |
+| `GET /api/v1/nodes` | `list_nodes()` | inventory adapter의 node snapshot을 envelope로 반환합니다. | `listNodes()`; Dashboard, Infra Explorer, Create VM options, Placement | Read-only. node load는 실행 gate가 아니라 evidence입니다. |
+| `GET /api/v1/vms` | `list_vms()` | template 제외 VM inventory를 반환합니다. | `listVms()`; Dashboard, Infra Explorer, Placement | Read-only. DB identity/fingerprint match는 현재 없습니다. |
+| `GET /api/v1/vms/{vmid}` | `get_vm(vmid)` | inventory adapter lookup by VMID. 없으면 404입니다. | `getVm(vmid)` helper | VMID는 identity가 아니라 locator입니다. |
+| `GET /api/v1/templates` | `list_templates()` | Proxmox template inventory를 반환합니다. | `listTemplates()`; Create VM options | Current active template selection source입니다. Missing readiness evidence는 ready가 아닙니다. |
+| `GET /api/v1/storage` | `list_storage()` | storage candidates를 inventory에서 반환합니다. | `listStorage()`; Dashboard, Create VM, Placement | Read-only. Create VM UI는 selected node, `images` content, free capacity로 필터링합니다. |
+| `GET /api/v1/networks` | `list_networks()` | bridge inventory를 반환합니다. | `listNetworks()`; Dashboard, Create VM, Placement | Read-only. Create VM은 selected target node의 active bridge를 사용합니다. |
+
+## Create VM option/readiness APIs
+
+| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
+|---|---|---|---|---|
+| `GET /api/v1/profiles` | `list_profiles()` | `backend/app/manifests/loader.py`의 transitional `static_seed` profile 세 개를 반환합니다. | `listProfiles()`; `CreateInstanceWizard` | Read-only. Current profiles는 `general-vm`, `runtime-server`, `development-vm`입니다. DB seed는 future입니다. |
+| `GET /api/v1/vm-create/readiness` | `get_vm_create_readiness()` | `run_iac_readiness()`로 shared root, IaC root, write allowlist, Git repo readiness를 확인합니다. | `getVmCreateReadiness()`; `loadCreateVmReviewModel()` | Read-only. Proxmox mutation 없음. |
+
+## Network policy APIs
+
+| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
+|---|---|---|---|---|
+| `GET /api/v1/networks/policy` | `get_network_policy()` | live bridge inventory와 IaC `manifests/networks/network-profiles.yaml`을 합쳐 policy view를 만듭니다. | `getNetworkPolicy()`; `NetworkPolicyScreen` | Read-only. Create VM source of truth가 아닙니다. |
+| `PUT /api/v1/networks/policy` | `put_network_policy(payload)` | policy payload를 정규화하고 IaC root 아래 policy file에 저장합니다. Git repo이면 local commit을 시도할 수 있습니다. | `saveNetworkPolicy()`; `NetworkPolicyScreen` | IaC file write side effect가 있습니다. Proxmox bridge 생성/삭제/수정은 하지 않습니다. |
+
+## Jobs와 risks APIs
+
+| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
+|---|---|---|---|---|
+| `GET /api/v1/jobs` | `list_jobs()` | `GJALLAR_RUNS_ROOT/*/job_status.json`을 latest-state summary로 읽습니다. | `listJobs()`; Dashboard, Placement, Jobs/Runs | Read-only. runs root glob 실패 시 fail-open `[]`입니다. |
+| `GET /api/v1/jobs/{job_id}` | `get_job(job_id)` | `_job_entry_or_404()`로 job status를 읽습니다. | `getJob()`; `loadJobsScreenModel()` | Read-only. 없으면 404입니다. |
+| `GET /api/v1/jobs/{job_id}/artifacts` | `list_job_artifacts(job_id)` | job status의 artifact metadata list를 반환합니다. | `listJobArtifacts()`; `loadJobsScreenModel()` | File content를 stream하지 않습니다. |
+| `GET /api/v1/risks` | `list_risks()` | job status의 `risks` 배열을 펼쳐 risk rows로 반환합니다. | `listRisks()`; Dashboard, Placement, Risks/Alerts | Current risks는 job-derived projection입니다. Standalone DRS blocker engine이 아닙니다. |
+
+## Create VM mutation-adjacent APIs
+
+아래 API는 Create VM job/artifact/manifests를 쓰거나, 마지막 단계에서 Proxmox를 mutate할 수 있습니다. 모든 handler는 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/router.py)에 있습니다.
+
+| Endpoint | Backend handler와 주요 함수 | Frontend caller | 현재 의미 |
+|---|---|---|---|
+| `POST /api/v1/vm-create/drafts` | `create_vm_draft()` -> `_api_draft_from_payload()` -> `build_default_vm_draft()` -> `resolve_ssh_public_key()`, `adapter.suggest_next_vmid()`, `record_job_run()` | `createVmDraft()` via `loadCreateVmReviewModel()` | Request payload를 정규화하고 server-side draft를 만듭니다. Draft job status를 기록하지만 Proxmox mutation은 없습니다. |
+| `POST /api/v1/vm-create/{draft_id}/preflight` | `preflight_vm_draft()` -> `_api_draft_from_payload()` -> `run_preflight()` -> inventory adapter, `run_iac_readiness()` | `preflightVmDraft()` | Profile/template/node/storage/bridge/IP/IaC/access checks를 실행합니다. Red risk는 approval/create를 막습니다. |
+| `POST /api/v1/vm-create/{draft_id}/plan` | `plan_vm_draft()` -> `build_vm_create_plan()` | `planVmDraft()` | `preflight_report`, `plan`, `vm_instance_manifest`, `planned_git_diff`, `review_summary` artifacts를 씁니다. Live Proxmox mutation 없음. |
+| `POST /api/v1/vm-create/{draft_id}/approve` | `approve_vm_draft()` -> `validate_approval_request()` | `approveVmDraft()` via `approveCreateVmReview()` | Exact `plan_artifact_id`, `review_summary_checksum`, yellow acknowledgement를 검증합니다. Approval validation only입니다. |
+| `POST /api/v1/vm-create/{draft_id}/proxmox-preview` | `preview_vm_draft_proxmox_create()` -> `validate_approval_request()` -> `build_proxmox_create_preview()` -> `clone_payload_from_plan()`, `config_payload_from_plan()` | `previewVmDraftProxmox()` via `previewCreateVmProxmox()` | Approval-gated non-mutating native create preview입니다. Preview artifact를 씁니다. |
+| `POST /api/v1/vm-create/{draft_id}/proxmox-create` | `create_vm_draft_proxmox_native()` -> approval gate -> red risk gate -> manifest commit verification -> `update_plan_manifest_status()` -> `run_proxmox_create()` | `createVmDraftProxmox()` via `createVmWithProxmox()` | 현재 active live Proxmox VM creation path입니다. `manifest_commit_sha`와 `proxmox_mutation_acknowledged=true`가 필요합니다. |
+| `POST /api/v1/vm-create/{draft_id}/execute` | `execute_vm_draft()` -> `commit_plan_manifest()` | `commitVmDraftManifest()` via `commitCreateVmManifest()` | Manifest commit only입니다. Proxmox mutation을 하지 않습니다. |
+| `POST /api/v1/vm-create/{draft_id}/archive` | `archive_vm_draft_manifest()` -> `archive_plan_manifest()` | Primary `apiV1.js` client는 expose하지 않습니다. | Unapplied manifest archive path입니다. `archive_acknowledged=true`가 필요합니다. |
+
+## Frontend API client coverage
+
+[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, network policy, jobs, risks, readiness, draft/preflight/plan/approve, native preview, manifest commit, native create를 expose합니다. Archive는 backend route가 있지만 current primary client가 expose하지 않습니다.
+
+## 현재 없는 DRS APIs
+
+현재 `/api/v1/drs/*` route는 없습니다. Target 후보는 [target-drs-api.md](target-drs-api.md)에 future-only로 정리되어 있습니다. Current `/placement`는 기존 inventory/jobs/risks API를 조합하는 frontend-only read model입니다.

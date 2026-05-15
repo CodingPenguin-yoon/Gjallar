@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+from urllib.parse import unquote
 
 
 def test_drop_candidate_legacy_domains_are_not_active_import_packages():
@@ -117,7 +118,7 @@ def test_korean_non_index_docs_declare_source_documents():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent
     ko_docs_root = repo_root / "docs/ko"
-    pages = sorted(path for path in ko_docs_root.glob("*.md") if path.name != "README.md")
+    pages = sorted(path for path in ko_docs_root.rglob("*.md") if path.name != "README.md")
 
     assert pages, "Expected Korean reader-facing docs under docs/ko"
 
@@ -128,3 +129,143 @@ def test_korean_non_index_docs_declare_source_documents():
     ]
 
     assert offenders == [], "Korean docs must declare 기준 문서: " + repr(offenders)
+
+
+def _markdown_link_targets(text: str) -> list[str]:
+    pattern = re.compile(r"!?\[[^\]]+\]\(([^)\n]+)\)")
+    targets: list[str] = []
+    for match in pattern.finditer(text):
+        raw_target = match.group(1).strip()
+        if not raw_target:
+            continue
+        if raw_target.startswith("<"):
+            end = raw_target.find(">")
+            if end == -1:
+                targets.append(raw_target)
+                continue
+            targets.append(raw_target[1:end].strip())
+            continue
+        targets.append(raw_target.split()[0])
+    return targets
+
+
+def _is_external_link(target: str) -> bool:
+    lowered = target.lower()
+    return lowered.startswith(
+        (
+            "http://",
+            "https://",
+            "mailto:",
+            "tel:",
+            "data:",
+            "javascript:",
+        )
+    )
+
+
+def _contains_nested_docs_ko(path: Path) -> bool:
+    parts = path.parts
+    for index in range(len(parts) - 3):
+        if parts[index : index + 4] == ("docs", "ko", "docs", "ko"):
+            return True
+    return False
+
+
+def _heading_slugs(markdown: str) -> set[str]:
+    slugs: set[str] = set()
+    counts: dict[str, int] = {}
+    for line in markdown.splitlines():
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if not match:
+            continue
+        title = re.sub(r"\s+#+\s*$", "", match.group(2)).strip()
+        title = re.sub(r"`([^`]*)`", r"\1", title)
+        slug = title.lower()
+        slug = re.sub(r"[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ.-]", "", slug)
+        slug = re.sub(r"\s+", "-", slug).strip("-")
+        if not slug:
+            continue
+        count = counts.get(slug, 0)
+        counts[slug] = count + 1
+        slugs.add(slug if count == 0 else f"{slug}-{count}")
+    return slugs
+
+
+def test_korean_docs_do_not_nest_docs_ko_paths_or_links():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+    ko_docs_root = repo_root / "docs/ko"
+
+    nested_paths = [
+        str(path.relative_to(repo_root))
+        for path in ko_docs_root.rglob("*")
+        if _contains_nested_docs_ko(path.relative_to(repo_root))
+    ]
+
+    assert nested_paths == [], "Korean docs must not contain nested docs/ko paths: " + repr(nested_paths)
+
+    nested_links: list[str] = []
+    for path in sorted(ko_docs_root.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for target in _markdown_link_targets(text):
+            if _is_external_link(target) or target.startswith("#"):
+                continue
+            href, _, _fragment = target.partition("#")
+            href = unquote(href)
+            if not href:
+                resolved = path
+            elif href.startswith("/"):
+                resolved = repo_root / href.lstrip("/")
+            else:
+                resolved = (path.parent / href).resolve()
+            try:
+                relative = resolved.relative_to(repo_root)
+            except ValueError:
+                continue
+            if _contains_nested_docs_ko(relative):
+                nested_links.append(f"{path.relative_to(repo_root)} -> {target}")
+
+    assert nested_links == [], "Korean docs must not link to nested docs/ko paths: " + repr(nested_links)
+
+
+def test_korean_docs_relative_markdown_links_resolve_locally():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+    ko_docs_root = repo_root / "docs/ko"
+
+    missing: list[str] = []
+    bad_anchors: list[str] = []
+    outside_repo: list[str] = []
+
+    for path in sorted(ko_docs_root.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for target in _markdown_link_targets(text):
+            if _is_external_link(target):
+                continue
+            href, has_fragment, fragment = target.partition("#")
+            href = unquote(href)
+            if not href:
+                resolved = path
+            elif href.startswith("/"):
+                resolved = repo_root / href.lstrip("/")
+            else:
+                resolved = (path.parent / href).resolve()
+
+            try:
+                relative = resolved.relative_to(repo_root)
+            except ValueError:
+                outside_repo.append(f"{path.relative_to(repo_root)} -> {target}")
+                continue
+
+            if not resolved.exists():
+                missing.append(f"{path.relative_to(repo_root)} -> {target} ({relative})")
+                continue
+
+            if has_fragment and fragment and resolved.is_file() and resolved.suffix == ".md":
+                slugs = _heading_slugs(resolved.read_text(encoding="utf-8"))
+                if unquote(fragment).lower() not in slugs:
+                    bad_anchors.append(f"{path.relative_to(repo_root)} -> {target}")
+
+    assert outside_repo == [], "Korean docs relative links must stay in repo: " + repr(outside_repo)
+    assert missing == [], "Korean docs relative links must resolve: " + repr(missing)
+    assert bad_anchors == [], "Korean docs markdown anchors must resolve: " + repr(bad_anchors)
