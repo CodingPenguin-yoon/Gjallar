@@ -25,12 +25,13 @@ React operator UI
     -> read-only Proxmox inventory adapter
     -> IaC-backed network policy helpers
     -> Create VM draft/preflight/plan/approval helpers
-    -> file-backed Jobs/Runs and risk summaries
+    -> DB-backed Jobs/Runs and risk summaries
     -> gated Proxmox native clone/resize/config/post-check helpers
+    -> gated existing-VM start helper
 ```
 
 The safe baseline is read-only. Any live Create VM side effect is behind
-exact approval metadata, manifest commit verification, and Proxmox mutation acknowledgement gates.
+exact approval metadata and Proxmox mutation acknowledgement gates. Existing-VM start is separate from Create VM and is gated by explicit acknowledgement, idempotency, fresh inventory precheck, Proxmox task polling, and running post-check.
 
 ## Frontend
 
@@ -41,10 +42,10 @@ Active routes:
 
 | Route | Component | Purpose |
 |---|---|---|
-| `/` | `Dashboard` in `App.jsx` | Cluster summary from inventory, jobs, and risks. Uses partial-load behavior so NFS-backed job history failures do not blank the first screen. |
-| `/infra` | `InstanceList` | Read-only grouped VM inventory and detail evidence. |
+| `/` | `Dashboard` in `App.jsx` | Cluster summary from inventory, jobs, and risks. Uses partial-load behavior so job/risk read failures do not blank the first screen. |
+| `/infra` | `InstanceList` | Grouped VM inventory, detail evidence, and Start action for stopped non-template VMs. |
 | `/networks` | `NetworkPolicyScreen` | Bridge inventory plus IaC network policy view and guarded policy write. |
-| `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, manifest commit, Proxmox native preview/create gates. |
+| `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Proxmox native preview/create gates. |
 | `/placement` | `PlacementScreen` | Read-only placement recommendations from inventory, storage, bridge, job, and risk evidence. |
 | `/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
 | `/risks` | `OperationalRiskDashboard` | Read-only risk summaries derived from job records. |
@@ -83,12 +84,13 @@ Active backend modules:
 |---|---|
 | `app/api/v1/router.py` | API route composition, response envelopes, job progress recording, and gate orchestration. |
 | `app/proxmox/inventory.py` | Live read-only Proxmox inventory with fake fallback and safe connection context redaction. This module must not gain mutation methods. |
-| `app/proxmox/client.py` | Explicit native Proxmox mutation client for Create VM clone/resize/config/status calls. Reuses the inventory env but is imported only by gated mutation paths. |
+| `app/proxmox/client.py` | Explicit native Proxmox mutation client for Create VM clone/resize/config/status and VM start calls. Reuses the inventory env but is imported only by gated mutation paths. |
 | `app/proxmox/models.py` | Inventory dataclasses for nodes, VMs, templates, storage, and networks. |
 | `app/manifests/*` | Built-in VM profile and manifest schema defaults. |
 | `app/network_policy.py` | IaC-backed network policy load/save and bridge-policy view composition. |
-| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest, GitOps, IaC readiness, and native Proxmox runner helpers. |
-| `app/jobs/*` | File-backed job status, artifacts, approval records, and risk source data. |
+| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest evidence, IaC readiness, and native Proxmox runner helpers. |
+| `app/vm_actions/*` | Existing-VM action helpers that remain separate from Create VM and read-only inventory. |
+| `app/jobs/*` | DB-backed job status, artifacts, approval records, and risk source data. |
 | `app/core/redaction.py` | Secret redaction for responses, artifacts, and persisted job details. |
 
 ## API Surface
@@ -108,6 +110,7 @@ GET /api/v1/jobs
 GET /api/v1/jobs/{job_id}
 GET /api/v1/jobs/{job_id}/artifacts
 GET /api/v1/risks
+POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start
 ```
 
 Create VM:
@@ -121,12 +124,10 @@ POST /api/v1/vm-create/{draft_id}/plan
 POST /api/v1/vm-create/{draft_id}/approve
 POST /api/v1/vm-create/{draft_id}/proxmox-preview
 POST /api/v1/vm-create/{draft_id}/proxmox-create
-POST /api/v1/vm-create/{draft_id}/execute
-POST /api/v1/vm-create/{draft_id}/archive
 ```
 
 `PUT /api/v1/networks/policy` is the current policy write path. Create VM
-execution writes artifacts/manifests only after the relevant approval gates pass.
+execution writes DB-backed artifacts and request/VM records after the relevant approval gates pass.
 `terraform-plan` and `terraform-apply` have been removed from the active API; the active UI uses `proxmox-preview` and `proxmox-create`.
 
 Target DRS Advisor API candidates are documented in [`../product/drs-advisor/05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) and [`../product/legacy-prd/12_UI_API_CONTRACT.md`](../product/legacy-prd/12_UI_API_CONTRACT.md). They are not current implementation.
@@ -155,14 +156,14 @@ selection model is being updated as follows:
 - Gateway is explicit operator input. Create VM must not infer a `.1` gateway
   from the requested static IP.
 - Create success remains stopped/powered off by global create policy. VM start
-  is future Infra Explorer row action work with Jobs/Runs audit.
+  is a separate Infra Explorer row action with Jobs/Runs audit.
 
-Current implementation gap: profiles are transitional read-only `static_seed`
-data rather than DB seed rows, and template requirement disabled-state/access
-SSH key gates are still future slices. The active path now exposes the three
-initial enabled profiles, records selected `profile_id` in plan/review evidence,
-uses explicit `bridge_id` plus `static_ip`/`prefix`/`gateway`, and does not echo
-incoming `network_id`/`networkId`.
+Current implementation note: profiles are DB-seeded read-only rows with no
+profile management UI yet. The active path exposes the three initial enabled
+profiles, records selected `profile_id` in plan/review evidence, enforces
+template requirements and access SSH key gates, uses explicit `bridge_id` plus
+`static_ip`/`prefix`/`gateway`, and does not echo incoming
+`network_id`/`networkId`.
 
 ## Main Data Flows
 
@@ -175,9 +176,9 @@ Dashboard
   -> operator summary and node table
 ```
 
-The dashboard uses partial-load behavior. If `/jobs` or `/risks` cannot read an
-NFS-backed `GJALLAR_RUNS_ROOT`, available inventory still renders and the UI
-shows a yellow partial-failure notice.
+The dashboard uses partial-load behavior. If `/jobs` or `/risks` cannot read
+job/risk data, available inventory still renders and the UI shows a yellow
+partial-failure notice.
 
 ### Read-Only Inventory
 
@@ -195,13 +196,14 @@ adapter methods in the active inventory path.
 ### Jobs And Risks
 
 ```text
-Create VM route records job progress
-  -> app.jobs.runs writes job_status.json under GJALLAR_RUNS_ROOT
+Create VM and VM start routes record job progress
+  -> app.jobs.runs writes latest state to job_runs
+  -> app.jobs.artifacts writes payloads/metadata to job_artifacts
   -> /jobs reads summaries
   -> /risks derives risk rows from stored job risks
 ```
 
-If the runs root is unavailable, list reads fail open with an empty list so
+If the job DB read is unavailable, list reads fail open with an empty list so
 read-only screens remain available.
 
 ### Native Create VM
@@ -210,7 +212,6 @@ read-only screens remain available.
 CreateInstanceWizard
   -> createVmFlow.loadCreateVmReviewModel()
   -> draft -> preflight -> plan -> approve
-  -> execute_vm_draft() commits VMInstance manifest only
   -> preview_vm_draft_proxmox_create() writes non-mutating native preview artifact
   -> create_vm_draft_proxmox_native()
      -> run_proxmox_create()
@@ -220,9 +221,26 @@ CreateInstanceWizard
         -> set powered-off config
         -> read status/current and config
         -> write observed_after fingerprint artifact
+        -> record vm_create_requests and vm_instances rows
 ```
 
 Success requires Proxmox actual state, not planned state: requested disk resize must be unnecessary or completed, the VM must exist on the target node, `status/current` must report `stopped`, and an `observed_after` artifact with fingerprint hash must exist. Task failure, unknown cloned disk size, resize failure, VM missing, or powered-on observation marks the manifest `apply_failed` or `needs_reconciliation` and does not mark it `applied`.
+
+### Infra Explorer VM Start
+
+```text
+InstanceList
+  -> apiV1Client.startVm(node_id, vmid, acknowledgement/idempotency/context)
+  -> start_vm_action()
+     -> fresh inventory precheck for exact node/vmid stopped non-template VM
+     -> ProxmoxMutationClient.start_vm()
+     -> wait_for_task()
+     -> get_vm_status()
+     -> write vm_start_observed_after DB artifact
+     -> record vm_start job stages
+```
+
+Success requires Proxmox task `exitstatus=OK` and observed-after `status=running`. Missing/moved/template/non-stopped inventory blocks before mutation. Duplicate idempotency keys return the existing job/result without issuing another Proxmox start.
 
 ### Network Policy
 
@@ -245,7 +263,7 @@ added later as recommendations or validation evidence.
 Current MVP exclusions:
 
 - No legacy `/api/provision` active flow.
-- No independent existing-VM power, stop, reset, delete, snapshot, or rollback controls.
+- No existing-VM stop, reset, delete, snapshot, rollback, or broad power controls. Start is the only current existing-VM action and is gated to stopped non-template VMs.
 - No app deploy, arbitrary package bootstrap, DB migration, or raw shell flow.
 - No GitLab/staging registry writes.
 - No LLM/chat product route.
@@ -255,8 +273,9 @@ Current MVP exclusions:
   Create VM selection model.
 
 The current Create VM policy is powered-off only. Native Proxmox create may clone/configure
-the VM after explicit acknowledgement, but first power-on and Stage A smoke are
-separate deferred stages.
+the VM after explicit acknowledgement, but it never auto-starts. First power-on
+is the separate Infra Explorer start action, and Stage A smoke remains a
+deferred stage.
 
 ## Runtime Configuration
 
@@ -269,11 +288,11 @@ Important environment variables:
 | `PROXMOX_API_TOKEN_ID` | Live Proxmox token id. |
 | `PROXMOX_API_TOKEN_SECRET` | Live Proxmox token secret. Must never be persisted or returned. |
 | `PROXMOX_TLS_INSECURE` | Reused by live inventory and native mutation clients. |
-| `PROXMOX_TASK_POLL_INTERVAL_SECONDS` / `GJALLAR_PROXMOX_TASK_POLL_INTERVAL_SECONDS` | Native Create VM clone task polling interval. |
-| `PROXMOX_TASK_TIMEOUT_SECONDS` / `GJALLAR_PROXMOX_TASK_TIMEOUT_SECONDS` | Native Create VM clone task timeout. |
-| `GJALLAR_SHARED_ROOT` | Shared root for default IaC root resolution. |
-| `GJALLAR_IAC_ROOT` | Explicit IaC repo root override. |
-| `GJALLAR_RUNS_ROOT` | File-backed Jobs/Runs status root. |
+| `PROXMOX_TASK_POLL_INTERVAL_SECONDS` / `GJALLAR_PROXMOX_TASK_POLL_INTERVAL_SECONDS` | Native Proxmox task polling interval for Create VM and VM start. |
+| `PROXMOX_TASK_TIMEOUT_SECONDS` / `GJALLAR_PROXMOX_TASK_TIMEOUT_SECONDS` | Native Proxmox task timeout for Create VM and VM start. |
+| `GJALLAR_DATABASE_URL` | SQLAlchemy/Alembic DB URL for profiles, jobs, artifacts, Create VM requests, and created VM records. |
+| `GJALLAR_SHARED_ROOT` | Legacy shared root for default IaC root resolution. |
+| `GJALLAR_IAC_ROOT` | Explicit legacy IaC repo root override for NetworkPolicy compatibility. |
 
 ## Verification
 

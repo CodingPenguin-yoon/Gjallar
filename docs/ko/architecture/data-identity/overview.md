@@ -13,22 +13,22 @@
 | Actual VM existence/location/power | Proxmox |
 | Actual node status/load | Proxmox inventory adapter |
 | Actual storage/network inventory | Proxmox inventory adapter |
-| Create VM intent | Gjallar IaC manifest |
-| Create VM approval evidence | Gjallar artifacts/job details |
+| Create VM intent | Gjallar DB request record |
+| Create VM approval evidence | Gjallar DB artifacts/job details |
 | Network policy | Gjallar IaC policy file |
-| Jobs/Runs | Gjallar job status files |
+| Jobs/Runs | Gjallar DB job records |
 | Risks/Alerts | Gjallar job risks projection |
 | DRS identity/fingerprint/policy | Target future Gjallar DB, not implemented |
 
-## Current file-backed parts
+## Current Gjallar-owned persistence
 
-Job status and artifacts live under `GJALLAR_RUNS_ROOT`. VMInstance manifests live under IaC root `manifests/vms/`. Archived manifests live under `manifests/archive/vms/`. Network policy lives under `manifests/networks/network-profiles.yaml`.
+Job status and artifacts live in `job_runs` and `job_artifacts`. Native Create VM request/result and created VM summaries live in `vm_create_requests` and `vm_instances`. Network policy lives under IaC root `manifests/networks/network-profiles.yaml`.
 
 Writers redact secrets before persistence.
 
 ## Current Create VM fingerprint
 
-Native create writes `observed_after.json` with fingerprint hash from `smbios1`, `vmgenid`, MAC addresses, and disk volume ids. This is job artifact evidence, not DB identity.
+Native create writes an `observed_after` DB artifact with fingerprint hash from `smbios1`, `vmgenid`, MAC addresses, and disk volume ids. For native Create VM-created VMs this evidence is also copied into `vm_instances`, but it is not yet a generalized DRS identity layer.
 
 ## VMID locator rule
 
@@ -36,4 +36,4 @@ VMID alone is not a durable Gjallar identity. DRS target must combine VMID with 
 
 ## Target DB/identity gap
 
-DRS target needs VM identity, Proxmox locator, fingerprint assertion, classification metadata, placement policy, approval record, operation lock, operation/reconciliation records. Current code has none of these as DRS DB tables.
+DRS target needs generalized VM identity, Proxmox locator, fingerprint assertion, classification metadata, placement policy, approval record, operation lock, operation/reconciliation records. Current code only has the Create VM-created VM slice in DB, not DRS DB tables.

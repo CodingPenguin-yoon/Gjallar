@@ -18,9 +18,9 @@ Backend는 [backend/app/jobs/runs.py](../../../../backend/app/jobs/runs.py), [ba
 
 ## 구현 방식
 
-각 job은 `GJALLAR_RUNS_ROOT/<safe_job_id>/job_status.json` 최신 상태 파일로 표현됩니다. `record_job_run()`은 status, stage, progress, artifacts, risks, redacted details를 씁니다. Artifact API는 file content가 아니라 id/type/path/checksum/created time 같은 metadata를 반환합니다.
+각 job은 `job_runs` 최신 상태 row로 표현됩니다. `record_job_run()`은 status, stage, progress, artifacts, risks, redacted details를 씁니다. Artifact content와 metadata는 `job_artifacts`에 저장되고, Artifact API는 file content가 아니라 id/type/checksum/storage backend/created time 같은 metadata를 반환합니다. UI는 로컬 파일 경로를 노출하지 않습니다.
 
-현재 Create VM stage는 `draft`, `preflight`, `plan`, `approval`, `workspace`, `commit`, `create`입니다.
+현재 Create VM stage는 `draft`, `preflight`, `plan`, `approval`, `create`입니다.
 
 ## 현재 하지 않는 일
 

@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, FileText, FolderGit2, KeyRound, Loader2, Network, Rocket, Server, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, KeyRound, Loader2, Network, Rocket, Server, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile } from '../utils/createVmDefaults'
 import {
   approveCreateVmReview,
   buildCreateVmInputFromConfig,
-  commitCreateVmManifest,
   createVmWithProxmox,
   loadCreateVmReviewModel,
   normalizeTemplateOptions,
-  previewCreateVmProxmox,
   selectPreferredTemplate,
   templateRequirementStatus,
   validateTemplateSelection,
@@ -89,16 +87,15 @@ function SummaryTile({ label, value, icon: Icon }) {
   )
 }
 
-function StepIndicator({ model, approval, proxmoxPreviewResult, commitResult, createResult }) {
+function StepIndicator({ model, approval, createResult }) {
   const steps = [
     { label: '요청 입력', done: true, active: !model },
     { label: '검토', done: Boolean(model), active: Boolean(model) && !approval },
-    { label: '승인', done: Boolean(approval?.canApprove), active: Boolean(approval) && !proxmoxPreviewResult && !commitResult && !createResult },
-    { label: '최종 확인', done: Boolean(proxmoxPreviewResult || commitResult), active: Boolean(proxmoxPreviewResult || commitResult) && !createResult },
+    { label: '승인', done: Boolean(approval?.canApprove), active: Boolean(approval) && !createResult },
     { label: 'Native 생성', done: Boolean(createResult), active: Boolean(createResult) },
   ]
   return (
-    <div className="grid gap-2 sm:grid-cols-5">
+    <div className="grid gap-2 sm:grid-cols-4">
       {steps.map((step, index) => (
         <div
           key={step.label}
@@ -132,26 +129,6 @@ function riskLabel(level) {
   if (level === 'yellow') return '확인 필요'
   if (level === 'red') return '차단'
   return '대기'
-}
-
-function manifestPhaseLabel(phase) {
-  if (phase === 'pending') return '대기'
-  if (phase === 'planned') return '검토됨'
-  if (phase === 'applying') return '생성 중'
-  if (phase === 'apply_failed') return '생성 실패'
-  if (phase === 'needs_reconciliation') return '확인 필요'
-  if (phase === 'applied') return '생성 완료'
-  if (phase === 'archived') return '보관됨'
-  return phase || '대기'
-}
-
-function toneForManifestPhase(phase) {
-  if (phase === 'applied') return 'green'
-  if (phase === 'apply_failed') return 'red'
-  if (phase === 'needs_reconciliation') return 'yellow'
-  if (phase === 'applying' || phase === 'planned') return 'blue'
-  if (phase === 'archived') return 'slate'
-  return 'yellow'
 }
 
 function checkLabel(code) {
@@ -315,15 +292,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const [form, setForm] = useState(() => buildInitialForm(config))
   const [model, setModel] = useState(null)
   const [approval, setApproval] = useState(null)
-  const [proxmoxPreviewResult, setProxmoxPreviewResult] = useState(null)
-  const [commitResult, setCommitResult] = useState(null)
   const [createResult, setCreateResult] = useState(null)
   const [yellowRiskAcknowledged, setYellowRiskAcknowledged] = useState(false)
   const [proxmoxMutationAcknowledged, setProxmoxMutationAcknowledged] = useState(false)
   const [loading, setLoading] = useState(false)
   const [approving, setApproving] = useState(false)
-  const [previewingProxmox, setPreviewingProxmox] = useState(false)
-  const [committing, setCommitting] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
   const [options, setOptions] = useState({
@@ -332,6 +305,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     storages: [],
     networks: [],
     profiles: buildCreateVmDefaults().profileOptions,
+    profilesReady: false,
+    profileError: null,
     loading: true,
     error: null,
   })
@@ -346,6 +321,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const storageOptions = useMemo(() => normalizeStorageOptions(options.storages), [options.storages])
   const allBridgeOptions = useMemo(() => normalizeBridgeOptions(options.networks), [options.networks])
   const profileOptions = useMemo(() => normalizeCreateVmProfiles(options.profiles), [options.profiles])
+  const profilesReady = options.profilesReady === true && profileOptions.length > 0
   const selectedProfile = profileOptions.find((profile) => profile.profileId === form.profileId) || profileOptions[0]
   const nodeStorageOptions = useMemo(
     () => storageOptions.filter((storage) => storage.nodeId === form.targetNodeId && storage.content.includes('images') && storage.freeGb > 0),
@@ -392,17 +368,30 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       ])
       if (cancelled) return
       const inventoryFailures = [nodes, templates, storages, networks].filter((result) => result.status === 'rejected')
-      const profileValues = profiles.status === 'fulfilled'
-        ? normalizeCreateVmProfiles(profiles.value)
-        : buildCreateVmDefaults().profileOptions
+      let profileValues = []
+      let profilesReady = false
+      let profileError = null
+      if (profiles.status === 'fulfilled') {
+        profileValues = normalizeCreateVmProfiles(profiles.value)
+        profilesReady = profileValues.length > 0
+        if (!profilesReady) {
+          profileValues = buildCreateVmDefaults().profileOptions
+          profileError = 'Create VM profile API returned no active profiles.'
+        }
+      } else {
+        profileValues = buildCreateVmDefaults().profileOptions
+        profileError = profiles.reason?.message || 'Create VM profile API is unavailable.'
+      }
       setOptions({
         nodes: nodes.status === 'fulfilled' ? nodes.value : [],
         templates: templates.status === 'fulfilled' ? templates.value : [],
         storages: storages.status === 'fulfilled' ? storages.value : [],
         networks: networks.status === 'fulfilled' ? networks.value : [],
         profiles: profileValues,
+        profilesReady,
+        profileError,
         loading: false,
-        error: inventoryFailures[0]?.reason?.message || null,
+        error: profileError || inventoryFailures[0]?.reason?.message || null,
       })
     }
     loadOptions()
@@ -419,8 +408,6 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     })
     setModel(null)
     setApproval(null)
-    setProxmoxPreviewResult(null)
-    setCommitResult(null)
     setCreateResult(null)
     setError(null)
   }
@@ -535,6 +522,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   }
 
   const runReview = async () => {
+    if (!profilesReady) {
+      setError(options.profileError || 'Create VM profiles are unavailable.')
+      return
+    }
     const selection = validateTemplateSelection(templateOptions, selectedProfile, selectedTemplateKey)
     if (!selection.ok) {
       setError(selection.reason)
@@ -543,8 +534,6 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     setLoading(true)
     setError(null)
     setApproval(null)
-    setProxmoxPreviewResult(null)
-    setCommitResult(null)
     setCreateResult(null)
     setProxmoxMutationAcknowledged(false)
     try {
@@ -573,46 +562,13 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     }
   }
 
-  const previewProxmoxCreate = async () => {
-    if (!approval?.canApprove || !model?.review?.canPreviewProxmox) return
-    setPreviewingProxmox(true)
-    setError(null)
-    try {
-      const result = await previewCreateVmProxmox(apiV1Client, model, {
-        yellowRiskAcknowledged,
-      })
-      setProxmoxPreviewResult(result)
-    } catch (err) {
-      setError(err?.message || 'Proxmox native 생성 미리보기에 실패했습니다.')
-      setProxmoxPreviewResult(null)
-    } finally {
-      setPreviewingProxmox(false)
-    }
-  }
-
-  const commitManifest = async () => {
-    if (!approval?.canApprove || !model?.review?.canCommitManifest) return
-    setCommitting(true)
-    setError(null)
-    try {
-      const result = await commitCreateVmManifest(apiV1Client, model, { yellowRiskAcknowledged })
-      setCommitResult(result)
-    } catch (err) {
-      setError(err?.message || '생성 요청 커밋에 실패했습니다.')
-      setCommitResult(null)
-    } finally {
-      setCommitting(false)
-    }
-  }
-
   const createWithProxmox = async () => {
-    if (!approval?.canApprove || !model?.review?.canCreateProxmox || !commitResult?.commitSha) return
+    if (!approval?.canApprove || !model?.review?.canCreateProxmox) return
     setCreating(true)
     setError(null)
     const jobId = model?.draft?.jobId || form.jobId
     const createPromise = createVmWithProxmox(apiV1Client, model, {
       yellowRiskAcknowledged,
-      manifestCommitSha: commitResult.commitSha,
       proxmoxMutationAcknowledged,
     })
     navigate(`/jobs?job=${encodeURIComponent(jobId)}`)
@@ -621,15 +577,16 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       setCreateResult(result)
     } catch (err) {
       setError(err?.message || 'Proxmox native VM 생성에 실패했습니다.')
-      const status = err?.details?.manifest_status
       const observed = err?.details?.proxmox_create?.observed_after
-      setCreateResult(status ? {
-        status: status.phase || 'apply_failed',
+      const proxmoxCreate = err?.details?.proxmox_create
+      setCreateResult(proxmoxCreate ? {
+        status: proxmoxCreate.status || 'apply_failed',
         tone: 'red',
-        manifestStatus: status,
         observedAfter: observed || null,
-        observedAfterPath: err?.details?.proxmox_create?.observed_after_artifact?.path || '',
-        operatorMessage: 'VM 생성 확인 실패 상태가 기록되었습니다.',
+        observedAfterArtifactId: proxmoxCreate?.observed_after_artifact?.artifact_id || proxmoxCreate?.observed_after_artifact?.id || '',
+        observedAfterPath: '',
+        fingerprintHash: observed?.fingerprint?.hash || '',
+        operatorMessage: 'VM 생성 확인이 완료되지 않았습니다.',
       } : null)
     } finally {
       setCreating(false)
@@ -656,7 +613,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         </div>
 
         <div className="mt-5">
-          <StepIndicator model={model} approval={approval} proxmoxPreviewResult={proxmoxPreviewResult} commitResult={commitResult} createResult={createResult} />
+          <StepIndicator model={model} approval={approval} createResult={createResult} />
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -829,7 +786,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={runReview} disabled={loading || options.loading || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="button" onClick={runReview} disabled={loading || options.loading || !profilesReady || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
             검토 시작
           </button>
@@ -897,14 +854,14 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
             <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <FolderGit2 className="h-5 w-5 text-slate-600" />
-                  <h3 className="font-semibold text-slate-950">생성 준비 상태</h3>
+                  <Rocket className="h-5 w-5 text-slate-600" />
+                  <h3 className="font-semibold text-slate-950">생성 준비</h3>
                 </div>
-                <StatusPill tone={toneForRiskLevel(model.readiness?.riskLevel)}>{riskLabel(model.readiness?.riskLevel)}</StatusPill>
+                <StatusPill tone={model.review.canCreateProxmox ? 'green' : 'yellow'}>{model.review.canCreateProxmox ? '가능' : '확인 필요'}</StatusPill>
               </div>
-              <DetailRow label="코드 저장소" value={model.readiness?.readyForExecute ? '준비됨' : '확인 필요'} />
-              <DetailRow label="Native 생성" value={model.review.canCreateProxmox ? '가능' : '요청 저장 필요'} />
-              <DetailRow label="요청 저장 위치" value={model.review.iacRoot} />
+              <DetailRow label="생성 방식" value="Proxmox native create" />
+              <DetailRow label="실행 조건" value={model.review.canCreateProxmox ? '승인 후 생성 가능' : '검토 항목 확인 필요'} />
+              <DetailRow label="첫 부팅" value="생성 후 별도 시작" />
             </section>
 
             <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -919,19 +876,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 검토 내용 승인
               </button>
-              <button type="button" onClick={previewProxmoxCreate} disabled={!approval?.canApprove || !model.review.canPreviewProxmox || previewingProxmox} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
-                {previewingProxmox ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                생성 최종 확인
-              </button>
-              <button type="button" onClick={commitManifest} disabled={!approval?.canApprove || !model.review.canCommitManifest || committing} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
-                {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderGit2 className="h-4 w-4" />}
-                생성 요청 저장
-              </button>
               <label className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800">
                 <input type="checkbox" className="mt-1" checked={proxmoxMutationAcknowledged} onChange={(event) => setProxmoxMutationAcknowledged(event.target.checked)} />
                 Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.
               </label>
-              <button type="button" onClick={createWithProxmox} disabled={!approval?.canApprove || !model.review.canCreateProxmox || !commitResult?.commitSha || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" onClick={createWithProxmox} disabled={!approval?.canApprove || !model.review.canCreateProxmox || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
                 Proxmox native create
               </button>
@@ -940,28 +889,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                   {approval.operatorMessage}
                 </div>
               )}
-              {proxmoxPreviewResult && (
-                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-                  <div>{proxmoxPreviewResult.operatorMessage}</div>
-                  <div className="mt-1 break-all text-xs text-blue-600">{proxmoxPreviewResult.clone?.endpoint}</div>
-                </div>
-              )}
-              {commitResult && (
-                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
-                  <div>{commitResult.operatorMessage}</div>
-                  {commitResult.manifestStatus?.phase && (
-                    <div className="mt-2"><StatusPill tone={toneForManifestPhase(commitResult.manifestStatus.phase)}>상태: {manifestPhaseLabel(commitResult.manifestStatus.phase)}</StatusPill></div>
-                  )}
-                  <div className="mt-1 break-all text-xs text-green-600">{commitResult.commitSha}</div>
-                </div>
-              )}
               {createResult && (
                 <div className={`mt-3 rounded-lg border p-3 text-sm ${createResult.status === 'applied' ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
                   <div>{createResult.operatorMessage}</div>
-                  {createResult.manifestStatus?.phase && (
-                    <div className="mt-2"><StatusPill tone={toneForManifestPhase(createResult.manifestStatus.phase)}>상태: {manifestPhaseLabel(createResult.manifestStatus.phase)}</StatusPill></div>
-                  )}
-                  <div className={`mt-1 break-all text-xs ${createResult.status === 'applied' ? 'text-green-600' : 'text-yellow-700'}`}>{createResult.observedAfterPath || createResult.fingerprintHash}</div>
+                  <div className={`mt-1 break-all text-xs ${createResult.status === 'applied' ? 'text-green-600' : 'text-yellow-700'}`}>{createResult.fingerprintHash || createResult.observedAfterArtifactId}</div>
                 </div>
               )}
             </section>

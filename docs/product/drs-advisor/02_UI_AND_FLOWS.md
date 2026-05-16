@@ -178,7 +178,7 @@ Confirm modal 필수 표시:
 - selected job의 progress steps와 artifact links를 보여준다.
 - live statuses는 2.5초 polling한다.
 - retry/cancel/live-run/VM mutation control은 없다.
-- backend job run은 file-backed `job_status.json`으로 저장된다.
+- backend job run은 DB-backed `job_runs`/`job_artifacts`로 저장된다.
 
 DRS Advisor 목표:
 
@@ -255,7 +255,6 @@ Create VM 화면은 보조 capability로 유지한다.
 - yellow risk acknowledgement
 - artifact-backed plan/review
 - job progress display
-- GitOps manifest status
 - Proxmox native mutation acknowledgement
 
 DRS Advisor는 Create VM UI를 우회하지 않는다.

@@ -17,10 +17,12 @@ function asNumber(value, fallback = 0) {
 }
 
 function normalizeArtifact(source = {}) {
+  const storageBackend = asText(source.storage_backend ?? source.storageBackend, 'db')
   return {
     id: asText(source.artifact_id ?? source.id ?? source.name, 'unknown'),
     kind: asText(source.kind ?? source.type, 'artifact'),
     path: asText(source.path ?? source.href ?? source.url, '-'),
+    storageBackend,
     sizeBytes: asNumber(source.size_bytes ?? source.sizeBytes, 0),
     checksum: source.sha256 ?? source.checksum ?? null,
     readOnly: true,

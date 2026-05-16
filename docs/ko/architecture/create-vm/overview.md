@@ -16,7 +16,7 @@ Create VM은 `/create` route입니다. 목적은 운영자가 profile, template,
 | Flow helpers | [frontend/src/utils/createVmFlow.js](../../../../frontend/src/utils/createVmFlow.js) |
 | API client | [frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js) |
 
-Frontend는 options를 로드한 뒤 `loadCreateVmReviewModel()`로 readiness, draft, preflight, plan을 호출합니다. Approval 후 `commitCreateVmManifest()`, `previewCreateVmProxmox()`, `createVmWithProxmox()`가 각각 execute, preview, native create를 호출합니다.
+Frontend는 options를 로드한 뒤 `loadCreateVmReviewModel()`로 readiness, draft, preflight, plan을 호출합니다. Approval 후에는 선택적으로 preview를 만들 수 있고, final acknowledgement 뒤 `createVmWithProxmox()`가 native create를 호출합니다.
 
 ## Current backend modules
 
@@ -28,7 +28,6 @@ Frontend는 options를 로드한 뒤 `loadCreateVmReviewModel()`로 readiness, d
 | [backend/app/vm_create/preflight.py](../../../../backend/app/vm_create/preflight.py) | Read-only checks. |
 | [backend/app/vm_create/planner.py](../../../../backend/app/vm_create/planner.py) | Artifact-backed plan/review. |
 | [backend/app/vm_create/approval.py](../../../../backend/app/vm_create/approval.py) | Exact approval metadata validation. |
-| [backend/app/vm_create/gitops.py](../../../../backend/app/vm_create/gitops.py) | Manifest commit, verify, status update, archive. |
 | [backend/app/vm_create/proxmox_runner.py](../../../../backend/app/vm_create/proxmox_runner.py) | Native preview/create runner. |
 | [backend/app/proxmox/client.py](../../../../backend/app/proxmox/client.py) | Proxmox mutation client for Create VM only. |
 
@@ -54,12 +53,11 @@ NetworkPolicy는 current Create VM source of truth가 아닙니다.
 | Options load | component `useEffect` | nodes/templates/storage/networks/profiles | Read-only options. |
 | Review start | `loadCreateVmReviewModel()` | readiness -> draft -> preflight -> plan | job/artifacts, no Proxmox mutation. |
 | Approval | `approveCreateVmReview()` | `POST /approve` | exact metadata validation. |
-| Manifest commit | `commitCreateVmManifest()` | `POST /execute` | manifest commit only. |
 | Native preview | `previewCreateVmProxmox()` | `POST /proxmox-preview` | preview artifact only. |
 | Native create | `createVmWithProxmox()` | `POST /proxmox-create` | live Proxmox clone/resize/config/post-check. |
 
 ## Current success and gaps
 
-Success는 stopped VM 생성입니다. First power-on, cloud-init smoke, guest-agent discovery, SSH, Ansible, app deploy, DRS identity registration은 deferred입니다.
+Success는 stopped VM 생성입니다. Create VM은 자동 start하지 않습니다. First power-on은 별도 Infra Explorer Start action이며, cloud-init smoke, guest-agent discovery, SSH, Ansible, app deploy, DRS identity registration은 deferred입니다.
 
-DB-seeded profiles, background reconciliation service, future Infra Explorer start action, DRS identity reuse는 아직 구현되지 않았습니다.
+Background reconciliation service와 DRS identity reuse는 아직 구현되지 않았습니다.

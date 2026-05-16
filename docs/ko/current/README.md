@@ -15,8 +15,8 @@
 
 ## 현재 baseline
 
-Gjallar의 현재 baseline은 read-only Proxmox inventory, Dashboard aggregation, Infra Explorer, Networks bridge/policy view, read-only Placement, Jobs/Runs, Risks/Alerts, 그리고 Create VM supporting capability입니다.
+Gjallar의 현재 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks bridge/policy view, read-only Placement, Jobs/Runs, Risks/Alerts, 그리고 Create VM supporting capability입니다.
 
 DRS Advisor는 목표 제품 방향입니다. 현재 backend DRS recommendation API, `/api/v1/drs/*`, DB identity/fingerprint/policy/lock/reconciliation, final pre-check, live migration, UPID tracking은 구현되어 있지 않습니다.
 
-Create VM은 강한 보조 capability입니다. 현재 active 생성 경로는 Proxmox native create이며, `execute`는 manifest commit only입니다.
+Create VM은 강한 보조 capability입니다. 현재 active 생성 경로는 Proxmox native create이며, approval과 final acknowledgement 뒤에 실행됩니다. Legacy `execute/archive` manifest route는 active API에서 제거됐습니다. Create VM success는 stopped/powered-off 상태를 유지하고 자동 start하지 않습니다.

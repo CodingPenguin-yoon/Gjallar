@@ -33,18 +33,17 @@
 | 9 | Review UI | displays risk summary and artifact metadata | no new state |
 | 10 | Approve | `POST /approve` validates exact metadata | approval job state |
 | 11 | Preview | `POST /proxmox-preview` builds native preview | `proxmox_create_preview` |
-| 12 | Save request | `POST /execute` commits manifest only | job stage `commit`, no Proxmox call |
-| 13 | Final acknowledgement | UI requires checkbox | no backend call |
-| 14 | Native create | `POST /proxmox-create` with commit SHA and ack | job stage `create` |
-| 15 | Proxmox runner | clone, poll UPID, resize if needed, config, post-check | `observed_after` |
-| 16 | Terminal state | manifest/job updated | completed, failed, or `needs_reconciliation` |
+| 12 | Final acknowledgement | UI requires checkbox | no backend call |
+| 13 | Native create | `POST /proxmox-create` with ack | job stage `create` |
+| 14 | Proxmox runner | clone, poll UPID, resize if needed, config, post-check | `observed_after` |
+| 15 | Terminal state | job/request/VM records updated | completed, failed, or `needs_reconciliation` |
 
 ## Payload and approval boundary
 
 Payload includes `operator_id`, `job_id`, `profile_id`, `target_node_id`, `storage_id`, `bridge_id`, explicit static fields, `template_id`, `template_vmid`, `template_node_id`, hardware overrides, access fields. Incoming `network_id`/`networkId` is not the source of truth.
 
-Approval packet includes `plan_artifact_id`, `review_summary_checksum`, `yellow_risk_acknowledged`. Native create additionally requires `manifest_commit_sha` and `proxmox_mutation_acknowledged`.
+Approval packet includes `plan_artifact_id`, `review_summary_checksum`, `yellow_risk_acknowledged`. Native create additionally requires `proxmox_mutation_acknowledged`.
 
 ## Output boundary
 
-`drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, and `execute` do not mutate Proxmox. `proxmox-create` is the only current active VM creation path.
+`drafts`, `preflight`, `plan`, `approve`, and `proxmox-preview` do not mutate Proxmox. `proxmox-create` is the only current active VM creation path.

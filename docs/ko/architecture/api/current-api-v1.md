@@ -43,7 +43,7 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 
 | Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
 |---|---|---|---|---|
-| `GET /api/v1/profiles` | `list_profiles()` | `backend/app/manifests/loader.py`의 transitional `static_seed` profile 세 개를 반환합니다. | `listProfiles()`; `CreateInstanceWizard` | Read-only. Current profiles는 `general-vm`, `runtime-server`, `development-vm`입니다. DB seed는 future입니다. |
+| `GET /api/v1/profiles` | `list_profiles()` | `GJALLAR_DATABASE_URL`의 active DB-seeded profile rows를 반환합니다. | `listProfiles()`; `CreateInstanceWizard` | Read-only. Current profiles는 `general-vm`, `runtime-server`, `development-vm`입니다. Disabled/archived rows는 숨깁니다. |
 | `GET /api/v1/vm-create/readiness` | `get_vm_create_readiness()` | `run_iac_readiness()`로 shared root, IaC root, write allowlist, Git repo readiness를 확인합니다. | `getVmCreateReadiness()`; `loadCreateVmReviewModel()` | Read-only. Proxmox mutation 없음. |
 
 ## Network policy APIs
@@ -57,10 +57,16 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 
 | Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
 |---|---|---|---|---|
-| `GET /api/v1/jobs` | `list_jobs()` | `GJALLAR_RUNS_ROOT/*/job_status.json`을 latest-state summary로 읽습니다. | `listJobs()`; Dashboard, Placement, Jobs/Runs | Read-only. runs root glob 실패 시 fail-open `[]`입니다. |
-| `GET /api/v1/jobs/{job_id}` | `get_job(job_id)` | `_job_entry_or_404()`로 job status를 읽습니다. | `getJob()`; `loadJobsScreenModel()` | Read-only. 없으면 404입니다. |
-| `GET /api/v1/jobs/{job_id}/artifacts` | `list_job_artifacts(job_id)` | job status의 artifact metadata list를 반환합니다. | `listJobArtifacts()`; `loadJobsScreenModel()` | File content를 stream하지 않습니다. |
-| `GET /api/v1/risks` | `list_risks()` | job status의 `risks` 배열을 펼쳐 risk rows로 반환합니다. | `listRisks()`; Dashboard, Placement, Risks/Alerts | Current risks는 job-derived projection입니다. Standalone DRS blocker engine이 아닙니다. |
+| `GET /api/v1/jobs` | `list_jobs()` | `job_runs`를 latest-state summary로 읽습니다. | `listJobs()`; Dashboard, Placement, Jobs/Runs | Read-only. DB read 실패 시 fail-open `[]`입니다. |
+| `GET /api/v1/jobs/{job_id}` | `get_job(job_id)` | `_job_entry_or_404()`로 DB job status를 읽습니다. | `getJob()`; `loadJobsScreenModel()` | Read-only. 없으면 404입니다. |
+| `GET /api/v1/jobs/{job_id}/artifacts` | `list_job_artifacts(job_id)` | `job_artifacts` metadata list를 반환합니다. | `listJobArtifacts()`; `loadJobsScreenModel()` | File content와 로컬 path를 stream/expose하지 않습니다. |
+| `GET /api/v1/risks` | `list_risks()` | DB job status의 `risks` 배열을 펼쳐 risk rows로 반환합니다. | `listRisks()`; Dashboard, Placement, Risks/Alerts | Current risks는 job-derived projection입니다. Standalone DRS blocker engine이 아닙니다. |
+
+## VM action API
+
+| Endpoint | Backend handler와 주요 함수 | Frontend caller | 현재 의미 |
+|---|---|---|---|
+| `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start` | `start_vm_action()` -> `run_vm_start()` -> fresh inventory precheck -> `ProxmoxMutationClient.start_vm()` -> task poll/post-check | `startVm()`; `InstanceList` | Stopped non-template VM만 start합니다. `vm_start_acknowledged=true`, non-empty `idempotency_key`, expected name/status context, observed-after `running`, `vm_start` job/artifact evidence가 필요합니다. Stop/reset/delete 같은 destructive action은 없습니다. |
 
 ## Create VM mutation-adjacent APIs
 
@@ -69,17 +75,15 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 | Endpoint | Backend handler와 주요 함수 | Frontend caller | 현재 의미 |
 |---|---|---|---|
 | `POST /api/v1/vm-create/drafts` | `create_vm_draft()` -> `_api_draft_from_payload()` -> `build_default_vm_draft()` -> `resolve_ssh_public_key()`, `adapter.suggest_next_vmid()`, `record_job_run()` | `createVmDraft()` via `loadCreateVmReviewModel()` | Request payload를 정규화하고 server-side draft를 만듭니다. Draft job status를 기록하지만 Proxmox mutation은 없습니다. |
-| `POST /api/v1/vm-create/{draft_id}/preflight` | `preflight_vm_draft()` -> `_api_draft_from_payload()` -> `run_preflight()` -> inventory adapter, `run_iac_readiness()` | `preflightVmDraft()` | Profile/template/node/storage/bridge/IP/IaC/access checks를 실행합니다. Red risk는 approval/create를 막습니다. |
+| `POST /api/v1/vm-create/{draft_id}/preflight` | `preflight_vm_draft()` -> `_api_draft_from_payload()` -> `run_preflight()` -> inventory adapter | `preflightVmDraft()` | Profile/template/node/storage/bridge/IP/access checks를 실행합니다. Red risk는 approval/create를 막습니다. |
 | `POST /api/v1/vm-create/{draft_id}/plan` | `plan_vm_draft()` -> `build_vm_create_plan()` | `planVmDraft()` | `preflight_report`, `plan`, `vm_instance_manifest`, `planned_git_diff`, `review_summary` artifacts를 씁니다. Live Proxmox mutation 없음. |
 | `POST /api/v1/vm-create/{draft_id}/approve` | `approve_vm_draft()` -> `validate_approval_request()` | `approveVmDraft()` via `approveCreateVmReview()` | Exact `plan_artifact_id`, `review_summary_checksum`, yellow acknowledgement를 검증합니다. Approval validation only입니다. |
 | `POST /api/v1/vm-create/{draft_id}/proxmox-preview` | `preview_vm_draft_proxmox_create()` -> `validate_approval_request()` -> `build_proxmox_create_preview()` -> `clone_payload_from_plan()`, `config_payload_from_plan()` | `previewVmDraftProxmox()` via `previewCreateVmProxmox()` | Approval-gated non-mutating native create preview입니다. Preview artifact를 씁니다. |
-| `POST /api/v1/vm-create/{draft_id}/proxmox-create` | `create_vm_draft_proxmox_native()` -> approval gate -> red risk gate -> manifest commit verification -> `update_plan_manifest_status()` -> `run_proxmox_create()` | `createVmDraftProxmox()` via `createVmWithProxmox()` | 현재 active live Proxmox VM creation path입니다. `manifest_commit_sha`와 `proxmox_mutation_acknowledged=true`가 필요합니다. |
-| `POST /api/v1/vm-create/{draft_id}/execute` | `execute_vm_draft()` -> `commit_plan_manifest()` | `commitVmDraftManifest()` via `commitCreateVmManifest()` | Manifest commit only입니다. Proxmox mutation을 하지 않습니다. |
-| `POST /api/v1/vm-create/{draft_id}/archive` | `archive_vm_draft_manifest()` -> `archive_plan_manifest()` | Primary `apiV1.js` client는 expose하지 않습니다. | Unapplied manifest archive path입니다. `archive_acknowledged=true`가 필요합니다. |
+| `POST /api/v1/vm-create/{draft_id}/proxmox-create` | `create_vm_draft_proxmox_native()` -> approval gate -> red risk gate -> internal preview -> `run_proxmox_create()` | `createVmDraftProxmox()` via `createVmWithProxmox()` | 현재 active live Proxmox VM creation path입니다. `proxmox_mutation_acknowledged=true`가 필요합니다. |
 
 ## Frontend API client coverage
 
-[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, network policy, jobs, risks, readiness, draft/preflight/plan/approve, native preview, manifest commit, native create를 expose합니다. Archive는 backend route가 있지만 current primary client가 expose하지 않습니다.
+[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, VM start, network policy, jobs, risks, readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
 
 ## 현재 없는 DRS APIs
 

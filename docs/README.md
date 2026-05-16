@@ -93,9 +93,9 @@ Operations:
 - The active backend surface is `/api/v1`.
 - Legacy `/api/instances`, `/api/provision`, task/log, deploy, and LLM surfaces are not active.
 - Inventory is read-only and may use a fake fallback when live Proxmox inventory is unavailable.
-- Create VM is a gated draft -> preflight -> plan -> approval -> manifest commit -> Proxmox native create path.
+- Create VM is a gated draft -> preflight -> plan -> approval -> Proxmox native create path.
 - Terraform legacy executor routes/helper code and Terraform-named state metadata are removed from active contracts.
 - Live native create remains explicit-acknowledgement only and creates/configures a powered-off VM after Proxmox post-check/`observed_after`.
 - Target Create VM profile/template/network design uses DB-seeded profiles, Proxmox live templates, and selected target-node live bridges; current code still has known implementation gaps documented in status.
 - Read-only Placement exists today; target direction is DRS Advisor.
-- Dashboard and read-only screens should stay available when NFS-backed job history is unavailable.
+- Dashboard and read-only screens should stay available when DB-backed job history is unavailable or temporarily unreadable.

@@ -38,7 +38,7 @@ Each API request resolves independently:
 | Rejected call | Keeps the previous value for that slice or uses a safe empty fallback. |
 | One or more rejected calls | Shows a yellow partial-failure notice naming the failed data groups. |
 
-This matters because Jobs/Runs and Risks/Alerts depend on `GJALLAR_RUNS_ROOT`, which may be NFS-backed or temporarily unavailable. Inventory should still render when job history cannot be read.
+This matters because Jobs/Runs and Risks/Alerts depend on the DB-backed job store, which may be temporarily unavailable. Inventory should still render when job history cannot be read.
 
 ## Current Cards And Tables
 

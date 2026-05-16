@@ -20,8 +20,8 @@
 
 현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `Placement`, `Jobs/Runs`, `Risks/Alerts`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이다.
 
-구현 baseline은 read-only Proxmox inventory, Dashboard aggregation, Infra Explorer, Networks bridge/policy view, read-only Placement seed, file-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
+구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks bridge/policy view, read-only Placement seed, DB-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
 
 DRS Advisor는 목표 제품 방향이다. 아직 backend DRS recommendation API, `/api/v1/drs/*`, identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
 
-Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. `execute`는 manifest commit-only이고, 실제 생성은 `proxmox-create`가 clone UPID polling, 필요한 boot disk resize, config, stopped post-check, `observed_after` artifact를 끝낸 뒤에만 applied로 기록한다. Terraform plan/apply executor route surface는 제거됐고 old URL은 404다. first power-on과 smoke는 deferred다.
+Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. 실제 생성은 `proxmox-create`가 approval과 final acknowledgement 뒤에 clone UPID polling, 필요한 boot disk resize, config, stopped post-check, `observed_after` artifact와 DB request/VM record를 끝낸 뒤에만 완료로 기록한다. `execute` manifest commit은 legacy/optional API이고 primary UI 단계가 아니다. Terraform plan/apply executor route surface는 제거됐고 old URL은 404다. Create VM은 자동 start하지 않으며 first power-on은 별도 Infra Explorer Start action이다. smoke는 deferred다.

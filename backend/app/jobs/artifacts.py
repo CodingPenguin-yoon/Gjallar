@@ -1,16 +1,20 @@
-"""Real file-backed artifact writers for Gjallar job runs."""
+"""DB-backed artifact writers for Gjallar job runs."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
+from sqlalchemy import select
 
 from app.core.redaction import redact_secrets
+from app.db.models import JobArtifactRecord
+from app.db.session import session_scope
 from app.jobs.models import ArtifactRecord
 
 
@@ -18,36 +22,80 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _artifact_path(run_dir: Path | str, filename: str) -> Path:
-    """Return a safe file path under the caller-provided run directory."""
-    name = Path(filename)
-    if name.name != filename:
-        raise ValueError("artifact filename must not contain path separators")
-    path = Path(run_dir) / name.name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def _checksum_for_bytes(content: bytes) -> str:
     return "sha256:" + hashlib.sha256(content).hexdigest()
 
 
+def _safe_token(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]+", "_", str(value)).strip("_")[:120] or "artifact"
+
+
 def _artifact_id(job_id: str, artifact_type: str, filename: str) -> str:
-    safe_type = artifact_type.replace("-", "_").replace("/", "_")
-    safe_job = job_id.replace("-", "_").replace("/", "_")
-    safe_file = Path(filename).stem.replace("-", "_")
+    safe_type = _safe_token(artifact_type)
+    safe_job = _safe_token(job_id)
+    safe_file = _safe_token(Path(filename).stem)
     return f"artifact_{safe_type}_{safe_job}_{safe_file}"
 
 
-def _record(*, job_id: str, artifact_type: str, filename: str, path: Path, content: bytes) -> ArtifactRecord:
+def _db_path(artifact_id: str) -> str:
+    return f"db://job-artifacts/{artifact_id}"
+
+
+def _record_from_row(row: JobArtifactRecord) -> ArtifactRecord:
     return ArtifactRecord(
-        artifact_id=_artifact_id(job_id, artifact_type, filename),
-        job_id=job_id,
-        type=artifact_type,
-        path=str(path),
-        checksum=_checksum_for_bytes(content),
-        created_at=_now_iso(),
+        artifact_id=row.artifact_id,
+        job_id=row.job_id,
+        type=row.type,
+        path=row.path,
+        checksum=row.checksum,
+        created_at=row.created_at,
+        content_type=row.content_type,
+        size_bytes=row.size_bytes,
+        storage_backend=row.storage_backend,
     )
+
+
+def _upsert_artifact(
+    *,
+    job_id: str,
+    artifact_type: str,
+    filename: str,
+    text: str,
+    content_type: str,
+) -> ArtifactRecord:
+    content = text.encode("utf-8")
+    artifact_id = _artifact_id(job_id, artifact_type, filename)
+    now = _now_iso()
+    checksum = _checksum_for_bytes(content)
+    with session_scope() as session:
+        row = session.get(JobArtifactRecord, artifact_id)
+        if row is None:
+            row = JobArtifactRecord(
+                artifact_id=artifact_id,
+                job_id=job_id,
+                type=artifact_type,
+                path=_db_path(artifact_id),
+                checksum=checksum,
+                content_type=content_type,
+                content_text=text,
+                size_bytes=len(content),
+                storage_backend="db",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(row)
+        else:
+            row.job_id = job_id
+            row.type = artifact_type
+            row.path = _db_path(artifact_id)
+            row.checksum = checksum
+            row.content_type = content_type
+            row.content_text = text
+            row.size_bytes = len(content)
+            row.storage_backend = "db"
+            row.updated_at = now
+        session.flush()
+        return _record_from_row(row)
 
 
 def write_json_artifact(
@@ -58,18 +106,16 @@ def write_json_artifact(
     filename: str,
     payload: Any,
 ) -> ArtifactRecord:
-    """Write a redacted JSON artifact and return checksum-backed metadata."""
-    path = _artifact_path(run_dir, filename)
+    """Store a redacted JSON artifact and return checksum-backed metadata."""
+    _ = run_dir
     redacted_payload = redact_secrets(payload)
     text = json.dumps(redacted_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    content = text.encode("utf-8")
-    path.write_bytes(content)
-    return _record(
+    return _upsert_artifact(
         job_id=job_id,
         artifact_type=artifact_type,
         filename=filename,
-        path=path,
-        content=content,
+        text=text,
+        content_type="application/json",
     )
 
 
@@ -81,17 +127,15 @@ def write_text_artifact(
     filename: str,
     text: str,
 ) -> ArtifactRecord:
-    """Write a redacted text artifact and return checksum-backed metadata."""
-    path = _artifact_path(run_dir, filename)
+    """Store a redacted text artifact and return checksum-backed metadata."""
+    _ = run_dir
     redacted_text = str(redact_secrets(text))
-    content = redacted_text.encode("utf-8")
-    path.write_bytes(content)
-    return _record(
+    return _upsert_artifact(
         job_id=job_id,
         artifact_type=artifact_type,
         filename=filename,
-        path=path,
-        content=content,
+        text=redacted_text,
+        content_type="text/plain",
     )
 
 
@@ -103,16 +147,63 @@ def write_yaml_artifact(
     filename: str,
     payload: Any,
 ) -> ArtifactRecord:
-    """Write a redacted YAML artifact from structured data."""
-    path = _artifact_path(run_dir, filename)
+    """Store a redacted YAML artifact from structured data."""
+    _ = run_dir
     redacted_payload = redact_secrets(payload)
     text = yaml.safe_dump(redacted_payload, sort_keys=False, allow_unicode=True)
-    content = text.encode("utf-8")
-    path.write_bytes(content)
-    return _record(
+    return _upsert_artifact(
         job_id=job_id,
         artifact_type=artifact_type,
         filename=filename,
-        path=path,
-        content=content,
+        text=text,
+        content_type="application/yaml",
     )
+
+
+def get_artifact_record(artifact_id: str) -> ArtifactRecord | None:
+    """Return artifact metadata by id."""
+    with session_scope() as session:
+        row = session.get(JobArtifactRecord, artifact_id)
+        return _record_from_row(row) if row is not None else None
+
+
+def list_artifact_records(job_id: str) -> list[dict[str, Any]]:
+    """Return artifact metadata for a job without exposing payload content."""
+    with session_scope() as session:
+        rows = session.scalars(
+            select(JobArtifactRecord)
+            .where(JobArtifactRecord.job_id == job_id)
+            .order_by(JobArtifactRecord.created_at.asc(), JobArtifactRecord.artifact_id.asc())
+        ).all()
+        return [_record_from_row(row).to_dict() for row in rows]
+
+
+def _artifact_id_from_reference(reference: ArtifactRecord | dict[str, Any] | str) -> str:
+    if isinstance(reference, ArtifactRecord):
+        return reference.artifact_id
+    if isinstance(reference, dict):
+        artifact_id = str(reference.get("artifact_id") or reference.get("id") or "").strip()
+        if artifact_id:
+            return artifact_id
+        reference = str(reference.get("path") or "")
+    text = str(reference or "").strip()
+    if text.startswith("db://job-artifacts/"):
+        return text.removeprefix("db://job-artifacts/")
+    return text
+
+
+def read_artifact_text(reference: ArtifactRecord | dict[str, Any] | str) -> str:
+    """Read artifact content from DB, with a legacy file-path fallback."""
+    artifact_id = _artifact_id_from_reference(reference)
+    if artifact_id:
+        with session_scope() as session:
+            row = session.get(JobArtifactRecord, artifact_id)
+            if row is not None:
+                return row.content_text
+
+    path_text = str(reference.get("path") if isinstance(reference, dict) else reference)
+    if path_text and not path_text.startswith("db://"):
+        path = Path(path_text).expanduser()
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"artifact content is not available: {artifact_id or path_text}")

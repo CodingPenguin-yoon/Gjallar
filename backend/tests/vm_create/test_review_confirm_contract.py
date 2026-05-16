@@ -67,6 +67,8 @@ networks:
         return build_vm_create_plan(draft, preflight, run_dir=run_dir)
 
     def test_review_confirm_contains_required_items_and_real_review_checksum(self):
+        from app.jobs.artifacts import read_artifact_text
+
         with tempfile.TemporaryDirectory() as run_dir:
             plan = self._green_plan(run_dir)
             review = plan.review_confirm
@@ -100,9 +102,8 @@ networks:
             review_artifact = artifacts_by_type["review_summary"]
             self.assertEqual(review["review_summary_artifact_id"], review_artifact.artifact_id)
             self.assertEqual(review["review_summary_checksum"], review_artifact.checksum)
-            review_path = Path(review_artifact.path)
-            self.assertTrue(review_path.exists())
-            summary_payload = json.loads(review_path.read_text())
+            self.assertTrue(review_artifact.path.startswith("db://job-artifacts/"))
+            summary_payload = json.loads(read_artifact_text(review_artifact))
             for key in required_keys:
                 self.assertIn(key, summary_payload)
             self.assertEqual(review["vm_name"], summary_payload["vm_name"])

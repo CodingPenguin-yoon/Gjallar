@@ -29,7 +29,7 @@ DRS Advisor의 허용 표현:
 
 - Dashboard의 `/api/v1` aggregation.
 - Placement의 read-only recommendation seed.
-- Jobs/Runs의 file-backed job/artifact substrate.
+- Jobs/Runs의 DB-backed job/artifact substrate.
 - Risks/Alerts의 risk display pattern.
 - Proxmox read-only inventory adapter.
 - Create VM의 approval/artifact/job/native acknowledgement/post-check pattern.

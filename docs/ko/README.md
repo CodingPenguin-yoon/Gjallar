@@ -39,4 +39,4 @@
 
 한국어 설명을 사용하되 API path, HTTP method, route, module, function, artifact type, field name, profile id 같은 구현 식별자는 English 그대로 둡니다.
 
-예: `POST /api/v1/vm-create/{draft_id}/execute`는 "manifest commit endpoint"로 설명할 수 있지만 endpoint 자체는 번역하지 않습니다.
+예: `POST /api/v1/vm-create/{draft_id}/proxmox-create`는 "native create endpoint"로 설명할 수 있지만 endpoint 자체는 번역하지 않습니다.

@@ -1,5 +1,0 @@
-# Ansible 관련 파일 무시
-inventory.yml
-*.retry
-.vault_pass
-ansible.log

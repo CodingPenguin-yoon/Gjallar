@@ -1,6 +1,6 @@
 # Gjallar Current Work Plan
 
-Last updated: 2026-05-14
+Last updated: 2026-05-15
 
 ## Purpose
 
@@ -50,10 +50,14 @@ Use `AGENTS.md` for execution mode:
 - Native create clone/config success is only valid when Proxmox post-check sees
   the VM on the target node in `stopped` state and writes `observed_after`.
 - Profile/template/network target design is partially implemented:
-  - `GET /api/v1/profiles` exposes exactly three enabled read-only static-seed
-    profiles: `general-vm`, `runtime-server`, and `development-vm`
+  - `GET /api/v1/profiles` exposes active read-only DB-backed `db_seed`
+    profiles through `GJALLAR_DATABASE_URL`; the initial manual seed creates
+    `general-vm`, `runtime-server`, and `development-vm`
+  - profile schema is managed by Alembic, while seed data is applied through a
+    separate manual idempotent command that no-ops when profile rows already
+    exist
   - profile hardware defaults/min/max are enforced in backend preflight and
-    surfaced in plan/review artifacts; DB/ORM seed source remains future work
+    surfaced in plan/review artifacts
   - Create VM active networking now uses explicit `bridge_id` selected from
     active live bridge inventory after target node selection; incoming
     `network_id`/`networkId` is ignored during the transition and is not echoed
@@ -99,6 +103,9 @@ Planned slices:
 
 - [x] Expose three enabled seed profiles:
   `general-vm`, `runtime-server`, `development-vm`.
+- [x] Convert Create VM profiles to DB-backed `db_seed` rows through
+  `GJALLAR_DATABASE_URL`, Alembic migration, and a manual idempotent seed
+  command.
 - [x] Add profile hardware default/min/max contract.
 - [x] Reset CPU/RAM/Disk to profile defaults when profile changes in UI.
 - [x] Enforce profile hardware min/max in UI and backend preflight.
@@ -189,19 +196,47 @@ pnpm --dir frontend lint
 pnpm --dir frontend build
 ```
 
-## Open Decisions
+## Completed Decisions
 
-- Profile seed source is currently transitional `source: static_seed`.
-  A real DB/ORM seed source remains a later implementation decision.
+- Create VM profile seed source is DB-backed `source: db_seed` through
+  `GJALLAR_DATABASE_URL`.
+- Local development can use SQLite through the same SQLAlchemy/Alembic URL
+  boundary that enterprise deployment can point at PostgreSQL.
+- Profile schema is migration-managed; profile seed is a separate manual
+  idempotent command.
+- The initial `general-vm`, `runtime-server`, and `development-vm` profiles are
+  inserted only when the profile table is empty, so process restarts do not
+  overwrite operator changes or re-enable disabled rows.
+- Future profile deletion means disabled/archive, not hard delete, and
+  disabled/archived profiles are hidden from Create VM selection.
+- Jobs/Runs and artifacts are DB-backed through `job_runs` and `job_artifacts`;
+  `GJALLAR_RUNS_ROOT` is no longer an active runtime setting.
+- Native Create VM records request/result and the created VM summary in
+  `vm_create_requests` and `vm_instances`.
+
+## Future Decisions
+
 - Removed Terraform endpoints disappear from the route table and naturally return
   FastAPI 404.
 - Whether Network tab policy should provide future recommendations for gateway
   and static ranges, while live bridge remains Create VM source of truth.
+- `GJALLAR_SHARED_ROOT` and `GJALLAR_IAC_ROOT` remain compatibility settings
+  for legacy IaC manifests and NetworkPolicy files. They are not used for
+  Jobs/Runs or artifacts anymore.
+- Shared-folder/NFS usage originally came from Terraform-era IaC/state needs.
+  Profiles, Jobs/Runs, artifacts, and native Create VM records are now
+  DB-backed; a later network policy/config DB migration should decide when to
+  retire the remaining shared-folder dependency.
+- Current `manifests/networks/network-profiles.yaml` remains the Networks tab
+  policy file for now. It is not the Create VM source of truth, and a future
+  network-DB migration should decide how to preserve/import existing policy
+  before cleanup.
 
 ## Next Slice Candidate
 
 Recommended next implementation slice:
 
-1. Decide DB/ORM profile seed source for Create VM profiles.
-2. Start DRS Advisor read model and final pre-check contract work without
+1. Start DRS Advisor read model and final pre-check contract work without
    reusing Create VM mutation semantics.
+2. Decide the future NetworkPolicy/config DB migration separately from the
+   completed Create VM profile seed work.

@@ -17,17 +17,15 @@ live bridge model. Sections below call out where current code still differs.
 ## Contract Goal
 
 Create VM is an operator-reviewed workflow for producing a powered-off Proxmox
-VM from a known template. The active enterprise path is Proxmox API native. It is intentionally split into draft, preflight, plan, approval, manifest commit, native preview, and native create stages so the UI can show risk evidence before any live side effect. The legacy Terraform executor route surface and helper code are removed.
+VM from a known template. The active enterprise path is Proxmox API native. It is intentionally split into draft, preflight, plan, approval, final acknowledgement, and native create stages so the UI can show risk evidence before any live side effect. The legacy Terraform executor route surface and helper code are removed.
 
 ```text
 draft request
   -> preflight
   -> plan artifacts + Review & Confirm
   -> approval validation
-  -> manifest commit through execute
-  -> Proxmox native preview
   -> Proxmox native create after explicit acknowledgement
-  -> optional archive path
+  -> internal Proxmox native preview artifact
 ```
 
 ## Active Endpoints
@@ -41,8 +39,6 @@ POST /api/v1/vm-create/{draft_id}/plan
 POST /api/v1/vm-create/{draft_id}/approve
 POST /api/v1/vm-create/{draft_id}/proxmox-preview
 POST /api/v1/vm-create/{draft_id}/proxmox-create
-POST /api/v1/vm-create/{draft_id}/execute
-POST /api/v1/vm-create/{draft_id}/archive
 ```
 
 The frontend implementation lives in:
@@ -125,9 +121,9 @@ also carry the selected live template reference and editable access fields:
 
 ## Profile Defaults
 
-Current implementation exposes three enabled transitional `static_seed`
-profiles: `general-vm`, `runtime-server`, and `development-vm`. The default
-selected profile remains `general-vm`.
+Current implementation exposes active DB-seeded `db_seed` profiles:
+`general-vm`, `runtime-server`, and `development-vm`. The default selected
+profile remains `general-vm`.
 
 Current `general-vm` default values:
 
@@ -143,8 +139,8 @@ Current `general-vm` default values:
 | Desired power state | `stopped` |
 | First power-on included | `false` |
 
-Target profile source of truth is Gjallar DB seed data, initially read-only in
-the UI. Profile management UI is future. Initial seeded enabled profiles are:
+Profile source of truth is Gjallar DB seed data, initially read-only in the UI.
+Profile management UI is future. Initial seeded enabled profiles are:
 
 | Profile ID | Display name | Korean label | CPU | Memory MB | Disk GB | Limits |
 |---|---|---|---:|---:|---:|---|
@@ -268,8 +264,6 @@ a VM.
 `proxmox-create` is the active live mutation route. It requires:
 
 - approval metadata is valid
-- `manifest_commit_sha`
-- committed manifest verification through `verify_plan_manifest_commit()`
 - `proxmox_mutation_acknowledged=true`
 - a fresh preflight/plan immediately before mutation with no red risk
 
@@ -282,9 +276,9 @@ The native runner uses `backend/app/proxmox/client.py` and `backend/app/vm_creat
 5. `set_vm_config()` applies CPU, memory, agent, onboot, network, and cloud-init defaults through `/nodes/{node}/qemu/{vmid}/config`.
 6. `get_vm_status()` reads `/nodes/{node}/qemu/{vmid}/status/current`.
 7. `get_vm_config()` reads `/nodes/{node}/qemu/{vmid}/config`.
-8. `run_proxmox_create()` writes `observed_after.json` with a normalized fingerprint from `smbios1`, `vmgenid`, MAC addresses, and disk volume IDs.
+8. `run_proxmox_create()` writes an `observed_after` DB artifact with a normalized fingerprint from `smbios1`, `vmgenid`, MAC addresses, and disk volume IDs.
 
-Success requires clone task `exitstatus=OK`, requested disk resize to be unnecessary or completed, VM existence on the target node, observed `status=stopped`, and an `observed_after` artifact. If the task fails, the cloned disk size is unknown, resize fails, the VM is missing, or Proxmox reports it powered on, the route records failed/`needs_reconciliation` and does not mark the manifest `applied`.
+Success requires clone task `exitstatus=OK`, requested disk resize to be unnecessary or completed, VM existence on the target node, observed `status=stopped`, and an `observed_after` artifact. If the task fails, the cloned disk size is unknown, resize fails, the VM is missing, or Proxmox reports it powered on, the route records failed/`needs_reconciliation`.
 
 ## Removed Terraform Plan And Apply
 
@@ -292,15 +286,18 @@ Success requires clone task `exitstatus=OK`, requested disk resize to be unneces
 
 ## Jobs, Artifacts, And Risks
 
-Create VM route handlers record progress under `GJALLAR_RUNS_ROOT` through
+Create VM route handlers record progress in `job_runs` through
 `app.jobs.runs.record_job_run()`.
 
-Artifacts are real files with checksums, and secret-bearing values are redacted
-before persistence. `/api/v1/jobs` returns summaries, while `/api/v1/risks`
-derives risk rows from recorded job risk data.
+Artifacts are DB-backed records with checksums, and secret-bearing values are
+redacted before persistence. Native create also records request/result and
+created VM summaries in `vm_create_requests` and `vm_instances`.
+`/api/v1/jobs` returns summaries, while `/api/v1/risks` derives risk rows from
+recorded job risk data.
 
-If the runs root is unavailable, listing jobs fails open with an empty list.
-This keeps Dashboard and read-only operator screens available when NFS is down.
+If the job DB read is unavailable, listing jobs fails open with an empty list.
+This keeps Dashboard and read-only operator screens available during job read
+failures.
 
 ## Network Policy
 
@@ -324,12 +321,12 @@ warning and later guest-agent/inventory discovery. Network tab policy,
 subnet/gateway/range integration is future and may remain as current/legacy
 support until code changes.
 
-## Current Implementation Gap
+## Current Implementation Notes
 
-The current code still differs from the target profile/template/network design:
+The current code still has profile/template/network gaps outside the DB seed
+source:
 
-- profiles are transitional read-only `static_seed` data, not Gjallar DB seed
-  source of truth
+- profiles are read-only DB seed data; profile management UI is not current
 - `general-vm`, `runtime-server`, and `development-vm` are current active
   enabled choices with hardware defaults/min/max
 - template source, UI disabled-state, auto-selection, and backend red gates now
@@ -339,8 +336,11 @@ The current code still differs from the target profile/template/network design:
   not echoed in active outputs
 - current static networking requires explicit `static_ip`, `prefix`, and
   `gateway`
-- Access UI, SSH key red gating, profile management UI, template catalog UI,
-  and VM start action are not part of the current implementation
+- Access UI and SSH key red gating are current implementation. Profile
+  management UI and template catalog UI are not current implementation.
+- VM start is current only as a separate Infra Explorer row action with
+  Jobs/Runs audit; it is not part of the Create VM contract and Create VM
+  success remains stopped/powered-off.
 
 ## Explicit Non-Goals
 
@@ -350,7 +350,8 @@ The active Create VM contract does not include:
 - profile management create/edit/delete UI in the initial target slice
 - Gjallar template catalog or template registration window
 - app deploy or arbitrary bootstrap package execution
-- direct VM start/stop/reset/delete
+- direct VM stop/reset/delete; Start exists only through the separate gated
+  Infra Explorer stopped-VM action
 - profile-owned power policy
 - snapshot/rollback
 - raw shell execution

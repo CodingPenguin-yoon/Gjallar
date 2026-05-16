@@ -37,6 +37,6 @@
 
 | 오래된 주장 | 현재 correction |
 |---|---|
-| Jobs/Runs가 full workflow engine이다. | Current는 latest file-backed job status read-only UI입니다. |
+| Jobs/Runs가 full workflow engine이다. | Current는 latest DB-backed job status read-only UI입니다. |
 | Risks/Alerts가 independent risk engine이다. | Current risks는 job-derived projection입니다. |
 | DRS blocker taxonomy가 integrated current이다. | Not implemented. |

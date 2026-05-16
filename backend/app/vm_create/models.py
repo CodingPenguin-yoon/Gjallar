@@ -47,7 +47,6 @@ class DraftAccess:
             "ssh_key_validation_error": self.ssh_key_validation_error,
         }
 
-
 @dataclass(frozen=True)
 class DraftNetwork:
     ip_mode: str
@@ -270,19 +269,3 @@ class VmCreatePlan:
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
             "side_effects": list(self.side_effects),
         }
-
-
-@dataclass(frozen=True)
-class GitOpsCommitResult:
-    job_id: str
-    manifest_id: str
-    execution_intent: str
-    iac_root: str
-    manifest_path: str
-    commit_sha: str
-    next_stage: str
-    side_effects: list[str] = field(default_factory=list)
-    manifest_status: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)

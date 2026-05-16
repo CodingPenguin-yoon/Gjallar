@@ -126,8 +126,6 @@ networks:
             "vmid_available",
             "name_available",
             "static_ip_available",
-            "iac_root_available",
-            "iac_git_repo_available",
             "destroy_delete_plan_absent",
             "credential_scope_read_only",
         }:
@@ -329,7 +327,10 @@ networks:
         ]
         draft = self._default_draft(static_ip="192.168.2.142", template_id="ubuntu-advisory-template")
 
-        with patch("app.vm_create.preflight.load_builtin_profiles", return_value=profiles):
+        with patch(
+            "app.vm_create.preflight.get_active_create_vm_profiles_by_id",
+            return_value={profile.profile_id: profile for profile in profiles},
+        ):
             result = self._preflight_with_adapter(draft, AdvisoryTemplateAdapter())
 
         self.assertEqual("yellow", result.risk_level)
@@ -565,6 +566,7 @@ networks:
 
     def test_plan_response_contains_review_ready_fields_and_real_artifacts(self):
         try:
+            from app.jobs.artifacts import read_artifact_text
             from app.vm_create.planner import build_vm_create_plan
         except ModuleNotFoundError as exc:
             self.fail(f"Expected app.vm_create.planner for Set 6 plan contract: {exc}")
@@ -581,7 +583,7 @@ networks:
             plan = build_vm_create_plan(draft, preflight, run_dir=run_dir)
             rendered = repr(plan.to_dict())
             artifacts_by_type = {artifact.type: artifact for artifact in plan.artifacts}
-            manifest_text = Path(artifacts_by_type["vm_instance_manifest"].path).read_text(encoding="utf-8")
+            manifest_text = read_artifact_text(artifacts_by_type["vm_instance_manifest"])
 
         self.assertEqual("dry_run_plan_only", plan.execution_intent)
         self.assertEqual("general-vm", plan.profile_id)

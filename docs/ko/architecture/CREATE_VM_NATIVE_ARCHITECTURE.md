@@ -22,8 +22,7 @@
 - `buildCreateVmInputFromConfig()`: form config를 payload input으로 변환.
 - `loadCreateVmReviewModel()`: readiness, draft, preflight, plan 호출.
 - `approveCreateVmReview()`: exact approval metadata 검증 호출.
-- `commitCreateVmManifest()`: `execute` manifest commit 호출.
-- `previewCreateVmProxmox()`: non-mutating native preview 호출.
+- `previewCreateVmProxmox()`: optional non-mutating native preview 호출.
 - `createVmWithProxmox()`: final acknowledgement 후 native create 호출.
 
 ## Backend endpoint flow
@@ -32,9 +31,8 @@
 2. `preflight_vm_draft()`는 `run_preflight()`를 read-only inventory adapter로 실행합니다.
 3. `plan_vm_draft()`는 `build_vm_create_plan()`으로 artifacts를 씁니다.
 4. `approve_vm_draft()`는 `validate_approval_request()`로 exact metadata와 yellow acknowledgement를 검증합니다.
-5. `execute_vm_draft()`는 `commit_plan_manifest()`만 호출합니다. Proxmox를 호출하지 않습니다.
-6. `preview_vm_draft_proxmox_create()`는 approval을 다시 검증하고 `build_proxmox_create_preview()`를 호출합니다.
-7. `create_vm_draft_proxmox_native()`는 approval, manifest commit, red risk, acknowledgement gate를 통과한 뒤 `run_proxmox_create()`를 호출합니다.
+5. `preview_vm_draft_proxmox_create()`는 approval을 다시 검증하고 `build_proxmox_create_preview()`를 호출합니다.
+6. `create_vm_draft_proxmox_native()`는 approval, red risk, acknowledgement gate를 통과한 뒤 `run_proxmox_create()`를 호출합니다.
 
 ## Proxmox operation order
 
@@ -52,9 +50,9 @@ Config payload는 `cores`, `memory`, `agent=enabled=1`, `onboot=0`, `net0`, revi
 
 ## Success and failure
 
-Success requires exact approval, manifest commit verification, no fresh red risk, clone task OK, disk resize unnecessary or completed, config call completed, target node existence, status `stopped`, `observed_after_artifact`, and manifest `applied`.
+Success requires exact approval, no fresh red risk, clone task OK, disk resize unnecessary or completed, config call completed, target node existence, status `stopped`, and `observed_after_artifact`.
 
-Failure/uncertain cases include approval mismatch, red risk, missing commit, clone task failure, unknown cloned disk size, resize failure, config failure, VM missing, powered-on observed state, missing observed artifact. Uncertain post-mutation states are recorded as failed or `needs_reconciliation`, not applied.
+Failure/uncertain cases include approval mismatch, red risk, clone task failure, unknown cloned disk size, resize failure, config failure, VM missing, powered-on observed state, missing observed artifact. Uncertain post-mutation states are recorded as failed or `needs_reconciliation`.
 
 ## DRS caution
 

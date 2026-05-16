@@ -21,12 +21,11 @@ Backend:
 - `backend/app/api/v1/router.py`: inventory, jobs, risks, VM create endpoints
 - `backend/app/proxmox/inventory.py`: fake/live read-only Proxmox inventory adapter
 - `backend/app/proxmox/models.py`: inventory dataclasses
-- `backend/app/jobs/runs.py`: file-backed job run status
-- `backend/app/jobs/artifacts.py`: artifact writing
+- `backend/app/jobs/runs.py`: DB-backed job run status
+- `backend/app/jobs/artifacts.py`: DB-backed artifact writing
 - `backend/app/vm_create/preflight.py`: Create VM preflight checks
 - `backend/app/vm_create/planner.py`: artifact-backed plan/review
 - `backend/app/vm_create/approval.py`: review checksum and yellow risk gate
-- `backend/app/vm_create/gitops.py`: manifest commit/archive/status update
 - `backend/app/proxmox/client.py`: native Proxmox mutation client for gated Create VM clone/config/status
 - `backend/app/vm_create/proxmox_runner.py`: native Create VM preview/create runner, UPID polling, post-check, observed_after/fingerprint artifacts
 - Terraform executor route/helper code and Terraform-named state metadata are removed from active contracts

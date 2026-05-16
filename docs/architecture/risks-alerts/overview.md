@@ -18,7 +18,7 @@ Risks/Alerts is the `/risks` route. It is a read-only view over risks derived fr
 
 | API | Purpose |
 |---|---|
-| `GET /api/v1/risks` | Flatten risk entries from file-backed job records. |
+| `GET /api/v1/risks` | Flatten risk entries from DB-backed job records. |
 
 The backend loops through `list_job_runs()` and emits one risk summary for each dict in a job's `risks` array.
 

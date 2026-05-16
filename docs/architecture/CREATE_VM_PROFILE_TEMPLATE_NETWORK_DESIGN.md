@@ -124,7 +124,7 @@ Profiles do not include:
 
 - Create VM always completes powered off/stopped by global create policy.
 - Profiles have no power policy.
-- Starting a VM is a future Infra Explorer VM row action with Jobs/Runs audit.
+- Starting a VM is a separate Infra Explorer VM row action with Jobs/Runs audit.
 - First power-on, smoke, guest-agent discovery, and SSH verification remain
   separate follow-up stages.
 
@@ -148,9 +148,8 @@ Profiles do not include:
 
 ## Target Payload Examples
 
-These examples describe the target contract. Profile DB seeding is still
-future, but the current API now accepts nested Access data and keeps raw SSH
-public keys out of responses and artifacts.
+These examples describe the current DB-backed profile contract for the initial
+read-only preset slice. Profile management UI remains future work.
 
 ### Profiles Response
 
@@ -396,12 +395,12 @@ The following must not be persisted in API responses, job logs, or artifacts:
 - Proxmox token secrets
 - raw environment values
 
-## Current Implementation Gap
+## Current Implementation State
 
-As of 2026-05-14, current code partially matches this target design.
+As of 2026-05-15, current code partially matches this target design.
 
-- Profiles are implemented through transitional read-only `static_seed` data,
-  not as Gjallar DB seed source of truth.
+- Profiles are implemented through DB-seeded read-only rows with
+  `source: db_seed`.
 - `general-vm`, `runtime-server`, and `development-vm` are all active enabled
   Create VM choices with hardware default/min/max contracts.
 - Some older docs mention `dev-server` or `db-server`; the target seeded
@@ -438,7 +437,7 @@ As of 2026-05-14, current code partially matches this target design.
 ## Implementation Checklist
 
 1. Add DB seed data for the three enabled profiles.
-   Transitional static seed data is implemented; DB seed remains future work.
+   Implemented through Alembic schema plus a manual idempotent seed command.
 2. Expose profile seed data through `GET /api/v1/profiles` with hardware
    defaults/limits, template requirements, and access recommendations.
 3. Keep profile management UI out of the initial slice.
@@ -465,9 +464,10 @@ As of 2026-05-14, current code partially matches this target design.
 16. Keep password login disabled for initial profiles.
     Implemented.
 17. Keep create success powered off/stopped by global policy.
-18. Add future Infra Explorer start action separately with Jobs/Runs audit.
+18. Add Infra Explorer start action separately with Jobs/Runs audit.
+    Implemented for stopped non-template VM rows.
 19. Update plan, review, job, and artifact schemas to record the target fields.
-    Implemented for current profile/template/network/access evidence; DB seed
-    source remains separate work.
+    Implemented for current profile/template/network/access evidence and DB
+    seed source.
 20. Update tests to lock the current-code gap closed only after implementation
     is actually changed.

@@ -18,15 +18,13 @@ This document covers the implemented native Proxmox Create VM path. It does not 
 
 ## Approval Recheck
 
-Native create repeats approval validation. `POST /api/v1/vm-create/{draft_id}/proxmox-create` rebuilds the plan from the submitted payload and requires exact `plan_artifact_id`, exact `review_summary_checksum`, yellow acknowledgement when needed, `proxmox_mutation_acknowledged=true`, no red fresh risk, and `manifest_commit_sha`.
+Native create repeats approval validation. `POST /api/v1/vm-create/{draft_id}/proxmox-create` rebuilds the plan from the submitted payload and requires exact `plan_artifact_id`, exact `review_summary_checksum`, yellow acknowledgement when needed, `proxmox_mutation_acknowledged=true`, and no red fresh risk.
 
 If these gates fail, the route returns HTTP 409 and reports no live mutation side effect.
 
-## Manifest Commit Verification
+## Internal Preview
 
-The UI calls `POST /api/v1/vm-create/{draft_id}/execute` before native create. Despite its name, `execute` does not create a VM. It calls `commit_plan_manifest()` and returns mode `gitops_commit_only`.
-
-Native create then calls `verify_plan_manifest_commit(plan, manifest_commit_sha)` to ensure the supplied commit exists and contains `manifests/vms/<manifest_id>.yaml`. Only after commit verification does native create update manifest status to `applying` and call the Proxmox mutation client.
+`proxmox-create` builds the same non-mutating preview artifact internally before it calls the Proxmox mutation client. The legacy `execute/archive` manifest routes are removed from the active API.
 
 ## Proxmox Operation Order
 

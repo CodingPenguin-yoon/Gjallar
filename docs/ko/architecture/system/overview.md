@@ -4,7 +4,7 @@
 
 기준 문서: [영어 System overview](../../../architecture/system/overview.md), [Current implemented state](../../../current/README.md), [Architecture index](../../../architecture/README.md).
 
-Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 read-only operational visibility, guided powered-off VM creation, network policy inspection/writes, read-only placement recommendations, file-backed job history, job-derived risk summaries를 제공합니다.
+Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 operational visibility, gated stopped-VM start action, guided powered-off VM creation, network policy inspection/writes, read-only placement recommendations, DB-backed job history, job-derived risk summaries를 제공합니다.
 
 ## Product identity
 
@@ -12,8 +12,8 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 read-
 |---|---|
 | Product | Proxmox operations and risk console |
 | Actual infrastructure source | Proxmox actual VM/node/task/storage/network state |
-| Gjallar-owned data | intent manifests, policy files, approval evidence, job status files, artifacts, future identity/policy/reconciliation data |
-| Safety posture | read-only by default; live mutation limited to approval-gated Create VM native create |
+| Gjallar-owned data | Create VM request/VM records, intent manifests, policy files, approval evidence, job records, artifacts, future identity/policy/reconciliation data |
+| Safety posture | read-only by default; live mutation limited to approval-gated Create VM native create and acknowledgement-gated start for stopped non-template VMs |
 | DRS Advisor | target product direction, not current backend execution |
 
 ## Active routes and domains
@@ -21,7 +21,7 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 read-
 | Route | Current domain | 왜 존재하는가 |
 |---|---|---|
 | `/` | Dashboard | operator가 cluster 상태를 빠르게 보는 첫 화면 |
-| `/infra` | Infra Explorer | Proxmox가 실제로 보고하는 VM/node evidence 확인 |
+| `/infra` | Infra Explorer | Proxmox가 실제로 보고하는 VM/node evidence 확인과 stopped VM start |
 | `/networks` | Networks | bridge inventory와 IaC policy 정합성 관리 |
 | `/create` | Create VM | audited powered-off VM creation |
 | `/placement` | Placement seed | future DRS Advisor의 read-only seed |
@@ -30,8 +30,8 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 read-
 
 ## Active data sources
 
-Nodes, VMs, templates, storage, networks는 Proxmox inventory adapter가 제공합니다. Profiles는 transitional `static_seed`입니다. Create VM artifacts와 job status는 `GJALLAR_RUNS_ROOT` 아래에 file-backed로 저장됩니다. VMInstance manifests와 network policy는 IaC root 아래 파일입니다. Placement recommendations는 현재 frontend view model이 만듭니다.
+Nodes, VMs, templates, storage, networks는 Proxmox inventory adapter가 제공합니다. Profiles는 `GJALLAR_DATABASE_URL`의 DB-seeded rows입니다. Create VM artifacts와 job status는 `job_runs`/`job_artifacts`에 저장됩니다. Native Create VM은 `vm_create_requests`와 `vm_instances`도 기록합니다. VMInstance manifests와 network policy는 아직 IaC root 아래 파일입니다. Placement recommendations는 현재 frontend view model이 만듭니다.
 
 ## Current non-goals
 
-Current implementation에는 `/api/v1/drs/*`, DRS migration execution, operation locks, DB identity/policy tables, direct destructive VM controls, first power-on/smoke after Create VM, Proxmox bridge mutation이 없습니다.
+Current implementation에는 `/api/v1/drs/*`, DRS migration execution, operation locks, DB identity/policy tables, direct destructive VM controls, Create VM 자동 start/smoke, Proxmox bridge mutation이 없습니다. Existing VM start는 stopped non-template VM에 대한 별도 gated action만 있습니다.

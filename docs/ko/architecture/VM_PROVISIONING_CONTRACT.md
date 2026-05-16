@@ -8,17 +8,15 @@ Create VM의 active contract는 `/api/v1/vm-create/*` flow입니다. 이 flow는
 
 ## Contract goal
 
-Create VM은 live side effect 전에 risk evidence를 보여주기 위해 draft, preflight, plan, approval, manifest commit, native preview, native create로 나뉩니다.
+Create VM은 live side effect 전에 risk evidence를 보여주기 위해 draft, preflight, plan, approval, final acknowledgement, native create로 나뉩니다.
 
 ```text
 draft request
   -> preflight
   -> plan artifacts + Review & Confirm
   -> approval validation
-  -> manifest commit through execute
-  -> Proxmox native preview
   -> Proxmox native create after explicit acknowledgement
-  -> optional archive path
+  -> internal Proxmox native preview artifact
 ```
 
 ## Active endpoints
@@ -33,8 +31,6 @@ draft request
 | `POST /api/v1/vm-create/{draft_id}/approve` | Exact review metadata validation. |
 | `POST /api/v1/vm-create/{draft_id}/proxmox-preview` | Approval-gated non-mutating native preview. |
 | `POST /api/v1/vm-create/{draft_id}/proxmox-create` | Active live native Proxmox creation path. |
-| `POST /api/v1/vm-create/{draft_id}/execute` | Manifest commit only. |
-| `POST /api/v1/vm-create/{draft_id}/archive` | Unapplied manifest archive path. |
 
 ## Draft request boundary
 
@@ -70,7 +66,7 @@ Approval은 exact `plan_artifact_id`, `review_summary_checksum`, `yellow_risk_ac
 
 `proxmox-preview`는 approval-gated but non-mutating입니다. `build_proxmox_create_preview()`가 clone/config/post-check payload와 redacted artifact를 만듭니다.
 
-`proxmox-create`는 approval metadata, `manifest_commit_sha`, committed manifest verification, `proxmox_mutation_acknowledged=true`, fresh plan/preflight no red risk를 요구합니다. 그 뒤 clone, UPID polling, boot disk resize if needed, config, status/config post-check, `observed_after` artifact를 수행합니다.
+`proxmox-create`는 approval metadata, `proxmox_mutation_acknowledged=true`, fresh plan/preflight no red risk를 요구합니다. 그 뒤 internal preview artifact, clone, UPID polling, boot disk resize if needed, config, status/config post-check, `observed_after` artifact를 수행합니다.
 
 ## Success boundary
 

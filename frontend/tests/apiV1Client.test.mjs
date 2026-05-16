@@ -21,6 +21,7 @@ assert.equal(API_V1_ENDPOINTS.jobs, '/jobs')
 assert.equal(API_V1_ENDPOINTS.risks, '/risks')
 assert.equal(API_V1_ENDPOINTS.vms, '/vms')
 assert.equal(API_V1_ENDPOINTS.nodes, '/nodes')
+assert.equal(API_V1_ENDPOINTS.vmStart('node/a', 306), '/nodes/node%2Fa/vms/306/actions/start')
 assert.equal(API_V1_ENDPOINTS.jobArtifacts('job/a b'), '/jobs/job%2Fa%20b/artifacts')
 assert.equal(API_V1_ENDPOINTS.networkPolicy, '/networks/policy')
 assert.equal(API_V1_ENDPOINTS.vmCreateReadiness, '/vm-create/readiness')
@@ -29,7 +30,6 @@ assert.equal(API_V1_ENDPOINTS.vmCreatePlan('draft/1'), '/vm-create/draft%2F1/pla
 assert.equal(API_V1_ENDPOINTS.vmCreateApprove('draft/1'), '/vm-create/draft%2F1/approve')
 assert.equal(API_V1_ENDPOINTS.vmCreateProxmoxPreview('draft/1'), '/vm-create/draft%2F1/proxmox-preview')
 assert.equal(API_V1_ENDPOINTS.vmCreateProxmoxCreate('draft/1'), '/vm-create/draft%2F1/proxmox-create')
-assert.equal(API_V1_ENDPOINTS.vmCreateExecute('draft/1'), '/vm-create/draft%2F1/execute')
 
 const calls = []
 const fakeFetch = async (url, options = {}) => {
@@ -53,6 +53,9 @@ assert.equal((await client.listRisks()).url, '/custom/api/v1/risks')
 assert.equal((await client.listNodes()).url, '/custom/api/v1/nodes')
 assert.equal((await client.listVms()).url, '/custom/api/v1/vms')
 assert.equal((await client.getVm(101)).url, '/custom/api/v1/vms/101')
+assert.deepEqual((await client.startVm('node/a', 306, { vm_start_acknowledged: true })).body, { vm_start_acknowledged: true })
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/306/actions/start')
 assert.equal((await client.listProfiles()).url, '/custom/api/v1/profiles')
 assert.equal((await client.listTemplates()).url, '/custom/api/v1/templates')
 assert.equal((await client.listStorage()).url, '/custom/api/v1/storage')
@@ -74,8 +77,6 @@ assert.deepEqual((await client.previewVmDraftProxmox('draft/1', { plan_artifact_
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/proxmox-preview')
 assert.deepEqual((await client.createVmDraftProxmox('draft/1', { proxmox_mutation_acknowledged: true })).body, { proxmox_mutation_acknowledged: true })
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/proxmox-create')
-assert.deepEqual((await client.commitVmDraftManifest('draft/1', { plan_artifact_id: 'artifact-plan' })).body, { plan_artifact_id: 'artifact-plan' })
-assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/execute')
 
 const failingClient = createApiV1Client({
   baseUrl: '/custom/api/v1',
@@ -113,6 +114,8 @@ for (const forbidden of [
   forbiddenEndpoint('/api', '/instances', '/action'),
   forbiddenEndpoint('/api', '/instances', '/resources'),
   forbiddenEndpoint('/api', '/llm'),
+  forbiddenEndpoint('/vm-create/', 'execute'),
+  forbiddenEndpoint('/vm-create/', 'archive'),
 ]) {
   assert.ok(!source.includes(forbidden), `apiV1 client must not reintroduce legacy endpoint ${forbidden}`)
 }

@@ -47,6 +47,8 @@ assert.deepEqual(defaults.profileOptions[1].hardware, {
 })
 assert.equal('networkId' in defaults.profileOptions[0], false)
 assert.equal('network' in defaults.profileOptions[0], false)
+assert.deepEqual(normalizeCreateVmProfiles([]), [])
+assert.deepEqual(normalizeCreateVmProfiles({ profiles: [] }), [])
 
 defaults.profileOptions[0].createEnabled = false
 const nextDefaults = buildCreateVmDefaults()

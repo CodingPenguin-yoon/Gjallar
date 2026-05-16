@@ -1,4 +1,4 @@
-"""RED tests for /api/v1 VM create approval and safe execute boundary."""
+"""Tests for /api/v1 VM create approval and native create boundary."""
 
 import asyncio
 import contextlib
@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import yaml
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -72,7 +71,6 @@ networks:
             "os.environ",
             {
                 "GJALLAR_SHARED_ROOT": str(cls.shared_root),
-                "GJALLAR_RUNS_ROOT": str(Path(cls._temp_dir.name) / "runs"),
                 "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
             },
             clear=False,
@@ -92,23 +90,23 @@ networks:
         cls._env.stop()
         cls._temp_dir.cleanup()
 
-    def test_approval_and_execute_routes_exist_under_api_v1(self):
+    def test_approval_and_native_create_routes_exist_under_api_v1(self):
         expected = {
             "/api/v1/vm-create/{draft_id}/approve",
             "/api/v1/vm-create/{draft_id}/proxmox-preview",
             "/api/v1/vm-create/{draft_id}/proxmox-create",
-            "/api/v1/vm-create/{draft_id}/execute",
-            "/api/v1/vm-create/{draft_id}/archive",
         }
         missing = sorted(expected - self.paths)
-        self.assertEqual([], missing, f"Missing approval/execute safety routes: {missing}")
+        self.assertEqual([], missing, f"Missing approval/native create safety routes: {missing}")
         self.assertNotIn("/api/v1/vm-create/{draft_id}/terraform-plan", self.paths)
         self.assertNotIn("/api/v1/vm-create/{draft_id}/terraform-apply", self.paths)
+        self.assertNotIn("/api/v1/vm-create/{draft_id}/execute", self.paths)
+        self.assertNotIn("/api/v1/vm-create/{draft_id}/archive", self.paths)
 
-    def test_removed_terraform_routes_naturally_404(self):
+    def test_removed_terraform_and_gitops_routes_naturally_404(self):
         client = TestClient(self.app)
 
-        for suffix in ("terraform-plan", "terraform-apply"):
+        for suffix in ("terraform-plan", "terraform-apply", "execute", "archive"):
             response = client.post(f"/api/v1/vm-create/removed-terraform/{suffix}", json={})
             self.assertEqual(404, response.status_code)
 
@@ -213,7 +211,7 @@ networks:
         self.assertEqual(before, after)
         mutation.assert_not_called()
 
-    def test_proxmox_create_blocks_without_ack_or_manifest_commit(self):
+    def test_proxmox_create_blocks_without_final_acknowledgement(self):
         draft_id = "draft-api-proxmox-create-gates"
         payload = {
             "operator_id": "api-proxmox-test",
@@ -237,16 +235,6 @@ networks:
         self.assertEqual(409, no_ack.exception.status_code)
         self.assertEqual("PROXMOX_CREATE_ACK_REQUIRED", no_ack.exception.detail["code"])
 
-        with self.assertRaises(HTTPException) as no_commit:
-            asyncio.run(
-                self.api_v1_router.create_vm_draft_proxmox_native(
-                    draft_id,
-                    {**approved_payload, "proxmox_mutation_acknowledged": True},
-                )
-            )
-        self.assertEqual(409, no_commit.exception.status_code)
-        self.assertEqual("PROXMOX_CREATE_MANIFEST_COMMIT_BLOCKED", no_commit.exception.detail["code"])
-
     def test_proxmox_create_success_marks_applied_only_with_observed_after_artifact(self):
         from app.jobs.artifacts import write_json_artifact
 
@@ -267,9 +255,6 @@ networks:
             "review_summary_checksum": review["review_summary_checksum"],
             "yellow_risk_acknowledged": False,
         }
-        execute_response = asyncio.run(self.api_v1_router.execute_vm_draft(draft_id, approved_payload))
-        manifest_commit_sha = execute_response["data"]["commit_sha"]
-
         def fake_create(plan, *, run_dir, client):
             artifact = write_json_artifact(
                 run_dir=run_dir,
@@ -306,22 +291,20 @@ networks:
                         draft_id,
                         {
                             **approved_payload,
-                            "manifest_commit_sha": manifest_commit_sha,
                             "proxmox_mutation_acknowledged": True,
                         },
                     )
                 )
 
-        manifest_path = self.iac_root / "manifests" / "vms" / "vm-job-api-proxmox-create-success.yaml"
-        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
         self.assertTrue(response["ok"])
         self.assertEqual("proxmox_native_create_live_mutation", response["meta"]["mode"])
         self.assertTrue(response["data"]["proxmox_create_ran"])
         self.assertTrue(response["data"]["proxmox_mutation_enabled"])
-        self.assertEqual("applied", response["data"]["manifest_status"]["phase"])
-        self.assertEqual("applied", manifest["status"]["phase"])
+        self.assertNotIn("manifest_status", response["data"])
+        self.assertIn("proxmox_preview", response["data"])
         self.assertEqual("stopped", response["data"]["observed_after"]["status"])
-        self.assertTrue(Path(response["data"]["observed_after_artifact"]["path"]).is_file())
+        self.assertTrue(response["data"]["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
+        self.assertEqual("stopped", response["data"]["vm_instance"]["status"])
 
     def test_proxmox_create_powered_on_post_check_needs_reconciliation_not_applied(self):
         from app.jobs.artifacts import write_json_artifact
@@ -343,9 +326,6 @@ networks:
             "review_summary_checksum": review["review_summary_checksum"],
             "yellow_risk_acknowledged": False,
         }
-        execute_response = asyncio.run(self.api_v1_router.execute_vm_draft(draft_id, approved_payload))
-        manifest_commit_sha = execute_response["data"]["commit_sha"]
-
         def fake_create(plan, *, run_dir, client):
             artifact = write_json_artifact(
                 run_dir=run_dir,
@@ -382,19 +362,15 @@ networks:
                             draft_id,
                             {
                                 **approved_payload,
-                                "manifest_commit_sha": manifest_commit_sha,
                                 "proxmox_mutation_acknowledged": True,
                             },
                         )
                     )
 
-        manifest_path = self.iac_root / "manifests" / "vms" / "vm-job-api-proxmox-create-reconcile.yaml"
-        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(409, raised.exception.status_code)
         self.assertEqual("PROXMOX_CREATE_NEEDS_RECONCILIATION", raised.exception.detail["code"])
-        self.assertEqual("needs_reconciliation", raised.exception.detail["manifest_status"]["phase"])
-        self.assertEqual("needs_reconciliation", manifest["status"]["phase"])
-        self.assertNotEqual("applied", manifest["status"]["phase"])
+        self.assertNotIn("manifest_status", raised.exception.detail)
+        self.assertIn("proxmox_preview", raised.exception.detail)
         self.assertEqual("", _git(self.iac_root, "status", "--porcelain"))
 
 
@@ -428,7 +404,7 @@ networks:
         self.assertTrue(decision["requires_yellow_ack"])
         self.assertEqual([], decision["side_effects"])
 
-    def test_artifact_paths_stay_under_preview_run_root_for_malicious_job_id(self):
+    def test_artifact_records_are_db_backed_for_malicious_job_id(self):
         draft_id = "draft-api-path-containment"
         plan_response = asyncio.run(
             self.api_v1_router.plan_vm_draft(
@@ -443,106 +419,10 @@ networks:
                 },
             )
         )
-        base = Path(self._temp_dir.name) / "runs"
-        base_resolved = base.resolve()
         for artifact in plan_response["data"]["artifacts"]:
-            artifact_path = Path(artifact["path"]).resolve()
-            self.assertTrue(
-                artifact_path.is_relative_to(base_resolved),
-                f"artifact path escaped preview root: {artifact_path}",
-            )
-
-    def test_execute_route_blocks_without_exact_approval_metadata(self):
-        with self.assertRaises(HTTPException) as raised:
-            asyncio.run(
-                self.api_v1_router.execute_vm_draft(
-                    "draft-api-execute-blocked",
-                    {"confirm": True, "job_id": "draft-api-execute-blocked"},
-                )
-            )
-        self.assertEqual(409, raised.exception.status_code)
-        self.assertEqual("EXECUTE_APPROVAL_GATE_BLOCKED", raised.exception.detail["code"])
-        self.assertEqual([], raised.exception.detail["side_effects"])
-
-    def test_archive_route_moves_unapplied_manifest_without_proxmox_mutation(self):
-        draft_id = "draft-api-archive"
-        payload = {
-            "operator_id": "api-archive-test",
-            "job_id": "job-api-archive",
-            "bridge_id": "vmbr0",
-            "static_ip": "192.168.2.143",
-            "prefix": 24,
-            "gateway": "192.168.2.1",
-        }
-        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
-        review = plan_response["data"]["review_confirm"]
-        approved_payload = {
-            **payload,
-            "plan_artifact_id": review["plan_artifact_id"],
-            "review_summary_checksum": review["review_summary_checksum"],
-            "yellow_risk_acknowledged": False,
-        }
-        asyncio.run(self.api_v1_router.execute_vm_draft(draft_id, approved_payload))
-
-        response = asyncio.run(
-            self.api_v1_router.archive_vm_draft_manifest(
-                draft_id,
-                {
-                    **payload,
-                    "archive_acknowledged": True,
-                    "reason": "test cleanup",
-                },
-            )
-        )
-
-        active = self.iac_root / "manifests" / "vms" / "vm-job-api-archive.yaml"
-        archived = self.iac_root / "manifests" / "archive" / "vms" / "vm-job-api-archive.yaml"
-        self.assertTrue(response["ok"])
-        self.assertEqual("gitops_archive_only", response["meta"]["mode"])
-        self.assertFalse(response["data"]["proxmox_mutation_enabled"])
-        self.assertFalse(active.exists())
-        self.assertTrue(archived.is_file())
-        self.assertEqual("archived", response["data"]["manifest_status"]["phase"])
-        self.assertEqual("", _git(self.iac_root, "status", "--porcelain"))
-
-    def test_execute_route_commits_manifest_only_after_approval(self):
-        draft_id = "draft-api-execute-commit"
-        payload = {
-            "operator_id": "api-execute-test",
-            "job_id": "job-api-execute-commit",
-            "bridge_id": "vmbr0",
-            "static_ip": "192.168.2.147",
-            "prefix": 24,
-            "gateway": "192.168.2.1",
-        }
-        plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
-        review = plan_response["data"]["review_confirm"]
-        before = _git(self.iac_root, "rev-parse", "HEAD")
-
-        execute_response = asyncio.run(
-            self.api_v1_router.execute_vm_draft(
-                draft_id,
-                {
-                    **payload,
-                    "plan_artifact_id": review["plan_artifact_id"],
-                    "review_summary_checksum": review["review_summary_checksum"],
-                    "yellow_risk_acknowledged": False,
-                },
-            )
-        )
-
-        after = _git(self.iac_root, "rev-parse", "HEAD")
-        manifest_path = self.iac_root / "manifests" / "vms" / "vm-job-api-execute-commit.yaml"
-        self.assertTrue(execute_response["ok"])
-        self.assertEqual("gitops_commit_only", execute_response["meta"]["mode"])
-        self.assertNotEqual(before, after)
-        self.assertEqual(after, execute_response["data"]["commit_sha"])
-        self.assertEqual("gitops_commit_only", execute_response["data"]["execution_intent"])
-        self.assertFalse(execute_response["data"]["proxmox_mutation_enabled"])
-        self.assertEqual(["iac_manifest_written", "iac_git_commit_created"], execute_response["data"]["side_effects"])
-        self.assertTrue(manifest_path.is_file())
-        self.assertIn("kind: VMInstance", manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual("", _git(self.iac_root, "status", "--porcelain"))
+            self.assertTrue(artifact["path"].startswith("db://job-artifacts/"))
+            self.assertNotIn("/tmp/", artifact["path"])
+            self.assertNotIn("..", artifact["path"])
 
 
 if __name__ == "__main__":

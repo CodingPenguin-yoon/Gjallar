@@ -15,7 +15,7 @@ _MVP_TARGET_NODES = ("yoonmanserver2", "yoonmanserver3")
 
 
 def load_builtin_profiles() -> list[VmProfile]:
-    """Load read-only static VM creation profiles for the active Create VM path."""
+    """Load initial Create VM profile definitions for the manual DB seed."""
     return [
         VmProfile(
             profile_id="general-vm",

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from app.jobs.artifacts import write_json_artifact
 from app.proxmox.client import ProxmoxMutationClient, ProxmoxMutationError
@@ -45,6 +46,11 @@ def _sanitize_public_key_material(value: Any) -> Any:
     if isinstance(value, str):
         return _SSH_PUBLIC_KEY_PATTERN.sub("[REDACTED_SSH_PUBLIC_KEY]", value)
     return value
+
+
+def _proxmox_sshkeys_value(ssh_key: str) -> str:
+    """Proxmox expects the cloud-init sshkeys field to be URL-encoded."""
+    return quote(ssh_key.strip(), safe="")
 
 
 def _access_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
@@ -140,7 +146,7 @@ def config_payload_from_plan(plan: VmCreatePlan) -> dict[str, Any]:
     }
     ssh_key = str(getattr(plan, "transient_ssh_public_key", "") or "").strip()
     if ssh_key:
-        payload["sshkeys"] = ssh_key
+        payload["sshkeys"] = _proxmox_sshkeys_value(ssh_key)
     if ip_mode == "dhcp":
         payload["ipconfig0"] = "ip=dhcp"
     else:
@@ -468,6 +474,7 @@ def run_proxmox_create(
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
+            "details": _sanitize_public_key_material(getattr(exc, "details", {})),
             "task": task_result,
             "artifacts": [],
             "side_effects": side_effects,
@@ -544,6 +551,7 @@ def run_proxmox_create(
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
+            "details": _sanitize_public_key_material(getattr(exc, "details", {})),
             "task": task_result,
             "artifacts": [],
             "side_effects": side_effects,

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   Loader2,
+  Play,
   RefreshCw,
   Server,
 } from 'lucide-react'
@@ -33,6 +35,15 @@ function statusLabel(status) {
   const normalized = String(status || '').trim()
   if (!normalized) return 'Unknown'
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function canStartVm(vm = {}) {
+  return Array.isArray(vm.allowedActions) && vm.allowedActions.includes('start')
+}
+
+function makeVmStartIdempotencyKey(vm = {}) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `infra-explorer:start:${vm.nodeId}:${vm.vmid ?? vm.id}:${random}`
 }
 
 function diskBadges(disk = {}) {
@@ -174,11 +185,16 @@ function SignalStack({ vm }) {
 }
 
 function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
+  const navigate = useNavigate()
   const [model, setModel] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [expandedGroups, setExpandedGroups] = useState({})
+  const [pendingStartVm, setPendingStartVm] = useState(null)
+  const [startAcknowledged, setStartAcknowledged] = useState(false)
+  const [startSubmitting, setStartSubmitting] = useState(false)
+  const [startError, setStartError] = useState('')
 
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString()
@@ -228,6 +244,47 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
     }))
   }
 
+  const openStartDialog = (vm) => {
+    setPendingStartVm({ ...vm, startIdempotencyKey: makeVmStartIdempotencyKey(vm) })
+    setStartAcknowledged(false)
+    setStartError('')
+  }
+
+  const closeStartDialog = () => {
+    if (startSubmitting) return
+    setPendingStartVm(null)
+    setStartAcknowledged(false)
+    setStartError('')
+  }
+
+  const confirmStartVm = async () => {
+    if (!pendingStartVm || !startAcknowledged || startSubmitting) return
+    setStartSubmitting(true)
+    setStartError('')
+    try {
+      const result = await apiV1Client.startVm(pendingStartVm.nodeId, pendingStartVm.vmid, {
+        vm_start_acknowledged: true,
+        idempotency_key: pendingStartVm.startIdempotencyKey,
+        expected_name: pendingStartVm.name,
+        expected_status: pendingStartVm.status,
+      })
+      addLog(`VM start submitted for ${pendingStartVm.name}`, 'success')
+      setPendingStartVm(null)
+      setStartAcknowledged(false)
+      if (result?.job_id) {
+        navigate(`/jobs?job=${encodeURIComponent(result.job_id)}`)
+      } else {
+        await fetchInfra()
+      }
+    } catch (error) {
+      const message = error?.message || 'Failed to start VM'
+      setStartError(message)
+      addLog(`VM start failed for ${pendingStartVm.name}: ${message}`, 'error')
+    } finally {
+      setStartSubmitting(false)
+    }
+  }
+
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
@@ -237,7 +294,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
           </div>
           <div>
             <h2 className="text-2xl font-semibold text-slate-950">Instances</h2>
-            <p className="mt-1 text-sm text-slate-600">Manage/read-only infrastructure instances</p>
+            <p className="mt-1 text-sm text-slate-600">Inspect infrastructure instances</p>
           </div>
         </div>
         <button
@@ -259,6 +316,71 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
           </div>
         </div>
       )}
+
+      {pendingStartVm ? (
+        <div className="border-b border-blue-100 bg-blue-50 px-6 py-4">
+          <div className="max-w-3xl rounded-lg border border-blue-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-slate-950">Start VM</h3>
+                <div className="mt-2 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium uppercase text-slate-500">Name</div>
+                    <div className="truncate font-medium text-slate-900" title={pendingStartVm.name}>{pendingStartVm.name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-slate-500">Node</div>
+                    <div className="font-mono text-slate-900">{pendingStartVm.nodeId}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-slate-500">VMID</div>
+                    <div className="font-mono text-slate-900">{pendingStartVm.vmid ?? '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-slate-500">Current status</div>
+                    <div className="text-slate-900">{statusLabel(pendingStartVm.status)}</div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeStartDialog}
+                disabled={startSubmitting}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+            {startError ? (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {startError}
+              </div>
+            ) : null}
+            <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={startAcknowledged}
+                onChange={(event) => setStartAcknowledged(event.target.checked)}
+                disabled={startSubmitting}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>I acknowledge this will start the stopped VM on Proxmox.</span>
+            </label>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                data-testid="confirm-vm-start"
+                onClick={confirmStartVm}
+                disabled={!startAcknowledged || startSubmitting}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {startSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                Start VM
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="px-6 py-5">
         {model?.summary ? (
@@ -328,15 +450,16 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                         <div className="px-4 py-4 text-sm text-slate-500">No instances observed on this server.</div>
                       ) : (
                         <div className="overflow-x-auto">
-                          <table className="min-w-[72rem] w-full table-fixed divide-y divide-slate-200 text-sm">
+                          <table className="min-w-[78rem] w-full table-fixed divide-y divide-slate-200 text-sm">
                             <colgroup>
-                              <col className="w-[18%] min-w-[12rem]" />
-                              <col className="w-[8%] min-w-[6rem]" />
                               <col className="w-[17%] min-w-[12rem]" />
+                              <col className="w-[8%] min-w-[6rem]" />
+                              <col className="w-[15%] min-w-[11rem]" />
                               <col className="w-[6%] min-w-[4rem]" />
                               <col className="w-[7%] min-w-[5rem]" />
-                              <col className="w-[31%] min-w-[24rem]" />
-                              <col className="w-[13%] min-w-[9rem]" />
+                              <col className="w-[28%] min-w-[22rem]" />
+                              <col className="w-[11%] min-w-[8rem]" />
+                              <col className="w-[8%] min-w-[6rem]" />
                             </colgroup>
                             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                               <tr>
@@ -347,6 +470,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                                 <th scope="col" className="px-4 py-2 text-right font-medium">Memory</th>
                                 <th scope="col" className="px-4 py-2 text-left font-medium">Disk</th>
                                 <th scope="col" className="px-4 py-2 text-left font-medium">Signals</th>
+                                <th scope="col" className="px-4 py-2 text-center font-medium">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
@@ -399,6 +523,21 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                                     </td>
                                     <td className="px-4 py-2 text-slate-600">
                                       <SignalStack vm={vm} />
+                                    </td>
+                                    <td className="px-4 py-2 text-center">
+                                      {canStartVm(vm) ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => openStartDialog(vm)}
+                                          aria-label={`Start ${vm.name}`}
+                                          title={`Start ${vm.name}`}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+                                        >
+                                          <Play className="h-4 w-4" />
+                                        </button>
+                                      ) : (
+                                        <span className="text-xs text-slate-400">-</span>
+                                      )}
                                     </td>
                                   </tr>
                                 )

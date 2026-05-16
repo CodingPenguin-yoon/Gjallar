@@ -77,12 +77,17 @@ function compileInstanceListSource(source) {
       'const { useEffect, useState } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.reactHooks'
     )
     .replace(
+      /import\s+\{\s*useNavigate\s*\}\s+from\s+'react-router-dom'/,
+      'const { useNavigate } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.router'
+    )
+    .replace(
       /import\s+\{\s*([\s\S]*?)\s*\}\s+from\s+'lucide-react'/,
       `const {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   Loader2,
+  Play,
   RefreshCw,
   Server,
 } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.icons`
@@ -119,6 +124,7 @@ const { loadInfraExplorerModel } = await importExpected(
 )
 
 const calls = []
+const startCalls = []
 const fakeClient = {
   async listNodes() {
     calls.push('listNodes')
@@ -157,7 +163,25 @@ const fakeClient = {
           },
         ],
       },
+      {
+        vmid: 142,
+        name: 'stopped-app',
+        node_id: 'yoonmanserver2',
+        status: 'stopped',
+        ip_addresses: [],
+        guest_agent: { available: false, ip_addresses: [] },
+        tags: ['owner:platform'],
+        cpu: 2,
+        memory_mb: 4096,
+        disk_gb: 40,
+        storage_id: 'local-lvm',
+        disks: [],
+      },
     ]
+  },
+  async startVm(nodeId, vmid, payload) {
+    startCalls.push({ nodeId, vmid, payload })
+    return { job_id: 'vm-start-node-a-142' }
   },
   async getInstances() {
     calls.push('getInstances')
@@ -174,13 +198,15 @@ assert.deepEqual(calls.sort(), ['listNodes', 'listVms'])
 assert.equal(model.readOnly, true)
 assert.deepEqual(model.allowedActions, [])
 assert.equal(model.summary.totalNodes, 2)
-assert.equal(model.summary.totalVms, 1)
+assert.equal(model.summary.totalVms, 2)
 assert.equal(model.summary.visibleIpCount, 1)
 assert.equal(model.summary.guestAgentCount, 1)
 assert.equal(model.nodes[0].name, 'Yoonman Server 2')
 assert.equal(model.nodes[0].vms[0].name, 'app-01')
 assert.equal(model.nodes[0].vms[0].readOnly, true)
 assert.deepEqual(model.nodes[0].vms[0].allowedActions, [])
+assert.equal(model.nodes[0].vms[1].name, 'stopped-app')
+assert.deepEqual(model.nodes[0].vms[1].allowedActions, ['start'])
 assert.equal(model.nodes[0].vms[0].storageId, 'local-lvm')
 assert.equal(model.nodes[0].vms[0].disks[0].device, 'scsi0')
 assert.equal(model.nodes[0].vms[0].disks[0].storageId, 'local-lvm')
@@ -194,6 +220,8 @@ const sourcePath = new URL('../src/components/InstanceList.jsx', import.meta.url
 const instanceListSource = readFileSync(sourcePath, 'utf8')
 assert.match(instanceListSource, /apiV1Client/)
 assert.match(instanceListSource, /loadInfraExplorerModel/)
+assert.match(instanceListSource, /useNavigate/)
+assert.match(instanceListSource, /apiV1Client\.startVm/)
 assert.doesNotMatch(instanceListSource, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'InstanceList must not import the legacy /api client')
 assert.match(
   instanceListSource,
@@ -202,7 +230,7 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /<colgroup>[\s\S]*?<col className="w-\[18%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[17%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[6%\] min-w-\[4rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[5rem\]" \/>[\s\S]*?<col className="w-\[31%\] min-w-\[24rem\]" \/>[\s\S]*?<col className="w-\[13%\] min-w-\[9rem\]" \/>[\s\S]*?<\/colgroup>/,
+  /<colgroup>[\s\S]*?<col className="w-\[17%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[15%\] min-w-\[11rem\]" \/>[\s\S]*?<col className="w-\[6%\] min-w-\[4rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[5rem\]" \/>[\s\S]*?<col className="w-\[28%\] min-w-\[22rem\]" \/>[\s\S]*?<col className="w-\[11%\] min-w-\[8rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[6rem\]" \/>[\s\S]*?<\/colgroup>/,
   'InstanceList VM table must define stable column widths with a colgroup'
 )
 assert.match(
@@ -288,13 +316,16 @@ const compiled = transformSync(compileInstanceListSource(instanceListSource), {
 }).code
 
 const hookHarness = createHookHarness()
+const navigateCalls = []
 globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
   reactHooks: hookHarness.hooks,
+  router: { useNavigate: () => (path) => navigateCalls.push(path) },
   icons: {
     AlertTriangle: icon('AlertTriangle'),
     ChevronDown: icon('ChevronDown'),
     ChevronRight: icon('ChevronRight'),
     Loader2: icon('Loader2'),
+    Play: icon('Play'),
     RefreshCw: icon('RefreshCw'),
     Server: icon('Server'),
   },
@@ -314,17 +345,21 @@ let tree = InstanceList({})
 let html = renderToStaticMarkup(tree)
 
 assert.match(html, /Instances/)
-assert.match(html, /Manage\/read-only infrastructure instances/)
+assert.match(html, /Inspect infrastructure instances/)
 assert.match(html, /Refresh/)
 assert.match(html, /Yoonman Server 2/)
 assert.match(html, /yoonmanserver3/)
-assert.match(html, /1 instances/)
+assert.match(html, /2 instances/)
 assert.match(html, /0 instances/)
 assert.match(html, /aria-expanded="true"/)
 assert.match(html, /data-icon="ChevronDown"/)
 assert.match(html, /Online/)
 assert.match(html, /app-01/)
 assert.match(html, /VMID 141/)
+assert.match(html, /stopped-app/)
+assert.match(html, /VMID 142/)
+assert.match(html, /aria-label="Start stopped-app"/)
+assert.match(html, /data-icon="Play"/)
 assert.match(html, /192\.168\.2\.141/)
 assert.match(html, />\+2</)
 assert.match(html, /aria-label="Show 2 additional IP addresses"/)
@@ -342,9 +377,52 @@ assert.match(html, /raw/)
 assert.match(html, /discard/)
 assert.match(html, /local-lvm/)
 
-for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals']) {
+for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals', 'Actions']) {
   assert.match(html, new RegExp(`>${heading}<`), `InstanceList must show ${heading} in the grouped inventory table`)
 }
+
+const startButton = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['aria-label'] === 'Start stopped-app'
+)
+assert.ok(startButton, 'Expected a start control for stopped non-template VMs')
+startButton.props.onClick()
+
+hookHarness.beginRender()
+tree = InstanceList({})
+html = renderToStaticMarkup(tree)
+assert.match(html, /Start VM/)
+assert.match(html, /Current status/)
+assert.match(html, /Stopped/)
+assert.match(html, /I acknowledge this will start the stopped VM on Proxmox/)
+
+const checkbox = findElement(
+  tree,
+  (element) => element.type === 'input' && element.props?.type === 'checkbox'
+)
+assert.ok(checkbox, 'Expected VM start acknowledgement checkbox')
+checkbox.props.onChange({ target: { checked: true } })
+
+hookHarness.beginRender()
+tree = InstanceList({})
+const confirmStart = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['data-testid'] === 'confirm-vm-start'
+)
+assert.ok(confirmStart, 'Expected VM start confirmation button')
+await confirmStart.props.onClick()
+assert.equal(startCalls.length, 1)
+assert.equal(startCalls[0].nodeId, 'yoonmanserver2')
+assert.equal(startCalls[0].vmid, 142)
+assert.equal(startCalls[0].payload.vm_start_acknowledged, true)
+assert.equal(startCalls[0].payload.expected_name, 'stopped-app')
+assert.equal(startCalls[0].payload.expected_status, 'stopped')
+assert.match(startCalls[0].payload.idempotency_key, /^infra-explorer:start:yoonmanserver2:142:/)
+assert.deepEqual(navigateCalls, ['/jobs?job=vm-start-node-a-142'])
+
+hookHarness.beginRender()
+tree = InstanceList({})
+html = renderToStaticMarkup(tree)
 
 const toggle = findElement(
   tree,
@@ -362,7 +440,6 @@ assert.match(html, /data-icon="ChevronRight"/)
 assert.doesNotMatch(html, /instance-group-yoonmanserver2"><div class="overflow-x-auto">/, 'Collapsed groups must hide their table contents')
 
 for (const blocked of [
-  'Actions',
   'performInstanceAction',
   'terminateInstance',
   'updateInstanceResources',
@@ -373,7 +450,6 @@ for (const blocked of [
   'reset',
   'shutdown',
   'reboot',
-  'start instance',
   'stop instance',
 ]) {
   assert.ok(!html.toLowerCase().includes(blocked.toLowerCase()), `InstanceList read-only slice must not expose ${blocked}`)

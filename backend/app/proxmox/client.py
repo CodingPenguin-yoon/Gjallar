@@ -7,6 +7,7 @@ approval-gated native Proxmox mutations.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 import time
@@ -147,7 +148,23 @@ class ProxmoxMutationClient:
             verify=not self.tls_insecure,
             timeout=timeout or (self.connect_timeout_seconds, self.read_timeout_seconds),
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            response_json: Any | None = None
+            with contextlib.suppress(ValueError):
+                response_json = response.json()
+            raise ProxmoxMutationError(
+                f"Proxmox API HTTP {response.status_code}: {method} {path}",
+                details={
+                    "method": method,
+                    "path": path,
+                    "status_code": response.status_code,
+                    "reason": response.reason,
+                    "response_text": response.text,
+                    "response_json": response_json,
+                },
+            ) from exc
         payload = response.json()
         return payload.get("data", payload)
 
@@ -236,6 +253,13 @@ class ProxmoxMutationClient:
             "size": f"{int(size)}G",
         }
         return self._request_json("PUT", f"/nodes/{node}/qemu/{int(vmid)}/resize", data=payload)
+
+    def start_vm(self, *, node: str, vmid: int) -> str:
+        data = self._request_json("POST", f"/nodes/{node}/qemu/{int(vmid)}/status/start")
+        upid = str(data or "").strip()
+        if not upid:
+            raise ProxmoxMutationError("Proxmox start did not return a UPID", details={"node": node, "vmid": int(vmid)})
+        return upid
 
     def get_vm_status(self, *, node: str, vmid: int) -> dict[str, Any]:
         data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/status/current")

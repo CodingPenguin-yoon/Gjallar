@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import quote
 
 TEST_SSH_PUBLIC_KEY = (
     "ssh-ed25519 "
@@ -21,6 +22,7 @@ class RecordingProxmoxClient:
         missing=False,
         cloned_disk_gb=50,
         resize_error=False,
+        config_error=False,
     ):
         self.calls = []
         self.task_exitstatus = task_exitstatus
@@ -28,6 +30,7 @@ class RecordingProxmoxClient:
         self.missing = missing
         self.cloned_disk_gb = cloned_disk_gb
         self.resize_error = resize_error
+        self.config_error = config_error
 
     def clone_vm(self, **kwargs):
         self.calls.append(("clone_vm", kwargs))
@@ -45,6 +48,13 @@ class RecordingProxmoxClient:
 
     def set_vm_config(self, **kwargs):
         self.calls.append(("set_vm_config", kwargs))
+        if self.config_error:
+            from app.proxmox.client import ProxmoxMutationError
+
+            raise ProxmoxMutationError(
+                "config rejected",
+                details={"response_json": {"errors": {"sshkeys": "invalid urlencoded string ssh-ed25519 AAAA"}}},
+            )
         return None
 
     def resize_vm_disk(self, **kwargs):
@@ -137,6 +147,7 @@ networks:
         return build_vm_create_plan(draft, preflight, run_dir=self.root / job_id / "plan")
 
     def test_preview_is_non_mutating_and_contains_native_payload(self):
+        from app.jobs.artifacts import read_artifact_text
         from app.vm_create.proxmox_runner import build_proxmox_create_preview, config_payload_from_plan
 
         plan = self._plan()
@@ -152,11 +163,12 @@ networks:
         self.assertEqual("enabled=1", preview["config"]["agent"])
         self.assertEqual(0, preview["config"]["onboot"])
         self.assertEqual("yoon", raw_config["ciuser"])
-        self.assertEqual(TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0], raw_config["sshkeys"])
+        expected_ssh_key = TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0]
+        self.assertEqual(quote(expected_ssh_key, safe=""), raw_config["sshkeys"])
         self.assertEqual("[REDACTED]", preview["config"]["sshkeys"])
         self.assertEqual("ip=192.168.2.142/25,gw=192.168.2.254", preview["config"]["ipconfig0"])
-        self.assertTrue(Path(preview["artifacts"][0]["path"]).is_file())
-        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], Path(preview["artifacts"][0]["path"]).read_text(encoding="utf-8"))
+        self.assertTrue(preview["artifacts"][0]["path"].startswith("db://job-artifacts/"))
+        self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], read_artifact_text(preview["artifacts"][0]))
 
     def test_create_success_requires_ok_task_stopped_post_check_and_observed_after(self):
         from app.vm_create.proxmox_runner import run_proxmox_create
@@ -180,17 +192,19 @@ networks:
         self.assertEqual("not_needed", result["resize"]["action"])
         self.assertEqual("[REDACTED]", result["config"]["sshkeys"])
         set_config_call = next(call for call in client.calls if call[0] == "set_vm_config")[1]
-        self.assertEqual(TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0], set_config_call["config"]["sshkeys"])
+        expected_ssh_key = TEST_SSH_PUBLIC_KEY.split(" gjallar@test", 1)[0]
+        self.assertEqual(quote(expected_ssh_key, safe=""), set_config_call["config"]["sshkeys"])
         self.assertEqual("UPID:yoonmanserver2:0001:test", result["task"]["upid"])
         self.assertEqual("stopped", result["observed_after"]["status"])
         self.assertEqual("sha256:", result["observed_after"]["fingerprint"]["hash"][:7])
         self.assertEqual(["aa:bb:cc:dd:ee:ff"], result["observed_after"]["fingerprint"]["mac_addresses"])
         self.assertEqual(["local-lvm:vm-306-disk-0"], result["observed_after"]["fingerprint"]["disk_volume_ids"])
-        self.assertTrue(Path(result["observed_after_artifact"]["path"]).is_file())
+        self.assertTrue(result["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
         self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], repr(result))
         self.assertIn("proxmox_post_check_observed", result["side_effects"])
 
     def test_observed_after_sanitizes_public_key_material_from_proxmox_config(self):
+        from app.jobs.artifacts import read_artifact_text
         from app.vm_create.proxmox_runner import run_proxmox_create
 
         class SshkeysObservingClient(RecordingProxmoxClient):
@@ -202,7 +216,7 @@ networks:
 
         self.assertTrue(result["success"])
         self.assertEqual("[REDACTED]", result["observed_after"]["config"]["sshkeys"])
-        artifact_text = Path(result["observed_after_artifact"]["path"]).read_text(encoding="utf-8")
+        artifact_text = read_artifact_text(result["observed_after_artifact"])
         self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], artifact_text)
 
     def test_requested_disk_larger_than_cloned_scsi0_invokes_resize_before_config(self):
@@ -272,6 +286,22 @@ networks:
         self.assertNotIn("observed_after", result)
         self.assertIn("proxmox_disk_resize_failed", result["side_effects"])
 
+    def test_config_failure_keeps_redacted_proxmox_error_details(self):
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        client = RecordingProxmoxClient(config_error=True)
+        result = run_proxmox_create(
+            self._plan(job_id="job-proxmox-config-failure"),
+            run_dir=self.root / "config-failure",
+            client=client,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("needs_reconciliation", result["status"])
+        self.assertEqual("[REDACTED]", result["details"]["response_json"]["errors"]["sshkeys"])
+        self.assertNotIn("observed_after", result)
+        self.assertIn("set_vm_config", [call[0] for call in client.calls])
+
     def test_task_failure_does_not_configure_or_mark_success(self):
         from app.vm_create.proxmox_runner import run_proxmox_create
 
@@ -295,7 +325,7 @@ networks:
         self.assertFalse(running["success"])
         self.assertEqual("needs_reconciliation", running["status"])
         self.assertEqual("running", running["observed_after"]["status"])
-        self.assertTrue(Path(running["observed_after_artifact"]["path"]).is_file())
+        self.assertTrue(running["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
 
         missing_client = RecordingProxmoxClient(missing=True)
         missing = run_proxmox_create(

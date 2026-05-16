@@ -65,8 +65,8 @@ const fakeClient = {
   async listJobArtifacts(jobId) {
     calls.push(`listJobArtifacts:${jobId}`)
     return [
-      { artifact_id: 'plan-json', kind: 'plan', path: 'artifacts/job-plan/plan.json' },
-      { artifact_id: 'review-md', kind: 'review', path: 'artifacts/job-plan/review.md' },
+      { artifact_id: 'plan-json', kind: 'plan', path: 'db://job-artifacts/plan-json', storage_backend: 'db', checksum: 'sha256:abc' },
+      { artifact_id: 'review-md', kind: 'review', path: 'db://job-artifacts/review-md', storage_backend: 'db', checksum: 'sha256:def' },
     ]
   },
   async getTasks() {
@@ -99,6 +99,7 @@ assert.equal(model.selectedJob.steps[0].label, 'VM 생성')
 assert.equal(model.artifacts.length, 2)
 assert.deepEqual(model.artifacts.map((artifact) => artifact.id), ['plan-json', 'review-md'])
 assert.equal(model.artifacts[0].readOnly, true)
+assert.equal(model.artifacts[0].storageBackend, 'db')
 assert.deepEqual(model.artifacts[0].allowedActions, [])
 
 const source = readFileSync(new URL('../src/components/TaskBoard.jsx', import.meta.url), 'utf8')
@@ -106,6 +107,7 @@ assert.match(source, /apiV1Client/)
 assert.match(source, /loadJobsScreenModel/)
 assert.match(source, /진행 상황/)
 assert.match(source, /useSearchParams/)
+assert.doesNotMatch(source, /artifact\.path/, 'Jobs screen must not render internal artifact storage paths')
 assert.doesNotMatch(source, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'TaskBoard must not import the legacy /api client')
 
 const forbidden = (...parts) => parts.join('')

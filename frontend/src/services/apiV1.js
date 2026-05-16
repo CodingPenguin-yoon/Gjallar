@@ -5,6 +5,7 @@ export const API_V1_ENDPOINTS = Object.freeze({
   nodes: '/nodes',
   vms: '/vms',
   vm: (vmid) => `/vms/${encodePathPart(vmid)}`,
+  vmStart: (nodeId, vmid) => `/nodes/${encodePathPart(nodeId)}/vms/${encodePathPart(vmid)}/actions/start`,
   profiles: '/profiles',
   templates: '/templates',
   storage: '/storage',
@@ -21,7 +22,6 @@ export const API_V1_ENDPOINTS = Object.freeze({
   vmCreateApprove: (draftId) => `/vm-create/${encodePathPart(draftId)}/approve`,
   vmCreateProxmoxPreview: (draftId) => `/vm-create/${encodePathPart(draftId)}/proxmox-preview`,
   vmCreateProxmoxCreate: (draftId) => `/vm-create/${encodePathPart(draftId)}/proxmox-create`,
-  vmCreateExecute: (draftId) => `/vm-create/${encodePathPart(draftId)}/execute`,
 })
 
 function encodePathPart(value) {
@@ -103,6 +103,7 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     listNodes: () => get(API_V1_ENDPOINTS.nodes),
     listVms: () => get(API_V1_ENDPOINTS.vms),
     getVm: (vmid) => get(API_V1_ENDPOINTS.vm(vmid)),
+    startVm: (nodeId, vmid, payload = {}) => post(API_V1_ENDPOINTS.vmStart(nodeId, vmid), payload),
     listProfiles: () => get(API_V1_ENDPOINTS.profiles),
     listTemplates: () => get(API_V1_ENDPOINTS.templates),
     listStorage: () => get(API_V1_ENDPOINTS.storage),
@@ -120,7 +121,6 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     approveVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateApprove(draftId), payload),
     previewVmDraftProxmox: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateProxmoxPreview(draftId), payload),
     createVmDraftProxmox: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateProxmoxCreate(draftId), payload),
-    commitVmDraftManifest: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreateExecute(draftId), payload),
   })
 }
 

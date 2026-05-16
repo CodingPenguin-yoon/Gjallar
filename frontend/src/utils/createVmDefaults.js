@@ -138,7 +138,7 @@ export function normalizeCreateVmProfiles(profiles = []) {
       }
     }).filter((profile) => profile.profileId)
 
-  return normalized.length ? normalized : localCreateVmProfiles()
+  return normalized
 }
 
 export function hardwareDefaultsForProfile(profile) {

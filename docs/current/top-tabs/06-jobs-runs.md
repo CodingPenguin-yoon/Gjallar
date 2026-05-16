@@ -1,12 +1,12 @@
 # Jobs/Runs
 
-평가일: 2026-05-13
+평가일: 2026-05-15
 
-검증 기준: coordinator가 backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests` -> 92 passed, frontend `for test_file in frontend/tests/*.mjs; do node "$test_file"; done` -> passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed를 기록했다.
+검증 기준: worker가 backend targeted VM action/inventory/job tests -> passed, frontend `node --test frontend/tests/apiV1Client.test.mjs frontend/tests/apiV1ViewModels.test.mjs frontend/tests/infraExplorerScreen.test.mjs frontend/tests/jobsScreen.test.mjs` -> passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
-현재 Jobs/Runs는 read-only file-backed job/artifact inspection 화면이다. Create VM oriented progress와 artifacts는 구현되어 있지만, DRS migration job model은 아직 1급 구현이 아니다.
+현재 Jobs/Runs는 read-only DB-backed job/artifact inspection 화면이다. Create VM progress/artifacts와 Infra Explorer `vm_start` job evidence가 구현되어 있지만, DRS migration job model은 아직 1급 구현이 아니다.
 
 ## 구현 API/endpoints
 
@@ -22,9 +22,11 @@
 
 ## 현재 구현
 
-backend는 `GJALLAR_RUNS_ROOT` 아래 job status와 artifacts를 file-backed로 저장하고, summary와 artifact metadata를 read-only로 반환한다. Create VM draft/preflight/plan/approval/commit/apply 단계가 job progress로 기록된다.
+backend는 `job_runs`와 `job_artifacts` 테이블에 job status와 artifacts를 저장하고, summary와 artifact metadata를 read-only로 반환한다. Artifact reference는 `db://job-artifacts/<artifact_id>` 형태이며 UI는 로컬 파일 경로를 노출하지 않는다. Create VM draft/preflight/plan/approval/create 단계와 Infra Explorer VM start `precheck/start/task_poll/post_check` 단계가 job progress로 기록된다.
 
-frontend는 job list, selected job detail, progress steps, artifact links를 보여준다. retry, cancel, live-run, VM mutation control은 없다.
+`vm_start` jobs는 `vm_start_observed_after.json` artifact를 남긴다. Artifact에는 observed-before inventory, target node/VMID/name, idempotency key, Proxmox start UPID/task poll result, observed-after status, redacted connection context가 포함된다.
+
+frontend는 job list, selected job detail, progress steps, artifact metadata를 보여준다. retry, cancel, live-run, VM mutation control은 없다.
 
 ## DRS Advisor 기준 gaps
 
@@ -34,7 +36,7 @@ frontend는 job list, selected job detail, progress steps, artifact links를 보
 
 ## 리스크/메모
 
-현재 Jobs/Runs는 Create VM 기록 확인에는 유효하지만 DRS migration 운영 기록으로는 부족하다. 특히 Proxmox task success만으로 migration success를 결정하면 안 되고, target node/running/fingerprint post-check가 필요하다.
+현재 Jobs/Runs는 Create VM과 VM start 기록 확인에는 유효하지만 DRS migration 운영 기록으로는 부족하다. 특히 Proxmox task success만으로 migration success를 결정하면 안 되고, target node/running/fingerprint post-check가 필요하다.
 
 ## 다음 구현 slice
 

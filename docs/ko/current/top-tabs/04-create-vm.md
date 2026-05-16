@@ -16,21 +16,19 @@ Create VM은 `/create` route의 operator-reviewed VM 생성 flow입니다. DRS A
 | Preflight | `POST /api/v1/vm-create/{draft_id}/preflight` | `preflightVmDraft()` |
 | Plan | `POST /api/v1/vm-create/{draft_id}/plan` | `planVmDraft()` |
 | Approve | `POST /api/v1/vm-create/{draft_id}/approve` | `approveVmDraft()` |
-| Manifest commit | `POST /api/v1/vm-create/{draft_id}/execute` | `commitVmDraftManifest()` |
-| Preview | `POST /api/v1/vm-create/{draft_id}/proxmox-preview` | `previewVmDraftProxmox()` |
 | Native create | `POST /api/v1/vm-create/{draft_id}/proxmox-create` | `createVmDraftProxmox()` |
 
-`archive` backend route는 있지만 primary frontend client가 expose하지 않습니다.
+Legacy `execute/archive` manifest commit route는 active API에서 제거됐습니다.
 
 ## backend 구현 함수
 
-Router handlers는 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/router.py)에 있습니다. 핵심 흐름은 payload normalization, `build_default_vm_draft()`, `run_preflight()`, `build_vm_create_plan()`, `validate_approval_request()`, `commit_plan_manifest()`, `build_proxmox_create_preview()`, `run_proxmox_create()` 순서입니다.
+Router handlers는 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/router.py)에 있습니다. 핵심 primary UI 흐름은 payload normalization, `build_default_vm_draft()`, `run_preflight()`, `build_vm_create_plan()`, `validate_approval_request()`, final acknowledgement, `build_proxmox_create_preview()`, `run_proxmox_create()` 순서입니다. 별도 manifest commit/save-request 버튼은 current primary UI에서 제거됐습니다.
 
 자세한 함수별 설명은 [architecture/create-vm/native-create-flow.md](../../architecture/create-vm/native-create-flow.md)를 봅니다.
 
 ## 현재 성공 기준
 
-Native create success는 clone task OK, 필요한 disk resize 완료 또는 불필요, config 적용, target node에서 VM 존재, status `stopped`, `observed_after` artifact 존재, manifest `applied`, job `completed`입니다.
+Native create success는 clone task OK, 필요한 disk resize 완료 또는 불필요, config 적용, target node에서 VM 존재, status `stopped`, `observed_after` artifact 존재, job `completed`입니다.
 
 성공에 포함하지 않는 것: first power-on, cloud-init completion, guest-agent IP discovery, SSH, Ansible, app deploy, DRS identity registration.
 

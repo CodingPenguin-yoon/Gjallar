@@ -9,7 +9,7 @@ The active repo-local documentation lives under [`docs/`](docs/README.md). Start
 - Current MVP product source of truth is [`docs/product/drs-advisor/`](docs/product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 - DRS Advisor is the next MVP success line: Proxmox-native migration recommendations, approval-gated live migration, Proxmox task tracking, audit, and reconciliation.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
-- Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, audit, and reconciliation state.
+- Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 - PBS/Veeam references are backup evidence or future integration context only.
 
 ## Current state at a glance
@@ -19,8 +19,8 @@ The active repo-local documentation lives under [`docs/`](docs/README.md). Start
 - The current UI provides Dashboard, Infra Explorer, Networks, Create VM, read-only Placement, Jobs/Runs, and Risks/Alerts.
 - Current code has read-only Placement and Create VM as supporting capabilities; it does not yet implement backend DRS recommendation, identity/fingerprint policy, approved migration execution, UPID tracking, or reconciliation.
 - Create VM mutations are approval-gated Proxmox API native. The legacy Terraform executor route surface and helper code have been removed.
-- Native Create VM creates/configures a powered-off VM, polls the Proxmox clone UPID, and requires post-check `observed_after` evidence before marking the manifest applied.
-- There are no destructive VM list controls in the current UI.
+- Native Create VM creates/configures a powered-off VM, polls the Proxmox clone UPID, records request/VM DB rows, and requires post-check `observed_after` evidence before marking the create applied. It does not auto-start the VM.
+- Infra Explorer exposes only a gated Start action for stopped non-template VMs; stop/reset/shutdown/reboot/delete/terminate controls are absent.
 
 ## Local Runtime Env
 
@@ -31,7 +31,16 @@ Key values:
 - `FRONTEND_PORT`: Vite dev server port, default `5173`
 - `BACKEND_PORT`: FastAPI backend port, default `8000`
 - `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
-- `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`, `GJALLAR_RUNS_ROOT`: shared IaC and run-state paths
+- `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`: legacy IaC paths for NetworkPolicy compatibility
+- `GJALLAR_DATABASE_URL`: SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; default local SQLite in `.env.example`
+
+Initialize the backend DB before first local Create VM use:
+
+```bash
+cd backend
+alembic upgrade head
+python -m app.db.seed_create_vm_profiles
+```
 
 ## Product framing
 

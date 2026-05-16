@@ -14,7 +14,6 @@ const {
   buildCreateVmInputFromConfig,
   loadCreateVmReviewModel,
   approveCreateVmReview,
-  commitCreateVmManifest,
   createVmWithProxmox,
   decorateTemplateOptionsForProfile,
   normalizeTemplateOptions,
@@ -338,7 +337,7 @@ const fakeClient = {
         planned_git_diff_summary: '1 generated manifest',
         review_summary_checksum: 'sha256:abc123',
       },
-      artifacts: [{ artifact_id: 'artifact-plan', type: 'plan', path: '/tmp/plan.json' }],
+      artifacts: [{ artifact_id: 'artifact-plan', type: 'plan', path: 'db://job-artifacts/artifact-plan', storage_backend: 'db' }],
       side_effects: [],
     }
   },
@@ -372,7 +371,7 @@ const fakeClient = {
       post_check: { required_status: 'stopped', powered_on_success_allowed: false },
       proxmox_create_enabled: false,
       proxmox_mutation_enabled: false,
-      artifacts: [{ artifact_id: 'artifact-proxmox-preview', type: 'proxmox_create_preview', path: '/tmp/proxmox_create_preview.json' }],
+      artifacts: [{ artifact_id: 'artifact-proxmox-preview', type: 'proxmox_create_preview', path: 'db://job-artifacts/artifact-proxmox-preview', storage_backend: 'db' }],
       side_effects: [],
     }
   },
@@ -381,10 +380,9 @@ const fakeClient = {
     return {
       job_id: payload.job_id,
       manifest_id: 'vm-job-ui-create',
-      manifest_path: 'manifests/vms/vm-job-ui-create.yaml',
-      manifest_commit_sha: payload.manifest_commit_sha,
-      manifest_status: { phase: 'applied', last_error: '', updated_at: '2026-05-10T00:00:00Z' },
-      manifest_status_commit_sha: 'def456',
+      proxmox_preview: {
+        clone: { endpoint: '/nodes/yoonmanserver2/qemu/9000/clone' },
+      },
       proxmox_create_ran: true,
       proxmox_create_status: 'applied',
       proxmox_create_enabled: true,
@@ -394,20 +392,8 @@ const fakeClient = {
         exists: true,
         fingerprint: { hash: 'sha256:abc456' },
       },
-      observed_after_artifact: { artifact_id: 'artifact-observed', type: 'observed_after', path: '/tmp/observed_after.json' },
-      side_effects: ['iac_manifest_status_applied', 'proxmox_clone_invoked', 'proxmox_post_check_observed'],
-    }
-  },
-  async commitVmDraftManifest(draftId, payload) {
-    calls.push(['commitVmDraftManifest', draftId, payload])
-    return {
-      execution_intent: 'gitops_commit_only',
-      manifest_path: 'manifests/vms/vm-job-ui-create.yaml',
-      manifest_status: { phase: 'pending', last_error: '', updated_at: '' },
-      commit_sha: 'abc123',
-      proxmox_create_enabled: false,
-      proxmox_mutation_enabled: false,
-      side_effects: ['iac_manifest_written', 'iac_git_commit_created'],
+      observed_after_artifact: { artifact_id: 'artifact-observed', type: 'observed_after', path: 'db://job-artifacts/artifact-observed', storage_backend: 'db' },
+      side_effects: ['proxmox_clone_invoked', 'proxmox_post_check_observed'],
     }
   },
 }
@@ -429,10 +415,10 @@ assert.equal(model.review.profileHardwareLimits.disk_gb.max, 500)
 assert.equal(model.review.canApprove, true)
 assert.equal(model.review.canPreviewProxmox, true)
 assert.equal(model.review.canCommitManifest, false)
-assert.equal(model.review.canCreateProxmox, false)
-assert.equal(model.review.canExecute, false, 'UI must not expose direct create before manifest commit and final acknowledgement')
+assert.equal(model.review.canCreateProxmox, true)
+assert.equal(model.review.canExecute, false, 'UI must not expose direct create without final acknowledgement')
 assert.equal(model.review.firstPowerOnIncluded, false)
-assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.')
+assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 승인과 최종 체크 후 Proxmox native create에서만 실행됩니다.')
 assert.equal(model.payload.prefix, 25)
 assert.equal(model.payload.profile_id, 'general-vm')
 assert.equal(model.payload.gateway, '192.168.2.254')
@@ -458,7 +444,7 @@ assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
 assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
 assert.equal(approval.canApprove, true)
 assert.equal(approval.canExecute, false)
-assert.equal(approval.executeDisabledReason, '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.')
+assert.equal(approval.executeDisabledReason, '실제 VM 생성은 승인과 최종 체크 후 Proxmox native create에서만 실행됩니다.')
 assert.deepEqual(approval.sideEffects, [])
 
 const preview = await previewCreateVmProxmox(fakeClient, model, { yellowRiskAcknowledged: false })
@@ -472,27 +458,13 @@ assert.equal(preview.clone.endpoint, '/nodes/yoonmanserver2/qemu/9000/clone')
 assert.equal(preview.proxmoxMutationEnabled, false)
 assert.deepEqual(preview.sideEffects, [])
 
-model.review.canCommitManifest = true
 model.review.canCreateProxmox = true
-const commit = await commitCreateVmManifest(fakeClient, model, { yellowRiskAcknowledged: false })
-assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft', 'previewVmDraftProxmox', 'commitVmDraftManifest'])
-assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
-assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
-assert.equal(commit.status, 'committed')
-assert.equal(commit.manifestPath, 'manifests/vms/vm-job-ui-create.yaml')
-assert.equal(commit.commitSha, 'abc123')
-assert.equal(commit.manifestStatus.phase, 'pending')
-assert.equal(commit.createEnabled, false)
-assert.equal(commit.proxmoxMutationEnabled, false)
-assert.deepEqual(commit.sideEffects, ['iac_manifest_written', 'iac_git_commit_created'])
-
 const created = await createVmWithProxmox(fakeClient, model, {
   yellowRiskAcknowledged: false,
-  manifestCommitSha: commit.commitSha,
   proxmoxMutationAcknowledged: true,
 })
 assert.equal(calls.at(-1)[0], 'createVmDraftProxmox')
-assert.equal(calls.at(-1)[2].manifest_commit_sha, 'abc123')
+assert.equal('manifest_commit_sha' in calls.at(-1)[2], false)
 assert.equal(calls.at(-1)[2].proxmox_mutation_acknowledged, true)
 assert.ok(!('expected_plan_path' in calls.at(-1)[2]))
 assert.ok(!('terraform_plan_acknowledged' in calls.at(-1)[2]))
@@ -500,10 +472,9 @@ assert.ok(!('terraform_apply_acknowledged' in calls.at(-1)[2]))
 assert.equal(created.status, 'applied')
 assert.equal(created.createEnabled, true)
 assert.equal(created.proxmoxMutationEnabled, true)
-assert.equal(created.manifestStatus.phase, 'applied')
-assert.equal(created.manifestStatusCommitSha, 'def456')
 assert.equal(created.observedAfter.status, 'stopped')
-assert.equal(created.observedAfterPath, '/tmp/observed_after.json')
+assert.equal(created.observedAfterPath, '')
+assert.equal(created.observedAfterArtifactId, 'artifact-observed')
 assert.equal(created.fingerprintHash, 'sha256:abc456')
 
 const deniedApproval = await approveCreateVmReview(
@@ -532,9 +503,12 @@ assert.match(deniedApproval.operatorMessage, /승인할 수 없습니다|acknowl
 const source = readFileSync(new URL('../src/utils/createVmFlow.js', import.meta.url), 'utf8')
 assert.ok(!source.includes('prepareVmDraftTerraformPlan'), 'active frontend flow must not call Terraform plan helper')
 assert.ok(!source.includes('applyVmDraftTerraformPlan'), 'active frontend flow must not call Terraform apply helper')
+assert.ok(!source.includes('commitVmDraftManifest'), 'active frontend flow must not call legacy GitOps execute helper')
 const wizardSource = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx', import.meta.url), 'utf8')
 assert.ok(wizardSource.includes('apiV1Client.listNetworks()'), 'Create VM wizard must load live bridge inventory')
 assert.ok(wizardSource.includes('apiV1Client.listProfiles()'), 'Create VM wizard must load profile inventory')
+assert.ok(wizardSource.includes('!profilesReady'), 'Create VM wizard must block review when profile API is failed or empty')
+assert.ok(wizardSource.includes('profileError'), 'Create VM wizard must surface profile API failure or empty state')
 assert.ok(wizardSource.includes('sshPublicKey'), 'Create VM wizard must expose SSH public key input')
 assert.ok(wizardSource.includes('cloudInitUser'), 'Create VM wizard must expose cloud-init user input')
 assert.ok(!wizardSource.includes('apiV1Client.getNetworkPolicy()'), 'Create VM wizard must not use NetworkPolicy as bridge source')

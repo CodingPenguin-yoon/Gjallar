@@ -33,16 +33,20 @@ const infra = buildInfraExplorerModel({
       template: false,
     },
     { vmid: 102, vm_name: 'db-01', node: 'yoonmanserver2', status: 'stopped', memory_gb: 8, disk_gb: 80 },
-    { vmid: 103, name: 'orphan', status: 'running' },
+    { vmid: 103, name: 'template-01', node_id: 'yoonmanserver2', status: 'stopped', template: true },
+    { vmid: 104, name: 'orphan', status: 'running' },
+    { vmid: 105, name: 'unknown-node-stopped', status: 'stopped' },
+    { name: 'missing-vmid', node_id: 'yoonmanserver3', status: 'stopped' },
+    { id: 'vm-x', name: 'non-numeric-vmid', node_id: 'yoonmanserver3', status: 'stopped' },
   ],
 })
 assert.equal(infra.readOnly, true)
 assert.deepEqual(infra.allowedActions, [])
-assert.equal(infra.summary.totalVms, 3)
+assert.equal(infra.summary.totalVms, 7)
 assert.equal(infra.summary.runningVms, 2)
-assert.equal(infra.summary.stoppedVms, 1)
+assert.equal(infra.summary.stoppedVms, 5)
 assert.deepEqual(infra.nodes.map((node) => node.id), ['yoonmanserver2', 'yoonmanserver3', 'unknown'])
-assert.deepEqual(infra.nodes[0].vms.map((vm) => vm.name), ['app-01', 'db-01'])
+assert.deepEqual(infra.nodes[0].vms.map((vm) => vm.name), ['app-01', 'db-01', 'template-01'])
 assert.equal(infra.nodes[0].vms[0].primaryIp, '192.168.2.141')
 assert.deepEqual(infra.nodes[0].vms[0].hiddenIpAddresses, ['172.17.0.1', '172.18.0.1'])
 assert.equal(infra.nodes[0].vms[0].hiddenIpCount, 2)
@@ -50,6 +54,10 @@ assert.equal(infra.nodes[0].vms[0].memoryGb, 4)
 assert.equal(infra.nodes[0].vms[0].diskGb, 40)
 assert.equal(infra.nodes[0].vms[0].readOnly, true)
 assert.deepEqual(infra.nodes[0].vms[0].allowedActions, [])
+assert.deepEqual(infra.nodes[0].vms[1].allowedActions, ['start'])
+assert.deepEqual(infra.nodes[0].vms[2].allowedActions, [])
+assert.deepEqual(infra.nodes[1].vms.map((vm) => vm.allowedActions), [[], []])
+assert.deepEqual(infra.nodes[2].vms.map((vm) => vm.allowedActions), [[], []])
 
 const jobs = buildJobsViewModel([
   {

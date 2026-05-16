@@ -157,7 +157,10 @@ function SelectedJobPanel({ job, artifacts }) {
                   <span className="font-medium text-slate-900">{artifact.kind}</span>
                   <span className="text-xs text-slate-500">{artifact.id}</span>
                 </div>
-                <div className="mt-1 break-all text-xs text-slate-500">{artifact.path}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <span>storage: {artifact.storageBackend}</span>
+                  {artifact.checksum && <span className="break-all">checksum: {artifact.checksum}</span>}
+                </div>
               </div>
             ))}
           </div>

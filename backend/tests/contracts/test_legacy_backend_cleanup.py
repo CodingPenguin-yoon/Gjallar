@@ -43,6 +43,40 @@ def test_legacy_terraform_executor_is_removed_from_active_tree():
     assert offenders == [], f"Legacy Terraform Create VM executor files must stay removed: {offenders}"
 
 
+def test_legacy_bootstrap_playbooks_are_removed_from_active_tree():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+
+    removed_paths = [
+        repo_root / "infra/ansible",
+    ]
+    offenders = [str(path.relative_to(repo_root)) for path in removed_paths if path.exists()]
+
+    assert offenders == [], f"Legacy Ansible bootstrap files must stay removed: {offenders}"
+
+
+def test_env_example_does_not_advertise_legacy_integrations():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+    env_example = repo_root / ".env.example"
+
+    forbidden = [
+        "".join(parts)
+        for parts in [
+            ("GJALLAR_", "TF_STATE_ROOT"),
+            ("ANSIBLE", "_"),
+            ("GEMINI", "_"),
+            ("GITLAB", "_"),
+            ("PLATFORM_", "PUBLIC_BASE_URL"),
+            ("Terraform", " VM creation"),
+        ]
+    ]
+    text = env_example.read_text(encoding="utf-8")
+    offenders = [item for item in forbidden if item in text]
+
+    assert offenders == [], f"Legacy env example keys or labels remain: {offenders}"
+
+
 def test_removed_state_metadata_symbols_are_absent_from_active_tree():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent

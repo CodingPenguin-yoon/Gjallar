@@ -49,7 +49,6 @@ networks:
             "os.environ",
             {
                 "GJALLAR_SHARED_ROOT": str(cls.shared_root),
-                "GJALLAR_RUNS_ROOT": str(Path(cls._temp_dir.name) / "runs"),
                 "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
             },
             clear=False,
@@ -103,7 +102,7 @@ networks:
         self.assertTrue(plan_response["ok"])
         self.assertEqual(303, plan_response["data"]["vmid"])
 
-    def test_profiles_route_returns_three_enabled_static_profiles_without_forbidden_fields(self):
+    def test_profiles_route_returns_three_active_db_seed_profiles_without_forbidden_fields(self):
         response = asyncio.run(self.api_v1_router.list_profiles())
 
         self.assertTrue(response["ok"])
@@ -120,9 +119,12 @@ networks:
             "bridge_id",
             "static_ip",
             "target_node_id",
+            "target_node_candidates",
             "storage_id",
+            "template_family",
             "template_id",
             "template_vmid",
+            "default_ip_mode",
             "power_policy",
             "profile_version",
         }
@@ -130,7 +132,7 @@ networks:
             self.assertTrue(profile["enabled"])
             self.assertTrue(profile["create_enabled"])
             self.assertEqual(profile["profile_id"], profile["id"])
-            self.assertEqual("static_seed", profile["source"])
+            self.assertEqual("db_seed", profile["source"])
             self.assertEqual("read_only", profile["management"])
             self.assertEqual({"default", "min", "max"}, set(profile["hardware"]["cpu"]))
             self.assertTrue(profile["template_requirements"]["require_cloud_init"])
@@ -213,6 +215,8 @@ networks:
                 self.assertNotIn("server-net", rendered)
 
     def test_nested_access_payload_is_preserved_safely_in_plan_review(self):
+        from app.jobs.artifacts import read_artifact_text
+
         for suffix, access in {
             "camel": {"username": "ubuntu", "sshPublicKey": TEST_SSH_PUBLIC_KEY, "passwordLogin": True},
             "snake": {"cloud_init_user": "debian", "ssh_public_key": TEST_SSH_PUBLIC_KEY, "password_login": True},
@@ -246,7 +250,7 @@ networks:
                 self.assertFalse(plan_response["data"]["review_confirm"]["access"]["password_login"])
                 self.assertEqual(TEST_SSH_FINGERPRINT, plan_response["data"]["access"]["fingerprint"])
                 artifacts_by_type = {artifact["type"]: artifact for artifact in plan_response["data"]["artifacts"]}
-                manifest = yaml.safe_load(Path(artifacts_by_type["vm_instance_manifest"]["path"]).read_text(encoding="utf-8"))
+                manifest = yaml.safe_load(read_artifact_text(artifacts_by_type["vm_instance_manifest"]))
                 self.assertFalse(manifest["spec"]["access"]["password_login"])
                 rendered = repr(plan_response["data"])
                 self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)

@@ -18,11 +18,11 @@ Dashboard는 `/` route의 read-only 운영 요약 화면입니다. 목적은 운
 | `GET /api/v1/jobs` | active job count | `Dashboard` data load |
 | `GET /api/v1/risks` | red risk count | `Dashboard` data load |
 
-Backend route는 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/router.py)에 있고, inventory 계열은 read-only Proxmox inventory adapter를 사용합니다. Jobs/Risks는 file-backed job status에서 읽습니다.
+Backend route는 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/router.py)에 있고, inventory 계열은 read-only Proxmox inventory adapter를 사용합니다. Jobs/Risks는 DB-backed job status에서 읽습니다.
 
 ## 구현 방식
 
-Dashboard는 여러 API를 `Promise.allSettled()` 방식으로 병렬 조회합니다. 한 API가 실패해도 이전 snapshot 또는 safe fallback으로 나머지 화면을 유지합니다. 이 설계는 `GJALLAR_RUNS_ROOT`가 NFS-backed라 일시적으로 job/risk 읽기가 실패해도 inventory 첫 화면을 비우지 않기 위한 것입니다.
+Dashboard는 여러 API를 `Promise.allSettled()` 방식으로 병렬 조회합니다. 한 API가 실패해도 이전 snapshot 또는 safe fallback으로 나머지 화면을 유지합니다. 이 설계는 job/risk DB read가 일시적으로 실패해도 inventory 첫 화면을 비우지 않기 위한 것입니다.
 
 화면은 node online count, VM/running count, storage free summary, red risk count, active job count를 보여줍니다. Node row에는 current CPU/Memory, VM 수, storage free, active bridge 목록이 표시됩니다.
 

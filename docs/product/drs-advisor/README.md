@@ -10,8 +10,8 @@ Gjallar는 백업 제품이 아니라 Proxmox 엔터프라이즈 운영 플랫�
 MVP 중심은 DRS Advisor이며, VMware DRS 대체품이라고 주장하지 않는다.
 Gjallar는 Proxmox-native inventory, migration, HA, storage, task state를 관찰하고, CPU/Memory 중심 추천을 만들고, 운영자 승인 후 Proxmox live migration을 실행/추적하는 advisor/control tower다.
 
-Create VM native Proxmox/GitOps flow는 삭제하지 않는다.
-현재 구현된 보조 capability로 유지하고, legacy Terraform executor route/helper code와 Terraform-named state metadata는 active contract에서 제거됐다. DRS Advisor는 기존 Dashboard, Placement, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate를 확장한다.
+Create VM native Proxmox flow는 삭제하지 않는다.
+현재 구현된 보조 capability로 유지하고, legacy Terraform executor와 GitOps execute/archive route/helper code는 active contract에서 제거됐다. DRS Advisor는 기존 Dashboard, Placement, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate를 확장한다.
 
 ## 문서 구성
 
@@ -32,9 +32,9 @@ Create VM native Proxmox/GitOps flow는 삭제하지 않는다.
 - Placement는 `frontend/src/utils/placement.js`에서 read-only view model을 만든다. CPU/Memory current usage, node imbalance, bridge/storage evidence, red risk exclusion을 사용하며 execution은 `available: false`다.
 - Jobs/Runs는 `/api/v1/jobs`, `/api/v1/jobs/{job_id}`, `/api/v1/jobs/{job_id}/artifacts` 기반 read-only 화면이다.
 - Risks/Alerts는 `/api/v1/risks`를 읽어 job-derived risk를 높은 위험도부터 보여준다.
-- Backend `/api/v1`은 read-only Proxmox inventory, Jobs/Runs, Risks, Create VM draft/preflight/plan/approval/GitOps manifest commit/Proxmox native create gates를 제공한다.
+- Backend `/api/v1`은 read-only Proxmox inventory, Jobs/Runs, Risks, Create VM draft/preflight/plan/approval/Proxmox native create gates를 제공한다.
 - Proxmox inventory adapter는 현재 read-only이며 node CPU/Memory current usage, VM disk volume, tags, IP/guest-agent 일부 evidence를 수집한다.
-- Create VM flow는 `general-vm` 중심 draft/preflight/plan, artifact-backed review, approval checksum, GitOps manifest commit/archive, Proxmox native preview/create acknowledgement gate를 갖고 있다. Active mutation은 Proxmox native create이며 Terraform plan/apply route surface는 제거됐다.
+- Create VM flow는 `general-vm` 중심 draft/preflight/plan, artifact-backed review, approval checksum, Proxmox native preview/create acknowledgement gate를 갖고 있다. Active mutation은 Proxmox native create이며 Terraform plan/apply와 GitOps execute/archive route surface는 제거됐다.
 
 ## DRS Advisor로 확장할 gap
 

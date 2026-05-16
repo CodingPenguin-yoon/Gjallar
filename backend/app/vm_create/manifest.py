@@ -14,7 +14,7 @@ def vm_instance_manifest_path(manifest_id: str) -> str:
 
 
 def build_vm_instance_manifest(draft: VmCreateDraft, preflight: PreflightResult) -> dict[str, Any]:
-    """Build the desired-state manifest that a later approved GitOps step writes."""
+    """Build the desired-state manifest captured as review evidence."""
     return {
         "apiVersion": "gjallar/v1",
         "kind": "VMInstance",

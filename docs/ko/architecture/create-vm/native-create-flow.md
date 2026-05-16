@@ -26,16 +26,13 @@ Preview는 `sshkeys`와 raw public key material을 redacted evidence로만 보�
 - exact `review_summary_checksum`
 - yellow risk acknowledgement when needed
 - `proxmox_mutation_acknowledged=true`
-- `manifest_commit_sha`
 - fresh plan/preflight no red risk
 
 Gate 실패 시 HTTP error를 반환하고 Proxmox live mutation을 호출하지 않습니다.
 
-## Manifest commit verification
+## Internal preview
 
-UI는 native create 전에 `POST /api/v1/vm-create/{draft_id}/execute`를 호출합니다. 이 endpoint는 `commit_plan_manifest()`만 호출하며 mode는 `gitops_commit_only`입니다.
-
-Native create는 `verify_plan_manifest_commit(plan, manifest_commit_sha)`로 supplied commit이 expected manifest path를 포함하는지 검증합니다. 검증 후에만 manifest status를 `applying`으로 바꾸고 Proxmox mutation client를 호출합니다.
+`proxmox-create`가 mutation 직전에 non-mutating preview artifact를 내부 생성합니다. Legacy `execute/archive` manifest route는 active API에서 제거됐습니다.
 
 ## Proxmox operation order
 

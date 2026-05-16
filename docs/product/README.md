@@ -30,4 +30,4 @@ This product tree is focused on product direction. Current implemented status, o
 - The legacy Terraform Create VM executor route surface and helper code are removed.
 - Create VM success is powered-off/stopped only after Proxmox post-check and `observed_after`.
 - Inventory is read-only with fake fallback.
-- Dashboard and read-only screens should remain usable when NFS-backed job history is unavailable.
+- Dashboard and read-only screens should remain usable when DB-backed job history is unavailable or temporarily unreadable.

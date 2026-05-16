@@ -1,4 +1,4 @@
-const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 요청 저장 후 Proxmox native create에서만 실행됩니다.'
+const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 승인과 최종 체크 후 Proxmox native create에서만 실행됩니다.'
 
 function present(value) {
   return value !== undefined && value !== null && String(value).trim() !== ''
@@ -52,9 +52,10 @@ function normalizeAccessEvidence(access = {}) {
 function normalizeArtifacts(artifacts = []) {
   return Array.isArray(artifacts)
     ? artifacts.map((artifact) => ({
-      id: artifact.artifact_id || artifact.id || artifact.path || 'artifact',
+      id: artifact.artifact_id || artifact.id || 'artifact',
       type: artifact.type || artifact.kind || 'artifact',
       path: artifact.path || '',
+      storageBackend: artifact.storage_backend || artifact.storageBackend || 'db',
       checksum: artifact.checksum || '',
       readOnly: true,
       allowedActions: [],
@@ -295,13 +296,13 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       risks,
       riskLevel: plan.risk_summary?.level || preflight.risk_level || 'unknown',
       planArtifactId: review.plan_artifact_id || planArtifact?.id || '',
-      planArtifactLink: planArtifact?.path || '',
+      planArtifactLink: review.plan_artifact_id || planArtifact?.id || '',
       plannedGitDiffSummary: review.planned_git_diff_summary || '',
       reviewSummaryChecksum: review.review_summary_checksum || '',
       canApprove,
       canPreviewProxmox: canApprove,
-      canCommitManifest: canApprove && Boolean(review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute),
-      canCreateProxmox: canApprove && Boolean(review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute),
+      canCommitManifest: false,
+      canCreateProxmox: canApprove,
       canExecute: false,
       executeDisabledReason: LIVE_RUN_DISABLED_REASON,
     },
@@ -348,28 +349,6 @@ export async function approveCreateVmReview(client, model, options = {}) {
   }
 }
 
-export async function commitCreateVmManifest(client, model, options = {}) {
-  const payload = {
-    ...(model.payload || {}),
-    plan_artifact_id: model.review?.planArtifactId || '',
-    review_summary_checksum: model.review?.reviewSummaryChecksum || '',
-    yellow_risk_acknowledged: options.yellowRiskAcknowledged === true,
-  }
-  const response = await client.commitVmDraftManifest(model.draft.id, payload)
-  return {
-    status: 'committed',
-    tone: 'green',
-    commitSha: response.commit_sha || '',
-    manifestPath: response.manifest_path || '',
-    manifestStatus: response.manifest_status || {},
-    createEnabled: response.proxmox_create_enabled === true,
-    proxmoxMutationEnabled: response.proxmox_mutation_enabled === true,
-    sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
-    operatorMessage: `생성 요청이 저장되었습니다: ${response.manifest_path || response.commit_sha || 'commit created'}`,
-    raw: response,
-  }
-}
-
 export async function previewCreateVmProxmox(client, model, options = {}) {
   const payload = {
     ...(model.payload || {}),
@@ -399,7 +378,6 @@ export async function createVmWithProxmox(client, model, options = {}) {
     plan_artifact_id: model.review?.planArtifactId || '',
     review_summary_checksum: model.review?.reviewSummaryChecksum || '',
     yellow_risk_acknowledged: options.yellowRiskAcknowledged === true,
-    manifest_commit_sha: options.manifestCommitSha || '',
     proxmox_mutation_acknowledged: options.proxmoxMutationAcknowledged === true,
   }
   const response = await client.createVmDraftProxmox(model.draft.id, payload)
@@ -408,15 +386,12 @@ export async function createVmWithProxmox(client, model, options = {}) {
   return {
     status: created ? 'applied' : (response.status || 'blocked'),
     tone: created ? 'green' : 'red',
-    manifestPath: response.manifest_path || '',
-    manifestCommitSha: response.manifest_commit_sha || '',
-    manifestStatus: response.manifest_status || {},
-    manifestStatusCommitSha: response.manifest_status_commit_sha || '',
     createEnabled: response.proxmox_create_enabled === true,
     proxmoxMutationEnabled: response.proxmox_mutation_enabled === true,
     observedAfter: response.observed_after || null,
     observedAfterArtifact,
-    observedAfterPath: observedAfterArtifact?.path || '',
+    observedAfterArtifactId: observedAfterArtifact?.artifact_id || observedAfterArtifact?.id || '',
+    observedAfterPath: '',
     fingerprintHash: response.observed_after?.fingerprint?.hash || '',
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
     operatorMessage: created

@@ -1,19 +1,56 @@
-"""Tests for file-backed job run status resilience."""
+"""Tests for DB-backed job run status resilience."""
 
 import unittest
 from unittest.mock import patch
 
 
 class JobRunsTests(unittest.TestCase):
-    def test_list_job_runs_fails_open_when_runs_root_is_unavailable(self):
+    def test_list_job_runs_fails_open_when_db_is_unavailable(self):
         from app.jobs import runs as runs_module
 
-        class UnavailableRunsRoot:
-            def glob(self, pattern):
-                raise OSError("NFS mount is unavailable")
+        def unavailable_session():
+            raise RuntimeError("database is unavailable")
 
-        with patch.object(runs_module, "runs_root", return_value=UnavailableRunsRoot()):
+        with patch.object(runs_module, "session_scope", side_effect=unavailable_session):
             self.assertEqual([], runs_module.list_job_runs())
+
+    def test_vm_create_steps_keep_existing_defaults(self):
+        from app.jobs import runs as runs_module
+
+        run = runs_module.record_job_run(
+            job_id="job-create-steps",
+            job_type="vm_create",
+            status="running",
+            target_id="node-a:vm-a",
+            risk_level="green",
+            stage="preflight",
+            step_status="completed",
+            message="preflight complete",
+        )
+
+        self.assertEqual(
+            ["draft", "preflight", "plan", "approval", "create"],
+            [step["id"] for step in run["steps"]],
+        )
+        self.assertEqual("사전 검토", run["steps"][1]["label"])
+
+    def test_vm_start_steps_use_start_specific_labels(self):
+        from app.jobs import runs as runs_module
+
+        run = runs_module.record_job_run(
+            job_id="job-start-steps",
+            job_type="vm_start",
+            status="running",
+            target_id="node-a:306",
+            risk_level="unknown",
+            stage="task_poll",
+            step_status="running",
+            message="polling start task",
+        )
+
+        self.assertEqual(["precheck", "start", "task_poll", "post_check"], [step["id"] for step in run["steps"]])
+        self.assertEqual(["시작 사전 확인", "VM 시작 요청", "Proxmox 작업 확인", "시작 후 확인"], [step["label"] for step in run["steps"]])
+        self.assertEqual(["completed", "completed", "running", "pending"], [step["status"] for step in run["steps"]])
 
 
 if __name__ == "__main__":

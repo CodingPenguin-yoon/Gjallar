@@ -38,10 +38,10 @@ Important boundaries:
 
 - Current `/placement` is a frontend read-only Placement read model, not backend DRS Advisor execution.
 - Current Create VM live mutation is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
-- `POST /api/v1/vm-create/{draft_id}/execute` is manifest commit only with mode `gitops_commit_only`.
+- Legacy `POST /api/v1/vm-create/{draft_id}/execute` has been removed; current live VM creation is `proxmox-create`.
 - Current Create VM networking uses selected target-node active live bridge plus explicit `bridge_id`, `static_ip`, `prefix`, and `gateway`.
 - Terraform plan/apply endpoints are removed; the active frontend uses native Proxmox preview/create.
-- Jobs/Runs and Risks/Alerts are read-only UI surfaces. Jobs are file-backed under `GJALLAR_RUNS_ROOT`; risks are derived from recorded job risks.
+- Jobs/Runs and Risks/Alerts are read-only UI surfaces. Jobs are DB-backed through `job_runs`/`job_artifacts`; risks are derived from recorded job risks. Current job producers include Create VM and the Infra Explorer VM start action.
 
 ## Domain Index
 

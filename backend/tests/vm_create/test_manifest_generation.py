@@ -97,6 +97,7 @@ networks:
         self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], rendered)
 
     def test_plan_writes_manifest_artifact_and_git_diff_summary(self):
+        from app.jobs.artifacts import read_artifact_text
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter
         from app.vm_create.drafts import build_default_vm_draft
         from app.vm_create.planner import build_vm_create_plan
@@ -117,12 +118,10 @@ networks:
         with tempfile.TemporaryDirectory() as run_dir:
             plan = build_vm_create_plan(draft, preflight, run_dir=run_dir)
             artifacts_by_type = {artifact.type: artifact for artifact in plan.artifacts}
-            manifest_path = Path(artifacts_by_type["vm_instance_manifest"].path)
-            diff_path = Path(artifacts_by_type["planned_git_diff"].path)
 
-            self.assertTrue(manifest_path.exists())
-            self.assertIn("kind: VMInstance", manifest_path.read_text())
-            self.assertIn("manifests/vms/vm-job-manifest-plan.yaml", diff_path.read_text())
+            self.assertTrue(artifacts_by_type["vm_instance_manifest"].path.startswith("db://job-artifacts/"))
+            self.assertIn("kind: VMInstance", read_artifact_text(artifacts_by_type["vm_instance_manifest"]))
+            self.assertIn("manifests/vms/vm-job-manifest-plan.yaml", read_artifact_text(artifacts_by_type["planned_git_diff"]))
 
         self.assertIn("manifests/vms/vm-job-manifest-plan.yaml", plan.review_confirm["planned_git_diff_summary"])
 

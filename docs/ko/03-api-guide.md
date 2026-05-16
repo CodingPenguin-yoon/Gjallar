@@ -16,15 +16,13 @@
 | Inventory | `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks` | Proxmox read-only inventory. |
 | Profiles/readiness | `profiles`, `vm-create/readiness` | Create VM option/readiness source. |
 | Network policy | `GET/PUT /networks/policy` | IaC-backed network policy view/write. Proxmox bridge mutation 아님. |
-| Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | File-backed job status와 job-derived risks. |
-| Create VM | `drafts`, `preflight`, `plan`, `approve`, `execute`, `archive`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, manifest commit, native create까지. |
+| Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | DB-backed job status와 job-derived risks. |
+| Create VM | `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, native create까지. |
 
 ## Create VM에서 가장 헷갈리는 endpoint
 
-- `POST /api/v1/vm-create/{draft_id}/execute`: manifest commit only. VM을 만들지 않습니다.
 - `POST /api/v1/vm-create/{draft_id}/proxmox-preview`: approval-gated but non-mutating preview입니다.
 - `POST /api/v1/vm-create/{draft_id}/proxmox-create`: 현재 유일한 active live VM creation endpoint입니다.
-- `POST /api/v1/vm-create/{draft_id}/archive`: backend는 있지만 primary frontend client가 expose하지 않는 보관 path입니다.
 
 ## 현재 없는 API
 

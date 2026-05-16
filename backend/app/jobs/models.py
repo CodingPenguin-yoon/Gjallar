@@ -23,7 +23,7 @@ class JobRecord:
 
 @dataclass(frozen=True)
 class ArtifactRecord:
-    """Metadata for an artifact file written for a Gjallar job."""
+    """Metadata for a Gjallar job artifact."""
 
     artifact_id: str
     job_id: str
@@ -31,6 +31,9 @@ class ArtifactRecord:
     path: str
     checksum: str
     created_at: str
+    content_type: str = "application/octet-stream"
+    size_bytes: int = 0
+    storage_backend: str = "db"
 
     def __post_init__(self) -> None:
         if not self.checksum.startswith("sha256:"):

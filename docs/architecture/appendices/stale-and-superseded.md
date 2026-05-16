@@ -8,13 +8,13 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 
 | Stale/superseded statement | Current correction |
 |---|---|
-| Older single-profile Create VM statements are stale. | Current profiles are exactly `general-vm`, `runtime-server`, and `development-vm`; all are enabled `static_seed` choices. |
+| Older single-profile Create VM statements are stale. | Current profiles are exactly `general-vm`, `runtime-server`, and `development-vm`; all are enabled `db_seed` choices. |
 | `runtime-server`, `dev-server`, and `db-server` are the next Create VM choices. | Current enabled profile names are `runtime-server` and `development-vm`; `dev-server` and `db-server` are not current enabled profile ids. |
-| Create VM profiles are DB seeded today. | DB seed is target/future. Current profiles are transitional `static_seed`. |
+| Create VM profiles are static-only today. | Current profiles are DB-seeded read-only presets; profile management UI remains future work. |
 | Create VM uses target static fields as future-only work. | Current Create VM already requires explicit `static_ip`, `prefix`, and `gateway` for static mode. |
 | Create VM may infer gateway from static IP, such as `.1`. | Current native config uses explicit operator `gateway`; missing gateway is a red static-mode preflight risk. |
 | Create VM uses `NetworkPolicy`, `network_id`, or `server-net` as its source of truth. | Current Create VM uses selected target node active live bridge plus explicit network fields. Incoming `network_id`/`networkId` is ignored and not echoed. |
-| `POST /api/v1/vm-create/{draft_id}/execute` creates the VM. | `execute` is manifest commit only with mode `gitops_commit_only`. Live mutation is `proxmox-create`. |
+| `POST /api/v1/vm-create/{draft_id}/execute` creates the VM. | Legacy `execute` has been removed from the active API. Live mutation is `proxmox-create`. |
 | Terraform is the active Create VM UI path. | Terraform endpoints are removed. Active frontend uses native Proxmox preview/create. |
 | Create VM success includes first boot, smoke, SSH, guest-agent discovery, or Ansible. | Current success is powered-off/stopped only after Proxmox post-check and `observed_after` artifact. |
 
@@ -41,8 +41,8 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 
 | Stale/superseded statement | Current correction |
 |---|---|
-| Jobs/Runs is a full workflow engine. | Current Jobs/Runs is read-only UI over latest file-backed job status records. |
-| Risks/Alerts is an independent risk engine. | Current risks are derived from `risks` arrays in job status files. |
+| Jobs/Runs is a full workflow engine. | Current Jobs/Runs is read-only UI over latest DB-backed job status records. |
+| Risks/Alerts is an independent risk engine. | Current risks are derived from `risks` arrays in DB-backed job status records. |
 | DRS blocker taxonomy is integrated into risks. | Not implemented. |
 
 ## Reading Rule

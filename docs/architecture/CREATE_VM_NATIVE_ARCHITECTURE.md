@@ -13,7 +13,7 @@ are called out separately when the implementation has not caught up.
 
 - Primary create path: Proxmox API native clone/resize-if-needed/config/post-check.
 - Legacy Terraform executor: removed from the active tree.
-- Powered-off policy: create/config only; first power-on and smoke are deferred.
+- Powered-off policy: create/config only; Create VM does not auto-start. First power-on is a separate Infra Explorer Start action, and smoke is deferred.
 - Source of truth: Proxmox actual state. A create is not successful unless post-check reads Proxmox state and writes `observed_after`.
 - Inventory boundary: `backend/app/proxmox/inventory.py` remains read-only. Mutation code lives in `backend/app/proxmox/client.py`.
 
@@ -39,8 +39,8 @@ sources:
   backend env/file default SSH public key. Raw public key material is transient
   only; artifacts and API responses contain presence/source/fingerprint.
 - Create success remains powered off/stopped by global create policy.
-- Starting a VM is future Infra Explorer row action work with Jobs/Runs audit,
-  not part of profile policy.
+- Starting a VM is separate Infra Explorer row action work with Jobs/Runs
+  audit, not part of profile policy or Create VM success.
 
 ## Frontend Flow
 
@@ -53,8 +53,7 @@ Utility flow:
 - `buildCreateVmInputFromConfig()` builds form input.
 - `loadCreateVmReviewModel()` calls draft, preflight, and plan.
 - `approveCreateVmReview()` validates exact plan/review metadata.
-- `previewCreateVmProxmox()` calls the non-mutating native preview endpoint.
-- `commitCreateVmManifest()` calls `execute` to commit the manifest only.
+- `previewCreateVmProxmox()` calls the optional non-mutating native preview endpoint.
 - `createVmWithProxmox()` calls native create after final acknowledgement.
 
 API client functions in `frontend/src/services/apiV1.js`:
@@ -63,7 +62,6 @@ API client functions in `frontend/src/services/apiV1.js`:
 - `preflightVmDraft()`
 - `planVmDraft()`
 - `approveVmDraft()`
-- `commitVmDraftManifest()`
 - `previewVmDraftProxmox()`
 - `createVmDraftProxmox()`
 
@@ -93,30 +91,23 @@ All routes are mounted in `backend/app/api/v1/router.py`.
    - Calls `validate_approval_request()`.
    - Validates `plan_artifact_id`, `review_summary_checksum`, and yellow risk acknowledgement.
 
-5. `POST /api/v1/vm-create/{draft_id}/execute`
-   - Handler: `execute_vm_draft()`
-   - Calls `commit_plan_manifest()`.
-   - Writes and commits `IaC/manifests/vms/<manifest_id>.yaml`.
-   - Does not call Proxmox.
-
-6. `POST /api/v1/vm-create/{draft_id}/proxmox-preview`
+5. `POST /api/v1/vm-create/{draft_id}/proxmox-preview`
    - Handler: `preview_vm_draft_proxmox_create()`
    - Revalidates approval.
    - Calls `build_proxmox_create_preview()`.
    - Writes `proxmox_create_preview.json`.
    - Does not call Proxmox.
 
-7. `POST /api/v1/vm-create/{draft_id}/proxmox-create`
+6. `POST /api/v1/vm-create/{draft_id}/proxmox-create`
    - Handler: `create_vm_draft_proxmox_native()`
    - Revalidates approval.
-   - Requires `manifest_commit_sha`.
    - Requires `proxmox_mutation_acknowledged=true`.
    - Rebuilds plan/preflight immediately before mutation and blocks red risk.
-   - Calls `verify_plan_manifest_commit()`.
-   - Calls `update_plan_manifest_status(plan, "applying")`.
+   - Calls `build_proxmox_create_preview()` for internal non-mutating preview evidence.
    - Calls `get_default_proxmox_mutation_client()`.
    - Calls `run_proxmox_create()`.
-   - Marks manifest `applied` only if native runner success includes `observed_after_artifact`.
+   - Records `vm_create_requests` and `vm_instances` when native create reaches a terminal result.
+   - Completes only if native runner success includes `observed_after_artifact`.
 
 ## Backend Responsibilities
 
@@ -152,12 +143,6 @@ All routes are mounted in `backend/app/api/v1/router.py`.
 - `validate_approval_request()` validates exact artifact IDs/checksums and yellow risk acknowledgement.
 - Approval does not mutate Proxmox or commit manifests.
 
-`backend/app/vm_create/gitops.py`
-
-- `commit_plan_manifest()` writes the manifest and local Git commit.
-- `verify_plan_manifest_commit()` checks that the supplied commit contains the expected manifest.
-- `update_plan_manifest_status()` records `applying`, `applied`, `apply_failed`, or `needs_reconciliation`.
-
 `backend/app/proxmox/client.py`
 
 - `ProxmoxMutationClient.from_env()` reads `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, and `PROXMOX_TLS_INSECURE`.
@@ -176,8 +161,9 @@ All routes are mounted in `backend/app/api/v1/router.py`.
 
 `backend/app/jobs/runs.py` and `backend/app/jobs/artifacts.py`
 
-- `record_job_run()` writes current job state under `GJALLAR_RUNS_ROOT`.
-- `write_json_artifact()` writes checksummed artifacts with secret redaction.
+- `record_job_run()` writes current job state to `job_runs`.
+- `write_json_artifact()` writes checksummed, redacted artifact content and metadata to `job_artifacts`.
+- Artifact references use `db://job-artifacts/<artifact_id>` and the UI does not expose host file paths.
 
 ## Proxmox API Order
 
@@ -218,7 +204,6 @@ Native create uses this order:
 Success:
 
 - Approval metadata is exact.
-- Manifest commit is verified.
 - Red risk is absent in the fresh pre-mutation plan.
 - Clone task exits `OK`.
 - Requested boot disk resize is either unnecessary or completed.
@@ -226,11 +211,11 @@ Success:
 - Post-check reads the VM on the target node.
 - Observed status is `stopped`.
 - `observed_after_artifact` exists.
-- Router marks manifest `applied`.
+- Router records the job as completed.
 
 Failure:
 
-- Approval mismatch, missing acknowledgement, red risk, or missing commit blocks before mutation.
+- Approval mismatch, missing acknowledgement, or red risk blocks before mutation.
 - Clone task failure returns failed and does not configure.
 - Unknown cloned boot disk size or resize failure after clone returns `needs_reconciliation`.
 - Config failure after clone returns `needs_reconciliation`.
@@ -247,13 +232,10 @@ Job status:
 - Success records job `completed`.
 - Failed or uncertain post-check records job `failed` with step status `apply_failed` or `needs_reconciliation`.
 
-Manifest status:
+Optional manifest status:
 
-- `execute` creates manifest with `pending`.
-- `proxmox-create` sets `applying` before mutation.
-- Success sets `applied`.
-- Task failure sets `apply_failed`.
-- Missing/powered-on/uncertain observed state sets `needs_reconciliation`.
+- `execute` can still create a manifest with `pending`.
+- Primary `proxmox-create` no longer updates manifest status.
 
 Artifacts:
 
@@ -262,13 +244,13 @@ Artifacts:
 - Preview writes `proxmox_create_preview`.
 - Create writes `observed_after`.
 
-## Current Implementation Gap
+## Current Implementation Notes
 
-As of 2026-05-14, the current native create path is ahead of the old Terraform
-flow but still has selection-model gaps:
+As of 2026-05-15, the current native create path is ahead of the old Terraform
+flow but still has selection-model gaps outside the DB seed source:
 
-- Profiles are transitional read-only `static_seed` data rather than Gjallar DB
-  seed source of truth.
+- Profiles are read-only DB-seeded data through `GJALLAR_DATABASE_URL`; profile
+  management UI remains future work.
 - `general-vm`, `runtime-server`, and `development-vm` are active enabled
   choices with hardware default/min/max validation.
 - Current Create VM networking uses explicit `bridge_id` selected from active
@@ -290,5 +272,4 @@ flow but still has selection-model gaps:
 - Restart reconciliation for native create is not implemented as a background service.
 - First power-on, cloud-init readiness, guest-agent/IP discovery, SSH smoke, and Ansible verification are deferred.
 - Terraform-named state metadata is removed from active code/API/artifact contracts.
-- DB profile seed source remains future work.
 - DRS Advisor migration will need its own final pre-check, operation lock, migration UPID tracking, and reconciliation flow; Create VM native runner is not a DRS migration executor.

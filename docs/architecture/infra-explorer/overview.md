@@ -2,7 +2,7 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Infra Explorer](../../current/top-tabs/02-infra-explorer.md).
 
-Infra Explorer is the `/infra` route. It is a read-only VM and node inventory view backed by the current `/api/v1` inventory adapter.
+Infra Explorer is the `/infra` route. It is a VM and node inventory view backed by the current `/api/v1` inventory adapter, with one gated action for starting stopped non-template VMs.
 
 ## Current Route And Component
 
@@ -12,7 +12,7 @@ Infra Explorer is the `/infra` route. It is a read-only VM and node inventory vi
 | Component | `frontend/src/components/InstanceList.jsx` |
 | Loader | `frontend/src/utils/infraExplorerScreen.js` |
 | Shared view model | `buildInfraExplorerModel()` in `frontend/src/utils/apiV1ViewModels.js` |
-| Mutation controls | None |
+| Mutation controls | Start only for stopped non-template VMs |
 
 ## APIs Used
 
@@ -20,6 +20,7 @@ Infra Explorer is the `/infra` route. It is a read-only VM and node inventory vi
 |---|---|
 | `GET /api/v1/nodes` | Node groups and node status. |
 | `GET /api/v1/vms` | VM rows, VM detail evidence, guest-agent/IP/disk/tag/storage signals. |
+| `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start` | Gated start action for eligible VM rows. |
 
 The current screen does not call `GET /api/v1/vms/{vmid}`. VM detail evidence is already included in list payloads returned by the inventory adapter.
 
@@ -27,14 +28,18 @@ The current screen does not call `GET /api/v1/vms/{vmid}`. VM detail evidence is
 
 The view model normalizes node identity, VMID/name, observed status, IP evidence, guest-agent signal, disk stack, tags, and storage signal. Rows are grouped by node. Unknown node ids are grouped into an "Unknown" bucket only if VM inventory references a node not present in the node list.
 
-## No Destructive Controls
+## Start Action Boundary
 
-Infra Explorer currently has no buttons for start, stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, or Ansible.
+Start is separate from Create VM. The row action is visible only when the view model sees `status=stopped` and `template=false`; running, template, and unknown-status rows expose no action.
 
-Starting a newly created VM is explicitly deferred. Create VM success is powered-off/stopped only.
+The UI shows an in-app confirmation panel with VM name, node, VMID, and current status, requires acknowledgement, calls `apiV1Client.startVm()`, then navigates to `/jobs?job=<job_id>`.
+
+The backend route requires `vm_start_acknowledged=true` and a non-empty `idempotency_key`, rereads inventory for an exact `(node_id, vmid)` match, blocks missing/moved/template/non-stopped VMs, calls Proxmox QEMU start, polls the UPID, verifies observed-after `running`, and writes `vm_start_observed_after.json`.
+
+Infra Explorer still has no buttons for stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, or Ansible. Create VM success remains powered-off/stopped only and never auto-starts.
 
 ## Target Identity Panel
 
 Target DRS Advisor requires an identity/fingerprint layer that does not exist yet. Future Infra Explorer may show Gjallar VM identity, identity confidence, last observed fingerprint, classification completeness, DRS eligibility/blockers, and last migration operation.
 
-Until those exist, Infra Explorer remains a read-only Proxmox inventory browser.
+Until those exist, Infra Explorer remains primarily a Proxmox inventory browser plus the explicit stopped-VM start action.

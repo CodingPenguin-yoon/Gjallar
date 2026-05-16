@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ipaddress import ip_address
 
-from app.manifests.loader import load_builtin_profiles
+from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
 from app.proxmox.models import TemplateInventory
 from app.vm_create.iac_readiness import run_iac_readiness
@@ -182,14 +182,14 @@ def run_preflight(
     checks: list[PreflightCheck] = []
     risks: list[RiskItem] = []
 
-    profiles = {profile.profile_id: profile for profile in load_builtin_profiles()}
+    profiles = get_active_create_vm_profiles_by_id()
     profile = profiles.get(draft.profile_id)
     _check(
         checks,
         risks,
         code="profile_schema",
         ok=profile is not None,
-        message="selected profile exists in static seed data",
+        message="selected profile exists in active DB profile data",
         fail_code="unknown_profile",
         detail={"profile_id": draft.profile_id},
     )
@@ -539,8 +539,6 @@ def run_preflight(
         )
 
     iac_readiness = run_iac_readiness()
-    checks.extend(iac_readiness.checks)
-    risks.extend(iac_readiness.risks)
 
     _check(
         checks,

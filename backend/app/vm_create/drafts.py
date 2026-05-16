@@ -1,10 +1,10 @@
-"""Create-VM draft helpers for the static Create VM profiles."""
+"""Create-VM draft helpers for DB-backed Create VM profiles."""
 
 from __future__ import annotations
 
 import re
 
-from app.manifests.loader import load_builtin_profiles
+from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id, list_active_create_vm_profiles
 from app.vm_create.access import resolve_ssh_public_key
 from app.vm_create.models import (
     CreateProfileOption,
@@ -75,8 +75,7 @@ def _alias_value(values: dict, *keys: str):
 
 
 def _profiles_by_id():
-    profiles = {profile.profile_id: profile for profile in load_builtin_profiles()}
-    return profiles
+    return get_active_create_vm_profiles_by_id()
 
 
 def _load_general_profile():
@@ -94,8 +93,8 @@ def _profile_for_draft_defaults(profile_id: str | None):
 
 
 def list_create_profile_options() -> list[CreateProfileOption]:
-    """Return the read-only profile list visible to the Create VM wizard."""
-    return [CreateProfileOption(**profile.to_dict()) for profile in load_builtin_profiles()]
+    """Return the active profile list visible to the Create VM wizard."""
+    return [CreateProfileOption(**profile.to_dict()) for profile in list_active_create_vm_profiles()]
 
 
 def build_default_vm_draft(

@@ -1,4 +1,5 @@
 const READ_ONLY_ACTIONS = Object.freeze([])
+const VM_START_ACTIONS = Object.freeze(['start'])
 const RUNNING_STATUSES = new Set(['running', 'pending', 'in_progress', 'processing'])
 const COMPLETED_STATUSES = new Set(['completed', 'success'])
 const BLOCKED_STATUSES = new Set(['blocked'])
@@ -138,8 +139,18 @@ function normalizeGuestAgent(source = {}) {
   }
 }
 
+function hasConcreteVmid(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return false
+  return Number.isInteger(Number(text))
+}
+
 function normalizeVm(source = {}) {
   const disks = asArray(source.disks).map(normalizeDisk)
+  const status = normalizeStatus(source.status) || 'unknown'
+  const template = Boolean(source.template)
+  const vmid = source.vmid ?? source.id ?? null
+  const nodeId = normalizeNodeId(source)
   const configuredPrimaryIp = primaryIp(source)
   const sourceIpAddresses = uniqueTextList(source.ip_addresses ?? source.ipAddresses)
   const ipAddresses = sourceIpAddresses.length > 0
@@ -149,11 +160,11 @@ function normalizeVm(source = {}) {
   const hiddenIpAddresses = hiddenDisplayIps(ipAddresses, primaryIpAddress)
   const guestAgent = normalizeGuestAgent(source)
   return {
-    id: asText(source.vmid ?? source.id, 'unknown'),
-    vmid: source.vmid ?? source.id ?? null,
+    id: asText(vmid, 'unknown'),
+    vmid,
     name: normalizeVmName(source),
-    nodeId: normalizeNodeId(source),
-    status: normalizeStatus(source.status) || 'unknown',
+    nodeId,
+    status,
     primaryIp: primaryIpAddress,
     ipAddresses,
     hiddenIpAddresses,
@@ -165,9 +176,11 @@ function normalizeVm(source = {}) {
     disks,
     storageId: asText(source.storage_id ?? source.storageId ?? disks[0]?.storageId, 'unknown'),
     tags: asArray(source.tags).filter(Boolean),
-    template: Boolean(source.template),
+    template,
     readOnly: true,
-    allowedActions: READ_ONLY_ACTIONS,
+    allowedActions: status === 'stopped' && !template && hasConcreteVmid(vmid) && nodeId !== 'unknown'
+      ? VM_START_ACTIONS
+      : READ_ONLY_ACTIONS,
     raw: source,
   }
 }

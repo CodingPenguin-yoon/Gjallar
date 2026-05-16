@@ -34,7 +34,7 @@ React operator UI
 |---|---|
 | Inventory | `backend/app/proxmox/inventory.py`는 read-only입니다. |
 | Network policy | IaC policy file은 쓸 수 있지만 Proxmox bridge를 바꾸지 않습니다. |
-| Jobs/artifacts | Create VM 단계가 `GJALLAR_RUNS_ROOT` 아래에 상태와 artifact를 기록합니다. |
+| Jobs/artifacts | Create VM과 VM start 단계가 `job_runs`/`job_artifacts`에 상태와 artifact를 기록합니다. |
 | Manifest commit | `execute`는 desired-state manifest만 commit합니다. |
 | Native create | `proxmox-create`만 현재 active live VM creation path입니다. |
 | DRS | `/api/v1/drs/*`, migration execution, locks, reconciliation backend는 없습니다. |

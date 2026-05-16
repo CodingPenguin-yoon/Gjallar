@@ -2,19 +2,19 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Create VM](../../current/top-tabs/04-create-vm.md).
 
-This document separates the current implemented selection model from target DB/access extensions.
+This document separates the current implemented selection model from future profile management extensions.
 
 ## Current Profiles
 
-Current profiles come from transitional read-only `static_seed` data in `backend/app/manifests/loader.py`, exposed by `GET /api/v1/profiles`.
+Current profiles come from the `create_vm_profiles` DB table through `GJALLAR_DATABASE_URL`, exposed by `GET /api/v1/profiles`. Schema is managed by Alembic and the initial rows are inserted by the manual idempotent seed command.
 
 | Profile | Display | Enabled | Source | Management |
 |---|---|---:|---|---|
-| `general-vm` | General VM | true | `static_seed` | `read_only` |
-| `runtime-server` | Runtime Server | true | `static_seed` | `read_only` |
-| `development-vm` | Development VM | true | `static_seed` | `read_only` |
+| `general-vm` | General VM | true | `db_seed` | `read_only` |
+| `runtime-server` | Runtime Server | true | `db_seed` | `read_only` |
+| `development-vm` | Development VM | true | `db_seed` | `read_only` |
 
-DB seed is target/future. Profile create/edit/delete UI is not current.
+Disabled or archived rows are hidden from Create VM selection. Profile create/edit/delete UI is not current.
 
 ## Hardware Defaults And Limits
 

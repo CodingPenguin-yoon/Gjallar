@@ -14,7 +14,7 @@ Proxmox actual state가 VM existence, locator, running state, node online, CPU/M
 
 ## Current implemented substrate
 
-현재는 DB-backed DRS tables가 없습니다. 대신 read-only inventory dataclasses, fake/live inventory adapter, file-backed job status/artifacts, Create VM draft/preflight/plan/approval/native flow, `/api/v1/jobs`, `/api/v1/risks`가 있습니다.
+현재는 DB-backed DRS tables가 없습니다. 대신 read-only inventory dataclasses, fake/live inventory adapter, DB-backed job status/artifacts, Create VM draft/preflight/plan/approval/native flow, `/api/v1/jobs`, `/api/v1/risks`가 있습니다.
 
 Create VM `observed_after` artifact는 fingerprint evidence를 남기지만 DRS identity DB record가 아닙니다.
 
