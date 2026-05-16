@@ -10,7 +10,7 @@
 
 | 영역 | 남은 일 |
 |---|---|
-| Create VM profiles | Current `static_seed`를 target DB seed source로 전환할지 결정하고 구현. |
+| Create VM profiles | DB seed 기반 read-only profile은 구현됨. 남은 일은 profile 관리 UI/운영 정책 결정. |
 | DRS read model | `/api/v1/drs/summary`, recommendations 같은 backend read-only API 추가. |
 | Metrics | 1분 resource polling, 15분 average/peak, stale evidence warning. |
 | Identity | fingerprint 수집, identity assertions, metadata/policy validation. |
@@ -19,7 +19,7 @@
 | Locks | VM/source/target operation lock과 stale/reconciliation_required 상태. |
 | Reconciliation | timeout/restart/ambiguous state를 Proxmox actual state로 정리. |
 | Jobs/Risks | `drs_migration` job type과 DRS blocker taxonomy. |
-| Create VM deferred | first boot, cloud-init smoke, guest-agent discovery, SSH, Ansible, start action. |
+| Create VM deferred | SSH smoke, Ansible, app bootstrap, background reconciliation. First boot/guest-agent IP/cloud-init completion은 `boot_and_verify`로 구현됨. |
 
 ## 문서 관리 원칙
 

@@ -155,8 +155,10 @@ selection model is being updated as follows:
   with a warning and later guest-agent/inventory discovery.
 - Gateway is explicit operator input. Create VM must not infer a `.1` gateway
   from the requested static IP.
-- Create success remains stopped/powered off by global create policy. VM start
-  is a separate Infra Explorer row action with Jobs/Runs audit.
+- Create success follows the reviewed request power policy: `stopped` leaves the
+  VM powered off, while `boot_and_verify` starts the VM and verifies
+  guest-agent IP plus cloud-init completion. Existing-VM start remains a
+  separate Infra Explorer row action with Jobs/Runs audit.
 
 Current implementation note: profiles are DB-seeded read-only rows with no
 profile management UI yet. The active path exposes the three initial enabled
@@ -218,13 +220,14 @@ CreateInstanceWizard
         -> clone full VM from template
         -> poll clone UPID
         -> inspect cloned config and resize boot disk if requested disk_gb is larger
-        -> set powered-off config
+        -> set reviewed config
         -> read status/current and config
+        -> if boot_and_verify: start VM, wait for guest-agent IP, verify cloud-init
         -> write observed_after fingerprint artifact
         -> record vm_create_requests and vm_instances rows
 ```
 
-Success requires Proxmox actual state, not planned state: requested disk resize must be unnecessary or completed, the VM must exist on the target node, `status/current` must report `stopped`, and an `observed_after` artifact with fingerprint hash must exist. Task failure, unknown cloned disk size, resize failure, VM missing, or powered-on observation marks the manifest `apply_failed` or `needs_reconciliation` and does not mark it `applied`.
+Success requires Proxmox actual state, not planned state: requested disk resize must be unnecessary or completed, the VM must exist on the target node, and an `observed_after` artifact with fingerprint hash must exist. The `stopped` policy requires `status/current=stopped`; `boot_and_verify` requires `status/current=running`, guest-agent IP discovery, and cloud-init completion. Task failure, unknown cloned disk size, resize failure, VM missing, or failed power-policy verification marks the manifest `apply_failed` or `needs_reconciliation` and does not mark it `applied`.
 
 ### Infra Explorer VM Start
 
@@ -267,15 +270,16 @@ Current MVP exclusions:
 - No app deploy, arbitrary package bootstrap, DB migration, or raw shell flow.
 - No GitLab/staging registry writes.
 - No LLM/chat product route.
-- No first-power-on or post-creation smoke in the current native create slice.
+- No SSH/Ansible/app bootstrap smoke in the current native create slice.
 - No profile-owned power policy.
 - No Gjallar template catalog or template registration window in the target
   Create VM selection model.
 
-The current Create VM policy is powered-off only. Native Proxmox create may clone/configure
-the VM after explicit acknowledgement, but it never auto-starts. First power-on
-is the separate Infra Explorer start action, and Stage A smoke remains a
-deferred stage.
+The current Create VM power policy is explicit per request. Native Proxmox create
+may clone/configure the VM after explicit acknowledgement. `stopped` leaves the
+VM powered off; `boot_and_verify` starts the new VM and verifies guest-agent IP
+plus cloud-init completion. Existing-VM start remains the separate Infra
+Explorer action, and SSH/Ansible/app bootstrap smoke remains deferred.
 
 ## Runtime Configuration
 

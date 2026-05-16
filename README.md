@@ -19,7 +19,7 @@ The active repo-local documentation lives under [`docs/`](docs/README.md). Start
 - The current UI provides Dashboard, Infra Explorer, Networks, Create VM, read-only Placement, Jobs/Runs, and Risks/Alerts.
 - Current code has read-only Placement and Create VM as supporting capabilities; it does not yet implement backend DRS recommendation, identity/fingerprint policy, approved migration execution, UPID tracking, or reconciliation.
 - Create VM mutations are approval-gated Proxmox API native. The legacy Terraform executor route surface and helper code have been removed.
-- Native Create VM creates/configures a powered-off VM, polls the Proxmox clone UPID, records request/VM DB rows, and requires post-check `observed_after` evidence before marking the create applied. It does not auto-start the VM.
+- Native Create VM creates/configures a VM, polls the Proxmox clone UPID, records request/VM DB rows, and requires post-check `observed_after` evidence before marking the create applied. The default policy leaves the VM stopped; the optional `boot_and_verify` policy starts it and verifies guest-agent IP plus cloud-init completion.
 - Infra Explorer exposes only a gated Start action for stopped non-template VMs; stop/reset/shutdown/reboot/delete/terminate controls are absent.
 
 ## Local Runtime Env

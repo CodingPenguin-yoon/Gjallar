@@ -36,7 +36,7 @@ The UI shows an in-app confirmation panel with VM name, node, VMID, and current 
 
 The backend route requires `vm_start_acknowledged=true` and a non-empty `idempotency_key`, rereads inventory for an exact `(node_id, vmid)` match, blocks missing/moved/template/non-stopped VMs, calls Proxmox QEMU start, polls the UPID, verifies observed-after `running`, and writes `vm_start_observed_after.json`.
 
-Infra Explorer still has no buttons for stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, or Ansible. Create VM success remains powered-off/stopped only and never auto-starts.
+Infra Explorer still has no buttons for stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, or Ansible. Create VM can optionally start and verify a newly created VM through `boot_and_verify`; existing-VM start remains this separate gated Infra Explorer action.
 
 ## Target Identity Panel
 

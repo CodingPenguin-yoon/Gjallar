@@ -1,6 +1,6 @@
 # Gjallar Create VM Contract
 
-Last reviewed against code: 2026-05-14
+Last reviewed against code: 2026-05-16
 
 Current MVP product source of truth is [`docs/product/drs-advisor/`](../product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 
@@ -16,8 +16,10 @@ live bridge model. Sections below call out where current code still differs.
 
 ## Contract Goal
 
-Create VM is an operator-reviewed workflow for producing a powered-off Proxmox
-VM from a known template. The active enterprise path is Proxmox API native. It is intentionally split into draft, preflight, plan, approval, final acknowledgement, and native create stages so the UI can show risk evidence before any live side effect. The legacy Terraform executor route surface and helper code are removed.
+Create VM is an operator-reviewed workflow for producing a Proxmox VM from a
+known template. The default request leaves the VM powered off; the optional
+`boot_and_verify` request starts the VM and verifies guest-agent IP plus
+cloud-init completion. The active enterprise path is Proxmox API native. It is intentionally split into draft, preflight, plan, approval, final acknowledgement, and native create stages so the UI can show risk evidence before any live side effect. The legacy Terraform executor route surface and helper code are removed.
 
 ```text
 draft request
@@ -78,7 +80,8 @@ Current request fields:
   "ip_mode": "static",
   "template_id": "ubuntu-template",
   "template_vmid": 9000,
-  "template_node_id": "yoonmanserver2"
+  "template_node_id": "yoonmanserver2",
+  "power_policy": "stopped"
 }
 ```
 
@@ -115,7 +118,8 @@ also carry the selected live template reference and editable access fields:
     "static_ip": "192.168.2.150",
     "prefix": 24,
     "gateway": "192.168.2.1"
-  }
+  },
+  "power_policy": "boot_and_verify"
 }
 ```
 
@@ -242,9 +246,12 @@ Plan output includes:
 - risk summary
 - Review & Confirm payload
 - generated artifacts
-- `first_power_on_included=false`
+- `power_policy`
+- `first_power_on_included`
 
-The generated `VMInstance` manifest requests `desired_power_state: stopped`.
+The generated `VMInstance` manifest requests `desired_power_state: stopped` for
+`power_policy=stopped` and `desired_power_state: running` for
+`power_policy=boot_and_verify`.
 
 ## Approval Contract
 
@@ -276,9 +283,10 @@ The native runner uses `backend/app/proxmox/client.py` and `backend/app/vm_creat
 5. `set_vm_config()` applies CPU, memory, agent, onboot, network, and cloud-init defaults through `/nodes/{node}/qemu/{vmid}/config`.
 6. `get_vm_status()` reads `/nodes/{node}/qemu/{vmid}/status/current`.
 7. `get_vm_config()` reads `/nodes/{node}/qemu/{vmid}/config`.
-8. `run_proxmox_create()` writes an `observed_after` DB artifact with a normalized fingerprint from `smbios1`, `vmgenid`, MAC addresses, and disk volume IDs.
+8. For `power_policy=boot_and_verify`, `start_vm()` starts the new VM, guest-agent network discovery records DHCP/static IP evidence, and guest exec verifies `cloud-init status --wait`.
+9. `run_proxmox_create()` writes an `observed_after` DB artifact with a normalized fingerprint from `smbios1`, `vmgenid`, MAC addresses, disk volume IDs, and power-policy verification evidence.
 
-Success requires clone task `exitstatus=OK`, requested disk resize to be unnecessary or completed, VM existence on the target node, observed `status=stopped`, and an `observed_after` artifact. If the task fails, the cloned disk size is unknown, resize fails, the VM is missing, or Proxmox reports it powered on, the route records failed/`needs_reconciliation`.
+Success requires clone task `exitstatus=OK`, requested disk resize to be unnecessary or completed, VM existence on the target node, selected power-policy verification, and an `observed_after` artifact. For `stopped`, observed status must be `stopped`. For `boot_and_verify`, observed status must be `running` and guest-agent IP plus cloud-init completion must be verified. If the task fails, the cloned disk size is unknown, resize fails, the VM is missing, or power-policy verification fails, the route records failed/`needs_reconciliation`.
 
 ## Removed Terraform Plan And Apply
 
@@ -338,9 +346,9 @@ source:
   `gateway`
 - Access UI and SSH key red gating are current implementation. Profile
   management UI and template catalog UI are not current implementation.
-- VM start is current only as a separate Infra Explorer row action with
-  Jobs/Runs audit; it is not part of the Create VM contract and Create VM
-  success remains stopped/powered-off.
+- Existing-VM start is current only as a separate Infra Explorer row action with
+  Jobs/Runs audit. New-VM first boot is part of Create VM only when the request
+  uses `boot_and_verify`.
 
 ## Explicit Non-Goals
 
@@ -349,7 +357,7 @@ The active Create VM contract does not include:
 - legacy `POST /api/provision`
 - profile management create/edit/delete UI in the initial target slice
 - Gjallar template catalog or template registration window
-- app deploy or arbitrary bootstrap package execution
+- app deploy, SSH smoke, Ansible verification, or arbitrary bootstrap package execution
 - direct VM stop/reset/delete; Start exists only through the separate gated
   Infra Explorer stopped-VM action
 - profile-owned power policy

@@ -22,7 +22,7 @@ Frontend view model은 node id, VMID/name, observed status, IP evidence, guest-a
 
 ## 현재 하지 않는 일
 
-Infra Explorer에는 start, stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, Ansible 버튼이 없습니다. 새로 만든 VM 시작도 deferred입니다. Create VM 성공 기준은 powered-off/stopped 생성까지입니다.
+Infra Explorer에는 start, stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, Ansible 버튼이 없습니다. 기존 VM start는 이 화면의 별도 gated action입니다. 새 VM은 Create VM의 `boot_and_verify` 선택 시에만 부팅 후 IP/cloud-init 검증까지 수행합니다.
 
 ## Target gap
 

@@ -8,15 +8,15 @@
 
 ## Current profiles
 
-Current profiles는 [backend/app/manifests/loader.py](../../../../backend/app/manifests/loader.py)의 transitional read-only `static_seed` data이며 `GET /api/v1/profiles`로 노출됩니다.
+Current profiles는 `create_vm_profiles` DB table의 read-only DB seed data이며 `GET /api/v1/profiles`로 노출됩니다.
 
 | Profile | Display | Enabled | Source | Management |
 |---|---|---:|---|---|
-| `general-vm` | General VM | true | `static_seed` | `read_only` |
-| `runtime-server` | Runtime Server | true | `static_seed` | `read_only` |
-| `development-vm` | Development VM | true | `static_seed` | `read_only` |
+| `general-vm` | General VM | true | `db_seed` | `read_only` |
+| `runtime-server` | Runtime Server | true | `db_seed` | `read_only` |
+| `development-vm` | Development VM | true | `db_seed` | `read_only` |
 
-DB seed와 profile management UI는 current가 아니라 target/future입니다.
+Profile management UI는 current가 아니라 target/future입니다.
 
 ## Hardware defaults and limits
 

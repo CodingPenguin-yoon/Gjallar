@@ -2,7 +2,7 @@
 
 평가일: 2026-05-16
 
-검증 기준: 2026-05-16에 backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests` -> 143 passed, 1 warning, 29 subtests passed, frontend `for test_file in frontend/tests/*.mjs; do node "$test_file"; done` -> 11 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-16에 backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests` -> 148 passed, 1 warning, 29 subtests passed, frontend `for test_file in frontend/tests/*.mjs; do node "$test_file"; done` -> passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -39,11 +39,11 @@ raw public key는 반환하거나 artifact에 쓰지 않는다.
 
 `proxmox-preview`는 승인 뒤에도 mutation하지 않고 clone/config/post-check payload와 artifact만 만든다. 현재 UI는 별도 preview 버튼을 노출하지 않으며, `proxmox-create`가 mutation 직전에 preview artifact를 내부 생성한다. `proxmox-create`는 `proxmox_mutation_acknowledged=true`를 요구하고, mutation 직전에 preflight/plan을 다시 만든 뒤 red risk면 차단한다.
 
-Native create는 `/nodes/{template_node}/qemu/{template_vmid}/clone` full clone, task polling, cloned config 기반 boot disk resize 필요 여부 판단, `/nodes/{node}/qemu/{vmid}/config`, `/status/current` + `/config` post-check 순서다. 요청 `disk_gb`가 cloned boot disk보다 크면 config 전 `/resize`를 호출하고, unknown/resize failure는 `needs_reconciliation`이다. VM exists + target node + `stopped`가 확인되고 `observed_after`/fingerprint artifact가 있어야 applied다.
+Native create는 `/nodes/{template_node}/qemu/{template_vmid}/clone` full clone, task polling, cloned config 기반 boot disk resize 필요 여부 판단, `/nodes/{node}/qemu/{vmid}/config`, `/status/current` + `/config` post-check 순서다. 요청 `disk_gb`가 cloned boot disk보다 크면 config 전 `/resize`를 호출하고, unknown/resize failure는 `needs_reconciliation`이다. 기본 `stopped` 정책은 VM exists + target node + `stopped`가 확인되고 `observed_after`/fingerprint artifact가 있어야 applied다. 선택 `boot_and_verify` 정책은 VM을 시작한 뒤 guest-agent IP와 `cloud-init status --wait` 완료까지 확인해야 applied다.
 
 Removed Terraform plan/apply URLs are absent from the route table and return FastAPI 404.
 
-현재 생성 정책은 powered-off creation/config다. plan/review는 `first_power_on_included=false`를 기록하고, 생성되는 VMInstance manifest는 `desired_power_state: stopped`를 요청한다. Create VM success는 자동 start하지 않는다. 첫 power-on은 별도 Infra Explorer Start action으로 분리됐고, Stage A smoke는 deferred다.
+현재 생성 정책은 요청별로 명시된다. 기본값은 `stopped`이며 plan/review는 `first_power_on_included=false`, VMInstance manifest는 `desired_power_state: stopped`를 기록한다. 선택값 `boot_and_verify`는 `first_power_on_included=true`, `desired_power_state: running`을 기록하고 native create가 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. SSH login, Ansible, app deploy, DRS identity registration은 아직 deferred다.
 
 Profiles는 현재 `GJALLAR_DATABASE_URL`의 DB seed source로 구현되어 있다.
 Alembic migration이 schema를 만들고, `python -m app.db.seed_create_vm_profiles`
@@ -101,7 +101,7 @@ Target design은
 - Access section, SSH public key collection, missing-key red gate, safe
   fingerprint evidence, and fixed disabled password-login gate are current
   behavior.
-- Profile에는 power policy가 없다. Create VM은 global create policy로 stopped/powered-off 완료이며, VM start는 별도 Infra Explorer row action과 Jobs/Runs audit 대상이다.
+- Profile에는 power policy가 없다. 운영자가 요청마다 `stopped` 또는 `boot_and_verify`를 선택한다. 기존 VM start는 여전히 별도 Infra Explorer row action과 Jobs/Runs audit 대상이다.
 
 ## DRS Advisor 기준 gaps
 

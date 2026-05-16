@@ -28,10 +28,10 @@ Router handlers는 [backend/app/api/v1/router.py](../../../../backend/app/api/v1
 
 ## 현재 성공 기준
 
-Native create success는 clone task OK, 필요한 disk resize 완료 또는 불필요, config 적용, target node에서 VM 존재, status `stopped`, `observed_after` artifact 존재, job `completed`입니다.
+Native create success는 clone task OK, 필요한 disk resize 완료 또는 불필요, config 적용, target node에서 VM 존재, `observed_after` artifact 존재, job `completed`입니다. 기본 `stopped` 정책은 Proxmox status가 `stopped`여야 하고, 선택 `boot_and_verify` 정책은 VM start 후 guest-agent IP와 `cloud-init status --wait` 완료까지 확인해야 합니다.
 
-성공에 포함하지 않는 것: first power-on, cloud-init completion, guest-agent IP discovery, SSH, Ansible, app deploy, DRS identity registration.
+성공에 포함하지 않는 것: SSH, Ansible, app deploy, DRS identity registration. 단, `boot_and_verify`를 선택한 요청은 first power-on, guest-agent IP discovery, cloud-init completion을 포함합니다.
 
 ## Target gap
 
-Profiles는 현재 `static_seed`이고 target DB seed는 future입니다. Native create가 `needs_reconciliation`을 남길 수 있지만 background reconciliation worker는 아직 없습니다. DRS migration은 별도 final pre-check와 operation lock이 필요합니다.
+Profiles는 현재 DB seed 기반 read-only preset입니다. Native create가 `needs_reconciliation`을 남길 수 있지만 background reconciliation worker는 아직 없습니다. DRS migration은 별도 final pre-check와 operation lock이 필요합니다.

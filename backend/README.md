@@ -17,7 +17,7 @@ DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or aut
 - Public API contract: `/api/v1`
 - Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
 - Infra Explorer VM start: acknowledgement/idempotency-gated QEMU start for stopped non-template VMs, with Proxmox task polling and `vm_start` job/artifact evidence
-- Create VM: draft, preflight, plan, approval, Proxmox native preview/create for powered-off creation, and DB request/VM records
+- Create VM: draft, preflight, plan, approval, Proxmox native preview/create, optional boot-and-verify, and DB request/VM records
 - Legacy Terraform Create VM executor: removed; old plan/apply URLs naturally 404
 - Jobs/Runs and Risks: read-only MVP summaries
 
@@ -51,5 +51,5 @@ PYTHONPATH=backend pytest -q backend/tests
 - Create VM profiles are schema-managed by Alembic and seeded separately with `cd backend && python -m app.db.seed_create_vm_profiles`. The seed is idempotent and no-ops when any profile row already exists.
 - Jobs/Runs progress and artifacts are stored through `GJALLAR_DATABASE_URL` in `job_runs` and `job_artifacts`.
 - Do not commit `.env`, tokens, secrets, `data/`, or local runtime artifacts.
-- Live VM creation remains gated behind exact approval metadata, fresh red-risk checks, and `proxmox_mutation_acknowledged=true`.
+- Live VM creation remains gated behind exact approval metadata, fresh red-risk checks, and `proxmox_mutation_acknowledged=true`. The default power policy leaves the new VM stopped; `boot_and_verify` starts it and verifies guest-agent IP plus cloud-init completion.
 - Native creation and VM start reuse `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, and `PROXMOX_TLS_INSECURE`; the mutation client is separate from the read-only inventory adapter.

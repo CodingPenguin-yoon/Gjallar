@@ -35,7 +35,7 @@ This is the current implemented frontend/API/backend flow from options load thro
 | 12 | Operator checks mutation acknowledgement. | UI requires final checkbox before enabling native create. | None. | None. |
 | 13 | Operator clicks native create. | Frontend calls `POST /proxmox-create` with approval metadata and `proxmox_mutation_acknowledged=true`, then navigates to `/jobs?job=<job_id>`. | None immediately. | `running`, stage `create`, before Proxmox call. |
 | 14 | Backend creates internal preview artifact. | `build_proxmox_create_preview()` records clone/config/post-check payload without mutation. | `proxmox_create_preview`. | Still `running`, stage `create`. |
-| 15 | Backend runs native create. | Clone, poll UPID, inspect config, resize if needed, set config, post-check status/config. | `observed_after` on post-check path. | Updated after result. |
+| 15 | Backend runs native create. | Clone, poll UPID, inspect config, resize if needed, set config, run selected power-policy post-check. | `observed_after` on post-check path. | Updated after result. |
 | 16 | UI reads Jobs/Runs. | `/jobs?job=<job_id>` polls selected live job. | Artifact metadata visible. | Operator sees step progress and artifacts. |
 
 ## Payload Boundary
@@ -54,6 +54,7 @@ The current frontend payload includes selected fields such as:
 | `ip_mode` | `static` or `dhcp`. |
 | `template_id`, `template_vmid`, `template_node_id` | Selected live template reference. |
 | `hardware_overrides` | CPU, memory MB, disk GB. |
+| `power_policy` | `stopped` by default, or `boot_and_verify` to start and verify the new VM. |
 
 Current Create VM does not use incoming `network_id`/`networkId` as source of truth.
 
@@ -82,16 +83,17 @@ The approval and subsequent preview/commit/create calls reuse:
 | `plan` | Plan/review artifacts, no live side effects. |
 | `approve` | Approval validation only, no manifest commit or Proxmox call. |
 | `proxmox-preview` | Preview artifact only, no Proxmox call. |
-| `execute` | Manifest commit only, no VM creation. |
 | `proxmox-create` | Only current active VM creation path. |
 
 ## Success And Deferred Work
 
-Success is powered-off/stopped only. The flow does not currently perform:
+Success follows the selected power policy:
 
-- first power-on
-- cloud-init completion check
-- guest-agent IP discovery after first boot
+- `stopped`: Proxmox reports the new VM stopped after clone/config.
+- `boot_and_verify`: Proxmox reports the new VM running, guest-agent IP is observed, and `cloud-init status --wait` succeeds.
+
+The flow does not currently perform:
+
 - SSH login
 - Ansible verification
 - app deployment

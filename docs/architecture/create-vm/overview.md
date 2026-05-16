@@ -2,7 +2,7 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Create VM](../../current/top-tabs/04-create-vm.md).
 
-Create VM is the `/create` route. It is a guided operator-reviewed workflow for producing a powered-off Proxmox VM from a live template. The active live mutation path is native Proxmox create, not Terraform.
+Create VM is the `/create` route. It is a guided operator-reviewed workflow for producing a Proxmox VM from a live template. The default request leaves the VM powered off; the optional `boot_and_verify` request starts the VM and verifies first-boot readiness. The active live mutation path is native Proxmox create, not Terraform.
 
 Supporting references: [`../api/current-api-v1.md`](../api/current-api-v1.md), [`../flows/create-vm-review-to-create.md`](../flows/create-vm-review-to-create.md), [`../VM_PROVISIONING_CONTRACT.md`](../VM_PROVISIONING_CONTRACT.md), [`../CREATE_VM_NATIVE_ARCHITECTURE.md`](../CREATE_VM_NATIVE_ARCHITECTURE.md), and [`../CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
 
@@ -68,7 +68,7 @@ Disabled or archived profile rows are excluded from Create VM selection.
 | Review start | `loadCreateVmReviewModel()` | draft -> preflight -> plan | Writes job/artifacts, no live Proxmox mutation. |
 | Approval | `approveCreateVmReview()` | `POST /approve` | Validates plan artifact/checksum and yellow acknowledgement. |
 | Native preview | `previewCreateVmProxmox()` | `POST /proxmox-preview` | Optional helper that writes preview artifact, no mutation. Not a primary UI button. |
-| Native create | `createVmWithProxmox()` | `POST /proxmox-create` | Builds internal preview artifact, then live Proxmox clone/resize/config/post-check after gates. |
+| Native create | `createVmWithProxmox()` | `POST /proxmox-create` | Builds internal preview artifact, then live Proxmox clone/resize/config/power-policy post-check after gates. |
 
 The UI navigates to `/jobs?job=<job_id>` when native create starts so the operator can inspect job progress.
 
@@ -85,9 +85,9 @@ Failure before live mutation returns a blocking HTTP error and does not call Pro
 
 ## Current Success Criteria
 
-Create VM success means the clone task completed with `exitstatus=OK`, requested disk resize was unnecessary or completed, config update completed, post-check read status/config from Proxmox, VM exists on the target node, observed power status is `stopped`, `observed_after` artifact exists, and the job is recorded as `completed`.
+Create VM success means the clone task completed with `exitstatus=OK`, requested disk resize was unnecessary or completed, config update completed, post-check read status/config from Proxmox, VM exists on the target node, `observed_after` artifact exists, and the selected power-policy checks passed. For `stopped`, Proxmox must report the VM stopped. For `boot_and_verify`, Proxmox must report the VM running and guest-agent IP discovery plus `cloud-init status --wait` must complete.
 
-Create VM success does not include first power-on, cloud-init smoke, guest-agent IP discovery, SSH, or Ansible verification. Those are deferred.
+Create VM `boot_and_verify` covers first power-on, guest-agent IP discovery, and cloud-init completion. SSH login, Ansible verification, app bootstrap, and DRS identity registration remain deferred.
 
 ## Removed Terraform Boundary
 
@@ -103,8 +103,8 @@ Backend endpoints `execute` and `archive` have been removed from the active Crea
 |---|---|
 | Profile management UI | Future. Current DB-seeded profiles are read-only in the UI. |
 | Access section with SSH public key collection | Implemented for current profiles with safe fingerprint evidence; first-login SSH smoke remains deferred. |
-| First power-on | Deferred. |
-| Guest-agent discovery and smoke | Deferred. |
+| First power-on | Implemented only when the request uses `boot_and_verify`. Default `stopped` creation does not start the VM. |
+| Guest-agent discovery and cloud-init smoke | Implemented only for `boot_and_verify`; SSH/Ansible smoke remains deferred. |
 | SSH/Ansible verification | Deferred. |
 | Background reconciliation service | Future. Current route can mark `needs_reconciliation`, but no worker resolves it. |
 | DRS reuse of Create VM fingerprint | Future. Current fingerprint is artifact evidence, not DB identity. |

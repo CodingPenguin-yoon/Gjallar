@@ -1,6 +1,6 @@
 # Create VM Native Architecture
 
-Last reviewed against code: 2026-05-14
+Last reviewed against code: 2026-05-16
 
 This document describes the current implemented Create VM path. The active enterprise direction is Proxmox API native create. The legacy Terraform executor route surface and helper code are removed.
 
@@ -11,9 +11,9 @@ are called out separately when the implementation has not caught up.
 
 ## Active Direction
 
-- Primary create path: Proxmox API native clone/resize-if-needed/config/post-check.
+- Primary create path: Proxmox API native clone/resize-if-needed/config/power-policy post-check.
 - Legacy Terraform executor: removed from the active tree.
-- Powered-off policy: create/config only; Create VM does not auto-start. First power-on is a separate Infra Explorer Start action, and smoke is deferred.
+- Power policy: default `stopped` create/config only; optional `boot_and_verify` starts the new VM and verifies guest-agent IP plus cloud-init completion. Existing-VM start remains a separate Infra Explorer Start action.
 - Source of truth: Proxmox actual state. A create is not successful unless post-check reads Proxmox state and writes `observed_after`.
 - Inventory boundary: `backend/app/proxmox/inventory.py` remains read-only. Mutation code lives in `backend/app/proxmox/client.py`.
 
@@ -38,9 +38,11 @@ sources:
 - Access/SSH uses reviewed cloud-init username plus a request-supplied or
   backend env/file default SSH public key. Raw public key material is transient
   only; artifacts and API responses contain presence/source/fingerprint.
-- Create success remains powered off/stopped by global create policy.
-- Starting a VM is separate Infra Explorer row action work with Jobs/Runs
-  audit, not part of profile policy or Create VM success.
+- Create success follows the request power policy: `stopped` requires stopped
+  post-check; `boot_and_verify` requires running state, guest-agent IP, and
+  cloud-init completion.
+- Existing-VM start is separate Infra Explorer row action work with Jobs/Runs
+  audit, not part of profile policy.
 
 ## Frontend Flow
 
@@ -115,7 +117,8 @@ All routes are mounted in `backend/app/api/v1/router.py`.
 
 - Current `build_default_vm_draft()` builds the locked `general-vm` draft.
 - VMID is suggested from inventory before draft construction.
-- `first_power_on_included=False`.
+- `first_power_on_included` and `power_policy` are resolved from request input;
+  default is `stopped`.
 - Target draft construction should load the selected DB-seeded profile, reset
   hardware to profile defaults on profile change, enforce min/max, use live
   template selection, use live target-node bridge selection, and reject
@@ -220,7 +223,7 @@ Failure:
 - Unknown cloned boot disk size or resize failure after clone returns `needs_reconciliation`.
 - Config failure after clone returns `needs_reconciliation`.
 - VM missing during post-check returns `needs_reconciliation`.
-- Observed powered-on state returns `needs_reconciliation`.
+- Power-policy mismatch or boot verification failure returns `needs_reconciliation`.
 - Missing `observed_after_artifact` prevents `applied`.
 
 ## Status Recording
@@ -232,10 +235,11 @@ Job status:
 - Success records job `completed`.
 - Failed or uncertain post-check records job `failed` with step status `apply_failed` or `needs_reconciliation`.
 
-Optional manifest status:
+Manifest status:
 
-- `execute` can still create a manifest with `pending`.
-- Primary `proxmox-create` no longer updates manifest status.
+- Legacy `execute` is removed from the active route surface.
+- Primary `proxmox-create` records request/result and VM rows in DB instead of
+  updating a GitOps manifest status.
 
 Artifacts:
 
@@ -270,6 +274,6 @@ flow but still has selection-model gaps outside the DB seed source:
 
 - There is no DRS DB identity/fingerprint table yet; Create VM fingerprint is artifact evidence, not a reusable DRS identity substrate.
 - Restart reconciliation for native create is not implemented as a background service.
-- First power-on, cloud-init readiness, guest-agent/IP discovery, SSH smoke, and Ansible verification are deferred.
+- SSH smoke and Ansible verification are deferred. First power-on, cloud-init readiness, and guest-agent/IP discovery are covered only by request-level `boot_and_verify`.
 - Terraform-named state metadata is removed from active code/API/artifact contracts.
 - DRS Advisor migration will need its own final pre-check, operation lock, migration UPID tracking, and reconciliation flow; Create VM native runner is not a DRS migration executor.

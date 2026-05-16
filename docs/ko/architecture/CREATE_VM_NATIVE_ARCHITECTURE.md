@@ -8,8 +8,8 @@
 
 ## Active direction
 
-- Primary create path: Proxmox API native clone/resize-if-needed/config/post-check.
-- Powered-off policy: create/config only. First power-on과 smoke는 deferred.
+- Primary create path: Proxmox API native clone/resize-if-needed/config/power-policy post-check.
+- Power policy: default `stopped`는 create/config only이고, 선택 `boot_and_verify`는 first boot, guest-agent IP, cloud-init completion까지 검증합니다.
 - Source of truth: Proxmox actual state. Post-check와 `observed_after` 없이는 성공을 주장하지 않습니다.
 - Inventory boundary: [backend/app/proxmox/inventory.py](../../../backend/app/proxmox/inventory.py)는 read-only이고 mutation code는 [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py)에 분리되어 있습니다.
 

@@ -2,7 +2,7 @@
 
 Status source: [current product status](../../current/README.md). Top-tab status index: [top tabs](../../current/top-tabs/README.md).
 
-Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided powered-off VM creation, network policy inspection/writes, read-only placement recommendations, DB-backed job history, and job-derived risk summaries.
+Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, network policy inspection/writes, read-only placement recommendations, DB-backed job history, and job-derived risk summaries.
 
 It is not currently a full DRS backend, migration execution engine, app deployment system, GitLab environment controller, CI/CD orchestrator, or LLM assistant product.
 
@@ -13,7 +13,7 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 | Product | Proxmox operations and risk console. |
 | Source of truth for actual infrastructure | Proxmox actual VM/node/task/storage/network state. |
 | Gjallar-owned operational data | Create VM requests/VM records, policy files, approval evidence, job records, artifacts, and future target identity/policy/reconciliation data. |
-| Safety posture | Read-only by default. Live mutation is limited to approval-gated Create VM native clone/config/post-check and acknowledgement-gated start for stopped non-template VMs. |
+| Safety posture | Read-only by default. Live mutation is limited to approval-gated Create VM native clone/config/power-policy post-check and acknowledgement-gated start for stopped non-template VMs. |
 | DRS Advisor | Target product direction, not current backend execution. |
 
 ## Active Routes
@@ -64,6 +64,6 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 - No approved migration execution, DRS operation locks, migration UPID tracking, or reconciliation backend.
 - No DB identity table, VM fingerprint table, policy table, or DRS audit table.
 - No direct VM stop/reset/delete/snapshot controls. Existing-VM start is the only current power action and is gated to stopped non-template VMs.
-- No first power-on, cloud-init smoke, guest-agent discovery, SSH smoke, or Ansible verification after Create VM.
+- No SSH smoke, Ansible verification, or app bootstrap after Create VM. First boot, guest-agent IP discovery, and cloud-init completion exist only when the request uses `boot_and_verify`.
 - No Proxmox bridge creation/deletion/update from Gjallar.
 - No Terraform plan/apply route surface.

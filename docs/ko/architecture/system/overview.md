@@ -4,7 +4,7 @@
 
 기준 문서: [영어 System overview](../../../architecture/system/overview.md), [Current implemented state](../../../current/README.md), [Architecture index](../../../architecture/README.md).
 
-Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 operational visibility, gated stopped-VM start action, guided powered-off VM creation, network policy inspection/writes, read-only placement recommendations, DB-backed job history, job-derived risk summaries를 제공합니다.
+Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 operational visibility, gated stopped-VM start action, guided VM creation with stopped/boot-and-verify policies, network policy inspection/writes, read-only placement recommendations, DB-backed job history, job-derived risk summaries를 제공합니다.
 
 ## Product identity
 
@@ -13,7 +13,7 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 opera
 | Product | Proxmox operations and risk console |
 | Actual infrastructure source | Proxmox actual VM/node/task/storage/network state |
 | Gjallar-owned data | Create VM request/VM records, intent manifests, policy files, approval evidence, job records, artifacts, future identity/policy/reconciliation data |
-| Safety posture | read-only by default; live mutation limited to approval-gated Create VM native create and acknowledgement-gated start for stopped non-template VMs |
+| Safety posture | read-only by default; live mutation limited to approval-gated Create VM native create/power-policy verification and acknowledgement-gated start for stopped non-template VMs |
 | DRS Advisor | target product direction, not current backend execution |
 
 ## Active routes and domains
@@ -23,7 +23,7 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 opera
 | `/` | Dashboard | operator가 cluster 상태를 빠르게 보는 첫 화면 |
 | `/infra` | Infra Explorer | Proxmox가 실제로 보고하는 VM/node evidence 확인과 stopped VM start |
 | `/networks` | Networks | bridge inventory와 IaC policy 정합성 관리 |
-| `/create` | Create VM | audited powered-off VM creation |
+| `/create` | Create VM | audited VM creation; default stopped or optional boot-and-verify |
 | `/placement` | Placement seed | future DRS Advisor의 read-only seed |
 | `/jobs` | Jobs/Runs | 작업 진행과 artifact metadata 확인 |
 | `/risks` | Risks/Alerts | job-derived risk를 모아 확인 |
@@ -34,4 +34,4 @@ Nodes, VMs, templates, storage, networks는 Proxmox inventory adapter가 제공�
 
 ## Current non-goals
 
-Current implementation에는 `/api/v1/drs/*`, DRS migration execution, operation locks, DB identity/policy tables, direct destructive VM controls, Create VM 자동 start/smoke, Proxmox bridge mutation이 없습니다. Existing VM start는 stopped non-template VM에 대한 별도 gated action만 있습니다.
+Current implementation에는 `/api/v1/drs/*`, DRS migration execution, operation locks, DB identity/policy tables, direct destructive VM controls, SSH/Ansible/app smoke, Proxmox bridge mutation이 없습니다. Existing VM start는 stopped non-template VM에 대한 별도 gated action이고, 새 VM first boot/IP/cloud-init 검증은 Create VM `boot_and_verify`에서만 수행됩니다.

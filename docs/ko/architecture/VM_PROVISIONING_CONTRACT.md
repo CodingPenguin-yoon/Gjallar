@@ -4,7 +4,7 @@
 
 기준 문서: [영어 VM provisioning contract](../../architecture/VM_PROVISIONING_CONTRACT.md), [Current Create VM snapshot](../../current/top-tabs/04-create-vm.md), [Create VM native architecture](../../architecture/CREATE_VM_NATIVE_ARCHITECTURE.md), [profile/template/network design](../../architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md).
 
-Create VM의 active contract는 `/api/v1/vm-create/*` flow입니다. 이 flow는 operator가 review한 powered-off Proxmox VM을 live template에서 만드는 절차입니다. DRS Advisor와 별도이며, DRS migration 실행 허가로 쓰면 안 됩니다.
+Create VM의 active contract는 `/api/v1/vm-create/*` flow입니다. 이 flow는 operator가 review한 Proxmox VM을 live template에서 만드는 절차입니다. 기본은 powered-off 생성이고, 선택 `boot_and_verify`는 first boot, guest-agent IP, cloud-init completion을 검증합니다. DRS Advisor와 별도이며, DRS migration 실행 허가로 쓰면 안 됩니다.
 
 ## Contract goal
 
@@ -23,7 +23,7 @@ draft request
 
 | Endpoint | 핵심 의미 |
 |---|---|
-| `GET /api/v1/profiles` | Current static-seed creation profiles. |
+| `GET /api/v1/profiles` | Current DB-seeded creation profiles. |
 | `GET /api/v1/vm-create/readiness` | IaC readiness evidence. |
 | `POST /api/v1/vm-create/drafts` | Non-mutating server-side draft. |
 | `POST /api/v1/vm-create/{draft_id}/preflight` | Read-only checks. |
@@ -36,11 +36,11 @@ draft request
 
 Normal UI flow에서 VMID는 operator가 직접 공급하지 않고 inventory adapter가 `suggest_next_vmid()`로 제안합니다. Incoming `network_id`/`networkId`는 transition compatibility로 무시되고 active draft/plan/review/manifest/job output에 echo되지 않습니다.
 
-Current request는 selected profile, target node, storage, live template reference, hardware overrides, access username/key, live bridge, IP mode, static fields를 담습니다.
+Current request는 selected profile, target node, storage, live template reference, hardware overrides, access username/key, live bridge, IP mode, static fields, power policy를 담습니다.
 
 ## Profile defaults
 
-Current profiles는 transitional `static_seed`입니다.
+Current profiles는 DB seed 기반 read-only preset입니다.
 
 | Profile | Default | Limits | Requirements |
 |---|---|---|---|
@@ -66,8 +66,8 @@ Approval은 exact `plan_artifact_id`, `review_summary_checksum`, `yellow_risk_ac
 
 `proxmox-preview`는 approval-gated but non-mutating입니다. `build_proxmox_create_preview()`가 clone/config/post-check payload와 redacted artifact를 만듭니다.
 
-`proxmox-create`는 approval metadata, `proxmox_mutation_acknowledged=true`, fresh plan/preflight no red risk를 요구합니다. 그 뒤 internal preview artifact, clone, UPID polling, boot disk resize if needed, config, status/config post-check, `observed_after` artifact를 수행합니다.
+`proxmox-create`는 approval metadata, `proxmox_mutation_acknowledged=true`, fresh plan/preflight no red risk를 요구합니다. 그 뒤 internal preview artifact, clone, UPID polling, boot disk resize if needed, config, selected power-policy post-check, `observed_after` artifact를 수행합니다.
 
 ## Success boundary
 
-Success는 powered-off/stopped VM 생성입니다. VM이 target node에서 관찰되고 Proxmox status가 `stopped`이며 `observed_after` artifact가 있어야 합니다. First boot, cloud-init smoke, guest-agent discovery, SSH login, Ansible verification, app deploy, DRS identity registration은 current success가 아닙니다.
+Success는 selected power policy 검증입니다. `stopped`는 VM이 target node에서 관찰되고 Proxmox status가 `stopped`이며 `observed_after` artifact가 있어야 합니다. `boot_and_verify`는 VM running, guest-agent IP, cloud-init completion까지 확인해야 합니다. SSH login, Ansible verification, app deploy, DRS identity registration은 current success가 아닙니다.

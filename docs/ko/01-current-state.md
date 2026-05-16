@@ -8,7 +8,7 @@
 
 ## 현재 구현 한 줄 요약
 
-Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network policy, job/artifact, risk를 확인하고, 승인 기반으로 powered-off VM을 생성할 수 있게 하는 Proxmox Operations & Risk Console입니다. DRS Advisor가 다음 MVP 목표지만 현재 backend DRS 실행 시스템은 없습니다.
+Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network policy, job/artifact, risk를 확인하고, 승인 기반으로 VM을 생성할 수 있게 하는 Proxmox Operations & Risk Console입니다. 기본 생성은 powered-off이고, 선택하면 `boot_and_verify`로 first boot/IP/cloud-init까지 확인합니다. DRS Advisor가 다음 MVP 목표지만 현재 backend DRS 실행 시스템은 없습니다.
 
 ## 현재 active surface
 
@@ -29,7 +29,7 @@ Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network p
 - 실제 VM/node/task/storage/network 상태의 기준은 Proxmox current state입니다.
 - 실제 Create VM live mutation은 `POST /api/v1/vm-create/{draft_id}/proxmox-create`입니다.
 - Current `/placement`는 frontend-only/read-only입니다. 현재 `/api/v1/drs/*` route는 없습니다.
-- Create VM 성공은 powered-off/stopped VM 관찰까지입니다. first boot, cloud-init completion, SSH, Ansible, DRS identity registration은 포함하지 않습니다.
+- Create VM 성공은 선택한 power policy 검증까지입니다. 기본 `stopped`는 powered-off/stopped VM 관찰, `boot_and_verify`는 first boot, guest-agent IP, cloud-init completion까지 포함합니다. SSH, Ansible, DRS identity registration은 포함하지 않습니다.
 
 ## 더 읽을 곳
 

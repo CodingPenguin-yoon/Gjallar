@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-15
+Last refreshed: 2026-05-16
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -21,12 +21,12 @@ This file is the docs source of truth for implemented behavior after active code
 - The active frontend contract remains `/api/v1`.
 - Do not treat `/api/instances` or `/api/provision` as the active frontend surface.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
-- Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP selections, final acknowledgement, and gated Proxmox native create.
+- Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP/power selections, final acknowledgement, and gated Proxmox native create.
 - Create VM profile/template/network target design is documented in [`../architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md), and is partially implemented through DB-seeded read-only profiles plus live template/network inventory.
 - Create VM template selection uses read-only Proxmox inventory from
   `/api/v1/templates`; builtin template defaults are not an active selection
   source.
-- Current Create VM create policy is powered-off only: native Proxmox clone, boot disk resize when needed, and config may run after exact approval metadata and `proxmox_mutation_acknowledged=true`; first power-on and Stage A smoke are separate deferred stages.
+- Current Create VM create policy is explicit per request: the default `stopped` policy performs native Proxmox clone, boot disk resize when needed, config, and stopped post-check; the optional `boot_and_verify` policy starts the new VM, waits for guest-agent IP discovery, and verifies `cloud-init status --wait`. SSH login, Ansible, app bootstrap, and DRS identity registration remain deferred.
 - Existing VM start is a separate Infra Explorer action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Jobs/Runs evidence.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
@@ -35,8 +35,8 @@ This file is the docs source of truth for implemented behavior after active code
 ## Implemented behavior
 
 - Instances UI is a grouped and collapsible inventory card. It exposes only a Start action for stopped, non-template VM rows; stop/reset/shutdown/reboot/delete/terminate controls are absent.
-- Create VM review publishes request progress and artifacts to DB-backed Jobs/Runs tables. Native create also records the request/result and created VM summary in DB. The legacy `execute` endpoint can still write request manifests under the configured IaC root, but it is not the primary UI path.
-- Create VM plan/review records `first_power_on_included=false`; the generated VMInstance manifest requests `desired_power_state: stopped`.
+- Create VM review publishes request progress and artifacts to DB-backed Jobs/Runs tables. Native create also records the request/result and created VM summary in DB. Legacy `execute/archive` routes are removed from the active API.
+- Create VM plan/review records `power_policy` and `first_power_on_included`. The generated VMInstance manifest requests `desired_power_state: stopped` for default creation and `running` for `boot_and_verify`.
 - `GET /api/v1/profiles` exposes active DB-seeded `db_seed` profile choices. The initial manual seed creates `general-vm`, `runtime-server`, and `development-vm`.
 - Profile selection controls draft defaults for CPU/RAM/Disk. Backend preflight red-blocks unknown/disabled profiles and requested CPU/RAM/Disk outside the selected profile min/max.
 - All three initial profiles require cloud-init and qemu guest-agent capable
@@ -48,8 +48,8 @@ This file is the docs source of truth for implemented behavior after active code
 - There are no destructive VM list controls.
 - VM start writes a `vm_start_observed_after` DB artifact with observed-before inventory, Proxmox UPID/task evidence, observed-after status, target locator, idempotency key, and redacted connection context.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
-- Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the VM exists on the target node and is still stopped.
-- Task failure, unknown cloned disk size, resize failure, VM missing, or observed powered-on state records failed/`needs_reconciliation` and does not mark the manifest applied.
+- Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
+- Task failure, unknown cloned disk size, resize failure, VM missing, stopped-policy powered-on mismatch, or boot-and-verify guest-agent/cloud-init failure records failed/`needs_reconciliation` and does not mark the manifest applied.
 
 ## Create VM Implementation And Gaps
 
@@ -78,8 +78,9 @@ Implemented target behaviors retained:
   when the selected profile requires one, password login is fixed disabled, and
   plan/review/manifest/preview/observed evidence records only safe SSH key
   presence/source/fingerprint metadata.
-- Profile has no power policy; create remains stopped/powered off. VM start is
-  handled only by the separate Infra Explorer row action with Jobs/Runs audit.
+- Profile has no power policy. The operator chooses `stopped` or
+  `boot_and_verify` per Create VM request; separate existing-VM starts still use
+  the Infra Explorer row action with Jobs/Runs audit.
 - Raw SSH public key material is used only transiently for native Proxmox
   `sshkeys` config and is not returned in API responses or written to
   draft/plan/review/manifest/preview/observed artifacts.
@@ -93,12 +94,15 @@ Remaining Create VM gaps:
   or registration window in the active Create VM selection path.
 - NetworkPolicy remains Networks-tab legacy/future policy UI and is not a
   red-gate source for Create VM static range membership.
+- `boot_and_verify` now covers first boot, guest-agent IP discovery, and
+  cloud-init completion for the new VM. SSH/Ansible/app bootstrap smoke remains
+  deferred.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests`: `149 passed, 1 warning, 29 subtests passed`.
+- Backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests`: `148 passed, 1 warning, 29 subtests passed`.
 - Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.

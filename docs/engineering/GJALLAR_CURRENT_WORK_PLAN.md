@@ -1,6 +1,6 @@
 # Gjallar Current Work Plan
 
-Last updated: 2026-05-15
+Last updated: 2026-05-16
 
 ## Purpose
 
@@ -47,8 +47,10 @@ Use `AGENTS.md` for execution mode:
 - Inventory is read-only Proxmox live inventory with fake fallback.
 - Create VM currently supports draft, preflight, plan, approval, manifest
   commit, Proxmox native preview/create, Jobs/Runs progress, and artifacts.
-- Native create clone/config success is only valid when Proxmox post-check sees
-  the VM on the target node in `stopped` state and writes `observed_after`.
+- Native create clone/config success follows the reviewed power policy:
+  `stopped` requires target-node stopped post-check and `observed_after`;
+  `boot_and_verify` starts the new VM, records guest-agent IP evidence, verifies
+  cloud-init completion, and writes `observed_after`.
 - Profile/template/network target design is partially implemented:
   - `GET /api/v1/profiles` exposes active read-only DB-backed `db_seed`
     profiles through `GJALLAR_DATABASE_URL`; the initial manual seed creates
@@ -94,7 +96,7 @@ Status: in progress.
 
 ## Workstream B: Create VM Profile/Template/Network Target
 
-Status: partially implemented.
+Status: implemented for current target slice.
 
 Goal: implement the target design from
 `CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`.
@@ -128,21 +130,24 @@ Planned slices:
 
 ## Workstream C: Native Proxmox Create Quality
 
-Status: partially implemented.
+Status: implemented in code/tests; final live smoke matrix remains a follow-up.
 
 Goal: keep the active Create VM implementation Proxmox-native and auditable.
 
 Planned slices:
 
-- [ ] Preserve exact approval metadata validation.
-- [ ] Preserve manifest commit verification before live create.
-- [ ] Preserve `proxmox_mutation_acknowledged=true` gate.
-- [ ] Preserve stopped/powered-off success policy.
+- [x] Preserve exact approval metadata validation.
+- [x] Remove manifest commit verification from live create; DB-backed request,
+  result, and VM records are the active persistence path.
+- [x] Preserve `proxmox_mutation_acknowledged=true` gate.
+- [x] Preserve stopped/powered-off default success policy.
 - [x] Ensure plan/preview/create all use the same reviewed network/access
   fields.
-- [ ] Replace any implicit gateway/default network behavior with reviewed input.
-- [ ] Keep read-only inventory adapter separate from mutation client.
-- [ ] Keep first power-on and smoke out of the create mutation slice.
+- [x] Replace any implicit gateway/default network behavior with reviewed input.
+- [x] Keep read-only inventory adapter separate from mutation client.
+- [x] Add explicit request-level `boot_and_verify` power policy for first boot,
+  guest-agent IP discovery, and cloud-init completion without adding SSH/Ansible
+  bootstrap to Create VM.
 
 ## Workstream D: Terraform Legacy Cleanup
 
@@ -213,6 +218,9 @@ pnpm --dir frontend build
   `GJALLAR_RUNS_ROOT` is no longer an active runtime setting.
 - Native Create VM records request/result and the created VM summary in
   `vm_create_requests` and `vm_instances`.
+- Create VM now supports request-level `power_policy`: default `stopped`, or
+  `boot_and_verify` for VM start, guest-agent IP discovery, and cloud-init
+  completion. Profile definitions still do not own power policy.
 
 ## Future Decisions
 
@@ -236,7 +244,9 @@ pnpm --dir frontend build
 
 Recommended next implementation slice:
 
-1. Start DRS Advisor read model and final pre-check contract work without
+1. Decide and implement the NetworkPolicy/config DB migration separately from
+   the completed Create VM profile seed work.
+2. Run a final Create VM live smoke matrix: stopped, boot-and-verify DHCP,
+   static IP, and invalid target combination.
+3. Start DRS Advisor read model and final pre-check contract work without
    reusing Create VM mutation semantics.
-2. Decide the future NetworkPolicy/config DB migration separately from the
-   completed Create VM profile seed work.

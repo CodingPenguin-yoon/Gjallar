@@ -18,7 +18,7 @@
 
 ## Profiles
 
-Profile은 Proxmox template 대체물이 아닙니다. Target에서는 Gjallar DB seed data이고 initial UI는 read-only입니다. Current는 transitional `static_seed`입니다.
+Profile은 Proxmox template 대체물이 아닙니다. Current는 Gjallar DB seed data이고 initial UI는 read-only입니다.
 
 Initial enabled profiles:
 
@@ -69,4 +69,4 @@ Raw public key는 native Proxmox `sshkeys` config call에 transient하게만 사
 
 ## Current implementation gap
 
-Current code는 profile source가 DB seed가 아니라 `static_seed`인 점을 제외하면 세 profile, live template selection, template disabled state, explicit live bridge, static fields, access/SSH gate를 상당 부분 구현합니다. Profile management UI, first power-on, smoke, DRS identity reuse는 future입니다.
+Current code는 DB seed profile, live template selection, template disabled state, explicit live bridge, static fields, access/SSH gate, `boot_and_verify` first boot/IP/cloud-init 검증을 구현합니다. Profile management UI, SSH/Ansible smoke, DRS identity reuse는 future입니다.

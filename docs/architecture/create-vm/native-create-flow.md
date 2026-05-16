@@ -37,7 +37,8 @@ If these gates fail, the route returns HTTP 409 and reports no live mutation sid
 | 5 | Apply VM config | `PUT /nodes/{target_node}/qemu/{vmid}/config` | CPU, memory, agent, onboot, net0, ciuser, optional sshkeys, ipconfig0 applied. |
 | 6 | Read status | `GET /nodes/{target_node}/qemu/{vmid}/status/current` | VM is observable. |
 | 7 | Read config | `GET /nodes/{target_node}/qemu/{vmid}/config` | Config is observable for fingerprint evidence. |
-| 8 | Write observed artifact | Local artifact write | `observed_after.json` exists. |
+| 8 | Optional boot verification | `POST /status/start`, guest-agent network, guest exec | Only for `boot_and_verify`: VM runs, IP is observed, and `cloud-init status --wait` succeeds. |
+| 9 | Write observed artifact | DB artifact write | `observed_after.json` exists. |
 
 ## Config Payload
 
@@ -63,10 +64,15 @@ Unobservable boot disk or unknown current size returns `needs_reconciliation`, b
 
 ## Observed After
 
-`observed_after.json` is the current post-mutation evidence artifact. It includes operation identifiers, existence/power status, `powered_on_success_allowed=false`, sanitized status/config evidence, and a fingerprint hash from `smbios1`, `vmgenid`, MAC addresses, and disk volume ids.
+`observed_after.json` is the current post-mutation evidence artifact. It includes operation identifiers, existence/power status, selected power policy, boot verification evidence when applicable, sanitized status/config evidence, and a fingerprint hash from `smbios1`, `vmgenid`, MAC addresses, and disk volume ids.
 
 This artifact is not a DB identity record. It is current job evidence and a useful future input for identity work.
 
-## Stopped Success Only
+## Power-Policy Success
 
-The current create policy succeeds only when Proxmox reports the new VM is `stopped`. First power-on, smoke checks, guest-agent discovery, SSH, and Ansible verification are deferred and must not be included in current success claims.
+The default `stopped` policy succeeds only when Proxmox reports the new VM is
+`stopped`. The optional `boot_and_verify` policy starts the new VM and succeeds
+only when Proxmox reports it running, guest-agent IP discovery succeeds, and
+`cloud-init status --wait` exits successfully. SSH login, Ansible verification,
+app bootstrap, and DRS identity registration remain deferred and must not be
+included in current success claims.

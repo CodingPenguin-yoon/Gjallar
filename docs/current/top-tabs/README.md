@@ -4,7 +4,7 @@
 
 이 폴더는 현재 상단 탭별 구현 스냅샷을 기록한다. 제품 방향의 최종 기준은 [DRS Advisor target direction](../../product/drs-advisor/README.md)이며, 구현 baseline은 [current implemented state](../README.md)를 따른다. 제품 목표와 현재 구현이 다르면 `docs/product/drs-advisor/`는 target을 설명하고, 이 폴더는 지금 앱에서 보이는 상태와 gap을 설명한다.
 
-최신 통합 검증 baseline은 [current implemented state](../README.md)에 기록된 2026-05-14 결과를 따른다. 개별 top-tab 문서는 원래 평가일의 스냅샷을 유지할 수 있으며, 최신 검증 결과를 새로 실행했다고 주장하지 않는다.
+최신 통합 검증 baseline은 [current implemented state](../README.md)에 기록된 2026-05-16 결과를 따른다. 개별 top-tab 문서는 원래 평가일의 스냅샷을 유지할 수 있으며, 최신 검증 결과를 새로 실행했다고 주장하지 않는다.
 
 ## 탭별 문서
 
@@ -24,4 +24,4 @@
 
 DRS Advisor는 목표 제품 방향이다. 아직 backend DRS recommendation API, `/api/v1/drs/*`, identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
 
-Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. 실제 생성은 `proxmox-create`가 approval과 final acknowledgement 뒤에 clone UPID polling, 필요한 boot disk resize, config, stopped post-check, `observed_after` artifact와 DB request/VM record를 끝낸 뒤에만 완료로 기록한다. `execute` manifest commit은 legacy/optional API이고 primary UI 단계가 아니다. Terraform plan/apply executor route surface는 제거됐고 old URL은 404다. Create VM은 자동 start하지 않으며 first power-on은 별도 Infra Explorer Start action이다. smoke는 deferred다.
+Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. 실제 생성은 `proxmox-create`가 approval과 final acknowledgement 뒤에 clone UPID polling, 필요한 boot disk resize, config, power-policy post-check, `observed_after` artifact와 DB request/VM record를 끝낸 뒤에만 완료로 기록한다. 기본 `stopped` 정책은 VM을 꺼진 상태로 끝내고, 선택 `boot_and_verify` 정책은 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. Terraform plan/apply와 legacy `execute/archive` route surface는 제거됐고 old URL은 404다. SSH/Ansible/app bootstrap smoke는 deferred다.

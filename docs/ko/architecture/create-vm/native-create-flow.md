@@ -59,8 +59,8 @@ Runner는 boot disk를 `scsi0`, boot order, first non-CDROM disk 순서로 찾�
 
 Cloned boot disk size가 unknown이면 Gjallar가 reviewed disk request와 일치한다고 안전하게 말할 수 없으므로 `needs_reconciliation`입니다.
 
-## Observed after and stopped success
+## Observed after and power-policy success
 
-`observed_after.json`은 operation identifiers, existence/power status, sanitized status/config evidence, fingerprint hash를 담습니다. Fingerprint는 `smbios1`, `vmgenid`, MAC addresses, disk volume IDs에서 만듭니다.
+`observed_after.json`은 operation identifiers, existence/power status, selected power policy, boot verification evidence, sanitized status/config evidence, fingerprint hash를 담습니다. Fingerprint는 `smbios1`, `vmgenid`, MAC addresses, disk volume IDs에서 만듭니다.
 
-Current success는 Proxmox status `stopped`일 때만 성립합니다. First power-on, cloud-init completion, guest-agent discovery, SSH, Ansible verification은 current flow에 포함되지 않습니다.
+Current success는 선택한 power policy를 따릅니다. `stopped`는 Proxmox status `stopped`일 때 성립하고, `boot_and_verify`는 VM running, guest-agent IP, cloud-init completion까지 확인해야 성립합니다. SSH, Ansible verification은 current flow에 포함되지 않습니다.

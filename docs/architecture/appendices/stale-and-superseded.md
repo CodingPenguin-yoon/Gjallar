@@ -16,7 +16,7 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 | Create VM uses `NetworkPolicy`, `network_id`, or `server-net` as its source of truth. | Current Create VM uses selected target node active live bridge plus explicit network fields. Incoming `network_id`/`networkId` is ignored and not echoed. |
 | `POST /api/v1/vm-create/{draft_id}/execute` creates the VM. | Legacy `execute` has been removed from the active API. Live mutation is `proxmox-create`. |
 | Terraform is the active Create VM UI path. | Terraform endpoints are removed. Active frontend uses native Proxmox preview/create. |
-| Create VM success includes first boot, smoke, SSH, guest-agent discovery, or Ansible. | Current success is powered-off/stopped only after Proxmox post-check and `observed_after` artifact. |
+| Create VM success always excludes first boot and guest-agent discovery. | Current default success is stopped after Proxmox post-check and `observed_after`; optional `boot_and_verify` success includes first boot, guest-agent IP discovery, and cloud-init completion. SSH/Ansible/app smoke remains out of scope. |
 
 ## Network
 

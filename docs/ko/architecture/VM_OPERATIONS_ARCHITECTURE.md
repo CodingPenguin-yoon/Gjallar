@@ -68,8 +68,8 @@ Read-only inventory flow는 `apiV1Client` -> router -> `get_default_inventory_ad
 
 Jobs/Risks flow는 Create VM과 VM start route가 `record_job_run()`으로 job_status를 쓰고, `/jobs`가 summaries를 읽으며, `/risks`가 stored risk arrays를 펼칩니다.
 
-Native Create VM flow는 Create wizard -> draft/preflight/plan/approve -> final acknowledgement -> `proxmox-create` -> internal preview artifact -> clone/poll/resize/config/post-check -> `observed_after` artifact입니다.
+Native Create VM flow는 Create wizard -> draft/preflight/plan/approve -> final acknowledgement -> `proxmox-create` -> internal preview artifact -> clone/poll/resize/config/power-policy post-check -> `observed_after` artifact입니다.
 
 ## Safety boundaries
 
-현재 제외되는 항목: direct VM stop/reset/delete/snapshot, DRS migration execution, Proxmox bridge mutation, Create VM 자동 start/smoke, app deploy, LLM/chat product route, `/api/v1/drs/*` backend. Start는 stopped non-template VM에 대한 별도 gated action만 있습니다.
+현재 제외되는 항목: direct VM stop/reset/delete/snapshot, DRS migration execution, Proxmox bridge mutation, SSH/Ansible/app smoke, LLM/chat product route, `/api/v1/drs/*` backend. Existing VM start는 stopped non-template VM에 대한 별도 gated action이고, 새 VM first boot/IP/cloud-init 검증은 Create VM `boot_and_verify`에서만 수행됩니다.

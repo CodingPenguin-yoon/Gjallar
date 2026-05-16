@@ -122,11 +122,14 @@ Profiles do not include:
 
 ### Power Policy
 
-- Create VM always completes powered off/stopped by global create policy.
 - Profiles have no power policy.
-- Starting a VM is a separate Infra Explorer VM row action with Jobs/Runs audit.
-- First power-on, smoke, guest-agent discovery, and SSH verification remain
-  separate follow-up stages.
+- Create VM power policy is request-level: default `stopped` completes powered
+  off, while `boot_and_verify` starts the new VM and verifies guest-agent IP plus
+  cloud-init completion.
+- Existing-VM start is a separate Infra Explorer VM row action with Jobs/Runs
+  audit.
+- SSH verification, Ansible verification, and app bootstrap remain separate
+  follow-up stages.
 
 ## Seed Profile Table
 
@@ -463,7 +466,7 @@ As of 2026-05-15, current code partially matches this target design.
     Implemented.
 16. Keep password login disabled for initial profiles.
     Implemented.
-17. Keep create success powered off/stopped by global policy.
+17. Keep create success tied to explicit request power policy.
 18. Add Infra Explorer start action separately with Jobs/Runs audit.
     Implemented for stopped non-template VM rows.
 19. Update plan, review, job, and artifact schemas to record the target fields.
