@@ -1,4 +1,6 @@
 const LIVE_RUN_DISABLED_REASON = '실제 VM 생성은 승인과 최종 체크 후 Proxmox native create에서만 실행됩니다.'
+const CREATE_VM_POWER_POLICY_STOPPED = 'stopped'
+const CREATE_VM_POWER_POLICY_BOOT_AND_VERIFY = 'boot_and_verify'
 
 function present(value) {
   return value !== undefined && value !== null && String(value).trim() !== ''
@@ -6,6 +8,21 @@ function present(value) {
 
 function pickDefined(entries) {
   return Object.fromEntries(entries.filter(([, value]) => value !== undefined && value !== null && String(value).trim?.() !== ''))
+}
+
+function normalizePowerPolicy(value, fallback = CREATE_VM_POWER_POLICY_STOPPED) {
+  const text = String(value ?? '').trim().toLowerCase().replaceAll('-', '_')
+  if (['boot_and_verify', 'start_and_verify', 'boot_verify', 'running'].includes(text)) return CREATE_VM_POWER_POLICY_BOOT_AND_VERIFY
+  if (['stopped', 'create_stopped', 'powered_off'].includes(text)) return CREATE_VM_POWER_POLICY_STOPPED
+  return fallback
+}
+
+function powerPolicyFromInput(input = {}) {
+  const direct = input.powerPolicy ?? input.power_policy
+  if (present(direct)) return normalizePowerPolicy(direct)
+  return input.firstPowerOnIncluded === true || input.first_power_on_included === true
+    ? CREATE_VM_POWER_POLICY_BOOT_AND_VERIFY
+    : CREATE_VM_POWER_POLICY_STOPPED
 }
 
 function toCamelHardware(hardware = {}) {
@@ -192,6 +209,7 @@ export function validateTemplateSelection(templates = [], profile = {}, selected
 }
 
 export function buildCreateVmPayload(input = {}) {
+  const powerPolicy = powerPolicyFromInput(input)
   return pickDefined([
     ['operator_id', input.operatorId ?? input.operator_id],
     ['job_id', input.jobId ?? input.job_id],
@@ -208,6 +226,8 @@ export function buildCreateVmPayload(input = {}) {
     ['template_node_id', input.templateNodeId ?? input.template_node_id ?? input.template?.nodeId ?? input.template?.node_id],
     ['hardware_overrides', toSnakeHardware(input.hardware || input.hardware_overrides || {})],
     ['access', toSnakeAccess(input)],
+    ['power_policy', powerPolicy],
+    ['first_power_on_included', powerPolicy === CREATE_VM_POWER_POLICY_BOOT_AND_VERIFY],
   ])
 }
 
@@ -230,6 +250,7 @@ export function buildCreateVmInputFromConfig(config = {}, fallback = {}) {
     cloudInitUser: config.cloudInitUser || config.cloud_init_user || config.username || config.access?.cloudInitUser || config.access?.cloud_init_user || config.access?.username || fallback.cloudInitUser || 'yoon',
     sshPublicKey: config.sshPublicKey || config.ssh_public_key || config.access?.sshPublicKey || config.access?.ssh_public_key || fallback.sshPublicKey || '',
     passwordLogin: false,
+    powerPolicy: normalizePowerPolicy(config.powerPolicy || config.power_policy || fallback.powerPolicy || fallback.power_policy),
   }
 }
 
@@ -243,6 +264,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
   const preflight = await client.preflightVmDraft(draftId, payload)
   const plan = await client.planVmDraft(draftId, payload)
   const review = plan.review_confirm || {}
+  const powerPolicy = normalizePowerPolicy(review.power_policy ?? plan.power_policy ?? draft.power_policy ?? payload.power_policy)
   const accessEvidence = normalizeAccessEvidence(review.access || plan.access || preflight.access || draft.access || {})
   const artifacts = normalizeArtifacts(plan.artifacts)
   const planArtifact = artifacts.find((artifact) => artifact.type === 'plan') || artifacts[0] || null
@@ -292,6 +314,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       iacReadyForPlan: review.iac_ready_for_plan ?? plan.iac_ready_for_plan ?? preflight.iac_ready_for_plan ?? readiness.readyForPlan,
       iacReadyForExecute: review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute,
       firstPowerOnIncluded: Boolean(review.first_power_on_included ?? plan.first_power_on_included ?? draft.first_power_on_included),
+      powerPolicy,
       smokeTimeoutSummary: summarizeSmokeTimeouts(review.smoke_timeout_summary || plan.smoke_timeout_summary),
       risks,
       riskLevel: plan.risk_summary?.level || preflight.risk_level || 'unknown',
@@ -383,6 +406,9 @@ export async function createVmWithProxmox(client, model, options = {}) {
   const response = await client.createVmDraftProxmox(model.draft.id, payload)
   const created = response.proxmox_create_ran === true && response.proxmox_create_status === 'applied'
   const observedAfterArtifact = response.observed_after_artifact || null
+  const bootVerified = response.boot_verification?.success === true || response.observed_after?.boot_verification?.success === true
+  const observedStatus = response.observed_after?.status || ''
+  const primaryIp = response.observed_after?.primary_ip || response.boot_verification?.primary_ip || ''
   return {
     status: created ? 'applied' : (response.status || 'blocked'),
     tone: created ? 'green' : 'red',
@@ -392,10 +418,14 @@ export async function createVmWithProxmox(client, model, options = {}) {
     observedAfterArtifact,
     observedAfterArtifactId: observedAfterArtifact?.artifact_id || observedAfterArtifact?.id || '',
     observedAfterPath: '',
+    bootVerification: response.boot_verification || response.observed_after?.boot_verification || null,
+    primaryIp,
     fingerprintHash: response.observed_after?.fingerprint?.hash || '',
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
     operatorMessage: created
-      ? 'VM이 꺼진 상태로 생성되고 확인되었습니다.'
+      ? (bootVerified || observedStatus === 'running'
+        ? `VM이 생성되고 부팅 확인까지 완료되었습니다.${primaryIp ? ` IP: ${primaryIp}` : ''}`
+        : 'VM이 꺼진 상태로 생성되고 확인되었습니다.')
       : 'VM 생성 확인이 완료되지 않았습니다.',
     raw: response,
   }

@@ -23,6 +23,7 @@ REVIEW_CONFIRM_REQUIRED_KEYS = (
     "selected_template",
     "selected_bridge",
     "first_power_on_included",
+    "power_policy",
     "smoke_timeout_summary",
     "risk_summary",
     "plan_artifact_id",

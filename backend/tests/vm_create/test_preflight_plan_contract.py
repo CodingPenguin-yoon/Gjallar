@@ -622,6 +622,8 @@ networks:
         self.assertTrue(plan.review_confirm["iac_ready_for_execute"])
         self.assertFalse(plan.first_power_on_included)
         self.assertFalse(plan.review_confirm["first_power_on_included"])
+        self.assertEqual("stopped", plan.power_policy)
+        self.assertEqual("stopped", plan.review_confirm["power_policy"])
         self.assertEqual(15, plan.smoke_timeout_summary["cloud_init_minutes"])
         self.assertEqual("green", plan.risk_summary["level"])
         self.assertIn("preflight_report", artifacts_by_type)

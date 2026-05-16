@@ -50,6 +50,7 @@ def build_vm_instance_manifest(draft: VmCreateDraft, preflight: PreflightResult)
             },
             "lifecycle": {
                 "desired_power_state": "running" if draft.first_power_on_included else "stopped",
+                "power_policy": draft.power_policy,
             },
             "safety": {
                 "require_approval_for_apply": True,

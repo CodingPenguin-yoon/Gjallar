@@ -86,6 +86,8 @@ def _api_draft_from_payload(draft_id: str, payload: dict | None):
             "ssh_public_key": access_value("ssh_public_key", "sshPublicKey", "public_key", "publicKey"),
             "password_login": access_value("password_login", "passwordLogin"),
         },
+        first_power_on_included=payload.get("first_power_on_included") if "first_power_on_included" in payload else payload.get("firstPowerOnIncluded"),
+        power_policy=payload.get("power_policy") or payload.get("powerPolicy"),
     )
 
 
@@ -185,7 +187,13 @@ def _record_plan_job(
             "target_node_id": plan.target_node_id,
             "storage_id": plan.storage_id,
             "template_id": plan.template_id,
+            "hardware": plan.hardware,
+            "access": plan.access,
+            "selected_template": plan.selected_template,
+            "selected_bridge": plan.selected_bridge,
             "network": plan.network,
+            "first_power_on_included": plan.first_power_on_included,
+            "power_policy": plan.power_policy,
             **(details or {}),
         },
     )

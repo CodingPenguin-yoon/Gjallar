@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, KeyRound, Loader2, Network, Rocket, Server, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, KeyRound, Loader2, Network, PlayCircle, Rocket, Server, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile } from '../utils/createVmDefaults'
@@ -271,6 +271,7 @@ function buildInitialForm(config) {
     cloudInitUser: defaults.access.cloudInitUser,
     sshPublicKey: defaults.access.sshPublicKey,
     passwordLogin: defaults.access.passwordLogin,
+    powerPolicy: 'stopped',
   })
   const profile = defaults.profileOptions.find((item) => item.profileId === input.profileId) || defaults.profileOptions[0]
   return {
@@ -284,6 +285,7 @@ function buildInitialForm(config) {
     cloudInitUser: input.cloudInitUser || profile.accessRecommendations.defaultUser || defaults.access.cloudInitUser,
     sshPublicKey: input.sshPublicKey || defaults.access.sshPublicKey,
     passwordLogin: false,
+    powerPolicy: input.powerPolicy || 'stopped',
   }
 }
 
@@ -355,6 +357,13 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   const reviewedSshKeySummary = reviewedAccess.sshKeyPresent
     ? (reviewedAccess.fingerprint || '키 있음')
     : '없음'
+  const bootAndVerifySelected = form.powerPolicy === 'boot_and_verify'
+  const firstBootLabel = bootAndVerifySelected ? '부팅 후 확인' : '생성만'
+  const reviewedFirstBootLabel = model?.review?.firstPowerOnIncluded ? '부팅 후 확인' : '생성만'
+  const mutationAckLabel = model?.review?.firstPowerOnIncluded
+    ? 'Proxmox에 VM을 만들고 부팅해서 IP와 cloud-init 확인까지 실행하는 것을 승인합니다.'
+    : 'Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.'
+  const nativeCreateButtonLabel = model?.review?.firstPowerOnIncluded ? '생성 후 부팅 확인' : 'Proxmox native create'
 
   useEffect(() => {
     let cancelled = false
@@ -607,6 +616,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               <StatusPill tone="slate">{cpuValue} CPU</StatusPill>
               <StatusPill tone="slate">{memoryMb} MB</StatusPill>
               <StatusPill tone="slate">{diskGb} GB</StatusPill>
+              <StatusPill tone="slate">{firstBootLabel}</StatusPill>
             </div>
           </div>
           <StatusPill tone="blue">생성 전 검토</StatusPill>
@@ -759,6 +769,31 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
             <span className="text-sm font-medium text-slate-700">Gateway</span>
             <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.gateway || ''} onChange={(event) => updateForm('gateway', event.target.value)} placeholder="예: 192.168.2.254" disabled={form.ipMode === 'dhcp'} />
           </label>
+          <div className="space-y-1 md:col-span-2">
+            <span className="text-sm font-medium text-slate-700">생성 후 상태</span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => updateForm('powerPolicy', 'stopped')}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                  !bootAndVerifySelected ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                }`}
+              >
+                <Server className="h-4 w-4" />
+                꺼진 상태로 생성
+              </button>
+              <button
+                type="button"
+                onClick={() => updateForm('powerPolicy', 'boot_and_verify')}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                  bootAndVerifySelected ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                }`}
+              >
+                <PlayCircle className="h-4 w-4" />
+                부팅 후 IP 확인
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 border-t border-slate-100 pt-5">
@@ -830,7 +865,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <SummaryTile label="네트워크" value={`${selectedIpModeLabel} / ${model.review.network.bridge_id || model.review.network.bridgeId || form.bridgeId || ''}`} icon={Network} />
                 <SummaryTile label="접속 사용자" value={reviewedAccess.username || reviewedAccess.cloudInitUser || form.cloudInitUser} icon={KeyRound} />
                 <SummaryTile label="SSH 키" value={reviewedSshKeySummary} icon={KeyRound} />
-                <SummaryTile label="첫 부팅" value={model.review.firstPowerOnIncluded ? '포함' : '별도 단계'} />
+                <SummaryTile label="생성 후 상태" value={reviewedFirstBootLabel} />
               </div>
             </section>
 
@@ -861,7 +896,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               </div>
               <DetailRow label="생성 방식" value="Proxmox native create" />
               <DetailRow label="실행 조건" value={model.review.canCreateProxmox ? '승인 후 생성 가능' : '검토 항목 확인 필요'} />
-              <DetailRow label="첫 부팅" value="생성 후 별도 시작" />
+              <DetailRow label="생성 후 상태" value={reviewedFirstBootLabel} />
             </section>
 
             <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -878,11 +913,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               </button>
               <label className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800">
                 <input type="checkbox" className="mt-1" checked={proxmoxMutationAcknowledged} onChange={(event) => setProxmoxMutationAcknowledged(event.target.checked)} />
-                Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.
+                {mutationAckLabel}
               </label>
               <button type="button" onClick={createWithProxmox} disabled={!approval?.canApprove || !model.review.canCreateProxmox || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
-                Proxmox native create
+                {nativeCreateButtonLabel}
               </button>
               {approval && (
                 <div className={`mt-3 rounded-lg border p-3 text-sm ${approvalToneClass(approval)}`}>

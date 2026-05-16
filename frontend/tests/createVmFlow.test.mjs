@@ -65,9 +65,13 @@ assert.deepEqual(buildCreateVmPayload(input), {
     ssh_public_key: TEST_SSH_PUBLIC_KEY,
     password_login: false,
   },
+  power_policy: 'stopped',
+  first_power_on_included: false,
 })
 assert.equal('network_id' in buildCreateVmPayload(input), false)
 assert.equal('ssh_public_key' in buildCreateVmPayload(input), false)
+assert.equal(buildCreateVmPayload({ ...input, powerPolicy: 'boot_and_verify' }).first_power_on_included, true)
+assert.equal(buildCreateVmPayload({ ...input, powerPolicy: 'boot_and_verify' }).power_policy, 'boot_and_verify')
 
 assert.deepEqual(buildCreateVmPayload({
   operatorId: 'nested-test',
@@ -87,6 +91,8 @@ assert.deepEqual(buildCreateVmPayload({
   gateway: '192.168.2.254',
   ip_mode: 'static',
   access: { password_login: false },
+  power_policy: 'stopped',
+  first_power_on_included: false,
 })
 
 assert.deepEqual(buildCreateVmPayload({
@@ -103,6 +109,8 @@ assert.deepEqual(buildCreateVmPayload({
     ssh_public_key: TEST_SSH_PUBLIC_KEY,
     password_login: false,
   },
+  power_policy: 'stopped',
+  first_power_on_included: false,
 })
 
 assert.deepEqual(buildCreateVmInputFromConfig({
@@ -135,6 +143,7 @@ assert.deepEqual(buildCreateVmInputFromConfig({
   cloudInitUser: 'yoon',
   sshPublicKey: '',
   passwordLogin: false,
+  powerPolicy: 'stopped',
 })
 
 const strictTemplateProfile = { templateRequirements: { requireCloudInit: true, requireQemuGuestAgent: true } }
@@ -223,7 +232,8 @@ const fakeClient = {
         fingerprint: payload.access?.ssh_public_key ? TEST_SSH_FINGERPRINT : '',
         source: payload.access?.ssh_public_key ? 'request' : 'backend_default_env',
       },
-      first_power_on_included: false,
+      first_power_on_included: payload.first_power_on_included,
+      power_policy: payload.power_policy,
       side_effects: [],
     }
   },
@@ -290,7 +300,8 @@ const fakeClient = {
       },
       selected_template: { template_id: payload.template_id, vmid: payload.template_vmid, node_id: payload.template_node_id },
       selected_bridge: { bridge_id: payload.bridge_id, node_id: payload.target_node_id, active: true },
-      first_power_on_included: false,
+      first_power_on_included: payload.first_power_on_included,
+      power_policy: payload.power_policy,
       smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
       risk_summary: { level: 'green', red: [], yellow: [] },
       review_confirm: {
@@ -330,7 +341,8 @@ const fakeClient = {
         iac_root: '/Users/yoon/mnt/nfs/IaC',
         iac_ready_for_plan: true,
         iac_ready_for_execute: false,
-        first_power_on_included: false,
+        first_power_on_included: payload.first_power_on_included,
+        power_policy: payload.power_policy,
         smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
         risk_summary: { level: 'green', red: [], yellow: [] },
         plan_artifact_id: 'artifact-plan',
@@ -418,10 +430,13 @@ assert.equal(model.review.canCommitManifest, false)
 assert.equal(model.review.canCreateProxmox, true)
 assert.equal(model.review.canExecute, false, 'UI must not expose direct create without final acknowledgement')
 assert.equal(model.review.firstPowerOnIncluded, false)
+assert.equal(model.review.powerPolicy, 'stopped')
 assert.equal(model.review.executeDisabledReason, '실제 VM 생성은 승인과 최종 체크 후 Proxmox native create에서만 실행됩니다.')
 assert.equal(model.payload.prefix, 25)
 assert.equal(model.payload.profile_id, 'general-vm')
 assert.equal(model.payload.gateway, '192.168.2.254')
+assert.equal(model.payload.power_policy, 'stopped')
+assert.equal(model.payload.first_power_on_included, false)
 assert.equal('network_id' in model.payload, false)
 assert.equal('networkId' in model.payload, false)
 assert.equal(model.review.network.static_ip, '192.168.2.149')

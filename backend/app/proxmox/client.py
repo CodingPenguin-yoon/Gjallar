@@ -12,7 +12,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 import requests
 import urllib3
@@ -139,7 +139,7 @@ class ProxmoxMutationClient:
             }
         )
 
-    def _default_request(self, method: str, path: str, *, data: dict[str, Any] | None = None, timeout: tuple[float, float] | None = None) -> Any:
+    def _default_request(self, method: str, path: str, *, data: Any = None, timeout: tuple[float, float] | None = None) -> Any:
         response = requests.request(
             method,
             f"{self.api_url}{path}",
@@ -173,7 +173,7 @@ class ProxmoxMutationClient:
         method: str,
         path: str,
         *,
-        data: dict[str, Any] | None = None,
+        data: Any = None,
         timeout: tuple[float, float] | None = None,
     ) -> Any:
         try:
@@ -268,6 +268,63 @@ class ProxmoxMutationClient:
     def get_vm_config(self, *, node: str, vmid: int) -> dict[str, Any]:
         data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/config")
         return dict(data) if isinstance(data, dict) else {}
+
+    def get_guest_network_interfaces(self, *, node: str, vmid: int) -> dict[str, Any]:
+        data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/agent/network-get-interfaces")
+        return dict(data) if isinstance(data, dict) else {"result": data}
+
+    def exec_guest_command(self, *, node: str, vmid: int, command: str | Sequence[str]) -> int:
+        if isinstance(command, str):
+            command_payload: Any = {"command": command}
+        else:
+            command_parts = [str(part) for part in command if str(part).strip()]
+            if not command_parts:
+                raise ProxmoxMutationError("Proxmox guest exec command must not be empty", details={"node": node, "vmid": int(vmid)})
+            command_payload = [("command", part) for part in command_parts]
+        data = self._request_json(
+            "POST",
+            f"/nodes/{node}/qemu/{int(vmid)}/agent/exec",
+            data=command_payload,
+        )
+        payload = dict(data) if isinstance(data, dict) else {}
+        pid = payload.get("pid")
+        if pid is None or str(pid).strip() == "":
+            raise ProxmoxMutationError(
+                "Proxmox guest exec did not return a pid",
+                details={"node": node, "vmid": int(vmid), "command": command, "response": payload},
+            )
+        return int(pid)
+
+    def get_guest_exec_status(self, *, node: str, vmid: int, pid: int) -> dict[str, Any]:
+        data = self._request_json(
+            "GET",
+            f"/nodes/{node}/qemu/{int(vmid)}/agent/exec-status?pid={int(pid)}",
+        )
+        return dict(data) if isinstance(data, dict) else {}
+
+    def wait_guest_exec(
+        self,
+        *,
+        node: str,
+        vmid: int,
+        pid: int,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + self.task_timeout_seconds
+        polls: list[dict[str, Any]] = []
+        while True:
+            status = self.get_guest_exec_status(node=node, vmid=vmid, pid=pid)
+            polls.append(status)
+            if status.get("exited") is True or str(status.get("exited") or "").lower() in {"1", "true", "yes"}:
+                return {**status, "polls": polls}
+            if "exitcode" in status:
+                return {**status, "polls": polls}
+            if time.monotonic() >= deadline:
+                raise ProxmoxMutationError(
+                    "Timed out waiting for Proxmox guest exec",
+                    details={"node": node, "vmid": int(vmid), "pid": int(pid), "polls": polls},
+                )
+            sleep(self.task_poll_interval_seconds)
 
 
 def get_default_proxmox_mutation_client() -> ProxmoxMutationClient:

@@ -91,6 +91,7 @@ networks:
         self.assertEqual("192.168.2.254", manifest["spec"]["network"]["gateway"])
         self.assertEqual("192.168.2.142", manifest["spec"]["network"]["ip"])
         self.assertEqual("stopped", manifest["spec"]["lifecycle"]["desired_power_state"])
+        self.assertEqual("stopped", manifest["spec"]["lifecycle"]["power_policy"])
         self.assertNotIn("state_" + "backend", manifest["spec"])
         self.assertNotIn("raw-token-secret", rendered)
         self.assertNotIn("operator:raw-url-password", rendered)

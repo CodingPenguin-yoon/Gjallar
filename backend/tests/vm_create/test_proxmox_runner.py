@@ -83,6 +83,33 @@ class RecordingProxmoxClient:
             "scsi0": f"local-lvm:vm-306-disk-0,size={self.cloned_disk_gb}G",
         }
 
+    def start_vm(self, **kwargs):
+        self.calls.append(("start_vm", kwargs))
+        self.observed_status = "running"
+        return "UPID:yoonmanserver2:0002:start"
+
+    def get_guest_network_interfaces(self, **kwargs):
+        self.calls.append(("get_guest_network_interfaces", kwargs))
+        return {
+            "result": [
+                {
+                    "name": "ens18",
+                    "ip-addresses": [
+                        {"ip-address": "127.0.0.1", "ip-address-type": "ipv4"},
+                        {"ip-address": "192.168.2.142", "ip-address-type": "ipv4"},
+                    ],
+                }
+            ]
+        }
+
+    def exec_guest_command(self, **kwargs):
+        self.calls.append(("exec_guest_command", kwargs))
+        return 77
+
+    def wait_guest_exec(self, **kwargs):
+        self.calls.append(("wait_guest_exec", kwargs))
+        return {"exited": True, "exitcode": 0, "out-data": "status: done\n"}
+
 
 class ProxmoxRunnerTests(unittest.TestCase):
     def setUp(self):
@@ -125,7 +152,7 @@ networks:
         self._env.stop()
         self._temp_dir.cleanup()
 
-    def _plan(self, *, job_id="job-proxmox-runner", hardware_overrides=None):
+    def _plan(self, *, job_id="job-proxmox-runner", hardware_overrides=None, power_policy=None, ip_mode="static"):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter
         from app.vm_create.drafts import build_default_vm_draft
         from app.vm_create.planner import build_vm_create_plan
@@ -136,11 +163,13 @@ networks:
             job_id=job_id,
             target_node_id="yoonmanserver2",
             bridge_id="vmbr0",
-            static_ip="192.168.2.142",
-            prefix=25,
-            gateway="192.168.2.254",
+            static_ip="192.168.2.142" if ip_mode == "static" else None,
+            prefix=25 if ip_mode == "static" else None,
+            gateway="192.168.2.254" if ip_mode == "static" else None,
+            ip_mode=ip_mode,
             proposed_vmid=306,
             hardware_overrides=hardware_overrides,
+            power_policy=power_policy,
         )
         preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
         self.assertEqual("green", preflight.risk_level)
@@ -202,6 +231,88 @@ networks:
         self.assertTrue(result["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
         self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], repr(result))
         self.assertIn("proxmox_post_check_observed", result["side_effects"])
+
+    def test_boot_and_verify_policy_starts_vm_and_records_guest_ip_cloud_init(self):
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        client = RecordingProxmoxClient()
+        result = run_proxmox_create(
+            self._plan(job_id="job-proxmox-boot-verify", power_policy="boot_and_verify"),
+            run_dir=self.root / "boot-verify",
+            client=client,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("running", result["observed_after"]["status"])
+        self.assertEqual("boot_and_verify", result["observed_after"]["power_policy"])
+        self.assertEqual(["192.168.2.142"], result["observed_after"]["ip_addresses"])
+        self.assertEqual("192.168.2.142", result["observed_after"]["primary_ip"])
+        self.assertTrue(result["observed_after"]["guest_agent"]["available"])
+        self.assertTrue(result["observed_after"]["cloud_init"]["success"])
+        self.assertTrue(result["observed_after"]["boot_verification"]["success"])
+        self.assertEqual("UPID:yoonmanserver2:0002:start", result["start_task"]["upid"])
+        self.assertEqual(
+            [
+                "clone_vm",
+                "wait_for_task",
+                "get_vm_config",
+                "set_vm_config",
+                "get_vm_status",
+                "get_vm_config",
+                "start_vm",
+                "wait_for_task",
+                "get_vm_status",
+                "get_vm_config",
+                "get_guest_network_interfaces",
+                "exec_guest_command",
+                "wait_guest_exec",
+            ],
+            [call[0] for call in client.calls],
+        )
+        self.assertIn("proxmox_start_invoked", result["side_effects"])
+        self.assertIn("proxmox_guest_agent_observed", result["side_effects"])
+        self.assertIn("proxmox_cloud_init_status_checked", result["side_effects"])
+
+    def test_cloud_init_status_retries_transient_guest_exec_pid_error(self):
+        from app.proxmox.client import ProxmoxMutationError
+        from app.vm_create.proxmox_runner import _check_cloud_init_status
+
+        class FlakyCloudInitClient(RecordingProxmoxClient):
+            def __init__(self):
+                super().__init__()
+                self.remaining_wait_errors = 1
+
+            def wait_guest_exec(self, **kwargs):
+                self.calls.append(("wait_guest_exec", kwargs))
+                if self.remaining_wait_errors:
+                    self.remaining_wait_errors -= 1
+                    raise ProxmoxMutationError(
+                        "Proxmox API HTTP 500: GET /nodes/yoonmanserver/qemu/135/agent/exec-status?pid=1406",
+                        details={"response_json": {"message": "Agent error: Invalid parameter 'pid'"}},
+                    )
+                return {"exited": True, "exitcode": 0, "out-data": "status: done\n"}
+
+        client = FlakyCloudInitClient()
+        result = _check_cloud_init_status(
+            client,
+            plan=self._plan(job_id="job-proxmox-boot-verify", power_policy="boot_and_verify"),
+            sleep=lambda _: None,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual("done", result["status"])
+        self.assertEqual(2, result["attempts"])
+        self.assertEqual(1, len(result["previous_errors"]))
+        self.assertEqual(
+            [
+                "exec_guest_command",
+                "wait_guest_exec",
+                "exec_guest_command",
+                "wait_guest_exec",
+            ],
+            [call[0] for call in client.calls],
+        )
 
     def test_observed_after_sanitizes_public_key_material_from_proxmox_config(self):
         from app.jobs.artifacts import read_artifact_text

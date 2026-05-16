@@ -66,6 +66,66 @@ class ProxmoxMutationClientTests(unittest.TestCase):
             calls,
         )
 
+    def test_guest_agent_network_uses_qemu_agent_endpoint(self):
+        from app.proxmox.client import ProxmoxMutationClient
+
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            return {"result": [{"name": "ens18", "ip-addresses": []}]}
+
+        client = ProxmoxMutationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!gjallar",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.get_guest_network_interfaces(node="node-a", vmid=306)
+
+        self.assertEqual({"result": [{"name": "ens18", "ip-addresses": []}]}, result)
+        self.assertEqual(
+            [("GET", "/nodes/node-a/qemu/306/agent/network-get-interfaces", None, None)],
+            calls,
+        )
+
+    def test_guest_exec_runs_command_and_polls_status(self):
+        from app.proxmox.client import ProxmoxMutationClient
+
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            if path.endswith("/agent/exec"):
+                return {"pid": 77}
+            return {"exited": True, "exitcode": 0, "out-data": "status: done\n"}
+
+        client = ProxmoxMutationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!gjallar",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        pid = client.exec_guest_command(node="node-a", vmid=306, command=("cloud-init", "status", "--wait"))
+        result = client.wait_guest_exec(node="node-a", vmid=306, pid=pid)
+
+        self.assertEqual(77, pid)
+        self.assertEqual(0, result["exitcode"])
+        self.assertEqual(
+            [
+                (
+                    "POST",
+                    "/nodes/node-a/qemu/306/agent/exec",
+                    [("command", "cloud-init"), ("command", "status"), ("command", "--wait")],
+                    None,
+                ),
+                ("GET", "/nodes/node-a/qemu/306/agent/exec-status?pid=77", None, None),
+            ],
+            calls,
+        )
+
     def test_http_error_details_include_proxmox_response_body(self):
         import requests
 

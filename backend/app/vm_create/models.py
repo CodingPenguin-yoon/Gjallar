@@ -78,6 +78,7 @@ class VmCreateDraft:
     network: DraftNetwork
     access: DraftAccess
     first_power_on_included: bool = False
+    power_policy: str = "stopped"
     side_effects: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +100,7 @@ class VmCreateDraft:
             "network": self.network.to_dict(),
             "access": self.access.to_dict(),
             "first_power_on_included": self.first_power_on_included,
+            "power_policy": self.power_policy,
             "side_effects": list(self.side_effects),
         }
 
@@ -233,6 +235,7 @@ class VmCreatePlan:
     selected_template: dict[str, Any]
     selected_bridge: dict[str, Any]
     first_power_on_included: bool
+    power_policy: str
     smoke_timeout_summary: dict[str, int]
     risk_summary: dict[str, Any]
     review_confirm: dict[str, Any]
@@ -263,6 +266,7 @@ class VmCreatePlan:
             "selected_template": dict(self.selected_template),
             "selected_bridge": dict(self.selected_bridge),
             "first_power_on_included": self.first_power_on_included,
+            "power_policy": self.power_policy,
             "smoke_timeout_summary": dict(self.smoke_timeout_summary),
             "risk_summary": dict(self.risk_summary),
             "review_confirm": dict(self.review_confirm),

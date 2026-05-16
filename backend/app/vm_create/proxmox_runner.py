@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from pathlib import Path
@@ -23,6 +24,18 @@ _SSH_PUBLIC_KEY_PATTERN = re.compile(
     r"(?m)(?:^|\s)((?:sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-ed25519|ssh-rsa|rsa-sha2-256|rsa-sha2-512|ecdsa-sha2-[A-Za-z0-9@._+-]+)\s+[A-Za-z0-9+/=]+(?:\s+[^\r\n]+)?)"
 )
 _SSH_KEY_CONFIG_KEYS = {"sshkeys", "sshkey", "ssh_public_key", "sshpublickey"}
+_GUEST_AGENT_POLL_INTERVAL_SECONDS = 5.0
+
+
+def _power_policy(plan: VmCreatePlan) -> str:
+    value = str(getattr(plan, "power_policy", "") or "").strip().lower()
+    if value:
+        return value
+    return "boot_and_verify" if bool(getattr(plan, "first_power_on_included", False)) else "stopped"
+
+
+def _boot_and_verify_requested(plan: VmCreatePlan) -> bool:
+    return _power_policy(plan) == "boot_and_verify" or bool(getattr(plan, "first_power_on_included", False))
 
 
 def _now_utc() -> str:
@@ -337,22 +350,215 @@ def _fingerprint_from_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _extract_guest_agent_ipv4_addresses(payload: Any) -> tuple[str, ...]:
+    if isinstance(payload, dict):
+        interfaces = payload.get("result") or payload.get("interfaces") or []
+    elif isinstance(payload, list):
+        interfaces = payload
+    else:
+        interfaces = []
+
+    addresses: list[str] = []
+    seen: set[str] = set()
+    for interface in interfaces:
+        if not isinstance(interface, dict):
+            continue
+        entries = interface.get("ip-addresses") or interface.get("ip_addresses") or []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            raw_ip = str(entry.get("ip-address") or entry.get("ip_address") or "").split("/", 1)[0].strip()
+            if not raw_ip:
+                continue
+            try:
+                parsed = ip_address(raw_ip)
+            except ValueError:
+                continue
+            if parsed.version != 4 or parsed.is_loopback or parsed.is_link_local:
+                continue
+            normalized = str(parsed)
+            if normalized not in seen:
+                seen.add(normalized)
+                addresses.append(normalized)
+    return tuple(addresses)
+
+
+def _guest_agent_attempts(plan: VmCreatePlan) -> int:
+    summary = dict(getattr(plan, "smoke_timeout_summary", {}) or {})
+    minutes = summary.get("ip_discovery_minutes") or summary.get("guest_agent_minutes") or 5
+    try:
+        seconds = max(float(minutes) * 60.0, _GUEST_AGENT_POLL_INTERVAL_SECONDS)
+    except (TypeError, ValueError):
+        seconds = 300.0
+    return max(1, int(seconds // _GUEST_AGENT_POLL_INTERVAL_SECONDS))
+
+
+def _observe_guest_agent_network(
+    client: ProxmoxMutationClient,
+    *,
+    plan: VmCreatePlan,
+    sleep: Any = time.sleep,
+) -> dict[str, Any]:
+    last_error = ""
+    last_payload: dict[str, Any] = {}
+    for attempt in range(1, _guest_agent_attempts(plan) + 1):
+        try:
+            payload = client.get_guest_network_interfaces(node=plan.target_node_id, vmid=int(plan.vmid))
+            last_payload = payload
+            ip_addresses = _extract_guest_agent_ipv4_addresses(payload)
+            if ip_addresses:
+                return {
+                    "available": True,
+                    "ip_addresses": list(ip_addresses),
+                    "primary_ip": ip_addresses[0],
+                    "attempts": attempt,
+                }
+        except ProxmoxMutationError as exc:
+            last_error = str(exc)
+            last_payload = _sanitize_public_key_material(getattr(exc, "details", {}))
+        if attempt < _guest_agent_attempts(plan):
+            sleep(_GUEST_AGENT_POLL_INTERVAL_SECONDS)
+    return {
+        "available": False,
+        "ip_addresses": [],
+        "primary_ip": "",
+        "attempts": _guest_agent_attempts(plan),
+        "error": last_error,
+        "last_payload": _sanitize_public_key_material(last_payload),
+    }
+
+
+def _check_cloud_init_status(
+    client: ProxmoxMutationClient,
+    *,
+    plan: VmCreatePlan,
+    attempts: int = 3,
+    sleep: Any = time.sleep,
+) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    total_attempts = max(int(attempts), 1)
+    for attempt in range(1, total_attempts + 1):
+        try:
+            pid = client.exec_guest_command(
+                node=plan.target_node_id,
+                vmid=int(plan.vmid),
+                command=("cloud-init", "status", "--wait"),
+            )
+            status = client.wait_guest_exec(node=plan.target_node_id, vmid=int(plan.vmid), pid=pid)
+        except ProxmoxMutationError as exc:
+            errors.append(
+                {
+                    "attempt": attempt,
+                    "error": str(exc),
+                    "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+                }
+            )
+            if attempt < total_attempts and _is_retryable_cloud_init_probe_error(exc):
+                sleep(1)
+                continue
+            return {
+                "checked": True,
+                "success": False,
+                "status": "unavailable",
+                "attempts": attempt,
+                "error": str(exc),
+                "errors": errors,
+                "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+            }
+        break
+
+    exitcode = status.get("exitcode")
+    output = str(status.get("out-data") or status.get("out_data") or "").strip()
+    error_output = str(status.get("err-data") or status.get("err_data") or "").strip()
+    success = exitcode == 0 or str(exitcode).strip() == "0"
+    return {
+        "checked": True,
+        "success": success,
+        "status": "done" if success else "failed",
+        "pid": pid,
+        "attempts": attempt,
+        "exitcode": exitcode,
+        "output": output[:2000],
+        "error_output": error_output[:2000],
+        "previous_errors": errors,
+    }
+
+
+def _is_retryable_cloud_init_probe_error(exc: ProxmoxMutationError) -> bool:
+    details = getattr(exc, "details", {}) or {}
+    haystack = " ".join(
+        [
+            str(exc),
+            str(details.get("reason") or ""),
+            str(details.get("response_text") or ""),
+            str(details.get("response_json") or ""),
+        ]
+    ).lower()
+    retry_markers = (
+        "invalid parameter 'pid'",
+        "broken pipe",
+        "guest agent is not running",
+        "qemu guest agent is not running",
+    )
+    return any(marker in haystack for marker in retry_markers)
+
+
+def _boot_verification_summary(
+    *,
+    running: bool,
+    guest_agent: dict[str, Any],
+    cloud_init: dict[str, Any],
+) -> dict[str, Any]:
+    ip_addresses = list(guest_agent.get("ip_addresses") or [])
+    checks = {
+        "running": bool(running),
+        "guest_agent_available": guest_agent.get("available") is True,
+        "ip_observed": bool(ip_addresses),
+        "cloud_init_completed": cloud_init.get("success") is True,
+    }
+    return {
+        "success": all(checks.values()),
+        "checks": checks,
+        "primary_ip": ip_addresses[0] if ip_addresses else "",
+    }
+
+
+def _boot_verification_message(verification: dict[str, Any]) -> str:
+    checks = dict(verification.get("checks") or {})
+    if verification.get("success") is True:
+        return "VM is running; guest-agent IP and cloud-init completion were verified"
+    missing = []
+    if not checks.get("running"):
+        missing.append("running state")
+    if not checks.get("guest_agent_available"):
+        missing.append("guest-agent")
+    if not checks.get("ip_observed"):
+        missing.append("guest IP")
+    if not checks.get("cloud_init_completed"):
+        missing.append("cloud-init completion")
+    return "Boot verification needs reconciliation: " + ", ".join(missing or ["unknown"])
+
+
 def build_proxmox_create_preview(plan: VmCreatePlan, *, run_dir: str | Path) -> dict[str, Any]:
     """Build a non-mutating native Proxmox create preview artifact."""
     raw_config = config_payload_from_plan(plan)
+    boot_and_verify = _boot_and_verify_requested(plan)
     payload = {
         "job_id": plan.job_id,
         "manifest_id": plan.manifest_id,
         "vmid": plan.vmid,
         "vm_name": plan.vm_name,
         "target_node_id": plan.target_node_id,
+        "power_policy": _power_policy(plan),
         "clone": clone_payload_from_plan(plan),
         "config": _sanitize_public_key_material(raw_config),
         "post_check": {
             "status_endpoint": f"/nodes/{plan.target_node_id}/qemu/{int(plan.vmid)}/status/current",
             "config_endpoint": f"/nodes/{plan.target_node_id}/qemu/{int(plan.vmid)}/config",
-            "required_status": "stopped",
-            "powered_on_success_allowed": False,
+            "required_status": "running" if boot_and_verify else "stopped",
+            "powered_on_success_allowed": boot_and_verify,
+            "guest_agent_network_endpoint": f"/nodes/{plan.target_node_id}/qemu/{int(plan.vmid)}/agent/network-get-interfaces" if boot_and_verify else None,
+            "cloud_init_check": "cloud-init status --wait" if boot_and_verify else None,
         },
         "proxmox_mutation_enabled": False,
         "side_effects": [],
@@ -375,8 +581,15 @@ def _observed_after_payload(
     exists: bool,
     post_check_status: str,
     message: str,
+    powered_on_success_allowed: bool = False,
+    guest_agent: dict[str, Any] | None = None,
+    cloud_init: dict[str, Any] | None = None,
+    boot_verification: dict[str, Any] | None = None,
+    start_task: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     observed_status = str(status.get("status") or "").lower()
+    guest_agent_payload = dict(guest_agent or {})
+    ip_addresses = list(guest_agent_payload.get("ip_addresses") or [])
     return {
         "observed_at": _now_utc(),
         "job_id": plan.job_id,
@@ -388,7 +601,14 @@ def _observed_after_payload(
         "status": observed_status,
         "post_check_status": post_check_status,
         "message": message,
-        "powered_on_success_allowed": False,
+        "power_policy": _power_policy(plan),
+        "powered_on_success_allowed": bool(powered_on_success_allowed),
+        "guest_agent": guest_agent_payload,
+        "ip_addresses": ip_addresses,
+        "primary_ip": ip_addresses[0] if ip_addresses else "",
+        "cloud_init": dict(cloud_init or {}),
+        "boot_verification": dict(boot_verification or {}),
+        "start_task": dict(start_task or {}),
         "fingerprint": _fingerprint_from_config(config),
         "status_current": status,
         "config": _sanitize_public_key_material(config),
@@ -401,7 +621,7 @@ def run_proxmox_create(
     run_dir: str | Path,
     client: ProxmoxMutationClient,
 ) -> dict[str, Any]:
-    """Clone, configure, and verify a powered-off VM via the native Proxmox API."""
+    """Clone, configure, and verify a VM via the native Proxmox API."""
     side_effects: list[str] = []
     clone = clone_payload_from_plan(plan)
     config_payload = config_payload_from_plan(plan)
@@ -601,9 +821,154 @@ def run_proxmox_create(
         }
 
     observed_power = str(observed_status.get("status") or "").lower()
-    success = exists and observed_power == "stopped"
-    result_status = "completed" if success else "needs_reconciliation"
-    message = "VM exists on target node and is stopped" if success else f"VM post-check expected stopped, observed {observed_power or 'unknown'}"
+    start_task_result: dict[str, Any] = {}
+    guest_agent: dict[str, Any] = {}
+    cloud_init: dict[str, Any] = {}
+    boot_verification: dict[str, Any] = {}
+    boot_and_verify = _boot_and_verify_requested(plan)
+
+    if boot_and_verify:
+        if observed_power != "running":
+            try:
+                start_upid = client.start_vm(node=plan.target_node_id, vmid=int(plan.vmid))
+                side_effects.append("proxmox_start_invoked")
+                start_task_result = client.wait_for_task(node=plan.target_node_id, upid=start_upid)
+                side_effects.append("proxmox_start_task_polled")
+            except ProxmoxMutationError as exc:
+                message = f"Proxmox VM start failed: {exc}"
+                observed_after = _observed_after_payload(
+                    plan=plan,
+                    status=observed_status,
+                    config=observed_config,
+                    exists=exists,
+                    post_check_status="needs_reconciliation",
+                    message=message,
+                    powered_on_success_allowed=True,
+                    start_task=start_task_result or _sanitize_public_key_material(getattr(exc, "details", {})),
+                )
+                artifact = write_json_artifact(
+                    run_dir=run_dir,
+                    job_id=plan.job_id,
+                    artifact_type="observed_after",
+                    filename="observed_after.json",
+                    payload=observed_after,
+                )
+                return {
+                    "job_id": plan.job_id,
+                    "manifest_id": plan.manifest_id,
+                    "vmid": plan.vmid,
+                    "target_node_id": plan.target_node_id,
+                    "success": False,
+                    "status": "needs_reconciliation",
+                    "message": message,
+                    "clone": clone,
+                    "config": _sanitize_public_key_material(config_payload),
+                    "resize": resize_result,
+                    "task": task_result,
+                    "start_task": start_task_result,
+                    "observed_after": observed_after,
+                    "observed_after_artifact": artifact.to_dict(),
+                    "artifacts": [artifact.to_dict()],
+                    "side_effects": side_effects,
+                }
+            if str(start_task_result.get("exitstatus") or "").upper() != "OK":
+                message = f"Proxmox start task failed: {start_task_result.get('exitstatus') or 'unknown'}"
+                observed_after = _observed_after_payload(
+                    plan=plan,
+                    status=observed_status,
+                    config=observed_config,
+                    exists=exists,
+                    post_check_status="needs_reconciliation",
+                    message=message,
+                    powered_on_success_allowed=True,
+                    start_task=start_task_result,
+                )
+                artifact = write_json_artifact(
+                    run_dir=run_dir,
+                    job_id=plan.job_id,
+                    artifact_type="observed_after",
+                    filename="observed_after.json",
+                    payload=observed_after,
+                )
+                return {
+                    "job_id": plan.job_id,
+                    "manifest_id": plan.manifest_id,
+                    "vmid": plan.vmid,
+                    "target_node_id": plan.target_node_id,
+                    "success": False,
+                    "status": "needs_reconciliation",
+                    "message": message,
+                    "clone": clone,
+                    "config": _sanitize_public_key_material(config_payload),
+                    "resize": resize_result,
+                    "task": task_result,
+                    "start_task": start_task_result,
+                    "observed_after": observed_after,
+                    "observed_after_artifact": artifact.to_dict(),
+                    "artifacts": [artifact.to_dict()],
+                    "side_effects": side_effects,
+                }
+            try:
+                observed_status = client.get_vm_status(node=plan.target_node_id, vmid=int(plan.vmid))
+                observed_config = client.get_vm_config(node=plan.target_node_id, vmid=int(plan.vmid))
+            except ProxmoxMutationError as exc:
+                message = f"VM boot post-check failed: {exc}"
+                observed_after = _observed_after_payload(
+                    plan=plan,
+                    status=observed_status,
+                    config=observed_config,
+                    exists=exists,
+                    post_check_status="needs_reconciliation",
+                    message=message,
+                    powered_on_success_allowed=True,
+                    start_task=start_task_result,
+                )
+                artifact = write_json_artifact(
+                    run_dir=run_dir,
+                    job_id=plan.job_id,
+                    artifact_type="observed_after",
+                    filename="observed_after.json",
+                    payload=observed_after,
+                )
+                return {
+                    "job_id": plan.job_id,
+                    "manifest_id": plan.manifest_id,
+                    "vmid": plan.vmid,
+                    "target_node_id": plan.target_node_id,
+                    "success": False,
+                    "status": "needs_reconciliation",
+                    "message": message,
+                    "clone": clone,
+                    "config": _sanitize_public_key_material(config_payload),
+                    "resize": resize_result,
+                    "task": task_result,
+                    "start_task": start_task_result,
+                    "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+                    "observed_after": observed_after,
+                    "observed_after_artifact": artifact.to_dict(),
+                    "artifacts": [artifact.to_dict()],
+                    "side_effects": side_effects,
+                }
+            observed_power = str(observed_status.get("status") or "").lower()
+            side_effects.append("proxmox_boot_post_check_observed")
+
+        guest_agent = _observe_guest_agent_network(client, plan=plan)
+        side_effects.append("proxmox_guest_agent_observed" if guest_agent.get("available") is True else "proxmox_guest_agent_unavailable")
+        cloud_init = _check_cloud_init_status(client, plan=plan)
+        side_effects.append("proxmox_cloud_init_status_checked" if cloud_init.get("success") is True else "proxmox_cloud_init_status_unavailable")
+        boot_verification = _boot_verification_summary(
+            running=observed_power == "running",
+            guest_agent=guest_agent,
+            cloud_init=cloud_init,
+        )
+        success = exists and boot_verification.get("success") is True
+        result_status = "completed" if success else "needs_reconciliation"
+        message = _boot_verification_message(boot_verification)
+    else:
+        success = exists and observed_power == "stopped"
+        result_status = "completed" if success else "needs_reconciliation"
+        message = "VM exists on target node and is stopped" if success else f"VM post-check expected stopped, observed {observed_power or 'unknown'}"
+
     observed_after = _observed_after_payload(
         plan=plan,
         status=observed_status,
@@ -611,6 +976,11 @@ def run_proxmox_create(
         exists=exists,
         post_check_status=result_status,
         message=message,
+        powered_on_success_allowed=boot_and_verify,
+        guest_agent=guest_agent,
+        cloud_init=cloud_init,
+        boot_verification=boot_verification,
+        start_task=start_task_result,
     )
     artifact = write_json_artifact(
         run_dir=run_dir,
@@ -631,6 +1001,10 @@ def run_proxmox_create(
         "config": _sanitize_public_key_material(config_payload),
         "resize": resize_result,
         "task": task_result,
+        "start_task": start_task_result,
+        "guest_agent": guest_agent,
+        "cloud_init": cloud_init,
+        "boot_verification": boot_verification,
         "observed_after": observed_after,
         "observed_after_artifact": artifact.to_dict(),
         "artifacts": [artifact.to_dict()],

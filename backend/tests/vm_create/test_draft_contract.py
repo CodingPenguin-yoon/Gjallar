@@ -37,6 +37,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         self.assertEqual("yoon", draft.access.cloud_init_user)
         self.assertFalse(draft.access.password_login)
         self.assertFalse(draft.first_power_on_included)
+        self.assertEqual("stopped", draft.power_policy)
 
     def test_draft_access_keeps_raw_ssh_key_transient_only(self):
         from app.vm_create.drafts import build_default_vm_draft
@@ -74,6 +75,15 @@ class VmCreateDraftContractTests(unittest.TestCase):
         draft = build_default_vm_draft(operator_id="test-operator", proposed_vmid=303)
 
         self.assertEqual(303, draft.proposed_vmid)
+
+    def test_draft_accepts_boot_and_verify_power_policy(self):
+        from app.vm_create.drafts import build_default_vm_draft
+
+        draft = build_default_vm_draft(operator_id="test-operator", power_policy="boot_and_verify")
+
+        self.assertTrue(draft.first_power_on_included)
+        self.assertEqual("boot_and_verify", draft.power_policy)
+        self.assertEqual("boot_and_verify", draft.to_dict()["power_policy"])
 
     def test_draft_accepts_hardware_overrides_for_template_alignment(self):
         from app.vm_create.drafts import build_default_vm_draft

@@ -87,6 +87,7 @@ networks:
                 "selected_template",
                 "selected_bridge",
                 "first_power_on_included",
+                "power_policy",
                 "smoke_timeout_summary",
                 "risk_summary",
                 "plan_artifact_id",
@@ -119,6 +120,8 @@ networks:
             self.assertEqual("vmbr0", review["selected_bridge"]["bridge_id"])
             self.assertFalse(review["first_power_on_included"])
             self.assertFalse(summary_payload["first_power_on_included"])
+            self.assertEqual("stopped", review["power_policy"])
+            self.assertEqual("stopped", summary_payload["power_policy"])
             self.assertEqual(review["planned_git_diff_summary"], summary_payload["planned_git_diff_summary"])
             self.assertNotIn(TEST_SSH_PUBLIC_KEY.split()[1], repr(summary_payload))
 

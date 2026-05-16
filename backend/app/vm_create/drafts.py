@@ -15,6 +15,8 @@ from app.vm_create.models import (
 )
 
 DEFAULT_PROFILE_ID = "general-vm"
+CREATE_POWER_POLICY_STOPPED = "stopped"
+CREATE_POWER_POLICY_BOOT_AND_VERIFY = "boot_and_verify"
 
 
 def _safe_identifier(value: str) -> str:
@@ -46,6 +48,27 @@ def _optional_bool(value: object) -> bool | None:
     if text in {"0", "false", "no", "off", "disabled"}:
         return False
     return bool(value)
+
+
+def _normalize_power_policy(power_policy: object | None, first_power_on_included: object | None = None) -> str:
+    text = _optional_text(power_policy)
+    if text:
+        normalized = text.lower().replace("-", "_")
+        aliases = {
+            "stopped": CREATE_POWER_POLICY_STOPPED,
+            "create_stopped": CREATE_POWER_POLICY_STOPPED,
+            "powered_off": CREATE_POWER_POLICY_STOPPED,
+            "boot_and_verify": CREATE_POWER_POLICY_BOOT_AND_VERIFY,
+            "start_and_verify": CREATE_POWER_POLICY_BOOT_AND_VERIFY,
+            "boot_verify": CREATE_POWER_POLICY_BOOT_AND_VERIFY,
+            "running": CREATE_POWER_POLICY_BOOT_AND_VERIFY,
+        }
+        if normalized not in aliases:
+            raise ValueError("power_policy must be either 'stopped' or 'boot_and_verify'")
+        return aliases[normalized]
+
+    included = _optional_bool(first_power_on_included)
+    return CREATE_POWER_POLICY_BOOT_AND_VERIFY if included is True else CREATE_POWER_POLICY_STOPPED
 
 
 def _optional_prefix(value: object) -> int | str | None:
@@ -120,6 +143,8 @@ def build_default_vm_draft(
     username: str | None = None,
     ssh_public_key: str | None = None,
     password_login: object | None = None,
+    first_power_on_included: object | None = None,
+    power_policy: object | None = None,
 ) -> VmCreateDraft:
     """Build a non-mutating default draft for the Create VM flow."""
     requested_profile_id, profile = _profile_for_draft_defaults(profile_id)
@@ -156,6 +181,7 @@ def build_default_vm_draft(
     )
     resolved_ssh_key = resolve_ssh_public_key(requested_ssh_public_key)
     ssh_validation = resolved_ssh_key.validation
+    resolved_power_policy = _normalize_power_policy(power_policy, first_power_on_included)
     return VmCreateDraft(
         draft_id=draft_id,
         job_id=job_id,
@@ -196,5 +222,6 @@ def build_default_vm_draft(
             ssh_key_validation_error=ssh_validation.error_code,
             _transient_ssh_public_key=resolved_ssh_key.transient_public_key,
         ),
-        first_power_on_included=False,
+        first_power_on_included=resolved_power_policy == CREATE_POWER_POLICY_BOOT_AND_VERIFY,
+        power_policy=resolved_power_policy,
     )

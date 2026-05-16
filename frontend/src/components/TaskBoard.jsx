@@ -73,6 +73,63 @@ function ProgressSteps({ job }) {
   )
 }
 
+function CreateVmSummary({ summary }) {
+  if (!summary) return null
+
+  return (
+    <div className="mt-6">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+        <FileText className="h-4 w-4" />
+        생성 VM 요약
+      </div>
+      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-lg font-bold text-slate-950">{summary.title}</div>
+            <div className="mt-1 text-sm text-slate-600">{summary.subtitle}</div>
+          </div>
+          <span className="w-fit rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-700">
+            {jobStatusLabel(summary.status)}
+          </span>
+        </div>
+      </div>
+
+      {summary.advice && (
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
+          <div className="text-sm font-semibold text-red-800">{summary.advice.title}</div>
+          <p className="mt-1 text-sm text-red-700">{summary.advice.message}</p>
+          {Array.isArray(summary.advice.actions) && summary.advice.actions.length > 0 && (
+            <ul className="mt-3 space-y-1 text-sm text-red-700">
+              {summary.advice.actions.map((action) => (
+                <li key={action}>- {action}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {summary.sections.map((section) => (
+          <section key={section.title} className="rounded-lg border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
+            <dl className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              {section.items.map((item) => (
+                <div key={`${section.title}-${item.label}`} className="min-w-0">
+                  <dt className="text-xs text-slate-500">{item.label}</dt>
+                  <dd className="mt-0.5 break-words text-sm font-medium text-slate-900">{item.value || '-'}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        원본 검토 기록과 증적 {summary.artifactCount}개는 감사용으로 보관됩니다.
+      </p>
+    </div>
+  )
+}
+
 function JobCard({ job, selected, onSelect }) {
   return (
     <button
@@ -142,30 +199,34 @@ function SelectedJobPanel({ job, artifacts }) {
 
       <ProgressSteps job={job} />
 
-      <div className="mt-6">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <FileText className="h-4 w-4" />
-          Artifacts
-        </div>
-        {artifacts.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">No artifacts published for this job.</div>
-        ) : (
-          <div className="space-y-2">
-            {artifacts.map((artifact) => (
-              <div key={artifact.id} className="rounded-lg border border-slate-200 p-3 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium text-slate-900">{artifact.kind}</span>
-                  <span className="text-xs text-slate-500">{artifact.id}</span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                  <span>storage: {artifact.storageBackend}</span>
-                  {artifact.checksum && <span className="break-all">checksum: {artifact.checksum}</span>}
-                </div>
-              </div>
-            ))}
+      {job.vmSummary ? (
+        <CreateVmSummary summary={job.vmSummary} />
+      ) : (
+        <div className="mt-6">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <FileText className="h-4 w-4" />
+            Artifacts
           </div>
-        )}
-      </div>
+          {artifacts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">No artifacts published for this job.</div>
+          ) : (
+            <div className="space-y-2">
+              {artifacts.map((artifact) => (
+                <div key={artifact.id} className="rounded-lg border border-slate-200 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium text-slate-900">{artifact.kind}</span>
+                    <span className="text-xs text-slate-500">{artifact.id}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    <span>storage: {artifact.storageBackend}</span>
+                    {artifact.checksum && <span className="break-all">checksum: {artifact.checksum}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
