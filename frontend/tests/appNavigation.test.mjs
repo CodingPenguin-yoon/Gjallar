@@ -32,7 +32,7 @@ assert.deepEqual(
   [
     './components/CreateInstanceWizard',
     './components/InstanceList',
-    './components/NetworkPolicyScreen',
+    './components/NetworkReadinessScreen',
     './components/OperationalRiskDashboard',
     './components/PlacementScreen',
     './components/TaskBoard',

@@ -226,27 +226,23 @@ pnpm --dir frontend build
 
 - Removed Terraform endpoints disappear from the route table and naturally return
   FastAPI 404.
-- Whether Network tab policy should provide future recommendations for gateway
-  and static ranges, while live bridge remains Create VM source of truth.
-- `GJALLAR_SHARED_ROOT` and `GJALLAR_IAC_ROOT` remain compatibility settings
-  for legacy IaC manifests and NetworkPolicy files. They are not used for
-  Jobs/Runs or artifacts anymore.
+- Networks is now read-only Network Readiness / migration pre-check
+  visualization composed from live inventory. It has no Proxmox network
+  mutation, API write path, YAML persistence, DB migration, or DRS execution
+  authority.
+- `GJALLAR_SHARED_ROOT` and `GJALLAR_IAC_ROOT` remain transitional settings for
+  Create VM/IaC readiness only. They are not used for Jobs/Runs, artifacts, or
+  Networks readiness.
 - Shared-folder/NFS usage originally came from Terraform-era IaC/state needs.
   Profiles, Jobs/Runs, artifacts, and native Create VM records are now
-  DB-backed; a later network policy/config DB migration should decide when to
-  retire the remaining shared-folder dependency.
-- Current `manifests/networks/network-profiles.yaml` remains the Networks tab
-  policy file for now. It is not the Create VM source of truth, and a future
-  network-DB migration should decide how to preserve/import existing policy
-  before cleanup.
+  DB-backed; retire the remaining shared-folder dependency once Create VM/IaC
+  readiness no longer needs it.
 
 ## Next Slice Candidate
 
 Recommended next implementation slice:
 
-1. Decide and implement the NetworkPolicy/config DB migration separately from
-   the completed Create VM profile seed work.
-2. Run a final Create VM live smoke matrix: stopped, boot-and-verify DHCP,
+1. Run a final Create VM live smoke matrix: stopped, boot-and-verify DHCP,
    static IP, and invalid target combination.
-3. Start DRS Advisor read model and final pre-check contract work without
+2. Start DRS Advisor read model and final pre-check contract work without
    reusing Create VM mutation semantics.

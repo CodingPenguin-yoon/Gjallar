@@ -8,7 +8,7 @@
 
 ## 현재 구현 한 줄 요약
 
-Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network policy, job/artifact, risk를 확인하고, 승인 기반으로 VM을 생성할 수 있게 하는 Proxmox Operations & Risk Console입니다. 기본 생성은 powered-off이고, 선택하면 `boot_and_verify`로 first boot/IP/cloud-init까지 확인합니다. DRS Advisor가 다음 MVP 목표지만 현재 backend DRS 실행 시스템은 없습니다.
+Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network readiness/migration pre-check, job/artifact, risk를 확인하고, 승인 기반으로 VM을 생성할 수 있게 하는 Proxmox Operations & Risk Console입니다. 기본 생성은 powered-off이고, 선택하면 `boot_and_verify`로 first boot/IP/cloud-init까지 확인합니다. DRS Advisor가 다음 MVP 목표지만 현재 backend DRS 실행 시스템은 없습니다.
 
 ## 현재 active surface
 
@@ -16,7 +16,7 @@ Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network p
 |---|---|---|
 | `/` Dashboard | read-only 운영 요약, partial-load summary | [Dashboard](current/top-tabs/01-dashboard.md) |
 | `/infra` Infra Explorer | read-only VM/node inventory | [Infra Explorer](current/top-tabs/02-infra-explorer.md) |
-| `/networks` Networks | live bridge view + IaC policy write | [Networks](current/top-tabs/03-networks.md) |
+| `/networks` Networks | read-only live bridge readiness / migration pre-check | [Networks](current/top-tabs/03-networks.md) |
 | `/create` Create VM | draft/preflight/plan/approval/native create | [Create VM](current/top-tabs/04-create-vm.md) |
 | `/placement` Placement | frontend-only read-only placement seed | [Placement / DRS Advisor](current/top-tabs/05-placement-drs-advisor.md) |
 | `/jobs` Jobs/Runs | DB-backed job/artifact inspection | [Jobs/Runs](current/top-tabs/06-jobs-runs.md) |
@@ -26,6 +26,7 @@ Gjallar는 현재 Proxmox 운영자가 클러스터 상태, VM 배치, network p
 
 - Active backend prefix는 `/api/v1`입니다.
 - Proxmox inventory는 read-only입니다.
+- Networks는 YAML/file/DB/API write path나 DRS 실행 권한이 없는 read-only readiness view입니다.
 - 실제 VM/node/task/storage/network 상태의 기준은 Proxmox current state입니다.
 - 실제 Create VM live mutation은 `POST /api/v1/vm-create/{draft_id}/proxmox-create`입니다.
 - Current `/placement`는 frontend-only/read-only입니다. 현재 `/api/v1/drs/*` route는 없습니다.

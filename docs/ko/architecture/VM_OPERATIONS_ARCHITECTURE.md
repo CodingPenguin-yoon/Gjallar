@@ -12,7 +12,7 @@ Gjallar는 Proxmox 운영자를 위한 Operations & Risk Console입니다. 현�
 React operator UI
   -> /api/v1 FastAPI router
     -> read-only Proxmox inventory adapter
-    -> IaC-backed network policy helpers
+    -> read-only network readiness and migration pre-check evidence
     -> Create VM draft/preflight/plan/approval helpers
     -> DB-backed Jobs/Runs and risk summaries
     -> gated Proxmox native clone/resize/config/post-check helpers
@@ -27,7 +27,7 @@ React operator UI
 |---|---|---|
 | `/` | `Dashboard` in [frontend/src/App.jsx](../../../frontend/src/App.jsx) | cluster/node/VM/storage/job/risk summary. |
 | `/infra` | [InstanceList.jsx](../../../frontend/src/components/InstanceList.jsx) | VM inventory, detail evidence, stopped VM Start action. |
-| `/networks` | [NetworkPolicyScreen.jsx](../../../frontend/src/components/NetworkPolicyScreen.jsx) | bridge inventory + IaC policy view/write. |
+| `/networks` | [NetworkReadinessScreen.jsx](../../../frontend/src/components/NetworkReadinessScreen.jsx) | read-only Network Readiness / migration pre-check visualization. |
 | `/create` | [CreateInstanceWizard.jsx](../../../frontend/src/components/CreateInstanceWizard.jsx) | guided Create VM flow. |
 | `/placement` | [PlacementScreen.jsx](../../../frontend/src/components/PlacementScreen.jsx) | frontend-only read-only placement seed. |
 | `/jobs` | [TaskBoard.jsx](../../../frontend/src/components/TaskBoard.jsx) | job/run progress와 artifact metadata. |
@@ -42,15 +42,16 @@ React operator UI
 | [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py) | gated mutation path에서만 쓰는 explicit mutation client. |
 | [backend/app/vm_create](../../../backend/app/vm_create) | draft, preflight, plan, approval, manifest evidence, native runner helpers. |
 | [backend/app/vm_actions](../../../backend/app/vm_actions) | Create VM과 read-only inventory에서 분리된 기존 VM action helper. |
-| [backend/app/network_policy.py](../../../backend/app/network_policy.py) | IaC-backed network policy load/save와 bridge-policy view. |
 | [backend/app/jobs](../../../backend/app/jobs) | DB-backed job status, artifacts, approval records, risk source data. |
 | [backend/app/manifests](../../../backend/app/manifests) | transitional profile seed와 manifest schema helpers. |
 
 ## Current API surface
 
-Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks`, `networks/policy`, `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks`, `nodes/{node_id}/vms/{vmid}/actions/start`.
+Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks`, `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks`, `nodes/{node_id}/vms/{vmid}/actions/start`.
 
 Create VM: `profiles`, `vm-create/readiness`, `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create`.
+
+Networks는 live bridge readiness와 migration pre-check evidence를 read-only로 보여줍니다. Network YAML/file/DB/API write path나 DRS 실행 권한은 없습니다.
 
 상세는 [api/current-api-v1.md](api/current-api-v1.md)를 봅니다.
 

@@ -3,7 +3,7 @@ import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, Clock3, Database, HardDrive, LayoutDashboard, List, Network, Plus, RefreshCw, Server } from 'lucide-react'
 import CreateInstanceWizard from './components/CreateInstanceWizard'
 import InstanceList from './components/InstanceList'
-import NetworkPolicyScreen from './components/NetworkPolicyScreen'
+import NetworkReadinessScreen from './components/NetworkReadinessScreen'
 import OperationalRiskDashboard from './components/OperationalRiskDashboard'
 import PlacementScreen from './components/PlacementScreen'
 import TaskBoard from './components/TaskBoard'
@@ -410,7 +410,7 @@ function App() {
             path="/networks"
             element={
               <div className="mx-auto max-w-7xl">
-                <NetworkPolicyScreen />
+                <NetworkReadinessScreen />
               </div>
             }
           />

@@ -31,7 +31,7 @@ Key values:
 - `FRONTEND_PORT`: Vite dev server port, default `5173`
 - `BACKEND_PORT`: FastAPI backend port, default `8000`
 - `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
-- `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`: legacy IaC paths for NetworkPolicy compatibility
+- `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`: transitional Create VM/IaC readiness paths; Networks does not persist YAML
 - `GJALLAR_DATABASE_URL`: SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; default local SQLite in `.env.example`
 
 Initialize the backend DB before first local Create VM use:

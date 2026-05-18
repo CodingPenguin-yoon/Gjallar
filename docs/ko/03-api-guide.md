@@ -15,7 +15,7 @@
 | Health/root | `GET /`, `GET /health` | 앱/서비스 상태 확인. |
 | Inventory | `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks` | Proxmox read-only inventory. |
 | Profiles/readiness | `profiles`, `vm-create/readiness` | Create VM option/readiness source. |
-| Network policy | `GET/PUT /networks/policy` | IaC-backed network policy view/write. Proxmox bridge mutation 아님. |
+| Network readiness | `GET /nodes`, `/vms`, `/networks` | Frontend-composed read-only migration pre-check evidence. Proxmox bridge mutation, API write path, YAML persistence 없음. |
 | Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | DB-backed job status와 job-derived risks. |
 | Create VM | `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, native create까지. |
 

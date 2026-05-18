@@ -32,9 +32,19 @@ class NetworkInventory:
     node_id: str
     type: str = "bridge"
     active: bool = True
+    address: str = ""
+    netmask: str = ""
+    prefix: int | None = None
+    cidr: str = ""
+    gateway: str = ""
+    bridge_ports: tuple[str, ...] = ()
+    vlan_aware: bool | None = None
+    mtu: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["bridge_ports"] = list(self.bridge_ports)
+        return data
 
 
 @dataclass(frozen=True)
@@ -46,6 +56,20 @@ class GuestAgentInventory:
         data = asdict(self)
         data["ip_addresses"] = list(self.ip_addresses)
         return data
+
+
+@dataclass(frozen=True)
+class IpEvidenceInventory:
+    ip_address: str
+    source: str
+    interface_name: str = ""
+    interface_type: str = ""
+    scope: str = "observed"
+    primary_candidate: bool = False
+    duplicate_warning_eligible: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -101,6 +125,7 @@ class VmInventory:
     memory_mb: int
     disk_gb: int
     ip_addresses: tuple[str, ...] = ()
+    ip_evidence: tuple[IpEvidenceInventory, ...] = ()
     guest_agent: GuestAgentInventory = field(default_factory=lambda: GuestAgentInventory(False))
     tags: tuple[str, ...] = ()
     storage_id: str = "unknown"
@@ -109,6 +134,7 @@ class VmInventory:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["ip_addresses"] = list(self.ip_addresses)
+        data["ip_evidence"] = [item.to_dict() for item in self.ip_evidence]
         data["guest_agent"] = self.guest_agent.to_dict()
         data["tags"] = list(self.tags)
         data["disks"] = [disk.to_dict() for disk in self.disks]

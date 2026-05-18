@@ -93,8 +93,8 @@ Target design은
   preflight다.
 - Incoming `network_id`/`networkId`는 transition compatibility로 ignore되며
   draft/plan/review/manifest/job active output에 echo하지 않는다.
-- NetworkPolicy missing/range/out-of-range는 Create VM red blocker가 아니다.
-  관찰된 static IP conflict는 계속 red blocker다.
+- Networks readiness는 Create VM red blocker가 아니다. 관찰된 static IP
+  conflict는 계속 red blocker다.
 - Static mode는 현재 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
 - Gateway와 prefix는 사용자가 입력한 값을 그대로 사용하며, native create는
   static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지 않는다.

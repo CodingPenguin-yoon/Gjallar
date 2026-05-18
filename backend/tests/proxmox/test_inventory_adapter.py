@@ -33,6 +33,15 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(42.0, node["memory_usage_percent"])
         self.assertGreater(node["memory_used_mb"], 0)
         self.assertIn("vmbr0", {network["bridge_id"] for network in node["networks"]})
+        vmbr0 = next(network for network in node["networks"] if network["bridge_id"] == "vmbr0")
+        self.assertEqual("192.168.2.2", vmbr0["address"])
+        self.assertEqual("255.255.255.0", vmbr0["netmask"])
+        self.assertEqual(24, vmbr0["prefix"])
+        self.assertEqual("192.168.2.0/24", vmbr0["cidr"])
+        self.assertEqual("192.168.2.1", vmbr0["gateway"])
+        self.assertEqual(["eno1"], vmbr0["bridge_ports"])
+        self.assertFalse(vmbr0["vlan_aware"])
+        self.assertEqual(1500, vmbr0["mtu"])
         self.assertTrue(node["storage"], "node inventory must include storage candidates")
 
         templates = {template["template_id"]: template for template in snapshot["templates"]}
@@ -47,6 +56,20 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual("yoonmanserver2", vm["node_id"])
         self.assertIn("192.168.2.141", vm["ip_addresses"])
         self.assertTrue(vm["guest_agent"]["available"])
+        self.assertEqual(
+            [
+                {
+                    "ip_address": "192.168.2.141",
+                    "source": "guest_agent",
+                    "interface_name": "ens18",
+                    "interface_type": "linux_nic",
+                    "scope": "primary",
+                    "primary_candidate": True,
+                    "duplicate_warning_eligible": True,
+                }
+            ],
+            vm["ip_evidence"],
+        )
         self.assertFalse(vm["template"])
         self.assertEqual("local-lvm", vm["storage_id"])
         self.assertEqual("scsi0", vm["disks"][0]["device"])
@@ -136,6 +159,24 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                             {"ip-address-type": "ipv4", "ip-address": "192.168.2.202"},
                             {"ip-address-type": "ipv4", "ip-address": "169.254.1.10"},
                         ],
+                    },
+                    {
+                        "name": "docker0",
+                        "ip-addresses": [
+                            {"ip-address-type": "ipv4", "ip-address": "172.17.0.1"},
+                        ],
+                    },
+                    {
+                        "name": "br-46ea44f7",
+                        "ip-addresses": [
+                            {"ip-address-type": "ipv4", "ip-address": "172.18.0.1"},
+                        ],
+                    },
+                    {
+                        "name": "vmbr0",
+                        "ip-addresses": [
+                            {"ip-address-type": "ipv4", "ip-address": "10.250.0.1"},
+                        ],
                     }
                 ]
             },
@@ -181,9 +222,35 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(55050, snapshot["nodes"][0]["memory_used_mb"])
         self.assertEqual(21.0, snapshot["nodes"][1]["cpu_usage_percent"])
         self.assertEqual([202, 101, 150], [vm["vmid"] for vm in first_vms])
-        self.assertEqual(["192.168.2.202"], first_vms[0]["ip_addresses"])
+        self.assertEqual(["192.168.2.202", "172.17.0.1", "172.18.0.1", "10.250.0.1"], first_vms[0]["ip_addresses"])
         self.assertEqual(["192.168.2.101"], first_vms[1]["ip_addresses"])
         self.assertEqual(["192.168.2.150"], first_vms[2]["ip_addresses"])
+        evidence_202 = {
+            (item["source"], item["interface_name"], item["ip_address"]): item
+            for item in first_vms[0]["ip_evidence"]
+        }
+        self.assertEqual("proxmox_ipconfig", evidence_202[("config", "ipconfig0", "192.168.2.202")]["interface_type"])
+        self.assertEqual("primary", evidence_202[("config", "ipconfig0", "192.168.2.202")]["scope"])
+        self.assertTrue(evidence_202[("config", "ipconfig0", "192.168.2.202")]["primary_candidate"])
+        self.assertTrue(evidence_202[("config", "ipconfig0", "192.168.2.202")]["duplicate_warning_eligible"])
+        self.assertEqual("linux_nic", evidence_202[("guest_agent", "eth0", "192.168.2.202")]["interface_type"])
+        self.assertEqual("primary", evidence_202[("guest_agent", "eth0", "192.168.2.202")]["scope"])
+        self.assertTrue(evidence_202[("guest_agent", "eth0", "192.168.2.202")]["duplicate_warning_eligible"])
+        self.assertEqual("internal", evidence_202[("guest_agent", "docker0", "172.17.0.1")]["scope"])
+        self.assertFalse(evidence_202[("guest_agent", "docker0", "172.17.0.1")]["duplicate_warning_eligible"])
+        self.assertEqual("internal", evidence_202[("guest_agent", "br-46ea44f7", "172.18.0.1")]["scope"])
+        self.assertFalse(evidence_202[("guest_agent", "br-46ea44f7", "172.18.0.1")]["duplicate_warning_eligible"])
+        self.assertEqual("observed", evidence_202[("guest_agent", "vmbr0", "10.250.0.1")]["scope"])
+        self.assertFalse(evidence_202[("guest_agent", "vmbr0", "10.250.0.1")]["duplicate_warning_eligible"])
+        evidence_101 = first_vms[1]["ip_evidence"][0]
+        self.assertEqual("ens18", evidence_101["interface_name"])
+        self.assertEqual("primary", evidence_101["scope"])
+        self.assertTrue(evidence_101["duplicate_warning_eligible"])
+        evidence_150 = first_vms[2]["ip_evidence"][0]
+        self.assertEqual("config", evidence_150["source"])
+        self.assertEqual("ipconfig0", evidence_150["interface_name"])
+        self.assertEqual("primary", evidence_150["scope"])
+        self.assertTrue(evidence_150["duplicate_warning_eligible"])
         self.assertEqual(80, first_vms[0]["disk_gb"])
         self.assertEqual(40, first_vms[1]["disk_gb"])
         self.assertEqual(20, first_vms[2]["disk_gb"])
@@ -197,6 +264,10 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual("1", first_vms[0]["disks"][0]["iothread"])
         self.assertEqual("local-lvm", first_vms[0]["storage_id"])
         self.assertTrue(first_vms[0]["guest_agent"]["available"])
+        self.assertEqual(
+            ["192.168.2.202", "172.17.0.1", "172.18.0.1", "10.250.0.1"],
+            first_vms[0]["guest_agent"]["ip_addresses"],
+        )
         self.assertFalse(first_vms[2]["guest_agent"]["available"])
         self.assertEqual(["db", "critical"], first_vms[0]["tags"])
         self.assertEqual(1, call_counts["/nodes/node2/qemu/202/config"])
@@ -214,6 +285,121 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(50, templates[0]["disk_gb"])
         self.assertEqual(303, adapter.suggest_next_vmid())
         self.assertEqual(1, call_counts["/cluster/nextid"])
+
+    def test_live_adapter_normalizes_network_active_values(self):
+        from app.proxmox.inventory import LiveProxmoxInventoryAdapter
+
+        payloads = {
+            "/nodes": [{"node": "node2", "status": "online", "maxcpu": 24, "cpu": 0.18, "mem": 1, "maxmem": 2}],
+            "/nodes/node2/qemu": [],
+            "/nodes/node2/storage": [],
+            "/nodes/node2/network": [
+                {"iface": "vmbr0", "type": "bridge"},
+                {"iface": "vmbr1", "type": "bridge", "active": None},
+                {"iface": "vmbr2", "type": "bridge", "active": False},
+                {"iface": "vmbr3", "type": "bridge", "active": 0},
+                {"iface": "vmbr4", "type": "bridge", "active": "0"},
+                {"iface": "vmbr5", "type": "bridge", "active": "false"},
+                {"iface": "vmbr6", "type": "bridge", "active": "inactive"},
+                {"iface": "vmbr7", "type": "bridge", "active": 1},
+                {"iface": "vmbr8", "type": "bridge", "active": "true"},
+            ],
+        }
+
+        def fake_get(path, *, timeout=None):
+            if path not in payloads:
+                raise AssertionError(f"unexpected path requested: {path}")
+            return payloads[path]
+
+        adapter = LiveProxmoxInventoryAdapter(
+            api_url="https://pve.example.invalid:8006/api2/json",
+            token_id="root@pam!inventory",
+            token_secret="top-secret",
+            request_get=fake_get,
+        )
+
+        active_by_bridge = {network.bridge_id: network.active for network in adapter.list_networks("node2")}
+
+        self.assertEqual(
+            {
+                "vmbr0": True,
+                "vmbr1": True,
+                "vmbr2": False,
+                "vmbr3": False,
+                "vmbr4": False,
+                "vmbr5": False,
+                "vmbr6": False,
+                "vmbr7": True,
+                "vmbr8": True,
+            },
+            active_by_bridge,
+        )
+
+    def test_live_adapter_derives_bridge_cidr_from_observed_address_evidence(self):
+        from app.proxmox.inventory import LiveProxmoxInventoryAdapter
+
+        payloads = {
+            "/nodes": [{"node": "node2", "status": "online", "maxcpu": 24, "cpu": 0.18, "mem": 1, "maxmem": 2}],
+            "/nodes/node2/qemu": [],
+            "/nodes/node2/storage": [],
+            "/nodes/node2/network": [
+                {
+                    "iface": "vmbr0",
+                    "type": "bridge",
+                    "active": 1,
+                    "address": "192.168.2.10",
+                    "netmask": "255.255.255.0",
+                    "gateway": "192.168.2.1",
+                    "bridge_ports": "eno1 eno2",
+                    "bridge_vlan_aware": "1",
+                    "mtu": "1500",
+                },
+                {"iface": "vmbr1", "type": "bridge", "active": 1, "address": "10.0.0.10", "prefix": "24"},
+                {"iface": "vmbr2", "type": "bridge", "active": 1, "address": "10.10.0.10", "prefix": 24},
+                {"iface": "vmbr3", "type": "bridge", "active": 1, "address": "172.16.5.20/20"},
+                {"iface": "vmbr4", "type": "bridge", "active": 1, "netmask": "255.255.255.0", "gateway": "192.168.2.1"},
+                {"iface": "vmbr5", "type": "bridge", "active": 1, "address": "not-an-ip", "prefix": "24"},
+                {"iface": "vmbr6", "type": "bridge", "active": 1, "address": "192.168.99.10", "netmask": "255.255.255.0", "prefix": "16"},
+            ],
+        }
+
+        def fake_get(path, *, timeout=None):
+            if path not in payloads:
+                raise AssertionError(f"unexpected path requested: {path}")
+            return payloads[path]
+
+        adapter = LiveProxmoxInventoryAdapter(
+            api_url="https://pve.example.invalid:8006/api2/json",
+            token_id="root@pam!inventory",
+            token_secret="top-secret",
+            request_get=fake_get,
+        )
+
+        networks = {network["bridge_id"]: network for network in [item.to_dict() for item in adapter.list_networks("node2")]}
+
+        self.assertEqual("192.168.2.10", networks["vmbr0"]["address"])
+        self.assertEqual("255.255.255.0", networks["vmbr0"]["netmask"])
+        self.assertEqual(24, networks["vmbr0"]["prefix"])
+        self.assertEqual("192.168.2.0/24", networks["vmbr0"]["cidr"])
+        self.assertEqual("192.168.2.1", networks["vmbr0"]["gateway"])
+        self.assertEqual(["eno1", "eno2"], networks["vmbr0"]["bridge_ports"])
+        self.assertTrue(networks["vmbr0"]["vlan_aware"])
+        self.assertEqual(1500, networks["vmbr0"]["mtu"])
+        self.assertEqual("10.0.0.0/24", networks["vmbr1"]["cidr"])
+        self.assertEqual(24, networks["vmbr1"]["prefix"])
+        self.assertEqual("10.10.0.0/24", networks["vmbr2"]["cidr"])
+        self.assertEqual(24, networks["vmbr2"]["prefix"])
+        self.assertEqual("172.16.0.0/20", networks["vmbr3"]["cidr"])
+        self.assertEqual(20, networks["vmbr3"]["prefix"])
+        self.assertEqual("", networks["vmbr4"]["address"])
+        self.assertEqual("192.168.2.1", networks["vmbr4"]["gateway"])
+        self.assertIsNone(networks["vmbr4"]["prefix"])
+        self.assertEqual("", networks["vmbr4"]["cidr"])
+        self.assertEqual("not-an-ip", networks["vmbr5"]["address"])
+        self.assertIsNone(networks["vmbr5"]["prefix"])
+        self.assertEqual("", networks["vmbr5"]["cidr"])
+        self.assertIsNone(networks["vmbr6"]["prefix"])
+        self.assertEqual("", networks["vmbr6"]["cidr"])
 
     def test_live_template_with_cloud_init_disk_but_no_agent_config_is_not_guest_agent_ready(self):
         from app.proxmox.inventory import LiveProxmoxInventoryAdapter

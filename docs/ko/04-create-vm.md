@@ -34,7 +34,7 @@ load options
 
 ## 주의할 경계
 
-- NetworkPolicy는 current Create VM authoritative red gate가 아닙니다.
+- Networks readiness는 current Create VM authoritative red gate가 아닙니다.
 - Incoming `network_id`/`networkId`는 transition compatibility로 무시됩니다.
 - Static mode는 `static_ip`, `prefix`, `gateway`를 모두 요구합니다.
 - Native create는 `.1` gateway나 `/24` prefix를 추론하지 않습니다.

@@ -21,7 +21,7 @@
 
 | 오래된 주장 | 현재 correction |
 |---|---|
-| Networks tab이 Proxmox bridges를 mutate한다. | IaC policy only. Proxmox bridge mutation 없음. |
+| Networks tab이 Proxmox bridges를 mutate하거나 network policy file을 쓴다. | Current Networks는 read-only migration pre-check evidence입니다. Proxmox bridge mutation, YAML write, DB policy write, DRS execution authority가 없습니다. |
 | Network policy가 Create VM required gate다. | Current Create VM source는 live bridge selection입니다. |
 
 ## Placement / DRS

@@ -47,7 +47,7 @@ Current Create VM target networking은 live bridge inventory와 explicit operato
 | Prefix | operator input |
 | Gateway | operator input |
 
-Current Create VM path는 `NetworkPolicy`, `network_id`, `server-net`를 source of truth로 사용하지 않습니다.
+Current Create VM path는 Networks readiness, `network_id`, `server-net`를 source of truth로 사용하지 않습니다.
 
 ## Static and DHCP rules
 

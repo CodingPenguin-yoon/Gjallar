@@ -12,7 +12,7 @@
 React operator UI
   -> frontend/src/services/apiV1.js
   -> backend /api/v1 router
-  -> read-only inventory, network policy, jobs/artifacts, Create VM helpers
+  -> read-only inventory, network readiness, jobs/artifacts, Create VM helpers
   -> Proxmox read-only adapter or narrow Create VM mutation client
 ```
 
@@ -33,7 +33,7 @@ React operator UI
 | Boundary | 현재 규칙 |
 |---|---|
 | Inventory | `backend/app/proxmox/inventory.py`는 read-only입니다. |
-| Network policy | IaC policy file은 쓸 수 있지만 Proxmox bridge를 바꾸지 않습니다. |
+| Network readiness | live bridge inventory와 migration pre-check evidence만 read-only로 봅니다. YAML/file/DB/API write path나 DRS 실행 권한은 없습니다. |
 | Jobs/artifacts | Create VM과 VM start 단계가 `job_runs`/`job_artifacts`에 상태와 artifact를 기록합니다. |
 | Manifest commit | `execute`는 desired-state manifest만 commit합니다. |
 | Native create | `proxmox-create`만 현재 active live VM creation path입니다. |

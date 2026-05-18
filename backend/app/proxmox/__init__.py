@@ -3,6 +3,7 @@
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, LiveProxmoxInventoryAdapter
 from app.proxmox.models import (
     GuestAgentInventory,
+    IpEvidenceInventory,
     InventorySnapshot,
     NetworkInventory,
     NodeInventory,
@@ -15,6 +16,7 @@ __all__ = [
     "FakeProxmoxInventoryAdapter",
     "LiveProxmoxInventoryAdapter",
     "GuestAgentInventory",
+    "IpEvidenceInventory",
     "InventorySnapshot",
     "NetworkInventory",
     "NodeInventory",

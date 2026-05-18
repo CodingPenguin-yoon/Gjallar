@@ -11,7 +11,6 @@ from app.api.v1.responses import success_response
 from app.core.redaction import redact_secrets
 from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_create
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
-from app.network_policy import NetworkPolicyError, build_network_policy_view, save_network_policy
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
 from app.proxmox.inventory import get_default_inventory_adapter
@@ -323,42 +322,6 @@ def list_networks() -> dict:
         [network.to_dict() for network in networks],
         meta=_inventory_meta(adapter),
     )
-
-
-@router.get("/networks/policy")
-def get_network_policy() -> dict:
-    """Return live vmbr inventory combined with IaC network policy state."""
-    adapter = _inventory_adapter()
-    networks = adapter.list_networks()
-    try:
-        view = build_network_policy_view(networks)
-    except NetworkPolicyError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "NETWORK_POLICY_READ_FAILED",
-                "message": str(exc),
-                "side_effects": [],
-            },
-        ) from exc
-    return success_response(view, meta={**_inventory_meta(adapter), "mode": "network_policy_read"})
-
-
-@router.put("/networks/policy")
-def put_network_policy(payload: dict | None = None) -> dict:
-    """Persist the network policy under the shared IaC manifests folder."""
-    try:
-        result = save_network_policy((payload or {}).get("policy") or payload or {})
-    except NetworkPolicyError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "NETWORK_POLICY_WRITE_FAILED",
-                "message": str(exc),
-                "side_effects": [],
-            },
-        ) from exc
-    return success_response(result, meta={"mode": "iac_network_policy_write"})
 
 
 @router.get("/jobs")

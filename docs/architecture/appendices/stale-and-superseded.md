@@ -22,8 +22,8 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 
 | Stale/superseded statement | Current correction |
 |---|---|
-| Networks tab mutates Proxmox bridges. | Networks tab writes IaC policy only; it does not create/delete/change Proxmox bridges. |
-| Network policy is a required Create VM gate. | Current policy is Networks-tab current/legacy support and possible future advisory evidence, not a Create VM source of truth. |
+| Networks tab mutates Proxmox bridges or writes network policy files. | Current Networks is read-only migration pre-check evidence. It does not mutate Proxmox bridges, write YAML, write DB policy, or authorize DRS execution. |
+| Network policy is a required Create VM gate. | Current Create VM source of truth is selected target node active live bridge plus explicit network fields. |
 | `server-net` is the Create VM network selector. | Current Create VM selects a live active bridge on the selected target node. |
 
 ## Placement / DRS

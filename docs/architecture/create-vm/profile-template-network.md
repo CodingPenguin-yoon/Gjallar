@@ -56,7 +56,7 @@ Current Create VM target networking uses live bridge inventory and explicit oper
 | Prefix | Operator input. |
 | Gateway | Operator input. |
 
-The current Create VM path does not use `NetworkPolicy`, `network_id`, or `server-net` as the Create VM source of truth. Incoming `network_id`/`networkId` is transition-ignored and not echoed in active outputs.
+The current Create VM path does not use Networks readiness, `network_id`, or `server-net` as the Create VM source of truth. Incoming `network_id`/`networkId` is transition-ignored and not echoed in active outputs.
 
 ## Static And DHCP Rules
 

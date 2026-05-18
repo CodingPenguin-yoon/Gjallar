@@ -15,7 +15,6 @@ This document explains the boundary between Proxmox actual state and Gjallar-own
 | Actual storage/network inventory | Proxmox inventory adapter | Storage, disk, and bridge evidence. |
 | Create VM intent | Gjallar DB request record | Native create records request/result in DB. |
 | Create VM approval evidence | Gjallar artifacts/job details | DB-backed in `job_runs` and `job_artifacts`. |
-| Network policy | Gjallar IaC policy file | Networks tab policy, not Proxmox network mutation. |
 | Jobs/Runs | Gjallar DB job records | Latest status per job id. |
 | Risks/Alerts | Derived from Gjallar job risks | Not a standalone engine. |
 | DRS identity/fingerprint/policy | Target future Gjallar DB | Not implemented. |
@@ -28,7 +27,6 @@ This document explains the boundary between Proxmox actual state and Gjallar-own
 | Artifacts | `job_artifacts` table | Create VM preflight, plan, manifest, diff, review summary, preview, observed-after evidence. |
 | Create VM requests | `vm_create_requests` table | Latest Create VM request/result summary. |
 | Created VMs | `vm_instances` table | Gjallar-owned record for VMs created through native Create VM. |
-| Network policy | IaC root `manifests/networks/network-profiles.yaml` | Networks tab policy view/edit. |
 
 Job and artifact writers redact secrets before persistence.
 

@@ -58,7 +58,8 @@ Disabled or archived profile rows are excluded from Create VM selection.
 | Bridge | `GET /api/v1/networks`. | Filtered to active bridges on selected target node. |
 | Access | Wizard input plus backend default SSH public key env/file fallback. | Password login fixed disabled; raw public key is transient only. |
 | Static networking | Operator input. | Static mode requires explicit `static_ip`, `prefix`, and `gateway`; no gateway inference. |
-| Network policy | Networks tab IaC policy only. | Not Create VM source of truth. |
+
+Networks readiness is not the current Create VM source of truth.
 
 ## Current Flow
 

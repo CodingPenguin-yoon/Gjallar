@@ -20,7 +20,7 @@
 
 현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `Placement`, `Jobs/Runs`, `Risks/Alerts`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이다.
 
-구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks bridge/policy view, read-only Placement seed, DB-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
+구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only Placement seed, DB-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
 
 DRS Advisor는 목표 제품 방향이다. 아직 backend DRS recommendation API, `/api/v1/drs/*`, identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
 

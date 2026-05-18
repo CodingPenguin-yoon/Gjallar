@@ -87,13 +87,20 @@ Implemented target behaviors retained:
 - Terraform executor routes/helper code and Terraform-named state metadata are
   removed from active draft/preflight/plan/review/API/frontend/artifact
   contracts.
+- `/networks` is a read-only Network Readiness / migration pre-check
+  visualization composed from `GET /api/v1/nodes`, `/vms`, and `/networks`.
+  It uses a migration source selector, target network comparison rows for that
+  selected source, CIDR-verified exact bridge match / CIDR remap evidence, and
+  VM impact filtered to the selected source.
+  It has no Proxmox network mutation, API write path, YAML persistence, DB
+  migration, or DRS execution authority.
 
 Remaining Create VM gaps:
 
 - Templates come from Proxmox live inventory with no Gjallar template catalog
   or registration window in the active Create VM selection path.
-- NetworkPolicy remains Networks-tab legacy/future policy UI and is not a
-  red-gate source for Create VM static range membership.
+- Networks readiness is not a red-gate source for Create VM static range
+  membership.
 - `boot_and_verify` now covers first boot, guest-agent IP discovery, and
   cloud-init completion for the new VM. SSH/Ansible/app bootstrap smoke remains
   deferred.

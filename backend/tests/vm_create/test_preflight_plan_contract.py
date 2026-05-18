@@ -19,9 +19,7 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
         self.shared_root = Path(self._temp_dir.name) / "nfs"
         (self.shared_root / "IaC" / ".git").mkdir(parents=True)
         (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
-        (self.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        self._write_default_network_policy()
         self._env = patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(self.shared_root)}, clear=False)
         self._env.start()
 
@@ -43,35 +41,6 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
         }
         draft_kwargs.update(kwargs)
         return build_default_vm_draft(operator_id="test-operator", job_id="job-set6-test", **draft_kwargs)
-
-    def _write_default_network_policy(self):
-        policy_path = self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml"
-        policy_path.write_text(
-            """apiVersion: gjallar/v1
-kind: NetworkPolicySet
-networks:
-  - network_id: server-net
-    display_name: Server network
-    nodes:
-      - node_id: yoonmanserver2
-        bridge_id: vmbr0
-        subnet: 192.168.2.0/24
-        gateway: 192.168.2.1
-        dns: [192.168.2.1]
-        static_ip_ranges:
-          - start: 192.168.2.142
-            end: 192.168.2.150
-      - node_id: yoonmanserver3
-        bridge_id: vmbr0
-        subnet: 192.168.2.0/24
-        gateway: 192.168.2.1
-        dns: [192.168.2.1]
-        static_ip_ranges:
-          - start: 192.168.2.142
-            end: 192.168.2.150
-""",
-            encoding="utf-8",
-        )
 
     def _preflight(self, draft):
         try:
@@ -488,19 +457,14 @@ networks:
         self.assertNotIn("inventory_adapter_not_read_only", red_codes)
         self.assertEqual([], result.side_effects)
 
-    def test_explicit_active_bridge_passes_without_network_policy_file(self):
-        policy_path = self.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml"
-        policy_path.unlink()
+    def test_explicit_active_bridge_passes_without_network_yaml_file(self):
         draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
 
         result = self._preflight(draft)
 
         self.assertEqual("green", result.risk_level)
-        red_codes = {risk.code for risk in result.risks if risk.level == "red"}
-        self.assertNotIn("network_policy_missing", red_codes)
-        self.assertNotIn("network_policy_unreadable", red_codes)
 
-    def test_network_policy_out_of_range_is_not_red(self):
+    def test_static_ip_outside_removed_yaml_range_is_not_red(self):
         draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.200")
 
         result = self._preflight(draft)

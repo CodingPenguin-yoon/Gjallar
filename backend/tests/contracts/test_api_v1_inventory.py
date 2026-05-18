@@ -52,12 +52,25 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         self.assertEqual(101, vm["vmid"])
         self.assertIn("192.168.2.141", vm["ip_addresses"])
         self.assertTrue(vm["guest_agent"]["available"])
+        self.assertIn("ip_evidence", vm)
+        self.assertEqual("192.168.2.141", vm["ip_evidence"][0]["ip_address"])
+        self.assertEqual("primary", vm["ip_evidence"][0]["scope"])
+        self.assertTrue(vm["ip_evidence"][0]["duplicate_warning_eligible"])
+        list_vm = next(item for item in vms_response["data"] if item["vmid"] == 101)
+        self.assertIn("ip_evidence", list_vm)
         self.assertIn("ubuntu-template", {template["template_id"] for template in templates_response["data"]})
         self.assertIn("vmbr0", {network["bridge_id"] for network in networks_response["data"]})
+        network = next(item for item in networks_response["data"] if item["bridge_id"] == "vmbr0")
+        self.assertEqual("192.168.2.0/24", network["cidr"])
+        self.assertEqual("192.168.2.1", network["gateway"])
+        self.assertEqual(["eno1"], network["bridge_ports"])
+        self.assertIn("prefix", network)
+        self.assertIn("vlan_aware", network)
 
     def test_inventory_routes_accept_live_read_only_adapter_without_mutating_controls(self):
         from app.proxmox.models import (
             GuestAgentInventory,
+            IpEvidenceInventory,
             InventorySnapshot,
             NetworkInventory,
             NodeInventory,
@@ -83,7 +96,15 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
                     free_gb=256,
                     content=("images", "rootdir"),
                 )
-                network = NetworkInventory(bridge_id="vmbr0", node_id="node-a")
+                network = NetworkInventory(
+                    bridge_id="vmbr0",
+                    node_id="node-a",
+                    address="192.168.2.10",
+                    prefix=24,
+                    cidr="192.168.2.0/24",
+                    gateway="192.168.2.1",
+                    bridge_ports=("eno1",),
+                )
                 self._nodes = [
                     NodeInventory(
                         node_id="node-a",
@@ -106,6 +127,17 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
                         memory_mb=4096,
                         disk_gb=40,
                         ip_addresses=("192.168.2.301",),
+                        ip_evidence=(
+                            IpEvidenceInventory(
+                                ip_address="192.168.2.301",
+                                source="guest_agent",
+                                interface_name="ens18",
+                                interface_type="linux_nic",
+                                scope="primary",
+                                primary_candidate=True,
+                                duplicate_warning_eligible=True,
+                            ),
+                        ),
                         guest_agent=GuestAgentInventory(available=True, ip_addresses=("192.168.2.301",)),
                         storage_id="local-lvm",
                     )
@@ -166,10 +198,13 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         self.assertEqual(1, cluster_response["data"]["vm_count"])
         self.assertEqual("live-app-01", vm_response["data"]["name"])
         self.assertEqual(["192.168.2.301"], vm_response["data"]["ip_addresses"])
+        self.assertEqual("ens18", vm_response["data"]["ip_evidence"][0]["interface_name"])
+        self.assertTrue(vm_response["data"]["ip_evidence"][0]["duplicate_warning_eligible"])
         self.assertIn("disks", vm_response["data"])
         self.assertEqual("local-lvm", vm_response["data"]["storage_id"])
         self.assertEqual([], [name for name in ("delete_vm", "perform_vm_action", "update_vm_resources") if hasattr(v1_router._inventory_adapter(), name)])
         self.assertEqual([301], [vm["vmid"] for vm in vms_response["data"]])
+        self.assertIn("ip_evidence", vms_response["data"][0])
 
 
 if __name__ == "__main__":

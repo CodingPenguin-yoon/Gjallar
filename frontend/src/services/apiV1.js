@@ -10,7 +10,6 @@ export const API_V1_ENDPOINTS = Object.freeze({
   templates: '/templates',
   storage: '/storage',
   networks: '/networks',
-  networkPolicy: '/networks/policy',
   jobs: '/jobs',
   job: (jobId) => `/jobs/${encodePathPart(jobId)}`,
   jobArtifacts: (jobId) => `/jobs/${encodePathPart(jobId)}/artifacts`,
@@ -96,7 +95,6 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
   const clientConfig = { baseUrl: normalizeBaseUrl(baseUrl), fetchImpl }
   const get = (path) => requestJson({ ...clientConfig, path })
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
-  const put = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PUT', body })
 
   return Object.freeze({
     clusterSummary: () => get(API_V1_ENDPOINTS.clusterSummary),
@@ -108,8 +106,6 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     listTemplates: () => get(API_V1_ENDPOINTS.templates),
     listStorage: () => get(API_V1_ENDPOINTS.storage),
     listNetworks: () => get(API_V1_ENDPOINTS.networks),
-    getNetworkPolicy: () => get(API_V1_ENDPOINTS.networkPolicy),
-    saveNetworkPolicy: (payload = {}) => put(API_V1_ENDPOINTS.networkPolicy, payload),
     listJobs: () => get(API_V1_ENDPOINTS.jobs),
     getJob: (jobId) => get(API_V1_ENDPOINTS.job(jobId)),
     listJobArtifacts: (jobId) => get(API_V1_ENDPOINTS.jobArtifacts(jobId)),

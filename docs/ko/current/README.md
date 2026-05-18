@@ -15,7 +15,7 @@
 
 ## 현재 baseline
 
-Gjallar의 현재 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks bridge/policy view, read-only Placement, Jobs/Runs, Risks/Alerts, 그리고 Create VM supporting capability입니다.
+Gjallar의 현재 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only Placement, Jobs/Runs, Risks/Alerts, 그리고 Create VM supporting capability입니다.
 
 DRS Advisor는 목표 제품 방향입니다. 현재 backend DRS recommendation API, `/api/v1/drs/*`, DB identity/fingerprint/policy/lock/reconciliation, final pre-check, live migration, UPID tracking은 구현되어 있지 않습니다.
 

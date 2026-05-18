@@ -32,12 +32,12 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 | Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
 |---|---|---|---|---|
 | `GET /api/v1/cluster/summary` | `cluster_summary()` | `_inventory_adapter()`로 adapter를 만들고 cluster/node/vm/template count와 mode metadata를 반환합니다. | `apiV1Client.clusterSummary()`; Dashboard와 `loadPlacementModel()` | Read-only. DRS 15분 average/peak나 blocker authority가 아닙니다. |
-| `GET /api/v1/nodes` | `list_nodes()` | inventory adapter의 node snapshot을 envelope로 반환합니다. | `listNodes()`; Dashboard, Infra Explorer, Create VM options, Placement | Read-only. node load는 실행 gate가 아니라 evidence입니다. |
-| `GET /api/v1/vms` | `list_vms()` | template 제외 VM inventory를 반환합니다. | `listVms()`; Dashboard, Infra Explorer, Placement | Read-only. DB identity/fingerprint match는 현재 없습니다. |
+| `GET /api/v1/nodes` | `list_nodes()` | inventory adapter의 node snapshot을 envelope로 반환합니다. | `listNodes()`; Dashboard, Infra Explorer, Create VM options, Placement, Networks readiness | Read-only. node load는 실행 gate가 아니라 evidence입니다. |
+| `GET /api/v1/vms` | `list_vms()` | template 제외 VM inventory를 반환합니다. | `listVms()`; Dashboard, Infra Explorer, Placement, Networks readiness | Read-only. DB identity/fingerprint match는 현재 없습니다. |
 | `GET /api/v1/vms/{vmid}` | `get_vm(vmid)` | inventory adapter lookup by VMID. 없으면 404입니다. | `getVm(vmid)` helper | VMID는 identity가 아니라 locator입니다. |
 | `GET /api/v1/templates` | `list_templates()` | Proxmox template inventory를 반환합니다. | `listTemplates()`; Create VM options | Current active template selection source입니다. Missing readiness evidence는 ready가 아닙니다. |
 | `GET /api/v1/storage` | `list_storage()` | storage candidates를 inventory에서 반환합니다. | `listStorage()`; Dashboard, Create VM, Placement | Read-only. Create VM UI는 selected node, `images` content, free capacity로 필터링합니다. |
-| `GET /api/v1/networks` | `list_networks()` | bridge inventory를 반환합니다. | `listNetworks()`; Dashboard, Create VM, Placement | Read-only. Create VM은 selected target node의 active bridge를 사용합니다. |
+| `GET /api/v1/networks` | `list_networks()` | bridge inventory를 반환합니다. | `listNetworks()`; Dashboard, Create VM, Placement, Networks readiness | Read-only. Create VM은 selected target node의 active bridge를 사용합니다. Networks는 nodes/vms/networks를 frontend에서 조합해 selected-source target network comparison, CIDR-verified exact bridge match evidence, bridge-name-only review evidence, CIDR remap candidate evidence를 표시합니다. |
 
 ## Create VM option/readiness APIs
 
@@ -46,12 +46,11 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 | `GET /api/v1/profiles` | `list_profiles()` | `GJALLAR_DATABASE_URL`의 active DB-seeded profile rows를 반환합니다. | `listProfiles()`; `CreateInstanceWizard` | Read-only. Current profiles는 `general-vm`, `runtime-server`, `development-vm`입니다. Disabled/archived rows는 숨깁니다. |
 | `GET /api/v1/vm-create/readiness` | `get_vm_create_readiness()` | `run_iac_readiness()`로 shared root, IaC root, write allowlist, Git repo readiness를 확인합니다. | `getVmCreateReadiness()`; `loadCreateVmReviewModel()` | Read-only. Proxmox mutation 없음. |
 
-## Network policy APIs
+## Network readiness boundary
 
-| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
-|---|---|---|---|---|
-| `GET /api/v1/networks/policy` | `get_network_policy()` | live bridge inventory와 IaC `manifests/networks/network-profiles.yaml`을 합쳐 policy view를 만듭니다. | `getNetworkPolicy()`; `NetworkPolicyScreen` | Read-only. Create VM source of truth가 아닙니다. |
-| `PUT /api/v1/networks/policy` | `put_network_policy(payload)` | policy payload를 정규화하고 IaC root 아래 policy file에 저장합니다. Git repo이면 local commit을 시도할 수 있습니다. | `saveNetworkPolicy()`; `NetworkPolicyScreen` | IaC file write side effect가 있습니다. Proxmox bridge 생성/삭제/수정은 하지 않습니다. |
+Networks는 별도 backend readiness endpoint 없이 `GET /api/v1/nodes`, `/vms`, `/networks`를 frontend에서 조합합니다. 화면은 selected migration source 기준 target network comparison, CIDR-verified exact bridge match / CIDR remap evidence, selected-source VM impact를 표시합니다. Proxmox network mutation, API write path, YAML persistence, DB migration, DRS execution authority는 없습니다.
+
+`NetworkInventory`는 기존 `bridge_id`, `node_id`, `type`, `active`에 더해 `address`, `netmask`, `prefix`, `cidr`, `gateway`, `bridge_ports`, `vlan_aware`, `mtu`를 optional observed bridge config evidence로 포함할 수 있습니다. Live adapter는 Proxmox `/nodes/{node}/network` row에서 가능한 값을 채웁니다. CIDR은 observed address와 netmask/prefix 또는 CIDR이 포함된 address에서만 계산하고, gateway만 있는 row에서 CIDR을 추론하지 않습니다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아닙니다.
 
 ## Jobs와 risks APIs
 
@@ -83,7 +82,7 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 
 ## Frontend API client coverage
 
-[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, VM start, network policy, jobs, risks, readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
+[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, VM start, network readiness, jobs, risks, Create VM readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
 
 ## 현재 없는 DRS APIs
 

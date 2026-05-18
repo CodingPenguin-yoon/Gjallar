@@ -9,6 +9,7 @@ Last updated: 2026-05-16
 - Active Create VM mutation path is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
 - Terraform plan/apply and legacy GitOps `execute/archive` routes are removed from the active API.
 - Profiles, Jobs/Runs, artifacts, Create VM requests, and created VM records are DB-backed.
+- `/networks` is now read-only Network Readiness / migration pre-check visualization composed from existing live inventory APIs. There is no Proxmox network mutation, Networks API write path, YAML persistence, DB migration, or DRS execution authority.
 - Create VM power policy is request-level:
   - `stopped`: default, clone/config and stopped post-check.
   - `boot_and_verify`: start the new VM, observe guest-agent IP, and verify `cloud-init status --wait`.
@@ -28,29 +29,7 @@ git diff --check
 
 Backend result recorded after the final boot verification fix: `148 passed, 1 warning, 29 subtests passed`.
 
-## Next Work 2: NetworkPolicy / Config DB Migration
-
-Goal: remove the remaining shared-folder/IaC dependency that exists only for the Networks tab policy file.
-
-Start by reading:
-
-- `backend/app/network_policy.py`
-- `backend/app/vm_create/paths.py`
-- `frontend/src/components/NetworkPolicyScreen.jsx`
-- `frontend/src/utils/networkPolicy.js`
-- `frontend/src/services/apiV1.js`
-- `.env.example`
-- `docs/engineering/GJALLAR_CURRENT_WORK_PLAN.md`
-
-Expected direction:
-
-- Keep Create VM bridge source of truth as Proxmox live bridge inventory.
-- Move NetworkPolicy data from `manifests/networks/network-profiles.yaml` into DB tables.
-- Preserve or import existing YAML policy data once.
-- After DB migration, remove `GJALLAR_SHARED_ROOT` / `GJALLAR_IAC_ROOT` from active runtime needs if no other code path requires them.
-- Update docs and tests so Jobs/Artifacts and NetworkPolicy no longer expose local shared paths.
-
-## Next Work 3: Create VM Live Smoke Matrix
+## Next Work 2: Create VM Live Smoke Matrix
 
 Goal: verify the completed Create VM behavior against live Proxmox.
 
@@ -70,7 +49,7 @@ Check Jobs/Runs after each run:
 - `cloud_init`
 - `boot_verification`
 
-## Next Work 4: DRS Advisor Read Model
+## Next Work 3: DRS Advisor Read Model
 
 Goal: start DRS without adding migration mutation yet.
 

@@ -23,7 +23,7 @@ document primarily describes current architecture and target gaps.
 React operator UI
   -> /api/v1 FastAPI router
     -> read-only Proxmox inventory adapter
-    -> IaC-backed network policy helpers
+    -> read-only network readiness and migration pre-check evidence
     -> Create VM draft/preflight/plan/approval helpers
     -> DB-backed Jobs/Runs and risk summaries
     -> gated Proxmox native clone/resize/config/post-check helpers
@@ -44,7 +44,7 @@ Active routes:
 |---|---|---|
 | `/` | `Dashboard` in `App.jsx` | Cluster summary from inventory, jobs, and risks. Uses partial-load behavior so job/risk read failures do not blank the first screen. |
 | `/infra` | `InstanceList` | Grouped VM inventory, detail evidence, and Start action for stopped non-template VMs. |
-| `/networks` | `NetworkPolicyScreen` | Bridge inventory plus IaC network policy view and guarded policy write. |
+| `/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
 | `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Proxmox native preview/create gates. |
 | `/placement` | `PlacementScreen` | Read-only placement recommendations from inventory, storage, bridge, job, and risk evidence. |
 | `/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
@@ -87,7 +87,6 @@ Active backend modules:
 | `app/proxmox/client.py` | Explicit native Proxmox mutation client for Create VM clone/resize/config/status and VM start calls. Reuses the inventory env but is imported only by gated mutation paths. |
 | `app/proxmox/models.py` | Inventory dataclasses for nodes, VMs, templates, storage, and networks. |
 | `app/manifests/*` | Built-in VM profile and manifest schema defaults. |
-| `app/network_policy.py` | IaC-backed network policy load/save and bridge-policy view composition. |
 | `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest evidence, IaC readiness, and native Proxmox runner helpers. |
 | `app/vm_actions/*` | Existing-VM action helpers that remain separate from Create VM and read-only inventory. |
 | `app/jobs/*` | DB-backed job status, artifacts, approval records, and risk source data. |
@@ -105,7 +104,6 @@ GET /api/v1/vms/{vmid}
 GET /api/v1/templates
 GET /api/v1/storage
 GET /api/v1/networks
-GET /api/v1/networks/policy
 GET /api/v1/jobs
 GET /api/v1/jobs/{job_id}
 GET /api/v1/jobs/{job_id}/artifacts
@@ -126,8 +124,8 @@ POST /api/v1/vm-create/{draft_id}/proxmox-preview
 POST /api/v1/vm-create/{draft_id}/proxmox-create
 ```
 
-`PUT /api/v1/networks/policy` is the current policy write path. Create VM
-execution writes DB-backed artifacts and request/VM records after the relevant approval gates pass.
+Networks has no API write path. Create VM execution writes DB-backed artifacts
+and request/VM records after the relevant approval gates pass.
 `terraform-plan` and `terraform-apply` have been removed from the active API; the active UI uses `proxmox-preview` and `proxmox-create`.
 
 Target DRS Advisor API candidates are documented in [`../product/drs-advisor/05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) and [`../product/legacy-prd/12_UI_API_CONTRACT.md`](../product/legacy-prd/12_UI_API_CONTRACT.md). They are not current implementation.
@@ -245,21 +243,22 @@ InstanceList
 
 Success requires Proxmox task `exitstatus=OK` and observed-after `status=running`. Missing/moved/template/non-stopped inventory blocks before mutation. Duplicate idempotency keys return the existing job/result without issuing another Proxmox start.
 
-### Network Policy
+### Network Readiness
 
 ```text
-Proxmox bridge inventory
-  + IaC network-profiles.yaml
-  -> NetworkPolicyScreen
+GET /api/v1/nodes
+GET /api/v1/vms
+GET /api/v1/networks
+  -> frontend Network Readiness model
+  -> NetworkReadinessScreen
 ```
 
-Policy writes are scoped to the configured IaC root and are guarded against path
-escape. Secret values are not returned by API responses.
+Networks readiness is read-only. It has no Proxmox network mutation, API write
+path, YAML persistence, DB migration, or DRS execution authority.
 
-For target Create VM, this Network tab policy is not the source of truth for
-bridge selection. Create VM should use live Proxmox bridge inventory for the
-selected target node. Network policy/subnet/gateway/range integration may be
-added later as recommendations or validation evidence.
+For target Create VM, the Networks tab is not the source of truth for bridge
+selection. Create VM uses live Proxmox bridge inventory for the selected target
+node.
 
 ## Safety Boundaries
 
@@ -295,8 +294,8 @@ Important environment variables:
 | `PROXMOX_TASK_POLL_INTERVAL_SECONDS` / `GJALLAR_PROXMOX_TASK_POLL_INTERVAL_SECONDS` | Native Proxmox task polling interval for Create VM and VM start. |
 | `PROXMOX_TASK_TIMEOUT_SECONDS` / `GJALLAR_PROXMOX_TASK_TIMEOUT_SECONDS` | Native Proxmox task timeout for Create VM and VM start. |
 | `GJALLAR_DATABASE_URL` | SQLAlchemy/Alembic DB URL for profiles, jobs, artifacts, Create VM requests, and created VM records. |
-| `GJALLAR_SHARED_ROOT` | Legacy shared root for default IaC root resolution. |
-| `GJALLAR_IAC_ROOT` | Explicit legacy IaC repo root override for NetworkPolicy compatibility. |
+| `GJALLAR_SHARED_ROOT` | Transitional shared root for Create VM/IaC readiness. |
+| `GJALLAR_IAC_ROOT` | Transitional IaC root override for Create VM/IaC readiness. |
 
 ## Verification
 

@@ -25,26 +25,7 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         cls.shared_root = Path(cls._temp_dir.name) / "nfs"
         (cls.shared_root / "IaC" / ".git").mkdir(parents=True)
         (cls.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
-        (cls.shared_root / "IaC" / "manifests" / "networks").mkdir(parents=True)
         (cls.shared_root / "IaC" / "generated").mkdir(parents=True)
-        (cls.shared_root / "IaC" / "manifests" / "networks" / "network-profiles.yaml").write_text(
-            """apiVersion: gjallar/v1
-kind: NetworkPolicySet
-networks:
-  - network_id: server-net
-    display_name: Server network
-    nodes:
-      - node_id: yoonmanserver2
-        bridge_id: vmbr0
-        subnet: 192.168.2.0/24
-        gateway: 192.168.2.1
-        dns: [192.168.2.1]
-        static_ip_ranges:
-          - start: 192.168.2.142
-            end: 192.168.2.150
-""",
-            encoding="utf-8",
-        )
         cls._env = patch.dict(
             "os.environ",
             {

@@ -20,6 +20,7 @@ from app.core.redaction import redact_secrets
 from app.proxmox.models import (
     DiskInventory,
     GuestAgentInventory,
+    IpEvidenceInventory,
     InventorySnapshot,
     NetworkInventory,
     NodeInventory,
@@ -38,6 +39,8 @@ _DEFAULT_ADAPTER: FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter | No
 _DISK_SIZE_PATTERN = re.compile(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGTP]?)", re.IGNORECASE)
 _DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
 _NATURAL_SPLIT_PATTERN = re.compile(r"(\d+)")
+_GUEST_PRIMARY_INTERFACE_PREFIXES = ("eth", "ens", "enp", "eno")
+_GUEST_INTERNAL_INTERFACE_PREFIXES = ("veth", "cni", "flannel", "cali", "virbr")
 
 
 def _load_project_env() -> None:
@@ -59,6 +62,163 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _proxmox_network_active(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() not in {"0", "false", "inactive"}
+
+
+def _proxmox_optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _first_present_value(row: dict[str, Any], *keys: str) -> object:
+    for key in keys:
+        if key in row:
+            return row.get(key)
+    return None
+
+
+def _network_text(value: object) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _network_optional_int(value: object) -> int | None:
+    text = _network_text(value)
+    if not text:
+        return None
+    try:
+        parsed = int(text)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _network_bridge_ports(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple, set)):
+        candidates = value
+    else:
+        candidates = re.split(r"[\s,]+", str(value))
+    ports: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if not text or text.lower() in {"none", "null"} or text in seen:
+            continue
+        seen.add(text)
+        ports.append(text)
+    return tuple(ports)
+
+
+def _parse_network_prefix(value: object) -> tuple[int | None, bool]:
+    text = _network_text(value)
+    if not text:
+        return None, False
+    try:
+        parsed = int(text)
+    except (TypeError, ValueError):
+        return None, True
+    if 0 <= parsed <= 32:
+        return parsed, False
+    return None, True
+
+
+def _parse_network_netmask(value: object) -> tuple[str, int | None, bool]:
+    text = _network_text(value)
+    if not text:
+        return "", None, False
+    if text.isdigit():
+        prefix, invalid = _parse_network_prefix(text)
+        return text, prefix, invalid
+    try:
+        network = ipaddress.ip_network(f"0.0.0.0/{text}")
+    except ValueError:
+        return text, None, True
+    if network.version != 4:
+        return text, None, True
+    return str(network.netmask), network.prefixlen, False
+
+
+def _parse_network_address(value: object) -> tuple[str, ipaddress.IPv4Address | None, int | None, bool]:
+    text = _network_text(value)
+    if not text or text.lower() in {"auto", "dhcp", "manual", "none", "null"}:
+        return "", None, None, False
+    try:
+        if "/" in text:
+            interface = ipaddress.ip_interface(text)
+            if interface.version != 4:
+                return text, None, None, True
+            return str(interface.ip), interface.ip, interface.network.prefixlen, False
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        return text, None, None, True
+    if address.version != 4:
+        return text, None, None, True
+    return str(address), address, None, False
+
+
+def _network_bridge_config_evidence(row: dict[str, Any]) -> dict[str, Any]:
+    address, address_ip, address_prefix, address_invalid = _parse_network_address(
+        _first_present_value(row, "address", "addr")
+    )
+    netmask, netmask_prefix, netmask_invalid = _parse_network_netmask(
+        _first_present_value(row, "netmask", "mask")
+    )
+    prefix_value = _first_present_value(row, "prefix", "prefixlen", "prefix_len")
+    explicit_prefix, prefix_invalid = _parse_network_prefix(prefix_value)
+    prefix_candidates = [
+        candidate
+        for candidate in (address_prefix, netmask_prefix, explicit_prefix)
+        if candidate is not None
+    ]
+
+    prefix: int | None = None
+    cidr = ""
+    if address_ip and not address_invalid and not netmask_invalid and not prefix_invalid and prefix_candidates:
+        unique_prefixes = set(prefix_candidates)
+        if len(unique_prefixes) == 1:
+            prefix = prefix_candidates[0]
+            try:
+                cidr = str(ipaddress.ip_network(f"{address_ip}/{prefix}", strict=False))
+            except ValueError:
+                prefix = None
+                cidr = ""
+
+    return {
+        "address": address,
+        "netmask": netmask,
+        "prefix": prefix,
+        "cidr": cidr,
+        "gateway": _network_text(_first_present_value(row, "gateway", "gw")),
+        "bridge_ports": _network_bridge_ports(
+            _first_present_value(row, "bridge_ports", "bridge-ports", "ports")
+        ),
+        "vlan_aware": _proxmox_optional_bool(
+            _first_present_value(row, "bridge_vlan_aware", "vlan_aware", "vlan-aware")
+        ),
+        "mtu": _network_optional_int(_first_present_value(row, "mtu")),
+    }
 
 
 def _read_float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -173,8 +333,23 @@ def _merge_ip_addresses(*groups: list[str]) -> tuple[str, ...]:
 
 
 def _extract_configured_ipv4_addresses(config_data: dict[str, Any]) -> tuple[str, ...]:
-    candidates: list[str] = []
-    for key, value in config_data.items():
+    return _merge_ip_addresses([item.ip_address for item in _extract_configured_ip_evidence(config_data)])
+
+
+def _deduplicate_ip_evidence(items: list[IpEvidenceInventory]) -> tuple[IpEvidenceInventory, ...]:
+    deduplicated: list[IpEvidenceInventory] = []
+    seen: set[IpEvidenceInventory] = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduplicated.append(item)
+    return tuple(deduplicated)
+
+
+def _extract_configured_ip_evidence(config_data: dict[str, Any]) -> tuple[IpEvidenceInventory, ...]:
+    evidence: list[IpEvidenceInventory] = []
+    for key, value in sorted(config_data.items(), key=lambda item: _natural_sort_key(item[0])):
         if not str(key).startswith("ipconfig"):
             continue
         raw = str(value or "").strip()
@@ -186,23 +361,55 @@ def _extract_configured_ipv4_addresses(config_data: dict[str, Any]) -> tuple[str
                 continue
             normalized = _normalize_ipv4_address(part_value)
             if normalized:
-                candidates.append(normalized)
-    return _merge_ip_addresses(candidates)
+                evidence.append(
+                    IpEvidenceInventory(
+                        ip_address=normalized,
+                        source="config",
+                        interface_name=str(key),
+                        interface_type="proxmox_ipconfig",
+                        scope="primary",
+                        primary_candidate=True,
+                        duplicate_warning_eligible=True,
+                    )
+                )
+    return _deduplicate_ip_evidence(evidence)
 
 
-def _extract_guest_agent_ipv4_addresses(payload: Any) -> tuple[str, ...]:
-    interfaces: list[dict[str, Any]] = []
+def _extract_guest_agent_interfaces(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
-        interfaces = [item for item in payload if isinstance(item, dict)]
-    elif isinstance(payload, dict):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
         result = payload.get("result")
         if isinstance(result, list):
-            interfaces = [item for item in result if isinstance(item, dict)]
-        elif isinstance(payload.get("interfaces"), list):
-            interfaces = [item for item in payload.get("interfaces", []) if isinstance(item, dict)]
+            return [item for item in result if isinstance(item, dict)]
+        if isinstance(payload.get("interfaces"), list):
+            return [item for item in payload.get("interfaces", []) if isinstance(item, dict)]
+    return []
 
-    addresses: list[str] = []
-    for interface in interfaces:
+
+def _guest_agent_interface_name(interface: dict[str, Any]) -> str:
+    return str(
+        interface.get("name")
+        or interface.get("interface-name")
+        or interface.get("interface_name")
+        or ""
+    ).strip()
+
+
+def _classify_guest_agent_interface(interface_name: str) -> tuple[str, bool, bool, str]:
+    normalized_name = str(interface_name or "").strip().lower()
+    if normalized_name == "docker0" or normalized_name.startswith("br-") or normalized_name.startswith(_GUEST_INTERNAL_INTERFACE_PREFIXES):
+        return "internal", False, False, "guest_internal"
+    if normalized_name.startswith(_GUEST_PRIMARY_INTERFACE_PREFIXES):
+        return "primary", True, True, "linux_nic"
+    return "observed", False, False, "guest_observed"
+
+
+def _extract_guest_agent_ip_evidence(payload: Any) -> tuple[IpEvidenceInventory, ...]:
+    evidence: list[IpEvidenceInventory] = []
+    for interface in _extract_guest_agent_interfaces(payload):
+        interface_name = _guest_agent_interface_name(interface)
+        scope, primary_candidate, duplicate_warning_eligible, interface_type = _classify_guest_agent_interface(interface_name)
         ip_list = interface.get("ip-addresses") or interface.get("ip_addresses") or []
         if not isinstance(ip_list, list):
             continue
@@ -214,8 +421,22 @@ def _extract_guest_agent_ipv4_addresses(payload: Any) -> tuple[str, ...]:
                 continue
             normalized = _normalize_ipv4_address(ip_info.get("ip-address") or ip_info.get("ip_address"))
             if normalized:
-                addresses.append(normalized)
-    return _merge_ip_addresses(addresses)
+                evidence.append(
+                    IpEvidenceInventory(
+                        ip_address=normalized,
+                        source="guest_agent",
+                        interface_name=interface_name,
+                        interface_type=interface_type,
+                        scope=scope,
+                        primary_candidate=primary_candidate,
+                        duplicate_warning_eligible=duplicate_warning_eligible,
+                    )
+                )
+    return _deduplicate_ip_evidence(evidence)
+
+
+def _extract_guest_agent_ipv4_addresses(payload: Any) -> tuple[str, ...]:
+    return _merge_ip_addresses([item.ip_address for item in _extract_guest_agent_ip_evidence(payload)])
 
 
 def _extract_disk_size_gb(config_data: dict[str, Any], vm_row: dict[str, Any]) -> int:
@@ -426,8 +647,30 @@ class FakeProxmoxInventoryAdapter:
             ),
         )
         self._networks = (
-            NetworkInventory(bridge_id="vmbr0", node_id="yoonmanserver2"),
-            NetworkInventory(bridge_id="vmbr0", node_id="yoonmanserver3"),
+            NetworkInventory(
+                bridge_id="vmbr0",
+                node_id="yoonmanserver2",
+                address="192.168.2.2",
+                netmask="255.255.255.0",
+                prefix=24,
+                cidr="192.168.2.0/24",
+                gateway="192.168.2.1",
+                bridge_ports=("eno1",),
+                vlan_aware=False,
+                mtu=1500,
+            ),
+            NetworkInventory(
+                bridge_id="vmbr0",
+                node_id="yoonmanserver3",
+                address="192.168.2.3",
+                netmask="255.255.255.0",
+                prefix=24,
+                cidr="192.168.2.0/24",
+                gateway="192.168.2.1",
+                bridge_ports=("eno1",),
+                vlan_aware=False,
+                mtu=1500,
+            ),
         )
         self._nodes = (
             NodeInventory(
@@ -481,6 +724,17 @@ class FakeProxmoxInventoryAdapter:
                 memory_mb=4096,
                 disk_gb=40,
                 ip_addresses=("192.168.2.141",),
+                ip_evidence=(
+                    IpEvidenceInventory(
+                        ip_address="192.168.2.141",
+                        source="guest_agent",
+                        interface_name="ens18",
+                        interface_type="linux_nic",
+                        scope="primary",
+                        primary_candidate=True,
+                        duplicate_warning_eligible=True,
+                    ),
+                ),
                 guest_agent=GuestAgentInventory(available=True, ip_addresses=("192.168.2.141",)),
                 tags=("gjallar", "fixture"),
                 storage_id="local-lvm",
@@ -644,6 +898,7 @@ class LiveProxmoxInventoryAdapter:
         guest_timeout = (self.connect_timeout_seconds, min(self.guest_agent_timeout_seconds, self.read_timeout_seconds))
         config_data: dict[str, Any] = {}
         guest_ips: tuple[str, ...] = ()
+        guest_ip_evidence: tuple[IpEvidenceInventory, ...] = ()
 
         try:
             payload = self._get_json(f"/nodes/{node_id}/qemu/{vmid}/config", timeout=config_timeout)
@@ -658,16 +913,20 @@ class LiveProxmoxInventoryAdapter:
                     f"/nodes/{node_id}/qemu/{vmid}/agent/network-get-interfaces",
                     timeout=guest_timeout,
                 )
-                guest_ips = _extract_guest_agent_ipv4_addresses(payload)
+                guest_ip_evidence = _extract_guest_agent_ip_evidence(payload)
+                guest_ips = _merge_ip_addresses([item.ip_address for item in guest_ip_evidence])
             except Exception:
                 guest_ips = ()
+                guest_ip_evidence = ()
 
-        configured_ips = _extract_configured_ipv4_addresses(config_data)
+        configured_ip_evidence = _extract_configured_ip_evidence(config_data)
+        configured_ips = _merge_ip_addresses([item.ip_address for item in configured_ip_evidence])
         disks = _extract_disks(config_data, vm_row)
         detail = {
             "disk_gb": int(round(sum(disk.size_gb for disk in disks))) if disks else _extract_disk_size_gb(config_data, vm_row),
             "disks": disks,
             "ip_addresses": _merge_ip_addresses(list(configured_ips), list(guest_ips)),
+            "ip_evidence": configured_ip_evidence + guest_ip_evidence,
             "guest_agent": GuestAgentInventory(available=bool(guest_ips), ip_addresses=guest_ips),
             "guest_agent_configured": _config_guest_agent_enabled(config_data),
             "cloud_init_ready": _config_cloud_init_ready(config_data),
@@ -714,6 +973,7 @@ class LiveProxmoxInventoryAdapter:
             memory_mb=memory_mb,
             disk_gb=_safe_int(detail.get("disk_gb")),
             ip_addresses=tuple(detail.get("ip_addresses") or ()),
+            ip_evidence=tuple(detail.get("ip_evidence") or ()),
             guest_agent=guest_agent,
             tags=tuple(detail.get("tags") or ()),
             storage_id=str(detail.get("storage_id") or "unknown"),
@@ -752,7 +1012,8 @@ class LiveProxmoxInventoryAdapter:
                     bridge_id=str(item.get("iface") or item.get("bridge") or item.get("id") or "unknown"),
                     node_id=node_id,
                     type=str(item.get("type") or "bridge"),
-                    active=bool(item.get("active", True)),
+                    active=_proxmox_network_active(item.get("active")),
+                    **_network_bridge_config_evidence(item),
                 )
                 for item in self._list_network_payload(node_id)
                 if str(item.get("iface") or item.get("bridge") or "").startswith("vmbr")
@@ -781,6 +1042,7 @@ class LiveProxmoxInventoryAdapter:
                         detail_map[cache_key] = {
                             "disk_gb": _bytes_to_gb(0),
                             "ip_addresses": (),
+                            "ip_evidence": (),
                             "guest_agent": GuestAgentInventory(available=False),
                             "tags": (),
                             "storage_id": "unknown",

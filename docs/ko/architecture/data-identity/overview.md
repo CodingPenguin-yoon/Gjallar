@@ -15,14 +15,14 @@
 | Actual storage/network inventory | Proxmox inventory adapter |
 | Create VM intent | Gjallar DB request record |
 | Create VM approval evidence | Gjallar DB artifacts/job details |
-| Network policy | Gjallar IaC policy file |
+| Networks readiness | No Gjallar persistence; frontend-composed read-only evidence |
 | Jobs/Runs | Gjallar DB job records |
 | Risks/Alerts | Gjallar job risks projection |
 | DRS identity/fingerprint/policy | Target future Gjallar DB, not implemented |
 
 ## Current Gjallar-owned persistence
 
-Job status and artifacts live in `job_runs` and `job_artifacts`. Native Create VM request/result and created VM summaries live in `vm_create_requests` and `vm_instances`. Network policy lives under IaC root `manifests/networks/network-profiles.yaml`.
+Job status and artifacts live in `job_runs` and `job_artifacts`. Native Create VM request/result and created VM summaries live in `vm_create_requests` and `vm_instances`. Networks readiness has no persistence.
 
 Writers redact secrets before persistence.
 

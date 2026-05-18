@@ -54,7 +54,6 @@ The backend implementation lives in:
 - `backend/app/api/v1/router.py`
 - `backend/app/vm_create/*`
 - `backend/app/manifests/*`
-- `backend/app/network_policy.py`
 - `backend/app/jobs/*`
 - `backend/app/proxmox/client.py`
 - `backend/app/vm_create/proxmox_runner.py`
@@ -307,27 +306,20 @@ If the job DB read is unavailable, listing jobs fails open with an empty list.
 This keeps Dashboard and read-only operator screens available during job read
 failures.
 
-## Network Policy
+## Network Readiness Boundary
 
-Current Create VM implementation does not use NetworkPolicy or `server-net` as
-the network source of truth. It uses explicit `bridge_id` selected from active
-live bridge inventory on the selected target node. NetworkPolicy remains
-current/legacy Networks-tab support and possible future advisory evidence.
-
-Policy read combines:
-
-- live Proxmox bridge inventory
-- IaC `network-profiles.yaml`
-
-Policy write is limited to the network policy path and guarded against escaping
-the configured IaC root.
+Current Create VM implementation does not use Networks readiness or
+`server-net` as the network source of truth. It uses explicit `bridge_id`
+selected from active live bridge inventory on the selected target node.
+Networks readiness is a read-only migration pre-check visualization and has no
+API write path, YAML persistence, DB migration, Proxmox network mutation, or
+DRS execution authority.
 
 Target Create VM networking no longer uses `network_id`/`server-net`. The
 operator selects target node, then an active live bridge on that node. Static
 mode requires `static_ip`, `prefix`, and `gateway`; DHCP is allowed with a
-warning and later guest-agent/inventory discovery. Network tab policy,
-subnet/gateway/range integration is future and may remain as current/legacy
-support until code changes.
+warning and later guest-agent/inventory discovery. Future subnet/gateway/range
+recommendations would need a separate read-only contract.
 
 ## Current Implementation Notes
 

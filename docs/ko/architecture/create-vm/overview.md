@@ -44,7 +44,7 @@ Frontend는 options를 로드한 뒤 `loadCreateVmReviewModel()`로 readiness, d
 | Access | wizard input + backend default SSH key fallback | password login fixed disabled. |
 | Static networking | operator input | `static_ip`, `prefix`, `gateway` required. |
 
-NetworkPolicy는 current Create VM source of truth가 아닙니다.
+Networks readiness는 current Create VM source of truth가 아닙니다.
 
 ## Current flow
 

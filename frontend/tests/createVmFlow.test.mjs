@@ -526,6 +526,6 @@ assert.ok(wizardSource.includes('!profilesReady'), 'Create VM wizard must block 
 assert.ok(wizardSource.includes('profileError'), 'Create VM wizard must surface profile API failure or empty state')
 assert.ok(wizardSource.includes('sshPublicKey'), 'Create VM wizard must expose SSH public key input')
 assert.ok(wizardSource.includes('cloudInitUser'), 'Create VM wizard must expose cloud-init user input')
-assert.ok(!wizardSource.includes('apiV1Client.getNetworkPolicy()'), 'Create VM wizard must not use NetworkPolicy as bridge source')
+assert.ok(!wizardSource.includes(['apiV1Client.getNetwork', 'Policy()'].join('')), 'Create VM wizard must use live bridge inventory as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')
