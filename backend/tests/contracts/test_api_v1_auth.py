@@ -47,6 +47,164 @@ def test_user_cli_can_create_non_admin_user(monkeypatch, capsys):
         assert row.password_hash != "operator-password"
 
 
+def test_user_cli_lists_users_without_secrets(monkeypatch, capsys):
+    _create_user(monkeypatch, username="alice", password="alice-secret", role="viewer")
+    _create_user(monkeypatch, username="zoe", password="zoe-secret", role="operator")
+    from app.auth.users import main
+    from app.db.models import UserRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        hashes = [
+            row.password_hash
+            for row in session.scalars(select(UserRecord).order_by(UserRecord.username)).all()
+        ]
+
+    assert main(["list-users"]) == 0
+    output = capsys.readouterr().out
+
+    assert "username\trole\tenabled" in output
+    assert "alice\tviewer\ttrue" in output
+    assert "zoe\toperator\ttrue" in output
+    assert "alice-secret" not in output
+    assert "zoe-secret" not in output
+    assert "password" not in output.lower()
+    assert "hash" not in output.lower()
+    for password_hash in hashes:
+        assert password_hash not in output
+
+
+def test_user_cli_set_role_affects_existing_session_without_revocation(monkeypatch, capsys):
+    _create_user(monkeypatch, username="role-target", role="viewer")
+    client = _client()
+    _login(client, username="role-target")
+    from app.auth.users import main
+    from app.db.models import SessionRecord
+    from app.db.session import session_scope
+
+    before = client.get("/api/v1/auth/me")
+    assert before.status_code == 200
+    assert before.json()["data"]["user"]["role"] == "viewer"
+
+    assert main(["set-role", "--username", "role-target", "--role", "operator"]) == 0
+    output = capsys.readouterr().out
+    assert "updated user role-target role to operator" in output
+
+    after = client.get("/api/v1/auth/me")
+    assert after.status_code == 200
+    assert after.json()["data"]["authenticated"] is True
+    assert after.json()["data"]["user"]["role"] == "operator"
+
+    with session_scope() as session:
+        row = session.scalar(select(SessionRecord))
+        assert row.revoked_at is None
+
+
+def test_user_cli_disable_user_blocks_login_and_revokes_existing_session(monkeypatch, capsys):
+    _create_user(monkeypatch, username="disable-target", role="viewer")
+    client = _client()
+    _login(client, username="disable-target")
+    from app.auth.users import main
+    from app.db.models import SessionRecord, UserRecord
+    from app.db.session import session_scope
+
+    assert main(["disable-user", "--username", "disable-target"]) == 0
+    output = capsys.readouterr().out
+    assert "disabled user disable-target; revoked 1 session(s)" in output
+
+    with session_scope() as session:
+        user = session.scalar(select(UserRecord).where(UserRecord.username == "disable-target"))
+        session_row = session.scalar(select(SessionRecord).where(SessionRecord.user_id == user.user_id))
+        assert user.enabled is False
+        assert session_row.revoked_at is not None
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "disable-target", "password": "correct horse battery staple"},
+    )
+    assert login.status_code == 401
+    assert login.json()["detail"]["code"] == "LOGIN_FAILED"
+
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.json()["data"]["authenticated"] is False
+
+    protected = client.get("/api/v1/nodes")
+    assert protected.status_code == 401
+    assert protected.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+
+def test_user_cli_reset_password_changes_login_and_revokes_existing_session(monkeypatch, capsys):
+    _create_user(monkeypatch, username="reset-target", password="old-password", role="viewer")
+    client = _client()
+    _login(client, username="reset-target", password="old-password")
+    from app.auth.users import main
+    from app.db.models import SessionRecord, UserRecord
+    from app.db.session import session_scope
+
+    assert main(["reset-password", "--username", "reset-target", "--password", "new-password"]) == 0
+    output = capsys.readouterr().out
+    assert "reset password for user reset-target; revoked 1 session(s)" in output
+    assert "new-password" not in output
+
+    with session_scope() as session:
+        user = session.scalar(select(UserRecord).where(UserRecord.username == "reset-target"))
+        session_row = session.scalar(select(SessionRecord).where(SessionRecord.user_id == user.user_id))
+        assert user.enabled is True
+        assert user.password_hash not in {"old-password", "new-password"}
+        assert session_row.revoked_at is not None
+
+    old_login = _client().post(
+        "/api/v1/auth/login",
+        json={"username": "reset-target", "password": "old-password"},
+    )
+    assert old_login.status_code == 401
+    assert old_login.json()["detail"]["code"] == "LOGIN_FAILED"
+
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.json()["data"]["authenticated"] is False
+
+    new_login = _client().post(
+        "/api/v1/auth/login",
+        json={"username": "reset-target", "password": "new-password"},
+    )
+    assert new_login.status_code == 200, new_login.text
+    assert new_login.json()["data"]["user"]["username"] == "reset-target"
+
+
+def test_user_cli_unknown_user_fails_without_traceback(monkeypatch, capsys):
+    monkeypatch.setenv("GJALLAR_PASSWORD_HASH_ITERATIONS", "1200")
+    from app.auth.users import main
+
+    commands = [
+        ["set-role", "--username", "missing", "--role", "operator"],
+        ["disable-user", "--username", "missing"],
+        ["reset-password", "--username", "missing", "--password", "new-password"],
+    ]
+
+    for command in commands:
+        assert main(command) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Unknown user: missing" in captured.err
+        assert "Traceback" not in captured.err
+
+
+def test_user_cli_missing_database_url_fails_without_traceback(monkeypatch, capsys):
+    from app.auth.users import main
+    from app.db.session import reset_session_cache
+
+    monkeypatch.delenv("GJALLAR_DATABASE_URL", raising=False)
+    reset_session_cache()
+
+    assert main(["list-users"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error: GJALLAR_DATABASE_URL is required" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_login_me_logout_session_cookie_flow(monkeypatch):
     _create_user(monkeypatch, username="viewer")
     client = _client()

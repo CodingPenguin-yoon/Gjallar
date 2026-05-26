@@ -8,16 +8,33 @@ import os
 import re
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.auth.passwords import hash_password, verify_password
 from app.auth.roles import VALID_ROLES, AuthenticatedUser, normalize_role
-from app.db.models import UserRecord
+from app.db.models import SessionRecord, UserRecord
 from app.db.session import session_scope
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{1,80}$")
+
+
+@dataclass(frozen=True)
+class UserSummary:
+    username: str
+    role: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None
+
+
+@dataclass(frozen=True)
+class UserOperationResult:
+    user: AuthenticatedUser
+    revoked_sessions: int = 0
 
 
 def _now() -> datetime:
@@ -39,10 +56,46 @@ def actor_from_user(row: UserRecord) -> AuthenticatedUser:
     )
 
 
+def _validated_password(password: str) -> str:
+    value = str(password or "")
+    if not value:
+        raise ValueError("Password must not be empty")
+    return value
+
+
+def _user_summary(row: UserRecord) -> UserSummary:
+    return UserSummary(
+        username=str(row.username),
+        role=normalize_role(row.role),
+        enabled=bool(row.enabled),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        last_login_at=row.last_login_at,
+    )
+
+
+def _get_user_or_raise(session, username: str) -> UserRecord:
+    normalized_username = normalize_username(username)
+    row = session.scalar(select(UserRecord).where(UserRecord.username == normalized_username))
+    if row is None:
+        raise ValueError(f"Unknown user: {normalized_username}")
+    return row
+
+
+def _revoke_active_sessions(session, *, user_id: str, revoked_at: datetime) -> int:
+    result = session.execute(
+        update(SessionRecord)
+        .where(SessionRecord.user_id == user_id)
+        .where(SessionRecord.revoked_at.is_(None))
+        .values(revoked_at=revoked_at)
+    )
+    return max(int(result.rowcount or 0), 0)
+
+
 def create_user(*, username: str, password: str, role: str, enabled: bool = True) -> AuthenticatedUser:
     normalized_username = normalize_username(username)
     normalized_role = normalize_role(role)
-    password_hash = hash_password(password)
+    password_hash = hash_password(_validated_password(password))
     now = _now()
     with session_scope() as session:
         existing = session.scalar(select(UserRecord).where(UserRecord.username == normalized_username))
@@ -66,6 +119,46 @@ def create_admin(*, username: str, password: str) -> AuthenticatedUser:
     return create_user(username=username, password=password, role="admin", enabled=True)
 
 
+def list_users() -> list[UserSummary]:
+    with session_scope() as session:
+        rows = session.scalars(select(UserRecord).order_by(UserRecord.username)).all()
+        return [_user_summary(row) for row in rows]
+
+
+def set_user_role(*, username: str, role: str) -> AuthenticatedUser:
+    normalized_role = normalize_role(role)
+    now = _now()
+    with session_scope() as session:
+        row = _get_user_or_raise(session, username)
+        row.role = normalized_role
+        row.updated_at = now
+        session.flush()
+        return actor_from_user(row)
+
+
+def disable_user(*, username: str) -> UserOperationResult:
+    now = _now()
+    with session_scope() as session:
+        row = _get_user_or_raise(session, username)
+        row.enabled = False
+        row.updated_at = now
+        revoked_sessions = _revoke_active_sessions(session, user_id=row.user_id, revoked_at=now)
+        session.flush()
+        return UserOperationResult(user=actor_from_user(row), revoked_sessions=revoked_sessions)
+
+
+def reset_password(*, username: str, password: str) -> UserOperationResult:
+    now = _now()
+    password_hash = hash_password(_validated_password(password))
+    with session_scope() as session:
+        row = _get_user_or_raise(session, username)
+        row.password_hash = password_hash
+        row.updated_at = now
+        revoked_sessions = _revoke_active_sessions(session, user_id=row.user_id, revoked_at=now)
+        session.flush()
+        return UserOperationResult(user=actor_from_user(row), revoked_sessions=revoked_sessions)
+
+
 def authenticate_user(*, username: str, password: str) -> AuthenticatedUser | None:
     try:
         normalized_username = normalize_username(username)
@@ -85,18 +178,34 @@ def authenticate_user(*, username: str, password: str) -> AuthenticatedUser | No
 
 
 def _password_from_args(args: argparse.Namespace) -> str:
-    if args.password:
-        return str(args.password)
+    if getattr(args, "password", None) is not None:
+        return _validated_password(str(args.password))
     if args.password_env:
         value = os.getenv(args.password_env)
         if value:
-            return value
-        raise SystemExit(f"Environment variable {args.password_env} is empty or unset")
+            return _validated_password(value)
+        raise ValueError(f"Environment variable {args.password_env} is empty or unset")
     first = getpass.getpass("Password: ")
     second = getpass.getpass("Confirm password: ")
     if first != second:
-        raise SystemExit("Passwords do not match")
-    return first
+        raise ValueError("Passwords do not match")
+    return _validated_password(first)
+
+
+def _format_timestamp(value: datetime | None) -> str:
+    if value is None:
+        return "-"
+    return value.isoformat()
+
+
+def _print_user_list(users: list[UserSummary]) -> None:
+    print("username\trole\tenabled\tcreated_at\tupdated_at\tlast_login_at")
+    for user in users:
+        print(
+            f"{user.username}\t{user.role}\t{str(user.enabled).lower()}\t"
+            f"{_format_timestamp(user.created_at)}\t{_format_timestamp(user.updated_at)}\t"
+            f"{_format_timestamp(user.last_login_at)}"
+        )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -105,28 +214,61 @@ def _build_parser() -> argparse.ArgumentParser:
 
     create_admin_parser = subcommands.add_parser("create-admin", help="Create the first local admin user")
     create_admin_parser.add_argument("--username", required=True)
-    create_admin_parser.add_argument("--password", help="Password value. Prefer prompt or --password-env outside tests.")
+    create_admin_parser.add_argument("--password", help=argparse.SUPPRESS)
     create_admin_parser.add_argument("--password-env", help="Environment variable containing the password")
 
     create_user_parser = subcommands.add_parser("create-user", help="Create a local user with a selected role")
     create_user_parser.add_argument("--username", required=True)
     create_user_parser.add_argument("--role", required=True, choices=VALID_ROLES)
-    create_user_parser.add_argument("--password", help="Password value. Prefer prompt or --password-env outside tests.")
+    create_user_parser.add_argument("--password", help=argparse.SUPPRESS)
     create_user_parser.add_argument("--password-env", help="Environment variable containing the password")
+
+    subcommands.add_parser("list-users", help="List local users without secrets")
+
+    set_role_parser = subcommands.add_parser("set-role", help="Update a local user's role")
+    set_role_parser.add_argument("--username", required=True)
+    set_role_parser.add_argument("--role", required=True, choices=VALID_ROLES)
+
+    disable_user_parser = subcommands.add_parser("disable-user", help="Disable a local user and revoke sessions")
+    disable_user_parser.add_argument("--username", required=True)
+
+    reset_password_parser = subcommands.add_parser("reset-password", help="Reset a local user's password and revoke sessions")
+    reset_password_parser.add_argument("--username", required=True)
+    reset_password_parser.add_argument("--password", help=argparse.SUPPRESS)
+    reset_password_parser.add_argument("--password-env", help="Environment variable containing the password")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.command == "create-admin":
-        actor = create_admin(username=args.username, password=_password_from_args(args))
-        print(f"created admin user {actor.username} ({actor.user_id})")
-        return 0
-    if args.command == "create-user":
-        actor = create_user(username=args.username, password=_password_from_args(args), role=args.role)
-        print(f"created {actor.role} user {actor.username} ({actor.user_id})")
-        return 0
+    try:
+        if args.command == "create-admin":
+            actor = create_admin(username=args.username, password=_password_from_args(args))
+            print(f"created admin user {actor.username} ({actor.user_id})")
+            return 0
+        if args.command == "create-user":
+            actor = create_user(username=args.username, password=_password_from_args(args), role=args.role)
+            print(f"created {actor.role} user {actor.username} ({actor.user_id})")
+            return 0
+        if args.command == "list-users":
+            _print_user_list(list_users())
+            return 0
+        if args.command == "set-role":
+            actor = set_user_role(username=args.username, role=args.role)
+            print(f"updated user {actor.username} role to {actor.role}")
+            return 0
+        if args.command == "disable-user":
+            result = disable_user(username=args.username)
+            print(f"disabled user {result.user.username}; revoked {result.revoked_sessions} session(s)")
+            return 0
+        if args.command == "reset-password":
+            result = reset_password(username=args.username, password=_password_from_args(args))
+            print(f"reset password for user {result.user.username}; revoked {result.revoked_sessions} session(s)")
+            return 0
+    except (RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     parser.error(f"Unsupported command: {args.command}")
     return 2
 

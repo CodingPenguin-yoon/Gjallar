@@ -37,6 +37,9 @@ Legacy `/api` deploy/provision/task/log/LLM routes are not part of the active ba
 ```bash
 cp .env.example .env
 cd backend
+set -a
+. ../.env
+set +a
 venv/bin/alembic upgrade head
 PYTHONPATH=. venv/bin/python -m app.db.seed_create_vm_profiles
 PYTHONPATH=. venv/bin/python -m app.auth.users create-admin --username yoon
@@ -46,9 +49,34 @@ pnpm run backend
 
 The backend loads the repo root `.env`. `BACKEND_PORT` controls the local uvicorn port, and `FRONTEND_PORT` controls the CORS origin allowed for the Vite dev server.
 `GJALLAR_DATABASE_URL` controls the SQLAlchemy/Alembic connection. Local SQLite is supported, and PostgreSQL can be used by changing the same URL.
-The account CLIs prompt for a password unless `--password-env` is used. Use
-`create-user --username kim --role viewer` or `--role operator` for non-admin
-accounts.
+There is no public signup flow. Local accounts are managed with the backend CLI,
+which prompts for passwords unless `--password-env` is used.
+
+For one-off backend CLI commands, load the repo root `.env` in the backend shell
+first:
+
+```bash
+cd backend
+set -a
+. ../.env
+set +a
+```
+
+Account operations:
+
+```bash
+PYTHONPATH=. venv/bin/python -m app.auth.users create-admin --username yoon
+PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username kim --role viewer
+PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username park --role operator
+PYTHONPATH=. venv/bin/python -m app.auth.users list-users
+PYTHONPATH=. venv/bin/python -m app.auth.users set-role --username kim --role operator
+PYTHONPATH=. venv/bin/python -m app.auth.users disable-user --username kim
+PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username park
+```
+
+`disable-user` and `reset-password` revoke existing sessions for the target user.
+`set-role` does not revoke sessions; existing sessions pick up the role on their
+next request.
 
 ## Validate
 
@@ -66,7 +94,7 @@ PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
 - Roles are ordered `viewer < operator < admin`.
 - Read-only `/api/v1` APIs require `viewer` or above. Create VM workflow POSTs,
   Create VM live create, and VM Start require `operator` or `admin`.
-- Create VM profiles are schema-managed by Alembic and seeded separately with `cd backend && python -m app.db.seed_create_vm_profiles`. The seed is idempotent and no-ops when any profile row already exists.
+- Create VM profiles are schema-managed by Alembic and seeded separately with `cd backend && PYTHONPATH=. venv/bin/python -m app.db.seed_create_vm_profiles`. The seed is idempotent and no-ops when any profile row already exists.
 - Jobs/Runs progress and artifacts are stored through `GJALLAR_DATABASE_URL` in `job_runs` and `job_artifacts`.
 - Do not commit `.env`, tokens, secrets, `data/`, or local runtime artifacts.
 - Live VM creation remains gated behind exact approval metadata, fresh red-risk checks, and `proxmox_mutation_acknowledged=true`. The default power policy leaves the new VM stopped; `boot_and_verify` starts it and verifies guest-agent IP plus cloud-init completion.

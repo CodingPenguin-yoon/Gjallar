@@ -44,16 +44,42 @@ Run migrations before starting the backend so auth tables exist:
 
 ```bash
 cd backend
+set -a
+. ../.env
+set +a
 venv/bin/alembic upgrade head
 PYTHONPATH=. venv/bin/python -m app.db.seed_create_vm_profiles
 PYTHONPATH=. venv/bin/python -m app.auth.users create-admin --username yoon
 ```
 
-The account CLIs prompt for a password unless `--password-env` is supplied. Use
-`PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username kim --role viewer`
-or `--role operator` for non-admin accounts. The
-backend stores a PBKDF2 password hash and server-side session records; the
-browser receives only an opaque `HttpOnly`, `SameSite=Lax` session cookie.
+There is no public signup flow. Local accounts are managed with the backend CLI,
+which prompts for passwords unless `--password-env` is supplied. For one-off
+backend CLI commands, load the repo root `.env` in the backend shell first:
+
+```bash
+cd backend
+set -a
+. ../.env
+set +a
+```
+
+Account operations:
+
+```bash
+PYTHONPATH=. venv/bin/python -m app.auth.users create-admin --username yoon
+PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username kim --role viewer
+PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username park --role operator
+PYTHONPATH=. venv/bin/python -m app.auth.users list-users
+PYTHONPATH=. venv/bin/python -m app.auth.users set-role --username kim --role operator
+PYTHONPATH=. venv/bin/python -m app.auth.users disable-user --username kim
+PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username park
+```
+
+`disable-user` and `reset-password` revoke existing sessions for the target user.
+`set-role` does not revoke sessions; existing sessions pick up the role on their
+next request. The backend stores a PBKDF2 password hash and server-side session
+records; the browser receives only an opaque `HttpOnly`, `SameSite=Lax` session
+cookie.
 
 Login/logout flow:
 
