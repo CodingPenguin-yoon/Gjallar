@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.auth.roles import actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.models import VmCreateRequestRecord, VmInstanceRecord
 from app.db.session import session_scope
@@ -26,12 +27,14 @@ def record_vm_create_request(
     status: str,
     approval: dict[str, Any] | None = None,
     result: dict[str, Any] | None = None,
+    actor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist the latest request/result summary for a Create VM job."""
     now = _now_iso()
     request_payload = redact_secrets(plan.to_dict())
     approval_payload = redact_secrets(approval or {})
     result_payload = redact_secrets(result or {})
+    actor_payload = actor_evidence(actor) if actor is not None else {}
     with session_scope() as session:
         row = session.get(VmCreateRequestRecord, plan.job_id)
         if row is None:
@@ -47,6 +50,9 @@ def record_vm_create_request(
                 profile_id=plan.profile_id,
                 template_id=plan.template_id or _template_vmid(plan),
                 storage_id=plan.storage_id,
+                actor_user_id=str(actor_payload.get("user_id") or "") or None,
+                actor_username=str(actor_payload.get("username") or "") or None,
+                actor_role=str(actor_payload.get("role") or "") or None,
                 request_payload=request_payload,
                 approval=approval_payload,
                 result=result_payload,
@@ -62,11 +68,14 @@ def record_vm_create_request(
             row.profile_id = plan.profile_id
             row.template_id = plan.template_id or _template_vmid(plan)
             row.storage_id = plan.storage_id
+            row.actor_user_id = str(actor_payload.get("user_id") or "") or None
+            row.actor_username = str(actor_payload.get("username") or "") or None
+            row.actor_role = str(actor_payload.get("role") or "") or None
             row.request_payload = request_payload
             row.approval = approval_payload
             row.result = result_payload
             row.updated_at = now
-        return {
+        response = {
             "request_id": row.request_id,
             "status": row.status,
             "target_node_id": row.target_node_id,
@@ -74,6 +83,16 @@ def record_vm_create_request(
             "vm_name": row.vm_name,
             "updated_at": row.updated_at,
         }
+        if row.actor_user_id or row.actor_username or row.actor_role:
+            response["actor_user_id"] = row.actor_user_id or ""
+            response["actor_username"] = row.actor_username or ""
+            response["actor_role"] = row.actor_role or ""
+            response["actor"] = {
+                "user_id": row.actor_user_id or "",
+                "username": row.actor_username or "",
+                "role": row.actor_role or "",
+            }
+        return response
 
 
 def record_vm_instance_from_create(plan: VmCreatePlan, create_result: dict[str, Any]) -> dict[str, Any]:

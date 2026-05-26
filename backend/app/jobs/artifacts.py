@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 from sqlalchemy import select
 
+from app.auth.roles import restore_trusted_actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.models import JobArtifactRecord
 from app.db.session import session_scope
@@ -108,7 +109,7 @@ def write_json_artifact(
 ) -> ArtifactRecord:
     """Store a redacted JSON artifact and return checksum-backed metadata."""
     _ = run_dir
-    redacted_payload = redact_secrets(payload)
+    redacted_payload = restore_trusted_actor_evidence(payload, redact_secrets(payload))
     text = json.dumps(redacted_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     return _upsert_artifact(
         job_id=job_id,

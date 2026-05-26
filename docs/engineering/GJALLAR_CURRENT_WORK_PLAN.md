@@ -41,9 +41,9 @@ Use `AGENTS.md` for execution mode:
 - Gjallar's next MVP success line is DRS Advisor.
 - Create VM is a supporting capability, not the MVP success line.
 - Active Create VM mutation path is Proxmox native API.
-- Immediate next work is Create VM stabilization with Gjallar login,
-  server-side sessions, and simple role-based authorization. See
-  `docs/engineering/CREATE_VM_STABILIZATION_PLAN.md`.
+- Create VM stabilization now includes Gjallar login, server-side sessions, and
+  simple role-based authorization. The remaining stabilization follow-up is the
+  approved live smoke matrix.
 - Terraform Create VM executor routes/helper code and Terraform-named state
   fields are removed from the active code/API/artifact contracts.
 - Create VM profile/template/network target design is documented in
@@ -52,6 +52,11 @@ Use `AGENTS.md` for execution mode:
 ## Current Implementation Baseline
 
 - `/api/v1` is the active frontend/backend contract.
+- Gjallar login uses server-side sessions and roles: `viewer`, `operator`, and
+  `admin`.
+- Read-only `/api/v1` surfaces require `viewer` or above, while Create VM
+  workflow writes, Create VM live create, and VM Start require `operator` or
+  `admin`.
 - Inventory is read-only Proxmox live inventory with fake fallback.
 - Create VM currently supports draft, preflight, plan, approval, manifest
   commit, Proxmox native preview/create, Jobs/Runs progress, and artifacts.
@@ -211,7 +216,7 @@ pnpm --dir frontend build
 
 ## Workstream G: Create VM Stabilization
 
-Status: planned next slice.
+Status: implemented except live smoke.
 
 Goal: close Create VM as a safe supporting capability before DRS Phase 2.
 
@@ -220,18 +225,19 @@ Plan source:
 
 Planned slices:
 
-- [ ] Add backend `users` and `sessions` tables.
-- [ ] Add first-admin CLI.
-- [ ] Add `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and
+- [x] Add backend `users` and `sessions` tables.
+- [x] Add first-admin CLI.
+- [x] Add `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and
   `GET /api/v1/auth/me`.
-- [ ] Add `viewer`, `operator`, and `admin` roles.
-- [ ] Require authenticated `operator` or `admin` for Create VM live mutation.
-- [ ] Require authenticated `operator` or `admin` for existing VM Start.
-- [ ] Require authenticated `viewer` or above for operator read APIs, leaving
+- [x] Add `viewer`, `operator`, and `admin` roles.
+- [x] Require authenticated `operator` or `admin` for Create VM workflow writes
+  and live mutation.
+- [x] Require authenticated `operator` or `admin` for existing VM Start.
+- [x] Require authenticated `viewer` or above for operator read APIs, leaving
   only public health/login endpoints open.
-- [ ] Add actor evidence to mutation jobs and Create VM request records.
-- [ ] Add frontend `/login`, session bootstrap, logout, and role-aware controls.
-- [ ] Add tests for unauthenticated, viewer, operator, and admin behavior.
+- [x] Add actor evidence to mutation jobs and Create VM request records.
+- [x] Add frontend `/login`, session bootstrap, logout, and role-aware controls.
+- [x] Add tests for unauthenticated, viewer, operator, and admin behavior.
 - [ ] Record Create VM live smoke for `stopped` and `boot_and_verify`.
 
 Non-goals:
@@ -262,6 +268,11 @@ Non-goals:
 - Create VM now supports request-level `power_policy`: default `stopped`, or
   `boot_and_verify` for VM start, guest-agent IP discovery, and cloud-init
   completion. Profile definitions still do not own power policy.
+- Gjallar auth uses local `users` and server-side `sessions`; first admin is
+  created by `python -m app.auth.users create-admin --username yoon`.
+- Session-derived actor evidence is recorded in Create VM and VM Start
+  jobs/artifacts/request records as `actor_user_id`, `actor_username`, and
+  `actor_role`.
 
 ## Future Decisions
 
@@ -286,8 +297,8 @@ Current implementation order is tracked in
 
 Recommended next major slice:
 
-1. Stabilize Create VM with login/session/role authorization.
-2. Record Create VM live smoke and update runbook/docs.
+1. Record Create VM live smoke and update runbook/docs with observed results.
+2. Follow up on docs/risk hygiene from the auth stabilization review.
 3. Then implement DRS identity/fingerprint DB and read-only resolver.
 4. Feed resolver output into DRS recommendation blockers before any migration
    execution work.

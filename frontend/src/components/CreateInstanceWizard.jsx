@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, ClipboardCheck, KeyRound, Loader2, Network, PlayCircle, Rocket, Server, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
+import { authFailureMessage } from '../utils/auth'
 import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile } from '../utils/createVmDefaults'
 import {
   approveCreateVmReview,
@@ -286,7 +287,7 @@ function buildInitialForm(config) {
   }
 }
 
-function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
+function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentUser = null, canExecuteLiveMutation = true }) {
   const navigate = useNavigate()
   const [form, setForm] = useState(() => buildInitialForm(config))
   const [model, setModel] = useState(null)
@@ -361,6 +362,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
     ? 'Proxmox에 VM을 만들고 부팅해서 IP와 cloud-init 확인까지 실행하는 것을 승인합니다.'
     : 'Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.'
   const nativeCreateButtonLabel = model?.review?.firstPowerOnIncluded ? '생성 후 부팅 확인' : 'Proxmox native create'
+  const liveMutationDisabledReason = canExecuteLiveMutation ? '' : 'operator 또는 admin 권한이 필요합니다.'
 
   useEffect(() => {
     let cancelled = false
@@ -528,6 +530,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
   }
 
   const runReview = async () => {
+    if (!canExecuteLiveMutation) {
+      setError(liveMutationDisabledReason)
+      return
+    }
     if (!profilesReady) {
       setError(options.profileError || 'Create VM profiles are unavailable.')
       return
@@ -546,7 +552,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       const reviewModel = await loadCreateVmReviewModel(apiV1Client, form)
       setModel(reviewModel)
     } catch (err) {
-      setError(err?.message || 'VM 검토를 만들지 못했습니다.')
+      setError(authFailureMessage(err, 'VM 검토를 만들지 못했습니다.'))
       setModel(null)
     } finally {
       setLoading(false)
@@ -555,13 +561,17 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
 
   const approveReview = async () => {
     if (!model?.review?.canApprove) return
+    if (!canExecuteLiveMutation) {
+      setError(liveMutationDisabledReason)
+      return
+    }
     setApproving(true)
     setError(null)
     try {
       const result = await approveCreateVmReview(apiV1Client, model, { yellowRiskAcknowledged })
       setApproval(result)
     } catch (err) {
-      setError(err?.message || '승인 처리에 실패했습니다.')
+      setError(authFailureMessage(err, '승인 처리에 실패했습니다.'))
       setApproval(null)
     } finally {
       setApproving(false)
@@ -570,6 +580,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
 
   const createWithProxmox = async () => {
     if (!approval?.canApprove || !model?.review?.canCreateProxmox) return
+    if (!canExecuteLiveMutation) {
+      setError(liveMutationDisabledReason)
+      return
+    }
     setCreating(true)
     setError(null)
     const jobId = model?.draft?.jobId || form.jobId
@@ -582,7 +596,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
       const result = await createPromise
       setCreateResult(result)
     } catch (err) {
-      setError(err?.message || 'Proxmox native VM 생성에 실패했습니다.')
+      setError(authFailureMessage(err, 'Proxmox native VM 생성에 실패했습니다.'))
       const observed = err?.details?.proxmox_create?.observed_after
       const proxmoxCreate = err?.details?.proxmox_create
       setCreateResult(proxmoxCreate ? {
@@ -614,6 +628,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
               <StatusPill tone="slate">{memoryMb} MB</StatusPill>
               <StatusPill tone="slate">{diskGb} GB</StatusPill>
               <StatusPill tone="slate">{firstBootLabel}</StatusPill>
+              {currentUser?.role && <StatusPill tone={canExecuteLiveMutation ? 'green' : 'yellow'}>{currentUser.role}</StatusPill>}
             </div>
           </div>
           <StatusPill tone="blue">생성 전 검토</StatusPill>
@@ -818,7 +833,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={runReview} disabled={loading || options.loading || !profilesReady || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="button" onClick={runReview} disabled={!canExecuteLiveMutation || loading || options.loading || !profilesReady || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
             검토 시작
           </button>
@@ -892,7 +907,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                 <StatusPill tone={model.review.canCreateProxmox ? 'green' : 'yellow'}>{model.review.canCreateProxmox ? '가능' : '확인 필요'}</StatusPill>
               </div>
               <DetailRow label="생성 방식" value="Proxmox native create" />
-              <DetailRow label="실행 조건" value={model.review.canCreateProxmox ? '승인 후 생성 가능' : '검토 항목 확인 필요'} />
+              <DetailRow label="실행 조건" value={!canExecuteLiveMutation ? liveMutationDisabledReason : model.review.canCreateProxmox ? '승인 후 생성 가능' : '검토 항목 확인 필요'} />
               <DetailRow label="생성 후 상태" value={reviewedFirstBootLabel} />
             </section>
 
@@ -904,15 +919,20 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {} }) {
                   확인 필요 항목을 검토했습니다.
                 </label>
               )}
-              <button type="button" onClick={approveReview} disabled={!model.review.canApprove || approving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" onClick={approveReview} disabled={!canExecuteLiveMutation || !model.review.canApprove || approving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 검토 내용 승인
               </button>
               <label className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800">
-                <input type="checkbox" className="mt-1" checked={proxmoxMutationAcknowledged} onChange={(event) => setProxmoxMutationAcknowledged(event.target.checked)} />
+                <input type="checkbox" className="mt-1" checked={proxmoxMutationAcknowledged} onChange={(event) => setProxmoxMutationAcknowledged(event.target.checked)} disabled={!canExecuteLiveMutation} />
                 {mutationAckLabel}
               </label>
-              <button type="button" onClick={createWithProxmox} disabled={!approval?.canApprove || !model.review.canCreateProxmox || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+              {!canExecuteLiveMutation && (
+                <div className="mt-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+                  {liveMutationDisabledReason}
+                </div>
+              )}
+              <button type="button" onClick={createWithProxmox} disabled={!canExecuteLiveMutation || !approval?.canApprove || !model.review.canCreateProxmox || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
                 {nativeCreateButtonLabel}
               </button>

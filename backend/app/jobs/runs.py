@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.auth.roles import restore_trusted_actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.models import JobRunRecord
 from app.db.session import session_scope
@@ -235,6 +236,7 @@ def record_job_run(
         updated_at=now,
     )
     progress = 100 if status == "completed" else _progress_percent(steps)
+    details_payload = details or previous.get("details") or {}
     payload = {
         "job_id": job_id,
         "job_type": job_type,
@@ -251,7 +253,7 @@ def record_job_run(
         "risk_count": len(risk_dicts),
         "artifacts": artifacts_without_status,
         "risks": risk_dicts,
-        "details": redact_secrets(details or previous.get("details") or {}),
+        "details": restore_trusted_actor_evidence(details_payload, redact_secrets(details_payload)),
         "updated_at": now,
     }
 

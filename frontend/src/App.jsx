@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Clock3, Database, HardDrive, LayoutDashboard, List, Network, Plus, RefreshCw, Server } from 'lucide-react'
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Activity, AlertTriangle, Clock3, Database, HardDrive, LayoutDashboard, List, LogOut, Network, Plus, RefreshCw, Server, UserCircle } from 'lucide-react'
 import CreateInstanceWizard from './components/CreateInstanceWizard'
 import InstanceList from './components/InstanceList'
 import NetworkReadinessScreen from './components/NetworkReadinessScreen'
@@ -8,6 +8,7 @@ import OperationalRiskDashboard from './components/OperationalRiskDashboard'
 import DrsAdvisorScreen from './components/DrsAdvisorScreen'
 import TaskBoard from './components/TaskBoard'
 import { apiV1Client } from './services/apiV1'
+import { authFailureMessage, canOperate } from './utils/auth'
 import middlepiaStackLogo from './assets/middlepia-stack.svg'
 
 const navItems = [
@@ -364,7 +365,136 @@ function onlineNodeLabel(nodes) {
   return `${online}/${nodes.length} online`
 }
 
+function LoginPage({ onLogin }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const submitLogin = async (event) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      await onLogin({ username, password })
+      const target = location.state?.from?.pathname || '/'
+      navigate(target, { replace: true })
+    } catch (err) {
+      setError(authFailureMessage(err, '로그인에 실패했습니다.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6 py-10">
+        <section className="w-full rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <Server className="h-7 w-7 text-slate-700" />
+            <div>
+              <h1 className="text-xl font-semibold text-slate-950">Gjallar Login</h1>
+              <p className="mt-1 text-sm text-slate-500">Proxmox 운영 콘솔 접근</p>
+            </div>
+          </div>
+          <form className="mt-6 space-y-4" onSubmit={submitLogin}>
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-slate-700">Username</span>
+              <input
+                autoComplete="username"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-slate-700">Password</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+            {error ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+            ) : null}
+            <button
+              type="submit"
+              disabled={submitting || !username || !password}
+              className="inline-flex w-full items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
+        </section>
+      </main>
+    </div>
+  )
+}
+
 function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [authState, setAuthState] = useState({ status: 'loading', user: null })
+
+  useEffect(() => {
+    let cancelled = false
+    async function bootstrapAuth() {
+      try {
+        const response = await apiV1Client.me()
+        if (cancelled) return
+        setAuthState(response.authenticated && response.user
+          ? { status: 'authenticated', user: response.user }
+          : { status: 'anonymous', user: null })
+      } catch {
+        if (!cancelled) setAuthState({ status: 'anonymous', user: null })
+      }
+    }
+    bootstrapAuth()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleLogin = async ({ username, password }) => {
+    const response = await apiV1Client.login(username, password)
+    setAuthState({ status: 'authenticated', user: response.user })
+    return response
+  }
+
+  const handleLogout = async () => {
+    try {
+      await apiV1Client.logout()
+    } finally {
+      setAuthState({ status: 'anonymous', user: null })
+      navigate('/login', { replace: true })
+    }
+  }
+
+  if (authState.status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 text-sm text-slate-600">
+        Loading Gjallar session...
+      </div>
+    )
+  }
+
+  if (authState.status !== 'authenticated') {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
+        <Route path="*" element={<Navigate to="/login" replace state={{ from: location }} />} />
+      </Routes>
+    )
+  }
+
+  const currentUser = authState.user
+  const canMutate = canOperate(currentUser)
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="bg-white border-b border-gray-200 shadow-sm">
@@ -377,7 +507,18 @@ function App() {
                 <p className="text-sm text-gray-500">Proxmox VM 운영 관리</p>
               </div>
             </div>
-            <img src={middlepiaStackLogo} alt="MiddlePia Stack" className="h-12 w-auto shrink-0 sm:h-14 md:h-16" />
+            <div className="flex shrink-0 items-center gap-4">
+              <div className="hidden items-center gap-2 text-sm text-slate-600 sm:flex">
+                <UserCircle className="h-4 w-4" />
+                <span className="font-medium text-slate-900">{currentUser?.username}</span>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">{currentUser?.role}</span>
+              </div>
+              <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+              <img src={middlepiaStackLogo} alt="MiddlePia Stack" className="h-12 w-auto shrink-0 sm:h-14 md:h-16" />
+            </div>
           </div>
         </div>
       </header>
@@ -402,7 +543,7 @@ function App() {
             path="/infra"
             element={
               <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <InstanceList />
+                <InstanceList currentUser={currentUser} canStartVms={canMutate} />
               </div>
             }
           />
@@ -418,7 +559,7 @@ function App() {
             path="/create"
             element={
               <div className="mx-auto max-w-6xl">
-                <CreateInstanceWizard />
+                <CreateInstanceWizard currentUser={currentUser} canExecuteLiveMutation={canMutate} />
               </div>
             }
           />
@@ -439,6 +580,7 @@ function App() {
               </div>
             }
           />
+          <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

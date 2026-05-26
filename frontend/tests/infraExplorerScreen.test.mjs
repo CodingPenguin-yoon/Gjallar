@@ -97,6 +97,10 @@ function compileInstanceListSource(source) {
       'const { apiV1Client } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.api'
     )
     .replace(
+      /import\s+\{\s*authFailureMessage\s*\}\s+from\s+'..\/utils\/auth'/,
+      'const { authFailureMessage } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.auth'
+    )
+    .replace(
       /import\s+\{\s*loadInfraExplorerModel\s*\}\s+from\s+'..\/utils\/infraExplorerScreen'/,
       'const { loadInfraExplorerModel } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.loader'
     )
@@ -222,6 +226,7 @@ assert.match(instanceListSource, /apiV1Client/)
 assert.match(instanceListSource, /loadInfraExplorerModel/)
 assert.match(instanceListSource, /useNavigate/)
 assert.match(instanceListSource, /apiV1Client\.startVm/)
+assert.match(instanceListSource, /canStartVms/)
 assert.doesNotMatch(instanceListSource, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'InstanceList must not import the legacy /api client')
 assert.match(
   instanceListSource,
@@ -330,6 +335,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
     Server: icon('Server'),
   },
   api: { apiV1Client: fakeClient },
+  auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
   loader: { loadInfraExplorerModel: async () => model },
 }
 

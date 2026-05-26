@@ -17,6 +17,9 @@ const {
 } = await importExpected('../src/services/apiV1.js', 'PRD /api/v1 client')
 
 assert.equal(API_V1_BASE_URL, '/api/v1')
+assert.equal(API_V1_ENDPOINTS.authLogin, '/auth/login')
+assert.equal(API_V1_ENDPOINTS.authLogout, '/auth/logout')
+assert.equal(API_V1_ENDPOINTS.authMe, '/auth/me')
 assert.equal(API_V1_ENDPOINTS.jobs, '/jobs')
 assert.equal(API_V1_ENDPOINTS.risks, '/risks')
 assert.equal(API_V1_ENDPOINTS.vms, '/vms')
@@ -49,6 +52,14 @@ const fakeFetch = async (url, options = {}) => {
 }
 
 const client = createApiV1Client({ baseUrl: '/custom/api/v1', fetchImpl: fakeFetch })
+assert.deepEqual((await client.login('yoon', 'secret')).body, { username: 'yoon', password: 'secret' })
+assert.equal(calls.at(-1).url, '/custom/api/v1/auth/login')
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.equal((await client.me()).url, '/custom/api/v1/auth/me')
+assert.equal(calls.at(-1).options.method, 'GET')
+assert.deepEqual((await client.logout()).body, {})
+assert.equal(calls.at(-1).url, '/custom/api/v1/auth/logout')
+assert.equal(calls.at(-1).options.method, 'POST')
 assert.equal((await client.listJobs()).url, '/custom/api/v1/jobs')
 assert.equal((await client.getJob('job/a b')).url, '/custom/api/v1/jobs/job%2Fa%20b')
 assert.equal((await client.listJobArtifacts('job/a b')).url, '/custom/api/v1/jobs/job%2Fa%20b/artifacts')
@@ -82,6 +93,10 @@ assert.deepEqual((await client.previewVmDraftProxmox('draft/1', { plan_artifact_
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/proxmox-preview')
 assert.deepEqual((await client.createVmDraftProxmox('draft/1', { proxmox_mutation_acknowledged: true })).body, { proxmox_mutation_acknowledged: true })
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/proxmox-create')
+
+for (const call of calls) {
+  assert.equal(call.options.credentials, 'include', `${call.url} must include browser session cookies`)
+}
 
 const failingClient = createApiV1Client({
   baseUrl: '/custom/api/v1',

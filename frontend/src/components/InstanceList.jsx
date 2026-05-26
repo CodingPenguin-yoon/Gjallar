@@ -10,6 +10,7 @@ import {
   Server,
 } from 'lucide-react'
 import { apiV1Client } from '../services/apiV1'
+import { authFailureMessage } from '../utils/auth'
 import { loadInfraExplorerModel } from '../utils/infraExplorerScreen'
 
 function formatNumber(value, digits = 0) {
@@ -184,7 +185,7 @@ function SignalStack({ vm }) {
   )
 }
 
-function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
+function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, currentUser = null, canStartVms = true }) {
   const navigate = useNavigate()
   const [model, setModel] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -245,6 +246,10 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
   }
 
   const openStartDialog = (vm) => {
+    if (!canStartVms) {
+      setStartError('operator 또는 admin 권한이 필요합니다.')
+      return
+    }
     setPendingStartVm({ ...vm, startIdempotencyKey: makeVmStartIdempotencyKey(vm) })
     setStartAcknowledged(false)
     setStartError('')
@@ -277,7 +282,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
         await fetchInfra()
       }
     } catch (error) {
-      const message = error?.message || 'Failed to start VM'
+      const message = authFailureMessage(error, 'Failed to start VM')
       setStartError(message)
       addLog(`VM start failed for ${pendingStartVm.name}: ${message}`, 'error')
     } finally {
@@ -316,6 +321,12 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
           </div>
         </div>
       )}
+
+      {!canStartVms ? (
+        <div className="border-b border-yellow-100 bg-yellow-50 px-6 py-3 text-sm text-yellow-800">
+          VM Start requires operator or admin role. Current role: {currentUser?.role || 'unknown'}.
+        </div>
+      ) : null}
 
       {pendingStartVm ? (
         <div className="border-b border-blue-100 bg-blue-50 px-6 py-4">
@@ -525,7 +536,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {} }) {
                                       <SignalStack vm={vm} />
                                     </td>
                                     <td className="px-4 py-2 text-center">
-                                      {canStartVm(vm) ? (
+                                      {canStartVms && canStartVm(vm) ? (
                                         <button
                                           type="button"
                                           onClick={() => openStartDialog(vm)}

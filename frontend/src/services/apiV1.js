@@ -1,6 +1,9 @@
 export const API_V1_BASE_URL = '/api/v1'
 
 export const API_V1_ENDPOINTS = Object.freeze({
+  authLogin: '/auth/login',
+  authLogout: '/auth/logout',
+  authMe: '/auth/me',
   clusterSummary: '/cluster/summary',
   nodes: '/nodes',
   vms: '/vms',
@@ -71,7 +74,7 @@ export function unwrapApiV1Envelope(envelope) {
 }
 
 async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body }) {
-  const options = { method, headers: { Accept: 'application/json' } }
+  const options = { method, credentials: 'include', headers: { Accept: 'application/json' } }
   if (body !== undefined) {
     options.headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(body)
@@ -87,6 +90,8 @@ async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body }) {
     const message = commandError ? `${baseMessage}: ${commandError.slice(0, 700)}` : baseMessage
     const error = new Error(message)
     error.status = response.status
+    error.authRequired = response.status === 401
+    error.forbidden = response.status === 403
     error.code = detail?.code || errorBody?.code
     error.details = detail || errorBody || envelope
     error.envelope = envelope
@@ -101,6 +106,9 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
 
   return Object.freeze({
+    login: (username, password) => post(API_V1_ENDPOINTS.authLogin, { username, password }),
+    logout: () => post(API_V1_ENDPOINTS.authLogout, {}),
+    me: () => get(API_V1_ENDPOINTS.authMe),
     clusterSummary: () => get(API_V1_ENDPOINTS.clusterSummary),
     listNodes: () => get(API_V1_ENDPOINTS.nodes),
     listVms: () => get(API_V1_ENDPOINTS.vms),

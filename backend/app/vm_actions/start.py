@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from app.auth.roles import actor_detail_fields, actor_evidence
 from app.core.redaction import redact_secrets
 from app.jobs.artifacts import write_json_artifact
 from app.jobs.runs import get_job_run, record_job_run, run_dir
@@ -125,7 +126,10 @@ def _record_vm_start_job(
     target: dict[str, Any],
     artifacts: list[Any] | None = None,
     details: dict[str, Any] | None = None,
+    actor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    details_payload = {"target": target, **(details or {})}
+    details_payload.update(actor_detail_fields(actor))
     return record_job_run(
         job_id=job_id,
         job_type="vm_start",
@@ -137,7 +141,7 @@ def _record_vm_start_job(
         message=message,
         artifacts=artifacts,
         risks=[],
-        details=redact_secrets({"target": target, **(details or {})}),
+        details=redact_secrets(details_payload),
     )
 
 
@@ -149,6 +153,7 @@ def _blocked_precheck(
     target: dict[str, Any],
     expected: dict[str, Any],
     observed_before: dict[str, Any] | None = None,
+    actor: dict[str, Any] | None = None,
 ) -> None:
     _record_vm_start_job(
         job_id=job_id,
@@ -157,6 +162,7 @@ def _blocked_precheck(
         step_status="blocked",
         message=message,
         target=target,
+        actor=actor,
         details={
             "vm_start": {
                 "code": code,
@@ -179,7 +185,15 @@ def _blocked_precheck(
     )
 
 
-def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[str, Any], job_id: str) -> VmStartPrecheck:
+def _precheck_vm_start(
+    *,
+    adapter: Any,
+    node_id: str,
+    vmid: int,
+    payload: dict[str, Any],
+    job_id: str,
+    actor: dict[str, Any] | None = None,
+) -> VmStartPrecheck:
     expected = _expected_context(payload)
     target = _target_payload(node_id, vmid, expected.get("expected_name", ""))
     exact_vm, moved_vm = _find_exact_vm(adapter, node_id=node_id, vmid=vmid)
@@ -194,6 +208,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
             target={**target, "name": str(observed.get("name") or target.get("name") or "")},
             expected=expected,
             observed_before={**observed, "template": True},
+            actor=actor,
         )
 
     if exact_vm is None:
@@ -206,6 +221,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
                 target={**target, "name": str(observed.get("name") or target.get("name") or "")},
                 expected=expected,
                 observed_before=observed,
+                actor=actor,
             )
         _blocked_precheck(
             job_id=job_id,
@@ -214,6 +230,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
             target=target,
             expected=expected,
             observed_before={},
+            actor=actor,
         )
 
     observed_before = _to_dict(exact_vm)
@@ -226,6 +243,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
             target=target,
             expected=expected,
             observed_before=observed_before,
+            actor=actor,
         )
 
     status = _normalize_status(observed_before.get("status"))
@@ -239,6 +257,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
             target=target,
             expected=expected,
             observed_before=observed_before,
+            actor=actor,
         )
 
     expected_status = _normalize_status(expected.get("expected_status"))
@@ -250,6 +269,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
             target=target,
             expected=expected,
             observed_before=observed_before,
+            actor=actor,
         )
 
     if status != "stopped":
@@ -260,6 +280,7 @@ def _precheck_vm_start(*, adapter: Any, node_id: str, vmid: int, payload: dict[s
             target=target,
             expected=expected,
             observed_before=observed_before,
+            actor=actor,
         )
 
     return VmStartPrecheck(target=target, observed_before=observed_before, expected=expected)
@@ -283,6 +304,7 @@ def _write_observed_artifact(
     task: dict[str, Any],
     observed_after: dict[str, Any],
     client: ProxmoxMutationClient,
+    actor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     node_id = str(target.get("node_id") or "")
     vmid = int(target.get("vmid") or 0)
@@ -302,6 +324,7 @@ def _write_observed_artifact(
             "post_check_endpoint": f"/nodes/{node_id}/qemu/{vmid}/status/current",
         },
     }
+    payload.update(actor_detail_fields(actor))
     return write_json_artifact(
         run_dir=run_path,
         job_id=job_id,
@@ -374,11 +397,13 @@ def run_vm_start(
     vmid: int,
     payload: dict[str, Any] | None,
     inventory_adapter: Any,
+    actor: dict[str, Any] | None = None,
     client: ProxmoxMutationClient | None = None,
     client_factory: Callable[[], ProxmoxMutationClient] | None = None,
 ) -> dict[str, Any]:
     """Start a stopped VM after inventory precheck and persist Jobs/Runs evidence."""
     request_payload = dict(payload or {})
+    actor_payload = actor_evidence(actor) if actor is not None else {}
     idempotency_key, job_id = _validated_request(node_id, vmid, request_payload)
     existing = get_job_run(job_id)
     if existing:
@@ -401,6 +426,7 @@ def run_vm_start(
             step_status="running",
             message="VM start precheck is running.",
             target=target,
+            actor=actor_payload,
             details={
                 "vm_start": {
                     "idempotency_key": idempotency_key,
@@ -415,6 +441,7 @@ def run_vm_start(
             vmid=vmid,
             payload=request_payload,
             job_id=job_id,
+            actor=actor_payload,
         )
         try:
             proxmox_client = client if client is not None else client_factory() if client_factory is not None else None
@@ -437,6 +464,7 @@ def run_vm_start(
                 step_status="failed",
                 message=result["message"],
                 target=precheck.target,
+                actor=actor_payload,
                 details={"vm_start_result": result},
             )
             raise VmStartError(
@@ -463,6 +491,7 @@ def run_vm_start(
                 step_status="failed",
                 message=result["message"],
                 target=precheck.target,
+                actor=actor_payload,
                 details={"vm_start_result": result},
             )
             raise VmStartError(
@@ -478,6 +507,7 @@ def run_vm_start(
             step_status="running",
             message="VM start request is being sent to Proxmox.",
             target=target,
+            actor=actor_payload,
             details={
                 "vm_start": {
                     "idempotency_key": idempotency_key,
@@ -510,6 +540,7 @@ def run_vm_start(
                 step_status="failed",
                 message=result["message"],
                 target=target,
+                actor=actor_payload,
                 details={"vm_start_result": result},
             )
             raise VmStartError(
@@ -525,6 +556,7 @@ def run_vm_start(
             step_status="running",
             message="Proxmox VM start task is being polled.",
             target=target,
+            actor=actor_payload,
             details={
                 "vm_start": {
                     "idempotency_key": idempotency_key,
@@ -563,6 +595,7 @@ def run_vm_start(
             task=task,
             observed_after=observed_after,
             client=proxmox_client,
+            actor=actor_payload,
         )
 
         exitstatus = str(task.get("exitstatus") or "").upper()
@@ -591,6 +624,7 @@ def run_vm_start(
                 message=result["message"],
                 target=target,
                 artifacts=[artifact],
+                actor=actor_payload,
                 details={"vm_start_result": result},
             )
             raise VmStartError(
@@ -622,6 +656,7 @@ def run_vm_start(
                 message=result["message"],
                 target=target,
                 artifacts=[artifact],
+                actor=actor_payload,
                 details={"vm_start_result": result},
             )
             raise VmStartError(
@@ -653,6 +688,7 @@ def run_vm_start(
             message=result["message"],
             target=target,
             artifacts=[artifact],
+            actor=actor_payload,
             details={"vm_start_result": result},
         )
         return result

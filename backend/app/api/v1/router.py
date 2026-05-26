@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.responses import success_response
+from app.auth.dependencies import require_operator, require_viewer
+from app.auth.roles import AuthenticatedUser, actor_detail_fields, actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_create
 from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, find_drs_recommendation
@@ -22,7 +24,7 @@ from app.vm_create.preflight import run_preflight
 from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
 from app.vm_actions.start import VmStartError, run_vm_start
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_viewer)])
 
 
 def _inventory_adapter():
@@ -35,6 +37,12 @@ def _inventory_meta(adapter) -> dict:
 
 def _jobs_meta() -> dict[str, str]:
     return {"source": _inventory_adapter().source, "mode": "read_only"}
+
+
+def _details_with_actor(details: dict[str, Any] | None, actor: AuthenticatedUser | dict | None) -> dict[str, Any]:
+    payload = dict(details or {})
+    payload.update(actor_detail_fields(actor))
+    return payload
 
 
 def _drs_risks() -> list[dict[str, Any]]:
@@ -134,7 +142,15 @@ def _target_label(*, node_id: str, vm_name: str) -> str:
     return f"{node_id}:{vm_name}" if vm_name else node_id
 
 
-def _record_draft_job(draft, *, status: str, stage: str, step_status: str, message: str) -> dict[str, Any]:
+def _record_draft_job(
+    draft,
+    *,
+    status: str,
+    stage: str,
+    step_status: str,
+    message: str,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict[str, Any]:
     return record_job_run(
         job_id=draft.job_id,
         job_type="vm_create",
@@ -144,11 +160,19 @@ def _record_draft_job(draft, *, status: str, stage: str, step_status: str, messa
         stage=stage,
         step_status=step_status,
         message=message,
-        details=draft.to_dict(),
+        details=_details_with_actor(draft.to_dict(), actor),
     )
 
 
-def _record_preflight_job(draft, preflight, *, status: str, step_status: str, message: str) -> dict[str, Any]:
+def _record_preflight_job(
+    draft,
+    preflight,
+    *,
+    status: str,
+    step_status: str,
+    message: str,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict[str, Any]:
     return record_job_run(
         job_id=draft.job_id,
         job_type="vm_create",
@@ -159,10 +183,10 @@ def _record_preflight_job(draft, preflight, *, status: str, step_status: str, me
         step_status=step_status,
         message=message,
         risks=preflight.risks,
-        details={
+        details=_details_with_actor({
             "draft": draft.to_dict(),
             "preflight": preflight.to_dict(),
-        },
+        }, actor),
     )
 
 
@@ -175,6 +199,7 @@ def _record_plan_job(
     message: str,
     artifacts: list[Any] | None = None,
     details: dict[str, Any] | None = None,
+    actor: AuthenticatedUser | dict | None = None,
 ) -> dict[str, Any]:
     return record_job_run(
         job_id=plan.job_id,
@@ -187,7 +212,7 @@ def _record_plan_job(
         message=message,
         artifacts=artifacts if artifacts is not None else plan.artifacts,
         risks=_risk_dicts_from_plan(plan),
-        details={
+        details=_details_with_actor({
             "draft_id": plan.draft_id,
             "manifest_id": plan.manifest_id,
             "profile_id": plan.profile_id,
@@ -204,7 +229,7 @@ def _record_plan_job(
             "first_power_on_included": plan.first_power_on_included,
             "power_policy": plan.power_policy,
             **(details or {}),
-        },
+        }, actor),
     )
 
 
@@ -416,8 +441,12 @@ def check_drs_recommendation(recommendation_id: str, payload: dict | None = None
     )
 
 
-@router.post("/nodes/{node_id}/vms/{vmid}/actions/start")
-async def start_vm_action(node_id: str, vmid: int, payload: dict | None = None) -> dict:
+async def start_vm_action(
+    node_id: str,
+    vmid: int,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
     """Start a stopped VM through the explicit VM action path."""
     try:
         result = await run_in_threadpool(
@@ -425,6 +454,7 @@ async def start_vm_action(node_id: str, vmid: int, payload: dict | None = None) 
             node_id=node_id,
             vmid=vmid,
             payload=payload or {},
+            actor=actor_evidence(actor) if actor is not None else None,
             inventory_adapter=_inventory_adapter(),
             client_factory=get_default_proxmox_mutation_client,
         )
@@ -433,8 +463,17 @@ async def start_vm_action(node_id: str, vmid: int, payload: dict | None = None) 
     return success_response(result, meta={"mode": "proxmox_native_vm_start"})
 
 
-@router.post("/vm-create/drafts")
-async def create_vm_draft(payload: dict | None = None) -> dict:
+@router.post("/nodes/{node_id}/vms/{vmid}/actions/start")
+async def start_vm_action_route(
+    node_id: str,
+    vmid: int,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await start_vm_action(node_id, vmid, payload, actor=actor)
+
+
+async def create_vm_draft(payload: dict | None = None, actor: AuthenticatedUser | dict | None = None) -> dict:
     """Create a non-mutating default Create VM draft preview."""
     draft = _api_draft_from_payload("job-api-preview", payload or {})
     _record_draft_job(
@@ -443,12 +482,24 @@ async def create_vm_draft(payload: dict | None = None) -> dict:
         stage="draft",
         step_status="completed",
         message="VM 생성 요청 입력이 준비되었습니다.",
+        actor=actor,
     )
     return success_response(draft.to_dict(), meta={"mode": "dry_run_draft_only"})
 
 
-@router.post("/vm-create/{draft_id}/preflight")
-async def preflight_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
+@router.post("/vm-create/drafts")
+async def create_vm_draft_route(
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await create_vm_draft(payload, actor=actor)
+
+
+async def preflight_vm_draft(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
     """Run non-destructive preflight against the fake/read-only inventory."""
     draft = _api_draft_from_payload(draft_id, payload)
     result = run_preflight(draft, inventory_adapter=_inventory_adapter())
@@ -458,12 +509,25 @@ async def preflight_vm_draft(draft_id: str, payload: dict | None = None) -> dict
         status="blocked" if result.risk_level == "red" else "in_progress",
         step_status="blocked" if result.risk_level == "red" else "completed",
         message="사전 검토가 완료되었습니다." if result.risk_level != "red" else "사전 검토에서 차단 항목이 발견되었습니다.",
+        actor=actor,
     )
     return success_response(result.to_dict(), meta={"mode": "read_only_preflight"})
 
 
-@router.post("/vm-create/{draft_id}/plan")
-async def plan_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
+@router.post("/vm-create/{draft_id}/preflight")
+async def preflight_vm_draft_route(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await preflight_vm_draft(draft_id, payload, actor=actor)
+
+
+async def plan_vm_draft(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
     """Build an artifact-backed dry-run plan without live side effects."""
     draft = _api_draft_from_payload(draft_id, payload)
     preflight = run_preflight(draft, inventory_adapter=_inventory_adapter())
@@ -474,11 +538,25 @@ async def plan_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
         stage="plan",
         step_status="blocked" if plan.risk_summary.get("level") == "red" else "completed",
         message="생성 계획과 검토 패킷이 준비되었습니다.",
+        actor=actor,
     )
     return success_response(plan.to_dict(), meta={"mode": "dry_run_plan_only"})
 
-@router.post("/vm-create/{draft_id}/approve")
-async def approve_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
+
+@router.post("/vm-create/{draft_id}/plan")
+async def plan_vm_draft_route(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await plan_vm_draft(draft_id, payload, actor=actor)
+
+
+async def approve_vm_draft(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
     """Validate Review & Confirm approval metadata without live side effects."""
     payload = payload or {}
     plan = _api_preview_plan_from_payload(draft_id, payload)
@@ -496,12 +574,25 @@ async def approve_vm_draft(draft_id: str, payload: dict | None = None) -> dict:
         step_status="completed" if decision.can_execute else "blocked",
         message="승인이 확인되었습니다." if decision.can_execute else f"승인이 차단되었습니다: {decision.reason}",
         details={"approval": decision.to_dict()},
+        actor=actor,
     )
     return success_response(decision.to_dict(), meta={"mode": "approval_validation_only"})
 
 
-@router.post("/vm-create/{draft_id}/proxmox-preview")
-async def preview_vm_draft_proxmox_create(draft_id: str, payload: dict | None = None) -> dict:
+@router.post("/vm-create/{draft_id}/approve")
+async def approve_vm_draft_route(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await approve_vm_draft(draft_id, payload, actor=actor)
+
+
+async def preview_vm_draft_proxmox_create(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
     """Build a non-mutating native Proxmox create preview after approval."""
     payload = payload or {}
     plan = _api_preview_plan_from_payload(draft_id, payload)
@@ -520,6 +611,7 @@ async def preview_vm_draft_proxmox_create(draft_id: str, payload: dict | None = 
             step_status="blocked",
             message=f"Proxmox native 생성 미리보기가 차단되었습니다: {decision.reason}",
             details={"approval": decision.to_dict()},
+            actor=actor,
         )
         raise HTTPException(
             status_code=409,
@@ -540,6 +632,7 @@ async def preview_vm_draft_proxmox_create(draft_id: str, payload: dict | None = 
         message="Proxmox native 생성 미리보기가 준비되었습니다.",
         artifacts=[*plan.artifacts, *_artifacts_from_result(preview)],
         details={"approval": decision.to_dict(), "proxmox_preview": preview},
+        actor=actor,
     )
     return success_response(
         {
@@ -552,10 +645,23 @@ async def preview_vm_draft_proxmox_create(draft_id: str, payload: dict | None = 
     )
 
 
-@router.post("/vm-create/{draft_id}/proxmox-create")
-async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = None) -> dict:
+@router.post("/vm-create/{draft_id}/proxmox-preview")
+async def preview_vm_draft_proxmox_create_route(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await preview_vm_draft_proxmox_create(draft_id, payload, actor=actor)
+
+
+async def create_vm_draft_proxmox_native(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
     """Create a powered-off VM through the native Proxmox API after approval and final acknowledgement."""
     payload = payload or {}
+    actor_payload = actor_evidence(actor) if actor is not None else {}
     plan = _api_preview_plan_from_payload(draft_id, payload)
     decision = validate_approval_request(
         plan,
@@ -591,6 +697,7 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
             stage="preflight",
             step_status="blocked",
             message="생성 직전 사전 검토에서 차단 항목이 발견되었습니다.",
+            details=_details_with_actor(None, actor_payload),
         )
         raise HTTPException(
             status_code=409,
@@ -608,6 +715,7 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
         status="running",
         approval=decision.to_dict(),
         result={"proxmox_preview": preview},
+        actor=actor_payload,
     )
 
     _record_plan_job(
@@ -617,7 +725,7 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
         step_status="running",
         message="Proxmox native VM 생성 작업을 시작했습니다.",
         artifacts=[*plan.artifacts, *_artifacts_from_result(preview)],
-        details={"approval": decision.to_dict(), "proxmox_preview": preview},
+        details=_details_with_actor({"approval": decision.to_dict(), "proxmox_preview": preview}, actor_payload),
     )
 
     try:
@@ -640,6 +748,7 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
             status=phase,
             approval=decision.to_dict(),
             result=create_result,
+            actor=actor_payload,
         )
         _record_plan_job(
             plan,
@@ -648,10 +757,10 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
             step_status=phase,
             message=f"Proxmox native VM 생성 확인이 실패했습니다: {_native_error_summary(create_result, '')}",
             artifacts=[*plan.artifacts, *_artifacts_from_result(preview), *_artifacts_from_result(create_result)],
-            details={
+            details=_details_with_actor({
                 "proxmox_preview": preview,
                 "proxmox_create": create_result,
-            },
+            }, actor_payload),
         )
         raise HTTPException(
             status_code=409,
@@ -670,6 +779,7 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
         status="completed",
         approval=decision.to_dict(),
         result=create_result,
+        actor=actor_payload,
     )
     vm_instance = record_vm_instance_from_create(plan, create_result)
     _record_plan_job(
@@ -679,10 +789,10 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
         step_status="completed",
         message="Proxmox native VM 생성이 완료되었습니다.",
         artifacts=[*plan.artifacts, *_artifacts_from_result(preview), *_artifacts_from_result(create_result)],
-        details={
+        details=_details_with_actor({
             "proxmox_preview": preview,
             "proxmox_create": create_result,
-        },
+        }, actor_payload),
     )
     return success_response(
         {
@@ -699,3 +809,12 @@ async def create_vm_draft_proxmox_native(draft_id: str, payload: dict | None = N
         },
         meta={"mode": "proxmox_native_create_live_mutation"},
     )
+
+
+@router.post("/vm-create/{draft_id}/proxmox-create")
+async def create_vm_draft_proxmox_native_route(
+    draft_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await create_vm_draft_proxmox_native(draft_id, payload, actor=actor)

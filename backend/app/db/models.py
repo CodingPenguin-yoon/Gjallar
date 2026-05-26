@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -58,6 +58,42 @@ class CreateVmProfile(Base):
     )
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UserRecord(Base):
+    """Local Gjallar user for session-backed console authentication."""
+
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
+
+    user_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    username: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SessionRecord(Base):
+    """Server-side session record keyed by a hash of the opaque cookie token."""
+
+    __tablename__ = "sessions"
+
+    session_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    session_token_hash: Mapped[str] = mapped_column(String(96), nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_agent_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class JobRunRecord(Base):
@@ -118,6 +154,9 @@ class VmCreateRequestRecord(Base):
     profile_id: Mapped[str] = mapped_column(String(120), nullable=False)
     template_id: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     storage_id: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    actor_user_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actor_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
     request_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     approval: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     result: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

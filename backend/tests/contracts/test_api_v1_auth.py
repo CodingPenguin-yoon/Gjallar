@@ -1,0 +1,493 @@
+"""Auth and authorization contract tests for /api/v1."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+
+def _client():
+    from app.main import app
+
+    return TestClient(app)
+
+
+def _create_user(monkeypatch, *, username: str, password: str = "correct horse battery staple", role: str = "viewer", enabled: bool = True):
+    monkeypatch.setenv("GJALLAR_PASSWORD_HASH_ITERATIONS", "1200")
+    from app.auth.users import create_user
+
+    return create_user(username=username, password=password, role=role, enabled=enabled)
+
+
+def _login(client, *, username: str, password: str = "correct horse battery staple"):
+    response = client.post("/api/v1/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    return response
+
+
+def test_user_cli_can_create_non_admin_user(monkeypatch, capsys):
+    monkeypatch.setenv("GJALLAR_PASSWORD_HASH_ITERATIONS", "1200")
+    from app.auth.users import main
+    from app.db.models import UserRecord
+    from app.db.session import session_scope
+
+    assert main(["create-user", "--username", "kim", "--role", "operator", "--password", "operator-password"]) == 0
+    output = capsys.readouterr().out
+    assert "created operator user kim" in output
+
+    with session_scope() as session:
+        row = session.scalar(select(UserRecord).where(UserRecord.username == "kim"))
+        assert row is not None
+        assert row.role == "operator"
+        assert row.enabled is True
+        assert row.password_hash != "operator-password"
+
+
+def test_login_me_logout_session_cookie_flow(monkeypatch):
+    _create_user(monkeypatch, username="viewer")
+    client = _client()
+
+    anonymous = client.get("/api/v1/auth/me")
+    assert anonymous.status_code == 200
+    assert anonymous.json()["data"] == {"authenticated": False, "user": None}
+
+    login = _login(client, username="viewer")
+    assert login.json()["data"]["user"]["role"] == "viewer"
+    set_cookie = login.headers.get("set-cookie", "")
+    assert "gjallar_session=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "samesite=lax" in set_cookie.lower()
+    assert "Max-Age=" in set_cookie
+
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.json()["data"]["authenticated"] is True
+    assert me.json()["data"]["user"]["username"] == "viewer"
+
+    logout = client.post("/api/v1/auth/logout")
+    assert logout.status_code == 200
+    assert logout.json()["data"]["authenticated"] is False
+    assert "Max-Age=0" in logout.headers.get("set-cookie", "")
+
+    after = client.get("/api/v1/auth/me")
+    assert after.status_code == 200
+    assert after.json()["data"]["authenticated"] is False
+
+
+def test_login_rejects_bad_password_and_disabled_user(monkeypatch):
+    _create_user(monkeypatch, username="enabled")
+    _create_user(monkeypatch, username="disabled", enabled=False)
+    client = _client()
+
+    bad_password = client.post("/api/v1/auth/login", json={"username": "enabled", "password": "wrong"})
+    assert bad_password.status_code == 401
+    assert bad_password.json()["detail"]["code"] == "LOGIN_FAILED"
+
+    disabled = client.post("/api/v1/auth/login", json={"username": "disabled", "password": "correct horse battery staple"})
+    assert disabled.status_code == 401
+    assert disabled.json()["detail"]["code"] == "LOGIN_FAILED"
+
+
+def test_session_expiry_returns_anonymous_me_and_401_for_protected_routes(monkeypatch):
+    _create_user(monkeypatch, username="expiring")
+    client = _client()
+    _login(client, username="expiring")
+
+    from app.db.models import SessionRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        row = session.scalar(select(SessionRecord))
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.json()["data"]["authenticated"] is False
+
+    protected = client.get("/api/v1/nodes")
+    assert protected.status_code == 401
+    assert protected.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+
+def test_read_routes_require_viewer_session_but_health_and_auth_me_are_public(monkeypatch):
+    _create_user(monkeypatch, username="reader")
+    client = _client()
+
+    assert client.get("/").status_code == 200
+    assert client.get("/health").status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    unauthenticated = client.get("/api/v1/nodes")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+    _login(client, username="reader")
+    authenticated = client.get("/api/v1/nodes")
+    assert authenticated.status_code == 200
+    assert authenticated.json()["ok"] is True
+
+
+def test_origin_guard_rejects_unexpected_unsafe_origins(monkeypatch):
+    _create_user(monkeypatch, username="origin-user")
+    client = _client()
+
+    null_origin = client.post(
+        "/api/v1/auth/login",
+        json={"username": "origin-user", "password": "correct horse battery staple"},
+        headers={"Origin": "null"},
+    )
+    assert null_origin.status_code == 403
+    assert null_origin.json()["detail"]["code"] == "FORBIDDEN_ORIGIN"
+
+    unknown_origin = client.post(
+        "/api/v1/auth/login",
+        json={"username": "origin-user", "password": "correct horse battery staple"},
+        headers={"Origin": "https://evil.example.invalid"},
+    )
+    assert unknown_origin.status_code == 403
+    assert unknown_origin.json()["detail"]["code"] == "FORBIDDEN_ORIGIN"
+
+    safe_get = client.get("/api/v1/auth/me", headers={"Origin": "https://evil.example.invalid"})
+    assert safe_get.status_code == 200
+
+
+def test_mutation_routes_require_operator_before_calling_mutation_functions(monkeypatch):
+    _create_user(monkeypatch, username="viewer-only", role="viewer")
+    client = _client()
+
+    create_payload = {"proxmox_mutation_acknowledged": True}
+    start_payload = {"vm_start_acknowledged": True, "idempotency_key": "authz"}
+
+    with patch("app.api.v1.router.get_default_proxmox_mutation_client") as client_factory, patch(
+        "app.api.v1.router.run_proxmox_create"
+    ) as create_mutation, patch("app.api.v1.router.record_vm_create_request") as create_record, patch(
+        "app.api.v1.router.run_vm_start"
+    ) as start_mutation:
+        create_unauth = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
+        start_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        assert create_unauth.status_code == 401
+        assert start_unauth.status_code == 401
+
+        _login(client, username="viewer-only")
+        create_viewer = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
+        start_viewer = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        assert create_viewer.status_code == 403
+        assert start_viewer.status_code == 403
+
+        client_factory.assert_not_called()
+        create_mutation.assert_not_called()
+        create_record.assert_not_called()
+        start_mutation.assert_not_called()
+
+
+def test_viewer_cannot_write_create_vm_workflow_state(monkeypatch):
+    _create_user(monkeypatch, username="workflow-viewer", role="viewer")
+    client = _client()
+    _login(client, username="workflow-viewer")
+
+    with patch("app.api.v1.router.record_job_run") as record_job_run:
+        for path in (
+            "/api/v1/vm-create/drafts",
+            "/api/v1/vm-create/workflow-viewer/preflight",
+            "/api/v1/vm-create/workflow-viewer/plan",
+            "/api/v1/vm-create/workflow-viewer/approve",
+            "/api/v1/vm-create/workflow-viewer/proxmox-preview",
+        ):
+            response = client.post(path, json={"job_id": "viewer-should-not-write"})
+            assert response.status_code == 403
+            assert response.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+
+        record_job_run.assert_not_called()
+
+
+def test_vm_start_route_passes_authenticated_actor_from_session(monkeypatch):
+    _create_user(monkeypatch, username="starter", role="operator")
+    client = _client()
+    _login(client, username="starter")
+    captured = {}
+
+    def fake_start(**kwargs):
+        captured.update(kwargs)
+        return {
+            "job_id": "vm-start-auth-actor",
+            "status": "completed",
+            "proxmox_mutation_enabled": True,
+            "side_effects": [],
+        }
+
+    with patch("app.api.v1.router.run_vm_start", side_effect=fake_start):
+        response = client.post(
+            "/api/v1/nodes/node-a/vms/306/actions/start",
+            json={"vm_start_acknowledged": True, "idempotency_key": "actor-start"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert captured["actor"]["username"] == "starter"
+    assert captured["actor"]["role"] == "operator"
+
+
+def _assert_job_status_actor(job_id: str, *, username: str, role: str, forbidden_username: str = "") -> None:
+    from app.jobs.artifacts import read_artifact_text
+    from app.jobs.runs import get_job_run
+
+    job = get_job_run(job_id)
+    details = job["details"]
+    assert details["actor_user_id"]
+    assert details["actor_username"] == username
+    assert details["actor_role"] == role
+    assert details["actor"]["username"] == username
+    if forbidden_username:
+        assert details["actor_username"] != forbidden_username
+
+    status_artifact = next(artifact for artifact in job["artifacts"] if artifact["type"] == "job_status")
+    status_payload = json.loads(read_artifact_text(status_artifact))
+    status_details = status_payload["details"]
+    assert status_details["actor_user_id"]
+    assert status_details["actor_username"] == username
+    assert status_details["actor_role"] == role
+    assert status_details["actor"]["username"] == username
+    if forbidden_username:
+        assert status_details["actor_username"] != forbidden_username
+
+
+def test_operator_create_vm_prelive_routes_record_unredacted_session_actor(monkeypatch, tmp_path):
+    monkeypatch.setenv("GJALLAR_SHARED_ROOT", str(tmp_path / "nfs"))
+    _create_user(monkeypatch, username="secret-admin", role="operator")
+    client = _client()
+    _login(client, username="secret-admin")
+
+    common = {
+        "operator_id": "payload-spoof",
+        "bridge_id": "vmbr0",
+        "static_ip": "192.168.2.144",
+        "prefix": 24,
+        "gateway": "192.168.2.1",
+    }
+
+    draft_payload = {**common, "job_id": "job-secret-draft"}
+    draft = client.post("/api/v1/vm-create/drafts", json=draft_payload)
+    assert draft.status_code == 200, draft.text
+    _assert_job_status_actor("job-secret-draft", username="secret-admin", role="operator", forbidden_username="payload-spoof")
+
+    preflight_payload = {**common, "job_id": "job-secret-preflight"}
+    preflight = client.post("/api/v1/vm-create/draft-secret-preflight/preflight", json=preflight_payload)
+    assert preflight.status_code == 200, preflight.text
+    _assert_job_status_actor("job-secret-preflight", username="secret-admin", role="operator", forbidden_username="payload-spoof")
+
+    plan_payload = {**common, "job_id": "job-secret-plan"}
+    plan = client.post("/api/v1/vm-create/draft-secret-plan/plan", json=plan_payload)
+    assert plan.status_code == 200, plan.text
+    review = plan.json()["data"]["review_confirm"]
+    _assert_job_status_actor("job-secret-plan", username="secret-admin", role="operator", forbidden_username="payload-spoof")
+
+    approved_payload = {
+        **plan_payload,
+        "plan_artifact_id": review["plan_artifact_id"],
+        "review_summary_checksum": review["review_summary_checksum"],
+        "yellow_risk_acknowledged": False,
+    }
+    approve = client.post("/api/v1/vm-create/draft-secret-plan/approve", json=approved_payload)
+    assert approve.status_code == 200, approve.text
+    _assert_job_status_actor("job-secret-plan", username="secret-admin", role="operator", forbidden_username="payload-spoof")
+
+    preview = client.post("/api/v1/vm-create/draft-secret-plan/proxmox-preview", json=approved_payload)
+    assert preview.status_code == 200, preview.text
+    _assert_job_status_actor("job-secret-plan", username="secret-admin", role="operator", forbidden_username="payload-spoof")
+
+
+def test_admin_can_access_protected_create_vm_mutation_route(monkeypatch):
+    _create_user(monkeypatch, username="admin-user", role="admin")
+    client = _client()
+    _login(client, username="admin-user")
+    handler = AsyncMock(return_value={"ok": True, "data": {"status": "mocked"}, "meta": {"mode": "mocked"}})
+
+    with patch("app.api.v1.router.create_vm_draft_proxmox_native", handler):
+        response = client.post(
+            "/api/v1/vm-create/admin-authz/proxmox-create",
+            json={"proxmox_mutation_acknowledged": True},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "mocked"
+    handler.assert_awaited_once()
+    _, kwargs = handler.await_args
+    assert kwargs["actor"].username == "admin-user"
+    assert kwargs["actor"].role == "admin"
+
+
+def test_vm_start_job_and_artifact_include_flat_actor_fields(monkeypatch):
+    _create_user(monkeypatch, username="starter-evidence", role="operator")
+    client = _client()
+    _login(client, username="starter-evidence")
+
+    from app.proxmox.models import VmInventory
+
+    class StubInventoryAdapter:
+        source = "test_read_only"
+
+        def list_vms(self):
+            return [
+                VmInventory(
+                    vmid=306,
+                    name="stopped-app",
+                    node_id="node-a",
+                    status="stopped",
+                    template=False,
+                    cpu=2,
+                    memory_mb=4096,
+                    disk_gb=40,
+                )
+            ]
+
+        def list_templates(self):
+            return []
+
+    class RecordingStartClient:
+        def redacted_connection_context(self):
+            return {"mode": "native_mutation"}
+
+        def start_vm(self, *, node, vmid):
+            return f"UPID:{node}:0001:start"
+
+        def wait_for_task(self, *, node, upid):
+            return {"node": node, "upid": upid, "status": "stopped", "exitstatus": "OK"}
+
+        def get_vm_status(self, *, node, vmid):
+            return {"node": node, "vmid": vmid, "name": "stopped-app", "status": "running"}
+
+    with patch("app.api.v1.router._inventory_adapter", return_value=StubInventoryAdapter()), patch(
+        "app.api.v1.router.get_default_proxmox_mutation_client",
+        return_value=RecordingStartClient(),
+    ):
+        response = client.post(
+            "/api/v1/nodes/node-a/vms/306/actions/start",
+            json={
+                "operator_id": "payload-spoof",
+                "vm_start_acknowledged": True,
+                "idempotency_key": "actor-flat-start",
+                "expected_name": "stopped-app",
+                "expected_status": "stopped",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["data"]
+
+    from app.jobs.artifacts import read_artifact_text
+    from app.jobs.runs import get_job_run
+
+    job = get_job_run(result["job_id"])
+    details = job["details"]
+    assert details["actor_username"] == "starter-evidence"
+    assert details["actor_role"] == "operator"
+    assert details["actor"]["username"] == "starter-evidence"
+    assert details["actor_username"] != "payload-spoof"
+
+    observed_payload = json.loads(read_artifact_text(result["observed_after_artifact"]))
+    assert observed_payload["actor_username"] == "starter-evidence"
+    assert observed_payload["actor_role"] == "operator"
+    assert observed_payload["actor"]["username"] == "starter-evidence"
+    assert observed_payload["actor_username"] != "payload-spoof"
+
+
+def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypatch, tmp_path):
+    monkeypatch.setenv("GJALLAR_SHARED_ROOT", str(tmp_path / "nfs"))
+    _create_user(monkeypatch, username="creator", role="operator")
+    client = _client()
+    _login(client, username="creator")
+
+    draft_id = "draft-auth-actor-create"
+    payload = {
+        "operator_id": "payload-spoof",
+        "job_id": "job-auth-actor-create",
+        "bridge_id": "vmbr0",
+        "static_ip": "192.168.2.144",
+        "prefix": 24,
+        "gateway": "192.168.2.1",
+    }
+    plan_response = client.post(f"/api/v1/vm-create/{draft_id}/plan", json=payload)
+    assert plan_response.status_code == 200, plan_response.text
+    review = plan_response.json()["data"]["review_confirm"]
+
+    def fake_create(plan, *, run_dir, client):
+        from app.jobs.artifacts import write_json_artifact
+
+        artifact = write_json_artifact(
+            run_dir=run_dir,
+            job_id=plan.job_id,
+            artifact_type="observed_after",
+            filename="observed_after.json",
+            payload={
+                "vmid": plan.vmid,
+                "target_node_id": plan.target_node_id,
+                "exists": True,
+                "status": "stopped",
+                "fingerprint": {"hash": "sha256:" + "1" * 64},
+            },
+        )
+        return {
+            "job_id": plan.job_id,
+            "manifest_id": plan.manifest_id,
+            "vmid": plan.vmid,
+            "target_node_id": plan.target_node_id,
+            "success": True,
+            "status": "completed",
+            "message": "VM exists on target node and is stopped",
+            "observed_after": {"status": "stopped", "fingerprint": {"hash": "sha256:" + "1" * 64}},
+            "observed_after_artifact": artifact.to_dict(),
+            "artifacts": [artifact.to_dict()],
+            "side_effects": ["proxmox_clone_invoked", "proxmox_task_polled", "proxmox_config_updated", "proxmox_post_check_observed"],
+        }
+
+    with patch("app.api.v1.router.get_default_proxmox_mutation_client", return_value=object()), patch(
+        "app.api.v1.router.run_proxmox_create",
+        side_effect=fake_create,
+    ):
+        create_response = client.post(
+            f"/api/v1/vm-create/{draft_id}/proxmox-create",
+            json={
+                **payload,
+                "plan_artifact_id": review["plan_artifact_id"],
+                "review_summary_checksum": review["review_summary_checksum"],
+                "yellow_risk_acknowledged": False,
+                "proxmox_mutation_acknowledged": True,
+            },
+        )
+
+    assert create_response.status_code == 200, create_response.text
+    request_record = create_response.json()["data"]["vm_create_request"]
+    assert request_record["actor_username"] == "creator"
+    assert request_record["actor_role"] == "operator"
+    assert request_record["actor"]["username"] == "creator"
+    assert request_record["actor"]["role"] == "operator"
+    assert request_record["actor"]["username"] != payload["operator_id"]
+
+    from app.jobs.artifacts import read_artifact_text
+    from app.jobs.runs import get_job_run
+
+    job = get_job_run(payload["job_id"])
+    details = job["details"]
+    assert details["actor_username"] == "creator"
+    assert details["actor_role"] == "operator"
+    assert details["actor"]["username"] == "creator"
+    assert details["actor_username"] != payload["operator_id"]
+    status_artifact = next(artifact for artifact in job["artifacts"] if artifact["type"] == "job_status")
+    status_payload = json.loads(read_artifact_text(status_artifact))
+    assert status_payload["details"]["actor_username"] == "creator"
+    assert status_payload["details"]["actor_role"] == "operator"
+    assert status_payload["details"]["actor"]["username"] == "creator"
+    assert status_payload["details"]["actor_username"] != payload["operator_id"]
+
+    from app.db.models import VmCreateRequestRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        row = session.get(VmCreateRequestRecord, payload["job_id"])
+        assert row.actor_user_id
+        assert row.actor_username == "creator"
+        assert row.actor_role == "operator"
+        assert row.actor_username != payload["operator_id"]

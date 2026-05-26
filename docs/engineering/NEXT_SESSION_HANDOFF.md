@@ -4,41 +4,52 @@ Last updated: 2026-05-27
 
 ## Current State
 
-- Latest pushed code commit before this docs refresh: `b6db2e5 feat: complete native VM create flow`.
+- Base commit before auth stabilization: `b753b06 feat: add drs advisor readiness surface`.
 - Create VM is now the strongest supporting capability, not the DRS MVP success line.
 - Active Create VM mutation path is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
 - Terraform plan/apply and legacy GitOps `execute/archive` routes are removed from the active API.
 - Profiles, Jobs/Runs, artifacts, Create VM requests, and created VM records are DB-backed.
+- Gjallar auth is implemented with local users, server-side sessions, and roles:
+  `viewer`, `operator`, and `admin`.
+- Read APIs require `viewer` or above. Create VM workflow writes, Create VM
+  live create, and VM Start require `operator` or `admin`.
+- First admin is created with
+  `cd backend && python -m app.auth.users create-admin --username yoon`.
+- Auth endpoints are active:
+  `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and
+  `GET /api/v1/auth/me`.
 - `/networks` is now read-only Network Readiness / migration pre-check visualization composed from existing live inventory APIs. There is no Proxmox network mutation, Networks API write path, YAML persistence, DB migration, or DRS execution authority.
 - Create VM power policy is request-level:
   - `stopped`: default, clone/config and stopped post-check.
   - `boot_and_verify`: start the new VM, observe guest-agent IP, and verify `cloud-init status --wait`.
 - SSH login, Ansible verification, app bootstrap, background reconciliation, and DRS identity registration are not implemented.
-- Next immediate implementation work is Create VM stabilization through Gjallar
-  login, server-side sessions, and simple roles. Use
-  `docs/engineering/CREATE_VM_STABILIZATION_PLAN.md` as the plan source.
+- Live Proxmox Create VM smoke was not run during auth stabilization and still
+  requires explicit approval.
+- Next immediate implementation work is the Create VM live smoke matrix plus
+  docs/risk follow-up from the auth stabilization review.
 
 ## Validation Baseline
 
-Most recent code validation before docs-only refresh:
+Most recent auth stabilization validation:
 
 ```bash
-PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests
-for test_file in frontend/tests/*.mjs; do node "$test_file"; done
+PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
+node --test frontend/tests/*.mjs
 pnpm --dir frontend lint
 pnpm --dir frontend build
 git diff --check
 ```
 
-Backend result recorded after the final boot verification fix: `148 passed, 1 warning, 29 subtests passed`.
+Recorded backend result after auth stabilization: `166 passed, 13 warnings, 29 subtests passed`.
 
-## Next Work 1: Create VM Stabilization
+## Next Work 1: Create VM Live Smoke Matrix
 
-Goal: close Create VM as a safe supporting capability before DRS Phase 2.
+Goal: verify the auth-protected Create VM behavior against live Proxmox after
+explicit approval.
 
 Start by reading:
 
-- `docs/engineering/CREATE_VM_STABILIZATION_PLAN.md`
+- `docs/operations/runbook.md`
 - `backend/app/api/v1/router.py`
 - `backend/app/main.py`
 - `backend/app/db/models.py`
@@ -46,27 +57,6 @@ Start by reading:
 - `frontend/src/services/apiV1.js`
 - `frontend/src/components/CreateInstanceWizard.jsx`
 - `frontend/src/components/InstanceList.jsx`
-
-First target:
-
-1. Add backend `users` and `sessions` tables.
-2. Add first-admin CLI.
-3. Add `/api/v1/auth/login`, `/api/v1/auth/logout`, `/api/v1/auth/me`.
-4. Add `viewer`, `operator`, `admin` role checks.
-5. Protect Create VM live mutation and VM Start with `operator` or above.
-6. Add frontend login/session/logout flow.
-
-Keep out of scope:
-
-- OAuth/SSO/2FA.
-- API token automation.
-- admin user-management UI.
-- SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
-  registration.
-
-## Next Work 2: Create VM Live Smoke Matrix
-
-Goal: verify the completed Create VM behavior against live Proxmox.
 
 Run and record:
 
@@ -77,12 +67,34 @@ Run and record:
 
 Check Jobs/Runs after each run:
 
+- authenticated actor evidence
 - job status and stage
 - generated VM summary
 - IP display and meaning
 - `observed_after`
 - `cloud_init`
 - `boot_verification`
+
+Keep out of scope for this smoke:
+
+- OAuth/SSO/2FA.
+- API token automation.
+- admin user-management UI.
+- SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
+  registration.
+
+## Next Work 2: Docs And Risk Follow-Up
+
+Goal: close documentation drift and explicitly capture remaining auth/Create VM
+risks before DRS Phase 2.
+
+Targets:
+
+- Update `docs/current/README.md` and any top-tab status docs that still imply
+  Create VM is unauthenticated.
+- Record that admin user management UI, password reset, OAuth/SSO/2FA, API
+  tokens, and live smoke are not part of the completed auth foundation.
+- Keep DRS execution authority separate from Create VM mutation authority.
 
 ## Next Work 3: DRS Advisor Identity And Execution Prep
 

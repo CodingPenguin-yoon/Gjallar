@@ -6,12 +6,10 @@ FastAPI 메인 애플리케이션 진입점
 - PRD v1 MVP `/api/v1` 라우트 등록
 """
 
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.router import router as api_v1_router
 
 # 환경 변수 로드 (.env 파일에서)
 # proxmox_service.py에서도 로드하지만, 다른 서비스들을 위해 여기서도 로드
@@ -19,6 +17,11 @@ project_root = Path(__file__).resolve().parent.parent.parent
 env_path = project_root / ".env"
 if env_path.exists():
     load_dotenv(env_path, override=False)
+
+from app.api.v1.router import router as api_v1_router
+from app.auth.api import router as auth_router
+from app.auth.config import allowed_origins
+from app.auth.origin import reject_unexpected_unsafe_origin
 
 # FastAPI 애플리케이션 인스턴스 생성
 app = FastAPI(
@@ -28,19 +31,17 @@ app = FastAPI(
 )
 
 # CORS 설정: 프론트엔드로부터의 요청 허용
-frontend_port = os.getenv("FRONTEND_PORT", "5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        f"http://localhost:{frontend_port}",
-        f"http://127.0.0.1:{frontend_port}",
-    ],
+    allow_origins=sorted(allowed_origins()),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(reject_unexpected_unsafe_origin)
 
 # API 라우트 등록
+app.include_router(auth_router)
 app.include_router(api_v1_router)
 # PRD v1 MVP exposes only the explicit /api/v1 operator surface.
 
