@@ -2,11 +2,11 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-This document is target-only. No backend DRS recommendation or migration execution path described here is implemented at HEAD `92dfc32`.
+This document describes target execution beyond the current read-only Phase 1 recommendation path.
 
 ## Current Baseline
 
-Current `/placement` reads existing inventory, jobs, and risks APIs; computes frontend-only read-model candidates; exposes no approval buttons; exposes no migration execution; stores no DRS operation state; and has no `/api/v1/drs/*` backend.
+Current `/drs` reads backend `/api/v1/drs/*` read-only endpoints; exposes no approval buttons; exposes no migration execution; and stores no DRS operation state.
 
 ## Target Recommendation Model
 

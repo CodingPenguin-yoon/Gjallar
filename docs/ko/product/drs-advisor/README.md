@@ -2,7 +2,7 @@
 
 이 폴더는 한국어 DRS Advisor product target 설명입니다. 기준 우선순위는 active code/tests, [영어 DRS Advisor PRD source](../../../product/drs-advisor/README.md), [current state](../../../current/README.md), [target DRS architecture](../../../architecture/placement-drs-advisor/recommendation-and-execution.md)입니다.
 
-현재 구현은 아직 DRS Advisor backend가 아닙니다. Current `/placement`는 frontend-only/read-only Placement seed입니다.
+현재 구현은 DRS Advisor read-only Phase 1입니다. Current `/drs`는 backend-owned recommendation read model을 사용하지만 migration 실행은 없습니다.
 
 ## 읽는 순서
 

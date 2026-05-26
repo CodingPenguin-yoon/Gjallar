@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, ArrowRight, CheckCircle2, HelpCircle, Monitor, Network, RefreshCw, XCircle } from 'lucide-react'
 import { apiV1Client } from '../services/apiV1'
-import { buildNetworkReadinessModel, buildSourceMigrationReadinessView, statusTone } from '../utils/networkReadiness'
+import { buildNetworkReadinessModel, buildSourceMigrationReadinessView, buildVmIpEvidenceDisplay, statusTone } from '../utils/networkReadiness'
 
 function StatusPill({ tone = 'slate', children }) {
   const tones = {
@@ -47,10 +47,20 @@ function reasonLabel(reason) {
     target_bridge_inactive: '대상 bridge 비활성',
     source_bridge_cidr_unavailable: 'source bridge CIDR 없음',
     bridge_evidence_missing: '네트워크 근거 부족',
-    vm_nic_bridge_evidence_missing: 'vm_nic_bridge_evidence_missing',
+    vm_nic_bridge_evidence_missing: 'NIC bridge 근거 없음',
     duplicate_ip_observed: '중복 IP 감지',
   }
   return labels[reason] || reason || '-'
+}
+
+function warningLabel(warning = {}) {
+  if (warning.code === 'duplicate_ip_observed') return `중복 IP: ${warning.ipAddress}`
+  return reasonLabel(warning.code)
+}
+
+function warningClassName(warning = {}) {
+  if (warning.code === 'duplicate_ip_observed') return 'text-red-700'
+  return 'text-yellow-700'
 }
 
 function bridgeList(values = [], fallback = '-') {
@@ -79,20 +89,57 @@ function resultError(label, result) {
 }
 
 function IpEvidenceCell({ vm }) {
-  if (vm.ipAddresses.length === 0) return '관찰 IP 없음'
-  const labels = vm.ipAddresses.map((ipAddress) => {
-    const scopes = Array.from(new Set(
-      vm.ipEvidence
-        .filter((item) => item.ipAddress === ipAddress)
-        .map((item) => item.scope)
-        .filter(Boolean)
-    ))
-    const suffix = scopes.length > 0 && !scopes.every((scope) => scope === 'primary')
-      ? ` (${scopes.join(', ')})`
-      : ''
-    return `${ipAddress}${suffix}`
-  })
-  return labels.join(', ')
+  const [expanded, setExpanded] = useState(false)
+  const display = buildVmIpEvidenceDisplay(vm)
+
+  if (!display.representative) return '관찰 IP 없음'
+
+  const visibleItems = expanded ? display.items : [display.representative]
+  const hiddenCount = display.hidden.length
+  const toggleLabel = `${vm.name} 관찰 IP ${hiddenCount}개 ${expanded ? '숨기기' : '더 보기'}`
+
+  return (
+    <div className="flex min-w-44 flex-wrap items-center gap-1.5">
+      {visibleItems.map((item) => (
+        <span key={`${item.ipAddress}:${item.label}`} className="font-mono text-xs text-slate-700">
+          {item.label}
+        </span>
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={toggleLabel}
+          onClick={() => setExpanded((current) => !current)}
+          className="inline-flex h-6 items-center rounded-full border border-slate-300 bg-white px-2 font-mono text-xs font-semibold text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100"
+        >
+          +{hiddenCount}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function VmBridgeCell({ vm }) {
+  const bridgeIds = Array.from(new Set(
+    (vm.nicBridgeEvidence || [])
+      .map((item) => item.bridgeId)
+      .filter(Boolean)
+  ))
+
+  if (bridgeIds.length === 0) {
+    return <span className="font-semibold text-slate-400">X</span>
+  }
+
+  return (
+    <div className="flex min-w-24 flex-wrap items-center gap-1.5">
+      {bridgeIds.map((bridgeId) => (
+        <span key={bridgeId} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700">
+          {bridgeId}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function MigrationSourceSelector({ model, view, onSourceChange }) {
@@ -291,11 +338,11 @@ function TargetReadinessTable({ view }) {
   )
 }
 
-function VmImpactTable({ view }) {
-  if (view.sourceVms.length === 0) {
+function NodeVmTable({ view }) {
+  if (view.nodeVms.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-        선택한 source node에 표시할 VM이 없습니다.
+        표시할 VM이 없습니다.
       </div>
     )
   }
@@ -308,47 +355,56 @@ function VmImpactTable({ view }) {
             <tr>
               <th className="px-4 py-3">VM</th>
               <th className="px-4 py-3">노드</th>
-              <th className="px-4 py-3">준비도</th>
-              <th className="px-4 py-3">관찰 IP</th>
+              <th className="px-4 py-3 whitespace-nowrap">연결 vmbr</th>
+              <th className="px-4 py-3 whitespace-nowrap">관찰 IP</th>
               <th className="px-4 py-3">게스트 에이전트</th>
               <th className="px-4 py-3">경고</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {view.sourceVms.map((vm) => (
-              <tr key={vm.id}>
-                <td className="px-4 py-3">
-                  <div className="font-semibold text-slate-950">{vm.name}</div>
-                  <div className="text-xs text-slate-500">{vm.vmid}</div>
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{vm.nodeId}</td>
-                <td className="px-4 py-3">
-                  <StatusPill tone="yellow">정보 부족</StatusPill>
-                  <div className="mt-1 text-xs text-slate-500">{reasonLabel(vm.readiness.reason)}</div>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  <IpEvidenceCell vm={vm} />
-                </td>
-                <td className="px-4 py-3">
-                  <StatusPill tone={vm.guestAgent.available ? 'green' : 'yellow'}>
-                    {vm.guestAgent.available ? '확인됨' : '미확인'}
-                  </StatusPill>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  <div className="flex flex-col gap-1">
-                    <span className="inline-flex items-center gap-1 text-yellow-700">
-                      <AlertTriangle className="h-4 w-4" />
-                      {reasonLabel('vm_nic_bridge_evidence_missing')}
-                    </span>
-                    {vm.duplicateIps.map((ipAddress) => (
-                      <span key={ipAddress} className="inline-flex items-center gap-1 text-red-700">
-                        <AlertTriangle className="h-4 w-4" />
-                        중복 IP: {ipAddress}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-              </tr>
+            {view.nodeVmGroups.map((group) => (
+              <Fragment key={group.nodeId}>
+                <tr className="bg-slate-50/80">
+                  <td colSpan={6} className="px-4 py-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                      <span className="text-slate-950">{group.displayName}</span>
+                      <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5">{group.vms.length} VM</span>
+                    </div>
+                  </td>
+                </tr>
+                {group.vms.map((vm) => (
+                  <tr key={vm.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-950">{vm.name}</div>
+                      <div className="text-xs text-slate-500">{vm.vmid}</div>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{vm.nodeId}</td>
+                    <td className="px-4 py-3">
+                      <VmBridgeCell vm={vm} />
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      <IpEvidenceCell vm={vm} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusPill tone={vm.guestAgent.available ? 'green' : 'yellow'}>
+                        {vm.guestAgent.available ? '확인됨' : '미확인'}
+                      </StatusPill>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      <div className="flex flex-col gap-1">
+                        {vm.warnings.length === 0 ? (
+                          <span className="text-slate-500">-</span>
+                        ) : vm.warnings.map((warning, index) => (
+                          <span key={`${warning.code}:${warning.ipAddress || index}`} className={`inline-flex items-center gap-1 ${warningClassName(warning)}`}>
+                            <AlertTriangle className="h-4 w-4" />
+                            {warningLabel(warning)}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -446,7 +502,7 @@ function NetworkReadinessScreen() {
           <SummaryCard label="준비됨" value={sourceView.summary.ready} sublabel={`정보 부족 ${sourceView.summary.unknown}`} />
           <SummaryCard label="검토 필요" value={sourceView.summary.needsReview} sublabel={`이름/remap ${sourceView.summary.bridgeNameUnverifiedMappings + sourceView.summary.remapCandidateMappings}`} />
           <SummaryCard label="차단" value={sourceView.summary.blocked} sublabel={`불일치/없음 ${sourceView.summary.bridgeIdSubnetMismatchMappings + sourceView.summary.missingMappings + sourceView.summary.inactiveMappings}`} />
-          <SummaryCard label="영향 VM" value={sourceView.summary.impactedVms} sublabel={`중복 IP 경고 ${sourceView.summary.duplicateIpWarnings}`} />
+          <SummaryCard label="노드별 VM" value={sourceView.summary.nodeVms} sublabel={`중복 IP 경고 ${sourceView.summary.duplicateIpWarnings}`} />
         </div>
         <TargetReadinessTable view={sourceView} />
       </section>
@@ -454,9 +510,9 @@ function NetworkReadinessScreen() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <Monitor className="h-5 w-5 text-slate-500" />
-          <h2 className="text-lg font-semibold text-slate-950">영향 VM</h2>
+          <h2 className="text-lg font-semibold text-slate-950">노드별 VM</h2>
         </div>
-        <VmImpactTable view={sourceView} />
+        <NodeVmTable view={sourceView} />
       </section>
     </div>
   )

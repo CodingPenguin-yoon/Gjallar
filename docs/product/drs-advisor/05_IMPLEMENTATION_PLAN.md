@@ -7,8 +7,8 @@
 Frontend:
 
 - `frontend/src/App.jsx`: route/nav, Dashboard aggregation
-- `frontend/src/components/PlacementScreen.jsx`: read-only Placement screen
-- `frontend/src/utils/placement.js`: read-only recommendation model
+- `frontend/src/components/DrsAdvisorScreen.jsx`: read-only DRS Advisor Phase 1 screen
+- `frontend/src/utils/drsAdvisor.js`: read-only DRS recommendation view model
 - `frontend/src/components/TaskBoard.jsx`: Jobs/Runs read-only UI
 - `frontend/src/utils/jobsScreen.js`: job/artifact view model
 - `frontend/src/components/OperationalRiskDashboard.jsx`: Risks/Alerts UI
@@ -19,6 +19,7 @@ Frontend:
 Backend:
 
 - `backend/app/api/v1/router.py`: inventory, jobs, risks, VM create endpoints
+- `backend/app/drs/advisor.py`: read-only DRS Phase 1 recommendation calculator
 - `backend/app/proxmox/inventory.py`: fake/live read-only Proxmox inventory adapter
 - `backend/app/proxmox/models.py`: inventory dataclasses
 - `backend/app/jobs/runs.py`: DB-backed job run status
@@ -32,7 +33,7 @@ Backend:
 
 Tests that lock useful current behavior:
 
-- `frontend/tests/placement.test.mjs`
+- `frontend/tests/drsAdvisor.test.mjs`
 - `frontend/tests/jobsScreen.test.mjs`
 - `frontend/tests/risksScreen.test.mjs`
 - `backend/tests/proxmox/test_inventory_adapter.py`
@@ -48,7 +49,7 @@ Reuse:
 
 - `/api/v1` envelope and client pattern
 - read-only inventory adapter shape
-- Placement view model tests as seed
+- DRS Phase 1 view model tests as seed
 - job/artifact run storage concepts
 - risk display pattern
 - Create VM approval artifact/checksum pattern
@@ -59,7 +60,7 @@ Reuse:
 Do not reuse as-is:
 
 - frontend-only recommendation as execution source
-- read-only Placement label/contract as final product
+- read-only Phase 1 DRS contract as final executable product
 - Create VM preflight as DRS final pre-check
 - VMID as identity
 - DB observed snapshot as execution source of truth
@@ -68,9 +69,9 @@ Do not reuse as-is:
 
 Goals:
 
-- Add DRS recommendation backend read API.
+- Maintain DRS recommendation backend read API.
 - Keep Proxmox mutations disabled in this phase.
-- Move current Placement recommendation logic server-side or mirror it with contract tests.
+- Keep recommendation logic server-side with contract tests.
 
 Candidate endpoints:
 
@@ -90,7 +91,7 @@ Implementation details:
 
 Tests:
 
-- Existing placement tests should keep passing after UI label transition.
+- DRS Advisor tests should keep passing.
 - Backend contract tests should assert no migration execution endpoint in Phase 1.
 - DRS recommendations should exclude red-risk VMs and offline targets.
 
@@ -122,13 +123,13 @@ Tests:
 
 Goals:
 
-- Change `/placement` label to DRS Advisor.
+- Keep `/drs` label and route as DRS Advisor.
 - Replace card-only recommendations with full table + detail drawer.
 - Add Dashboard top 1~3 recommendations.
 
 Work:
 
-- Update nav label from Placement to DRS Advisor.
+- Keep nav label as DRS Advisor.
 - Dashboard consumes DRS summary.
 - DRS Advisor screen shows identity, metadata, policy, mobility, route status.
 - Add Check Now panel.
@@ -136,7 +137,7 @@ Work:
 
 Tests:
 
-- App navigation includes `/placement` but label is DRS Advisor.
+- App navigation includes `/drs` and label is DRS Advisor.
 - Dashboard shows max 3 recommendations.
 - DRS Advisor table displays identity/policy/route fields.
 - Unknown route disables migration.

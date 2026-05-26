@@ -28,8 +28,8 @@
 
 | 오래된 주장 | 현재 correction |
 |---|---|
-| DRS Advisor backend가 구현되어 있다. | `/api/v1/drs/*` backend 없음. |
-| Current `/placement` can approve/migrate. | Current `/placement` is frontend read-only. |
+| DRS Advisor backend가 migration을 실행할 수 있다. | Current `/api/v1/drs/*` backend는 read-only Phase 1입니다. |
+| Current `/drs` can approve/migrate. | Current `/drs` is read-only and every recommendation is `executable=false`. |
 | Migration UPID tracking/locks/reconciliation exist. | Target-only. |
 | DRS identity/fingerprint/policy DB exists. | Not implemented. |
 

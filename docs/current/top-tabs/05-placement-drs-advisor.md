@@ -6,31 +6,28 @@
 
 ## 구현 수준
 
-현재 `/placement`는 read-only frontend recommendation seed다. UI label도 아직 `Placement`이며, DRS Advisor backend read model이나 execution flow는 구현되어 있지 않다.
+현재 `/drs`는 read-only DRS Advisor Phase 1 recommendation seed다. Backend DRS read model은 구현되어 있지만 execution flow는 구현되어 있지 않다.
 
 ## 구현 API/endpoints
 
-Placement 전용 backend endpoint는 없다. 화면은 다음 기존 `/api/v1` 조회를 조합한다.
+DRS Advisor Phase 1 backend endpoint는 다음 `/api/v1` 조회를 제공한다.
 
-- `GET /api/v1/cluster/summary`
-- `GET /api/v1/nodes`
-- `GET /api/v1/vms`
-- `GET /api/v1/storage`
-- `GET /api/v1/networks`
-- `GET /api/v1/risks`
-- `GET /api/v1/jobs`
+- `GET /api/v1/drs/summary`
+- `GET /api/v1/drs/recommendations`
+- `GET /api/v1/drs/recommendations/{recommendation_id}`
+- `POST /api/v1/drs/recommendations/{recommendation_id}/check`
 
-`/api/v1/drs/*`는 존재하지 않는다.
+모든 recommendation은 `read_only=true`, `executable=false`다.
 
 ## 관련 파일
 
-- Frontend: [frontend/src/components/PlacementScreen.jsx](../../../frontend/src/components/PlacementScreen.jsx), [frontend/src/utils/placement.js](../../../frontend/src/utils/placement.js), [frontend/src/services/apiV1.js](../../../frontend/src/services/apiV1.js), [frontend/src/App.jsx](../../../frontend/src/App.jsx)
-- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/proxmox/inventory.py](../../../backend/app/proxmox/inventory.py), [backend/app/proxmox/models.py](../../../backend/app/proxmox/models.py)
-- Tests: [frontend/tests/placement.test.mjs](../../../frontend/tests/placement.test.mjs), [frontend/tests/appNavigation.test.mjs](../../../frontend/tests/appNavigation.test.mjs), [backend/tests/contracts/test_api_v1_inventory.py](../../../backend/tests/contracts/test_api_v1_inventory.py)
+- Frontend: [frontend/src/components/DrsAdvisorScreen.jsx](../../../frontend/src/components/DrsAdvisorScreen.jsx), [frontend/src/utils/drsAdvisor.js](../../../frontend/src/utils/drsAdvisor.js), [frontend/src/services/apiV1.js](../../../frontend/src/services/apiV1.js), [frontend/src/App.jsx](../../../frontend/src/App.jsx)
+- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/drs/advisor.py](../../../backend/app/drs/advisor.py), [backend/app/proxmox/inventory.py](../../../backend/app/proxmox/inventory.py), [backend/app/proxmox/models.py](../../../backend/app/proxmox/models.py)
+- Tests: [frontend/tests/drsAdvisor.test.mjs](../../../frontend/tests/drsAdvisor.test.mjs), [frontend/tests/appNavigation.test.mjs](../../../frontend/tests/appNavigation.test.mjs), [backend/tests/contracts/test_api_v1_drs.py](../../../backend/tests/contracts/test_api_v1_drs.py)
 
 ## 현재 구현
 
-`loadPlacementModel`은 cluster/nodes/vms/storage/networks/risks/jobs를 읽고 frontend에서 node pressure와 imbalance를 계산한다. source pressure가 높고 target 여유가 있으면 candidate를 만든다.
+`loadDrsAdvisorModel`은 DRS summary/recommendation endpoints를 읽고 backend에서 계산된 node pressure와 imbalance candidate를 표시한다. source pressure가 높고 target 여유가 있으면 candidate를 만든다.
 
 현재 recommendation은 CPU/Memory current usage, bridge evidence, storage evidence, red risk exclusion을 사용한다. execution은 `available: false`, `readOnly: true`, `allowedActions: []`다.
 
@@ -44,8 +41,8 @@ Check Now, final pre-check, confirm modal, operation lock, Approve & Migrate, Pr
 
 ## 리스크/메모
 
-현재 Placement recommendation은 seed일 뿐 실행 판단이 아니다. frontend-only 계산은 stale/live evidence 재구성, identity mismatch, policy restriction, route unknown 같은 blocker를 authoritative하게 처리할 수 없다.
+현재 DRS recommendation은 seed일 뿐 실행 판단이 아니다. Phase 1은 identity mismatch, policy restriction, final pre-check를 authoritative하게 처리하지 않고 blocker로 표시한다.
 
 ## 다음 구현 slice
 
-첫 slice는 route label을 `DRS Advisor`로 바꾸되 실행 기능 없이 backend read-only recommendation contract를 추가하는 것이다. `/api/v1/drs/recommendations` 같은 target endpoint는 계약 테스트부터 만들고, Allowed/Restricted/Blocked/Unclassified/Identity Mismatch를 실행 없이 표시한다.
+다음 slice는 identity/fingerprint/policy DB와 final pre-check contract를 추가하되, migration execution은 별도 승인/lock/UPID 흐름이 준비될 때까지 열지 않는 것이다.

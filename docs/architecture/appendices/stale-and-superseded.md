@@ -30,12 +30,12 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 
 | Stale/superseded statement | Current correction |
 |---|---|
-| DRS Advisor backend is implemented. | No `/api/v1/drs/*` backend exists. |
-| Current `/placement` can approve and execute migration. | Current `/placement` is frontend read-only read model only. |
-| Placement recommendations are backend-owned operation records. | Current recommendation cards are frontend-generated from inventory/jobs/risks. |
+| DRS Advisor backend can execute migrations. | Current `/api/v1/drs/*` backend is read-only Phase 1 only. |
+| Current `/drs` can approve and execute migration. | Current `/drs` is read-only and all recommendations are `executable=false`. |
+| DRS recommendations are backend-owned operation records. | Current recommendations are backend-generated read models, not persisted operation records. |
 | Migration execution, UPID tracking, locks, and reconciliation exist. | These are target-only. |
 | DRS identity/fingerprint/policy DB exists. | Not implemented. Current Create VM fingerprint is an artifact, not a DB identity layer. |
-| Old placement APIs are active. | Current Placement uses existing `/api/v1` inventory, jobs, and risks APIs; no DRS API route surface exists. |
+| Old placement APIs are active. | Current DRS Advisor uses `/api/v1/drs/*` read-only routes; placement APIs are not active. |
 
 ## Jobs/Risks
 

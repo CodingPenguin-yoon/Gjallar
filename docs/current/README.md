@@ -9,8 +9,8 @@ This file is the docs source of truth for implemented behavior after active code
 ## Product direction vs implemented state
 
 - Product target: DRS Advisor is the next MVP success line.
-- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, read-only Placement, Jobs/Runs, Risks/Alerts, and Create VM supporting capability.
-- Current gap: backend DRS recommendation API, VM identity/fingerprint policy, DRS final pre-check, approval-gated live migration, Proxmox UPID tracking, operation locks, and reconciliation are not implemented yet.
+- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, read-only DRS Advisor Phase 1, Jobs/Runs, Risks/Alerts, and Create VM supporting capability.
+- Current gap: VM identity/fingerprint policy, DRS final pre-check, approval-gated live migration, Proxmox UPID tracking, operation locks, and reconciliation are not implemented yet.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
@@ -30,7 +30,7 @@ This file is the docs source of truth for implemented behavior after active code
 - Existing VM start is a separate Infra Explorer action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Jobs/Runs evidence.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
-- `/placement` is currently a read-only Placement screen. The target product direction is to relabel and expand this route into DRS Advisor.
+- `/drs` is currently a read-only DRS Advisor Phase 1 screen. It consumes backend `/api/v1/drs/*` read endpoints; all recommendations remain `executable=false`.
 
 ## Implemented behavior
 
@@ -117,6 +117,7 @@ Development smoke and test results recorded for this refresh:
 
 ## Practical reading
 
+- Use [`../engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`](../engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md) for the current implementation order and next slice.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

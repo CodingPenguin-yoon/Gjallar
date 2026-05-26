@@ -1,6 +1,6 @@
 # Gjallar Current Work Plan
 
-Last updated: 2026-05-16
+Last updated: 2026-05-27
 
 ## Purpose
 
@@ -11,6 +11,11 @@ work is completed or decisions change.
 This is not a replacement for product requirements. Product direction remains
 under `docs/product/drs-advisor/`, and current implemented state remains
 under `docs/current/README.md`.
+
+For the current cross-feature implementation sequence, use
+`docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`. This file preserves the
+living checklist for the completed Create VM cleanup/native-create workstream and
+the repo-local workflow context.
 
 ## Operating Principles
 
@@ -36,6 +41,9 @@ Use `AGENTS.md` for execution mode:
 - Gjallar's next MVP success line is DRS Advisor.
 - Create VM is a supporting capability, not the MVP success line.
 - Active Create VM mutation path is Proxmox native API.
+- Immediate next work is Create VM stabilization with Gjallar login,
+  server-side sessions, and simple role-based authorization. See
+  `docs/engineering/CREATE_VM_STABILIZATION_PLAN.md`.
 - Terraform Create VM executor routes/helper code and Terraform-named state
   fields are removed from the active code/API/artifact contracts.
 - Create VM profile/template/network target design is documented in
@@ -201,6 +209,39 @@ pnpm --dir frontend lint
 pnpm --dir frontend build
 ```
 
+## Workstream G: Create VM Stabilization
+
+Status: planned next slice.
+
+Goal: close Create VM as a safe supporting capability before DRS Phase 2.
+
+Plan source:
+`docs/engineering/CREATE_VM_STABILIZATION_PLAN.md`.
+
+Planned slices:
+
+- [ ] Add backend `users` and `sessions` tables.
+- [ ] Add first-admin CLI.
+- [ ] Add `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and
+  `GET /api/v1/auth/me`.
+- [ ] Add `viewer`, `operator`, and `admin` roles.
+- [ ] Require authenticated `operator` or `admin` for Create VM live mutation.
+- [ ] Require authenticated `operator` or `admin` for existing VM Start.
+- [ ] Require authenticated `viewer` or above for operator read APIs, leaving
+  only public health/login endpoints open.
+- [ ] Add actor evidence to mutation jobs and Create VM request records.
+- [ ] Add frontend `/login`, session bootstrap, logout, and role-aware controls.
+- [ ] Add tests for unauthenticated, viewer, operator, and admin behavior.
+- [ ] Record Create VM live smoke for `stopped` and `boot_and_verify`.
+
+Non-goals:
+
+- OAuth/SSO/2FA.
+- API token automation.
+- admin user-management UI.
+- SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
+  registration.
+
 ## Completed Decisions
 
 - Create VM profile seed source is DB-backed `source: db_seed` through
@@ -240,9 +281,13 @@ pnpm --dir frontend build
 
 ## Next Slice Candidate
 
-Recommended next implementation slice:
+Current implementation order is tracked in
+`docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`.
 
-1. Run a final Create VM live smoke matrix: stopped, boot-and-verify DHCP,
-   static IP, and invalid target combination.
-2. Start DRS Advisor read model and final pre-check contract work without
-   reusing Create VM mutation semantics.
+Recommended next major slice:
+
+1. Stabilize Create VM with login/session/role authorization.
+2. Record Create VM live smoke and update runbook/docs.
+3. Then implement DRS identity/fingerprint DB and read-only resolver.
+4. Feed resolver output into DRS recommendation blockers before any migration
+   execution work.

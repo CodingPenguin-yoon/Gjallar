@@ -14,6 +14,6 @@
 
 ## 전체 요약
 
-현재 active UI route는 `/`, `/infra`, `/networks`, `/create`, `/placement`, `/jobs`, `/risks`입니다. Active backend prefix는 `/api/v1`입니다.
+현재 active UI route는 `/`, `/infra`, `/networks`, `/create`, `/drs`, `/jobs`, `/risks`입니다. Active backend prefix는 `/api/v1`입니다.
 
-Current `/placement`는 frontend-only/read-only placement seed이고, target DRS Advisor는 backend-owned recommendation과 approval-gated migration으로 확장해야 합니다.
+Current `/drs`는 backend-owned read-only DRS Advisor Phase 1 seed이고, target DRS Advisor는 approval-gated migration으로 확장해야 합니다.

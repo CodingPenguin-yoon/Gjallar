@@ -11,7 +11,7 @@
 | 영역 | 남은 일 |
 |---|---|
 | Create VM profiles | DB seed 기반 read-only profile은 구현됨. 남은 일은 profile 관리 UI/운영 정책 결정. |
-| DRS read model | `/api/v1/drs/summary`, recommendations 같은 backend read-only API 추가. |
+| DRS identity/execution model | identity/fingerprint/policy, final pre-check, approval, locks, UPID/reconciliation 추가. |
 | Metrics | 1분 resource polling, 15분 average/peak, stale evidence warning. |
 | Identity | fingerprint 수집, identity assertions, metadata/policy validation. |
 | Final pre-check | 실행 직전 authoritative reread와 blocker/warning artifact. |

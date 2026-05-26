@@ -8,12 +8,11 @@
 - Infra Explorer: `/infra`
 - Networks: `/networks`
 - Create VM: `/create`
-- Placement: `/placement`
+- DRS Advisor: `/drs`
 - Jobs/Runs: `/jobs`
 - Risks/Alerts: `/risks`
 
-DRS Advisor MVP는 이 routing을 크게 흔들지 않는다.
-`/placement` route는 유지하되 화면 라벨과 flow를 DRS Advisor로 전환한다.
+DRS Advisor Phase 1은 `/drs` route에서 read-only recommendation table/detail/check flow를 제공한다.
 
 ## 2. Dashboard
 
@@ -63,12 +62,12 @@ Top recommendation summary:
 
 현재 구현:
 
-- `PlacementScreen`은 live read-only inventory라는 safety notice를 보여준다.
-- `loadPlacementModel`은 cluster/nodes/vms/storage/networks/risks/jobs를 읽는다.
+- `DrsAdvisorScreen`은 read-only DRS Phase 1 safety notice를 보여준다.
+- `loadDrsAdvisorModel`은 `/api/v1/drs/summary`와 `/api/v1/drs/recommendations`를 읽는다.
 - CPU/Memory current usage와 imbalance로 Balanced/Watch/Imbalanced를 계산한다.
 - source pressure >= 70, source-target delta >= 25이면 recommendation 후보를 만든다.
 - bridge/storage evidence를 검토한다.
-- execution은 `available: false`이고 action list는 비어 있다.
+- execution은 `available: false`, `executable: false`이고 action list는 비어 있다.
 
 목표:
 

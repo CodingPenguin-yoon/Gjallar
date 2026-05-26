@@ -2,9 +2,9 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-This is a target-only DRS flow. It is not current implementation.
+This is a target DRS execution flow after Phase 1. Current implementation is read-only and does not migrate.
 
-Current `/placement` does not call `/api/v1/drs/*`, does not approve recommendations, does not migrate VMs, does not track UPIDs, and does not reconcile operations.
+Current `/drs` calls read-only `/api/v1/drs/*` endpoints, but does not approve recommendations, migrate VMs, track UPIDs, or reconcile operations.
 
 ## Target Flow Summary
 
@@ -12,7 +12,7 @@ Current `/placement` does not call `/api/v1/drs/*`, does not approve recommendat
 |---:|---|---|---|
 | 1 | Load DRS Advisor. | `GET /api/v1/drs/summary` and `GET /api/v1/drs/recommendations`. | None or cached read model. |
 | 2 | Operator opens recommendation. | `GET /api/v1/drs/recommendations/{recommendation_id}` returns evidence bundle. | Recommendation evidence/version. |
-| 3 | Operator optionally refreshes route evidence for reference. | `POST /api/v1/drs/recommendations/{recommendation_id}/check-now`. | Check Now artifact/event; not execution authorization. |
+| 3 | Operator optionally refreshes recommendation evidence for reference. | `POST /api/v1/drs/recommendations/{recommendation_id}/check`. | Reference-only check result; not execution authorization. |
 | 4 | Operator reviews blockers and warnings. | Backend supplies red/yellow blocker taxonomy. | None. |
 | 5 | Operator requests final pre-check. | `POST /api/v1/drs/recommendations/{recommendation_id}/precheck`. | Final pre-check job/artifact. |
 | 6 | Final pre-check rereads Proxmox. | Verify locator, identity, fingerprint, status, source, target, storage, network, policy. | Final pre-check evidence. |
@@ -71,4 +71,4 @@ Target Risks/Alerts should show red/yellow blockers and link to recommendation, 
 
 ## Explicit Current Non-Implementation
 
-Nothing in this target flow is currently wired in the active backend. The only current related screen is `/placement`, and it is read-only.
+Only the read-only recommendation/detail/check portion is currently wired. Approval, migration, UPID tracking, locks, jobs, and reconciliation are not current.

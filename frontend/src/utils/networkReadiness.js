@@ -125,9 +125,26 @@ function normalizeIpEvidence(row = {}) {
     .filter((item) => item.ipAddress)
 }
 
+function normalizeNicBridgeEvidence(row = {}) {
+  return asArray(row.nic_bridge_evidence ?? row.nicBridgeEvidence)
+    .map((item = {}) => ({
+      interfaceName: asText(item.interface_name ?? item.interfaceName),
+      bridgeId: asText(item.bridge_id ?? item.bridgeId),
+      source: asText(item.source, 'config'),
+      interfaceType: asText(item.interface_type ?? item.interfaceType, 'proxmox_net_config'),
+      model: asText(item.model),
+      tag: asText(item.tag),
+      firewall: normalizeOptionalBoolean(item.firewall),
+      linkDown: normalizeOptionalBoolean(item.link_down ?? item.linkDown),
+      raw: item,
+    }))
+    .filter((item) => item.bridgeId && item.bridgeId !== 'unknown')
+}
+
 function normalizeVm(row = {}) {
   const guestAgent = normalizeGuestAgent(row)
   const ipEvidence = normalizeIpEvidence(row)
+  const nicBridgeEvidence = normalizeNicBridgeEvidence(row)
   const hasStructuredIpEvidence = ipEvidence.length > 0
   const ipAddresses = hasStructuredIpEvidence
     ? uniqueTextList(ipEvidence.map((item) => item.ipAddress))
@@ -148,12 +165,9 @@ function normalizeVm(row = {}) {
     template: Boolean(row.template),
     ipAddresses,
     ipEvidence,
+    nicBridgeEvidence,
     duplicateWarningIps,
     guestAgent,
-    readiness: {
-      status: 'unknown',
-      reason: 'vm_nic_bridge_evidence_missing',
-    },
     raw: row,
   }
 }
@@ -209,6 +223,50 @@ function buildDuplicateIpWarnings(vms) {
       vmNames: owners.map((vm) => vm.name),
     }))
     .sort((left, right) => naturalCompare(left.ipAddress, right.ipAddress))
+}
+
+const IP_SCOPE_PRIORITY = ['primary', 'observed', 'internal']
+
+function scopePriority(scopes = []) {
+  const normalizedScopes = scopes.map((scope) => String(scope).toLowerCase())
+  const rank = IP_SCOPE_PRIORITY.findIndex((scope) => normalizedScopes.includes(scope))
+  return rank === -1 ? IP_SCOPE_PRIORITY.length : rank
+}
+
+function formatIpEvidenceLabel(ipAddress, scopes = []) {
+  const suffix = scopes.length > 0 && !scopes.every((scope) => String(scope).toLowerCase() === 'primary')
+    ? ` (${scopes.join(', ')})`
+    : ''
+  return `${ipAddress}${suffix}`
+}
+
+export function buildVmIpEvidenceDisplay(vm = {}) {
+  const ipEvidence = asArray(vm.ipEvidence)
+  const ipAddresses = uniqueTextList([
+    ...asArray(vm.ipAddresses),
+    ...ipEvidence.map((item) => item?.ipAddress),
+  ])
+  const items = ipAddresses.map((ipAddress, order) => {
+    const scopes = Array.from(new Set(
+      ipEvidence
+        .filter((item) => item?.ipAddress === ipAddress)
+        .map((item) => item.scope)
+        .filter(Boolean)
+    ))
+    return {
+      ipAddress,
+      scopes,
+      label: formatIpEvidenceLabel(ipAddress, scopes),
+      priority: scopePriority(scopes),
+      order,
+    }
+  }).sort((left, right) => left.priority - right.priority || left.order - right.order)
+
+  return {
+    representative: items[0] || null,
+    hidden: items.slice(1),
+    items,
+  }
 }
 
 function buildBridgeMatrix({ nodes, bridges, bridgeIds }) {
@@ -786,14 +844,17 @@ export function buildNetworkReadinessModel({
       duplicateIpsByVm.get(vmId).push(warning.ipAddress)
     })
   })
-  const vmsWithWarnings = normalizedVms.map((vm) => ({
-    ...vm,
-    duplicateIps: duplicateIpsByVm.get(vm.id) || [],
-    warnings: [
-      { code: 'vm_nic_bridge_evidence_missing' },
-      ...(duplicateIpsByVm.get(vm.id) || []).map((ipAddress) => ({ code: 'duplicate_ip_observed', ipAddress })),
-    ],
-  }))
+  const vmsWithWarnings = normalizedVms.map((vm) => {
+    const duplicateIps = duplicateIpsByVm.get(vm.id) || []
+    return {
+      ...vm,
+      duplicateIps,
+      warnings: [
+        ...(vm.nicBridgeEvidence.length > 0 ? [] : [{ code: 'vm_nic_bridge_evidence_missing' }]),
+        ...duplicateIps.map((ipAddress) => ({ code: 'duplicate_ip_observed', ipAddress })),
+      ],
+    }
+  })
   const bridgeIds = Array.from(new Set(bridges.map((bridge) => bridge.bridgeId))).sort(naturalCompare)
   const bridgeMatrix = buildBridgeMatrix({ nodes: normalizedNodes, bridges, bridgeIds })
   const bridgeCoverageSummary = buildBridgeCoverageSummary({ nodes: normalizedNodes, bridges, bridgeIds })
@@ -876,18 +937,42 @@ export function buildSourceMigrationReadinessView(model = {}, sourceNodeId) {
         pair: pair || null,
       }
     })
-  const sourceVms = asArray(model.vms).filter((vm) => vm?.nodeId === selectedSourceNodeId)
-  const sourceVmIds = new Set(sourceVms.map((vm) => vm.id))
+  const nodeOrder = new Map(nodes.map((node, index) => [node.nodeId, index]))
+  const nodeVms = asArray(model.vms)
+    .filter((vm) => vm?.nodeId)
+    .sort((left, right) => {
+      const leftOrder = nodeOrder.has(left.nodeId) ? nodeOrder.get(left.nodeId) : Number.MAX_SAFE_INTEGER
+      const rightOrder = nodeOrder.has(right.nodeId) ? nodeOrder.get(right.nodeId) : Number.MAX_SAFE_INTEGER
+      return leftOrder - rightOrder
+        || naturalCompare(left.nodeId, right.nodeId)
+        || naturalCompare(left.name, right.name)
+    })
+  const nodeVmIds = new Set(nodeVms.map((vm) => vm.id))
   const duplicateIpWarnings = asArray(model.duplicateIpWarnings).filter((warning) => (
-    asArray(warning.vmIds).some((vmId) => sourceVmIds.has(vmId))
+    asArray(warning.vmIds).some((vmId) => nodeVmIds.has(vmId))
   ))
+  const nodeVmGroups = []
+  nodeVms.forEach((vm) => {
+    const lastGroup = nodeVmGroups[nodeVmGroups.length - 1]
+    if (lastGroup?.nodeId === vm.nodeId) {
+      lastGroup.vms.push(vm)
+      return
+    }
+    const node = nodes.find((candidate) => candidate.nodeId === vm.nodeId)
+    nodeVmGroups.push({
+      nodeId: vm.nodeId,
+      displayName: node?.displayName || vm.nodeId,
+      vms: [vm],
+    })
+  })
 
   return {
     selectedSourceNodeId,
     sourceNode,
     sourceBridges: sourceActiveBridges.map(bridgeEndpointEvidence),
     targetRows,
-    sourceVms,
+    nodeVms,
+    nodeVmGroups,
     duplicateIpWarnings,
     summary: {
       ready: targetRows.filter((row) => row.status === 'ready').length,
@@ -905,7 +990,7 @@ export function buildSourceMigrationReadinessView(model = {}, sourceNodeId) {
       unknownMappings: targetRows.reduce((total, row) => total + row.networkComparisonSummary.unknown, 0),
       bridgeNameUnverifiedMappings: targetRows.reduce((total, row) => total + row.networkComparisonSummary.bridgeNameUnverified, 0),
       bridgeIdSubnetMismatchMappings: targetRows.reduce((total, row) => total + row.networkComparisonSummary.bridgeIdSubnetMismatch, 0),
-      impactedVms: sourceVms.length,
+      nodeVms: nodeVms.length,
       duplicateIpWarnings: duplicateIpWarnings.length,
     },
   }

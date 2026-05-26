@@ -23,6 +23,7 @@ from app.proxmox.models import (
     IpEvidenceInventory,
     InventorySnapshot,
     NetworkInventory,
+    NicBridgeEvidenceInventory,
     NodeInventory,
     StorageInventory,
     TemplateInventory,
@@ -38,9 +39,23 @@ _DEFAULT_ADAPTER_SIGNATURE: tuple[Any, ...] | None = None
 _DEFAULT_ADAPTER: FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter | None = None
 _DISK_SIZE_PATTERN = re.compile(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGTP]?)", re.IGNORECASE)
 _DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
+_NIC_CONFIG_KEY_PATTERN = re.compile(r"^net\d+$")
+_NIC_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+_NIC_SAFE_MODEL_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 _NATURAL_SPLIT_PATTERN = re.compile(r"(\d+)")
 _GUEST_PRIMARY_INTERFACE_PREFIXES = ("eth", "ens", "enp", "eno")
 _GUEST_INTERNAL_INTERFACE_PREFIXES = ("veth", "cni", "flannel", "cali", "virbr")
+_NIC_CONFIG_OPTION_NAMES = {
+    "bridge",
+    "queues",
+    "rate",
+    "tag",
+    "trunks",
+    "firewall",
+    "link_down",
+    "mtu",
+    "model",
+}
 
 
 def _load_project_env() -> None:
@@ -345,6 +360,91 @@ def _deduplicate_ip_evidence(items: list[IpEvidenceInventory]) -> tuple[IpEviden
         seen.add(item)
         deduplicated.append(item)
     return tuple(deduplicated)
+
+
+def _deduplicate_nic_bridge_evidence(
+    items: list[NicBridgeEvidenceInventory],
+) -> tuple[NicBridgeEvidenceInventory, ...]:
+    deduplicated: list[NicBridgeEvidenceInventory] = []
+    seen: set[NicBridgeEvidenceInventory] = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduplicated.append(item)
+    return tuple(deduplicated)
+
+
+def _safe_nic_identifier(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or not _NIC_SAFE_IDENTIFIER_PATTERN.fullmatch(text):
+        return ""
+    return text
+
+
+def _safe_nic_model(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or not _NIC_SAFE_MODEL_PATTERN.fullmatch(text) or ":" in text:
+        return ""
+    return text
+
+
+def _safe_vlan_tag(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or not text.isdigit():
+        return ""
+    parsed = _safe_int(text)
+    if 1 <= parsed <= 4094:
+        return text
+    return ""
+
+
+def _extract_nic_model(parts: list[tuple[str, str, str]]) -> str:
+    if not parts:
+        return ""
+    name, separator, value = parts[0]
+    normalized_name = name.strip().lower()
+    if normalized_name == "model" and separator:
+        return _safe_nic_model(value)
+    if normalized_name in _NIC_CONFIG_OPTION_NAMES:
+        return ""
+    return _safe_nic_model(name)
+
+
+def _extract_nic_bridge_evidence(config_data: dict[str, Any]) -> tuple[NicBridgeEvidenceInventory, ...]:
+    evidence: list[NicBridgeEvidenceInventory] = []
+    for key, value in sorted(config_data.items(), key=lambda item: _natural_sort_key(item[0])):
+        interface_name = str(key).strip()
+        if not _NIC_CONFIG_KEY_PATTERN.fullmatch(interface_name):
+            continue
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        parts: list[tuple[str, str, str]] = []
+        values: dict[str, str] = {}
+        for part in raw.split(","):
+            name, separator, part_value = part.partition("=")
+            normalized_name = name.strip()
+            normalized_value = part_value.strip()
+            if not normalized_name:
+                continue
+            parts.append((normalized_name, separator, normalized_value))
+            if separator:
+                values[normalized_name.lower()] = normalized_value
+        bridge_id = _safe_nic_identifier(values.get("bridge"))
+        if not bridge_id:
+            continue
+        evidence.append(
+            NicBridgeEvidenceInventory(
+                interface_name=interface_name,
+                bridge_id=bridge_id,
+                model=_extract_nic_model(parts),
+                tag=_safe_vlan_tag(values.get("tag")),
+                firewall=_proxmox_optional_bool(values.get("firewall")),
+                link_down=_proxmox_optional_bool(values.get("link_down")),
+            )
+        )
+    return _deduplicate_nic_bridge_evidence(evidence)
 
 
 def _extract_configured_ip_evidence(config_data: dict[str, Any]) -> tuple[IpEvidenceInventory, ...]:
@@ -735,6 +835,14 @@ class FakeProxmoxInventoryAdapter:
                         duplicate_warning_eligible=True,
                     ),
                 ),
+                nic_bridge_evidence=(
+                    NicBridgeEvidenceInventory(
+                        interface_name="net0",
+                        bridge_id="vmbr0",
+                        model="virtio",
+                        firewall=True,
+                    ),
+                ),
                 guest_agent=GuestAgentInventory(available=True, ip_addresses=("192.168.2.141",)),
                 tags=("gjallar", "fixture"),
                 storage_id="local-lvm",
@@ -921,12 +1029,14 @@ class LiveProxmoxInventoryAdapter:
 
         configured_ip_evidence = _extract_configured_ip_evidence(config_data)
         configured_ips = _merge_ip_addresses([item.ip_address for item in configured_ip_evidence])
+        nic_bridge_evidence = _extract_nic_bridge_evidence(config_data)
         disks = _extract_disks(config_data, vm_row)
         detail = {
             "disk_gb": int(round(sum(disk.size_gb for disk in disks))) if disks else _extract_disk_size_gb(config_data, vm_row),
             "disks": disks,
             "ip_addresses": _merge_ip_addresses(list(configured_ips), list(guest_ips)),
             "ip_evidence": configured_ip_evidence + guest_ip_evidence,
+            "nic_bridge_evidence": nic_bridge_evidence,
             "guest_agent": GuestAgentInventory(available=bool(guest_ips), ip_addresses=guest_ips),
             "guest_agent_configured": _config_guest_agent_enabled(config_data),
             "cloud_init_ready": _config_cloud_init_ready(config_data),
@@ -974,6 +1084,7 @@ class LiveProxmoxInventoryAdapter:
             disk_gb=_safe_int(detail.get("disk_gb")),
             ip_addresses=tuple(detail.get("ip_addresses") or ()),
             ip_evidence=tuple(detail.get("ip_evidence") or ()),
+            nic_bridge_evidence=tuple(detail.get("nic_bridge_evidence") or ()),
             guest_agent=guest_agent,
             tags=tuple(detail.get("tags") or ()),
             storage_id=str(detail.get("storage_id") or "unknown"),
@@ -1043,6 +1154,7 @@ class LiveProxmoxInventoryAdapter:
                             "disk_gb": _bytes_to_gb(0),
                             "ip_addresses": (),
                             "ip_evidence": (),
+                            "nic_bridge_evidence": (),
                             "guest_agent": GuestAgentInventory(available=False),
                             "tags": (),
                             "storage_id": "unknown",

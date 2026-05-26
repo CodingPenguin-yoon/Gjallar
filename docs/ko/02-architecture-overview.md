@@ -16,7 +16,7 @@ React operator UI
   -> Proxmox read-only adapter or narrow Create VM mutation client
 ```
 
-현재 active route는 `/`, `/infra`, `/networks`, `/create`, `/placement`, `/jobs`, `/risks`입니다. Backend active prefix는 `/api/v1`입니다.
+현재 active route는 `/`, `/infra`, `/networks`, `/create`, `/drs`, `/jobs`, `/risks`입니다. Backend active prefix는 `/api/v1`입니다.
 
 ## 기준 우선순위
 
@@ -37,7 +37,7 @@ React operator UI
 | Jobs/artifacts | Create VM과 VM start 단계가 `job_runs`/`job_artifacts`에 상태와 artifact를 기록합니다. |
 | Manifest commit | `execute`는 desired-state manifest만 commit합니다. |
 | Native create | `proxmox-create`만 현재 active live VM creation path입니다. |
-| DRS | `/api/v1/drs/*`, migration execution, locks, reconciliation backend는 없습니다. |
+| DRS | `/api/v1/drs/summary`, `/recommendations`, detail, `/check`는 read-only Phase 1입니다. Migration execution, locks, reconciliation backend는 없습니다. |
 
 ## 자세한 한국어 아키텍처 문서
 

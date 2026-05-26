@@ -4,20 +4,20 @@
 
 기준 문서: [영어 Target DRS API](../../../architecture/api/target-drs-api.md), [Placement / DRS snapshot](../../../current/top-tabs/05-placement-drs-advisor.md), [DRS product direction](../../../product/drs-advisor/README.md), [DRS recommendation/execution](../../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md).
 
-이 문서는 future-only DRS Advisor API 후보를 설명합니다. 2026-05-14 기준 현재 `/api/v1/drs/*` route는 구현되어 있지 않습니다.
+이 문서는 DRS Advisor API 목표와 현재 Phase 1 구현 범위를 설명합니다. 2026-05-21 기준 read-only Phase 1 `/api/v1/drs/*` route는 구현되어 있고, migration 실행/승인/lock/reconciliation API는 아직 없습니다.
 
 ## 현재 baseline
 
-현재 `/placement`는 [frontend/src/utils/placement.js](../../../../frontend/src/utils/placement.js)가 기존 `/api/v1` inventory/jobs/risks API를 조합해 만드는 frontend-only read model입니다. Backend recommendation engine, approval persistence, migration execution, operation locks, UPID tracking, reconciliation backend가 없습니다.
+현재 `/drs`는 [frontend/src/components/DrsAdvisorScreen.jsx](../../../../frontend/src/components/DrsAdvisorScreen.jsx)와 [frontend/src/utils/drsAdvisor.js](../../../../frontend/src/utils/drsAdvisor.js)가 backend DRS read-only endpoint를 소비합니다. Backend recommendation read model은 [backend/app/drs/advisor.py](../../../../backend/app/drs/advisor.py)에 있으며, approval persistence, migration execution, operation locks, UPID tracking, reconciliation backend는 없습니다.
 
 ## Target candidate endpoints
 
 | Candidate endpoint | 목표 | 현재 상태 |
 |---|---|---|
-| `GET /api/v1/drs/summary` | blockers, candidates, recent migrations, policy coverage summary | Not implemented |
-| `GET /api/v1/drs/recommendations` | identity/policy/current Proxmox inventory/risk evidence 기반 backend-owned recommendation list | Not implemented |
-| `GET /api/v1/drs/recommendations/{recommendation_id}` | recommendation 하나의 evidence bundle | Not implemented |
-| `POST /api/v1/drs/recommendations/{recommendation_id}/check-now` | operator 참고용 route evidence refresh. 실행 허가는 아님 | Not implemented |
+| `GET /api/v1/drs/summary` | blockers, candidates, policy gap summary | Phase 1 read-only implemented |
+| `GET /api/v1/drs/recommendations` | current Proxmox inventory/risk evidence 기반 backend-owned recommendation list | Phase 1 read-only implemented |
+| `GET /api/v1/drs/recommendations/{recommendation_id}` | recommendation 하나의 evidence bundle | Phase 1 read-only implemented |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/check` | operator 참고용 recalculation. 실행 허가는 아님 | Phase 1 read-only implemented |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/precheck` | migration 직전 final pre-check | Not implemented |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/approve-migrate` | warning ack, lock, `drs_migration` job, migration start | Not implemented |
 | `GET /api/v1/drs/jobs/{job_id}` | DRS migration job state, UPID, task polling, post-check | Not implemented |
@@ -34,7 +34,7 @@ Check Now와 stale recommendation snapshot은 실행 허가가 아닙니다. Fin
 
 ## Explicit non-current items
 
-- `/api/v1/drs/*` route surface.
+- DRS mutation route surface.
 - DRS DB identity/fingerprint/metadata/policy/approval/lock/operation/reconciliation tables.
 - DRS migration mutation client.
 - DRS UPID tracking.

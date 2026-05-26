@@ -45,6 +45,7 @@ Use this section for current verification and operator safety notes.
 
 Use this section for repo-local execution workflow and current work planning.
 
+- [Implementation roadmap](engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md)
 - [AI coding workflow principles](engineering/AI_CODING_WORKFLOW_PRINCIPLES.md)
 - [Current work plan](engineering/GJALLAR_CURRENT_WORK_PLAN.md)
 
@@ -79,8 +80,9 @@ Product target / MVP direction:
 Workflow / execution:
 
 1. [`AGENTS.md`](../AGENTS.md).
-2. [`docs/engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](engineering/AI_CODING_WORKFLOW_PRINCIPLES.md).
-3. [`docs/engineering/GJALLAR_CURRENT_WORK_PLAN.md`](engineering/GJALLAR_CURRENT_WORK_PLAN.md).
+2. [`docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`](engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md).
+3. [`docs/engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](engineering/AI_CODING_WORKFLOW_PRINCIPLES.md).
+4. [`docs/engineering/GJALLAR_CURRENT_WORK_PLAN.md`](engineering/GJALLAR_CURRENT_WORK_PLAN.md).
 
 Operations:
 
@@ -97,5 +99,6 @@ Operations:
 - Terraform legacy executor routes/helper code and Terraform-named state metadata are removed from active contracts.
 - Live native create remains explicit-acknowledgement only and creates/configures a powered-off VM after Proxmox post-check/`observed_after`.
 - Target Create VM profile/template/network design uses DB-seeded profiles, Proxmox live templates, and selected target-node live bridges; current code still has known implementation gaps documented in status.
-- Read-only Placement exists today; target direction is DRS Advisor.
+- Read-only DRS Advisor Phase 1 exists today; target direction is identity-aware,
+  approved Proxmox migration control.
 - Dashboard and read-only screens should stay available when DB-backed job history is unavailable or temporarily unreadable.

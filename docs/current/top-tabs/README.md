@@ -18,10 +18,10 @@
 
 ## 전체 요약
 
-현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `Placement`, `Jobs/Runs`, `Risks/Alerts`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이다.
+현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이다.
 
-구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only Placement seed, DB-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
+구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only DRS Advisor Phase 1, DB-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
 
-DRS Advisor는 목표 제품 방향이다. 아직 backend DRS recommendation API, `/api/v1/drs/*`, identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
+DRS Advisor는 read-only Phase 1까지 구현되어 있다. 아직 identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
 
 Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. 실제 생성은 `proxmox-create`가 approval과 final acknowledgement 뒤에 clone UPID polling, 필요한 boot disk resize, config, power-policy post-check, `observed_after` artifact와 DB request/VM record를 끝낸 뒤에만 완료로 기록한다. 기본 `stopped` 정책은 VM을 꺼진 상태로 끝내고, 선택 `boot_and_verify` 정책은 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. Terraform plan/apply와 legacy `execute/archive` route surface는 제거됐고 old URL은 404다. SSH/Ansible/app bootstrap smoke는 deferred다.

@@ -5,7 +5,7 @@ Last reviewed against code: 2026-05-13
 Current MVP product source of truth is [`docs/product/drs-advisor/`](../product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. It presents live
-read-only inventory, guided VM creation, placement evidence, job history, and
+read-only inventory, guided VM creation, read-only DRS Advisor evidence, job history, and
 risk summaries. It is not a CI/CD system, source deployment tool, GitLab
 environment controller, or LLM assistant product.
 
@@ -46,7 +46,7 @@ Active routes:
 | `/infra` | `InstanceList` | Grouped VM inventory, detail evidence, and Start action for stopped non-template VMs. |
 | `/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
 | `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Proxmox native preview/create gates. |
-| `/placement` | `PlacementScreen` | Read-only placement recommendations from inventory, storage, bridge, job, and risk evidence. |
+| `/drs` | `DrsAdvisorScreen` | Read-only DRS Advisor Phase 1 recommendations and reference checks. |
 | `/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
 | `/risks` | `OperationalRiskDashboard` | Read-only risk summaries derived from job records. |
 
@@ -55,12 +55,11 @@ destructive VM actions, and LLM chat are intentionally absent from active `src`.
 
 ## DRS Advisor Target Gap
 
-Current `/placement` is a read-only Placement screen. It uses frontend view-model logic over existing `/api/v1` inventory/job/risk data and does not authorize or execute migration.
+Current `/drs` is a read-only DRS Advisor Phase 1 screen. It uses backend `/api/v1/drs/*` read models and does not authorize or execute migration.
 
 Target direction:
 
-- Keep the `/placement` route if useful, but relabel the product flow as DRS Advisor.
-- Add backend-owned `/api/v1/drs/*` recommendation read model.
+- Keep backend-owned `/api/v1/drs/*` recommendation read model advisory-only until execution prerequisites exist.
 - Add VM identity/fingerprint/metadata/policy state before any migration execution.
 - Add DRS final pre-check that rereads current Proxmox state immediately before execution.
 - Add approval-gated Proxmox live migration, UPID tracking, post-check, operation locks, and reconciliation.
@@ -68,7 +67,6 @@ Target direction:
 
 Current gap:
 
-- No `/api/v1/drs/*` routes.
 - No DB-backed DRS identity/fingerprint/policy/lock/reconciliation tables.
 - No Proxmox migration mutation client in the active DRS path.
 - No UPID tracking or Reconcile Now flow.

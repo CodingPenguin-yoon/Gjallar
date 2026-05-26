@@ -4,11 +4,11 @@
 
 기준 문서: [영어 target DRS flow](../../../architecture/flows/drs-approve-migrate-reconcile.md), [Target DRS API](../../../architecture/api/target-drs-api.md), [DRS recommendation/execution product doc](../../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md).
 
-이 문서는 target-only DRS flow입니다. 현재 구현이 아닙니다.
+이 문서는 Phase 1 이후 target DRS execution flow입니다. 현재 read-only Phase 1 구현은 migration을 실행하지 않습니다.
 
 ## Current non-implementation
 
-Current `/placement`는 `/api/v1/drs/*`를 호출하지 않고, recommendation approval, VM migration, UPID tracking, reconciliation을 수행하지 않습니다. 현재는 frontend-only read model입니다.
+Current `/drs`는 `/api/v1/drs/*` read-only endpoint를 호출하지만 recommendation approval, VM migration, UPID tracking, reconciliation을 수행하지 않습니다.
 
 ## Target flow summary
 
@@ -16,7 +16,7 @@ Current `/placement`는 `/api/v1/drs/*`를 호출하지 않고, recommendation a
 |---:|---|---|---|
 | 1 | DRS Advisor load | `GET /api/v1/drs/summary`, `GET /api/v1/drs/recommendations` | recommendation snapshot/cache |
 | 2 | Open recommendation | `GET /api/v1/drs/recommendations/{recommendation_id}` | evidence version |
-| 3 | Optional Check Now | `POST /check-now` | reference artifact, not authorization |
+| 3 | Optional Check | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | reference result, not authorization |
 | 4 | Review blockers/warnings | backend blocker taxonomy | none |
 | 5 | Request final pre-check | `POST /precheck` | final precheck artifact |
 | 6 | Backend rereads Proxmox | identity/fingerprint/status/source/target/storage/network/policy/locks | final evidence |

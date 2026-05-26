@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.v1.responses import success_response
 from app.core.redaction import redact_secrets
 from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_create
+from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, find_drs_recommendation
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
@@ -34,6 +35,15 @@ def _inventory_meta(adapter) -> dict:
 
 def _jobs_meta() -> dict[str, str]:
     return {"source": _inventory_adapter().source, "mode": "read_only"}
+
+
+def _drs_risks() -> list[dict[str, Any]]:
+    risks: list[dict[str, Any]] = []
+    for job in list_job_runs():
+        for risk in job.get("risks") or []:
+            if isinstance(risk, dict):
+                risks.append(risk)
+    return risks
 
 
 def _api_draft_from_payload(draft_id: str, payload: dict | None):
@@ -357,6 +367,53 @@ async def list_risks() -> dict:
             if isinstance(risk, dict):
                 risks.append(_risk_summary(job, risk))
     return success_response(risks, meta=_jobs_meta())
+
+
+@router.get("/drs/summary")
+def get_drs_summary() -> dict:
+    """Return the read-only DRS Advisor summary and current candidates."""
+    adapter = _inventory_adapter()
+    return success_response(
+        build_drs_advisor_model(adapter, risks=_drs_risks()),
+        meta={"source": adapter.source, "mode": "drs_advisor_read_only"},
+    )
+
+
+@router.get("/drs/recommendations")
+def list_drs_recommendations() -> dict:
+    """Return read-only DRS Advisor recommendations."""
+    adapter = _inventory_adapter()
+    return success_response(
+        build_drs_advisor_model(adapter, risks=_drs_risks()),
+        meta={"source": adapter.source, "mode": "drs_advisor_read_only"},
+    )
+
+
+@router.get("/drs/recommendations/{recommendation_id}")
+def get_drs_recommendation(recommendation_id: str) -> dict:
+    """Return one read-only DRS Advisor recommendation."""
+    adapter = _inventory_adapter()
+    recommendation = find_drs_recommendation(adapter, recommendation_id, risks=_drs_risks())
+    if recommendation is None:
+        raise HTTPException(status_code=404, detail="DRS recommendation not found")
+    return success_response(
+        recommendation,
+        meta={"source": adapter.source, "mode": "drs_advisor_read_only"},
+    )
+
+
+@router.post("/drs/recommendations/{recommendation_id}/check")
+def check_drs_recommendation(recommendation_id: str, payload: dict | None = None) -> dict:
+    """Run a reference-only recalculation for one recommendation."""
+    del payload
+    adapter = _inventory_adapter()
+    result = build_drs_check_result(adapter, recommendation_id, risks=_drs_risks())
+    if result is None:
+        raise HTTPException(status_code=404, detail="DRS recommendation not found")
+    return success_response(
+        result,
+        meta={"source": adapter.source, "mode": "drs_advisor_read_only"},
+    )
 
 
 @router.post("/nodes/{node_id}/vms/{vmid}/actions/start")

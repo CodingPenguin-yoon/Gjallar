@@ -31,13 +31,13 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 
 | Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
 |---|---|---|---|---|
-| `GET /api/v1/cluster/summary` | `cluster_summary()` | `_inventory_adapter()`로 adapter를 만들고 cluster/node/vm/template count와 mode metadata를 반환합니다. | `apiV1Client.clusterSummary()`; Dashboard와 `loadPlacementModel()` | Read-only. DRS 15분 average/peak나 blocker authority가 아닙니다. |
-| `GET /api/v1/nodes` | `list_nodes()` | inventory adapter의 node snapshot을 envelope로 반환합니다. | `listNodes()`; Dashboard, Infra Explorer, Create VM options, Placement, Networks readiness | Read-only. node load는 실행 gate가 아니라 evidence입니다. |
-| `GET /api/v1/vms` | `list_vms()` | template 제외 VM inventory를 반환합니다. | `listVms()`; Dashboard, Infra Explorer, Placement, Networks readiness | Read-only. DB identity/fingerprint match는 현재 없습니다. |
+| `GET /api/v1/cluster/summary` | `cluster_summary()` | `_inventory_adapter()`로 adapter를 만들고 cluster/node/vm/template count와 mode metadata를 반환합니다. | `apiV1Client.clusterSummary()`; Dashboard | Read-only. DRS 15분 average/peak나 execution gate가 아닙니다. |
+| `GET /api/v1/nodes` | `list_nodes()` | inventory adapter의 node snapshot을 envelope로 반환합니다. | `listNodes()`; Dashboard, Infra Explorer, Create VM options, Networks readiness | Read-only. node load는 실행 gate가 아니라 evidence입니다. |
+| `GET /api/v1/vms` | `list_vms()` | template 제외 VM inventory를 반환합니다. | `listVms()`; Dashboard, Infra Explorer, Networks readiness | Read-only. DB identity/fingerprint match는 현재 없습니다. |
 | `GET /api/v1/vms/{vmid}` | `get_vm(vmid)` | inventory adapter lookup by VMID. 없으면 404입니다. | `getVm(vmid)` helper | VMID는 identity가 아니라 locator입니다. |
 | `GET /api/v1/templates` | `list_templates()` | Proxmox template inventory를 반환합니다. | `listTemplates()`; Create VM options | Current active template selection source입니다. Missing readiness evidence는 ready가 아닙니다. |
-| `GET /api/v1/storage` | `list_storage()` | storage candidates를 inventory에서 반환합니다. | `listStorage()`; Dashboard, Create VM, Placement | Read-only. Create VM UI는 selected node, `images` content, free capacity로 필터링합니다. |
-| `GET /api/v1/networks` | `list_networks()` | bridge inventory를 반환합니다. | `listNetworks()`; Dashboard, Create VM, Placement, Networks readiness | Read-only. Create VM은 selected target node의 active bridge를 사용합니다. Networks는 nodes/vms/networks를 frontend에서 조합해 selected-source target network comparison, CIDR-verified exact bridge match evidence, bridge-name-only review evidence, CIDR remap candidate evidence를 표시합니다. |
+| `GET /api/v1/storage` | `list_storage()` | storage candidates를 inventory에서 반환합니다. | `listStorage()`; Dashboard, Create VM | Read-only. Create VM UI는 selected node, `images` content, free capacity로 필터링합니다. |
+| `GET /api/v1/networks` | `list_networks()` | bridge inventory를 반환합니다. | `listNetworks()`; Dashboard, Create VM, Networks readiness | Read-only. Create VM은 selected target node의 active bridge를 사용합니다. Networks는 nodes/vms/networks를 frontend에서 조합해 selected-source target network comparison, CIDR-verified exact bridge match evidence, bridge-name-only review evidence, CIDR remap candidate evidence를 표시합니다. |
 
 ## Create VM option/readiness APIs
 
@@ -56,10 +56,19 @@ Networks는 별도 backend readiness endpoint 없이 `GET /api/v1/nodes`, `/vms`
 
 | Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
 |---|---|---|---|---|
-| `GET /api/v1/jobs` | `list_jobs()` | `job_runs`를 latest-state summary로 읽습니다. | `listJobs()`; Dashboard, Placement, Jobs/Runs | Read-only. DB read 실패 시 fail-open `[]`입니다. |
+| `GET /api/v1/jobs` | `list_jobs()` | `job_runs`를 latest-state summary로 읽습니다. | `listJobs()`; Dashboard, Jobs/Runs | Read-only. DB read 실패 시 fail-open `[]`입니다. |
 | `GET /api/v1/jobs/{job_id}` | `get_job(job_id)` | `_job_entry_or_404()`로 DB job status를 읽습니다. | `getJob()`; `loadJobsScreenModel()` | Read-only. 없으면 404입니다. |
 | `GET /api/v1/jobs/{job_id}/artifacts` | `list_job_artifacts(job_id)` | `job_artifacts` metadata list를 반환합니다. | `listJobArtifacts()`; `loadJobsScreenModel()` | File content와 로컬 path를 stream/expose하지 않습니다. |
-| `GET /api/v1/risks` | `list_risks()` | DB job status의 `risks` 배열을 펼쳐 risk rows로 반환합니다. | `listRisks()`; Dashboard, Placement, Risks/Alerts | Current risks는 job-derived projection입니다. Standalone DRS blocker engine이 아닙니다. |
+| `GET /api/v1/risks` | `list_risks()` | DB job status의 `risks` 배열을 펼쳐 risk rows로 반환합니다. | `listRisks()`; Dashboard, Risks/Alerts | Current risks는 job-derived projection입니다. Standalone DRS blocker engine이 아닙니다. |
+
+## DRS Advisor read-only APIs
+
+| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
+|---|---|---|---|---|
+| `GET /api/v1/drs/summary` | `get_drs_summary()` | `app.drs.advisor`가 current inventory와 job-derived risks로 Phase 1 summary/recommendation model을 만듭니다. | `getDrsSummary()`; `loadDrsAdvisorModel()` | Read-only. No DB/job/artifact/Proxmox writes. |
+| `GET /api/v1/drs/recommendations` | `list_drs_recommendations()` | Running non-template VM 중 red-risk VM을 제외하고 current CPU/Memory threshold와 blocker evidence를 계산합니다. | `listDrsRecommendations()`; `loadDrsAdvisorModel()` | 모든 recommendation은 `executable=false`입니다. |
+| `GET /api/v1/drs/recommendations/{recommendation_id}` | `get_drs_recommendation()` | 같은 read-only model을 재계산해 id를 찾습니다. 없으면 404입니다. | `getDrsRecommendation()`; `loadDrsRecommendationDetail()` | Read-only. |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/check` | `check_drs_recommendation()` | Reference-only recalculation 결과를 반환합니다. | `checkDrsRecommendation()` | Execution authorization이 아닙니다. |
 
 ## VM action API
 
@@ -82,8 +91,8 @@ Networks는 별도 backend readiness endpoint 없이 `GET /api/v1/nodes`, `/vms`
 
 ## Frontend API client coverage
 
-[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, VM start, network readiness, jobs, risks, Create VM readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
+[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, VM start, network readiness, jobs, risks, DRS Advisor read-only, Create VM readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
 
-## 현재 없는 DRS APIs
+## 현재 없는 DRS mutation APIs
 
-현재 `/api/v1/drs/*` route는 없습니다. Target 후보는 [target-drs-api.md](target-drs-api.md)에 future-only로 정리되어 있습니다. Current `/placement`는 기존 inventory/jobs/risks API를 조합하는 frontend-only read model입니다.
+현재 DRS approve/migrate, final pre-check, jobs, locks, reconcile route는 없습니다. Target 후보는 [target-drs-api.md](target-drs-api.md)에 정리되어 있습니다.

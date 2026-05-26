@@ -35,7 +35,7 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 재사용할 기반:
 
 - Dashboard의 `/api/v1` aggregation과 node/VM/storage/risk summary
-- Placement의 read-only recommendation view model
+- DRS Advisor Phase 1의 backend-owned read-only recommendation view model
 - Jobs/Runs의 DB-backed job/artifact status substrate
 - Risks/Alerts의 job-derived risk display
 - Proxmox read-only inventory adapter
@@ -44,8 +44,8 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 
 현재 방향으로 바꿔야 하는 점:
 
-- `Placement` 화면은 `DRS Advisor`로 라벨과 책임을 전환한다.
-- read-only recommendation은 backend-backed DRS recommendation으로 승격한다.
+- `/drs` DRS Advisor Phase 1 화면은 실행 없이 recommendation evidence를 보여준다.
+- read-only recommendation은 identity/policy/final pre-check authority로 확장한다.
 - recommendation 실행은 Allowed VM에 한해 manual approved live migration까지 포함한다.
 - Jobs/Runs는 `vm_create`뿐 아니라 `drs_migration`을 1급 job으로 다룬다.
 - Risks/Alerts는 identity, policy, lock, route, reconciliation blocker를 표시해야 한다.
@@ -55,7 +55,7 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 
 - Dashboard node row 중심 화면
 - Dashboard 상위 1~3개 DRS 추천 요약
-- `/placement` route의 DRS Advisor 라벨 전환
+- `/drs` route의 DRS Advisor 화면
 - DRS Advisor full recommendation table
 - CPU/Memory 중심 recommendation
 - 최근 15분 average + peak evidence
@@ -111,7 +111,7 @@ Create VM Proxmox native flow는 보조 기능으로 유지한다. Legacy Terraf
 
 - Dashboard가 노드 행 단위 CPU/Memory/Disk/VM 상태를 보여준다.
 - Dashboard가 상위 1~3개 DRS 추천을 보여준다.
-- `/placement`가 DRS Advisor 화면으로 보인다.
+- `/drs`가 DRS Advisor 화면으로 보인다.
 - DRS Advisor table이 CPU/Memory 15분 average/peak evidence를 보여준다.
 - Allowed VM만 Approve & Migrate 가능하다.
 - Restricted/Blocked/Unclassified/Identity Mismatch는 실행되지 않는다.

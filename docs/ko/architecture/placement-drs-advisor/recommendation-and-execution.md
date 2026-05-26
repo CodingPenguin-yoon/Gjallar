@@ -4,11 +4,11 @@
 
 기준 문서: [영어 target DRS recommendation/execution](../../../architecture/placement-drs-advisor/recommendation-and-execution.md), [DRS recommendation/execution product doc](../../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md), [Target DRS API](../../../architecture/api/target-drs-api.md).
 
-이 문서는 target-only입니다. 현재 backend DRS recommendation이나 migration execution path는 구현되어 있지 않습니다.
+이 문서는 Phase 1 이후 target execution을 설명합니다. 현재 backend DRS recommendation read model은 구현되어 있지만 migration execution path는 없습니다.
 
 ## Current baseline
 
-Current `/placement`는 기존 inventory/jobs/risks API를 읽고 frontend-only candidates를 계산합니다. Approval button, migration execution, DRS operation state, `/api/v1/drs/*` backend가 없습니다.
+Current `/drs`는 `/api/v1/drs/summary`, `/api/v1/drs/recommendations`, detail, `/check` read-only endpoint를 읽습니다. Approval button, migration execution, DRS operation state는 없습니다.
 
 ## Target recommendation model
 

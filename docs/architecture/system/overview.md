@@ -2,7 +2,7 @@
 
 Status source: [current product status](../../current/README.md). Top-tab status index: [top tabs](../../current/top-tabs/README.md).
 
-Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, read-only network readiness evidence, read-only placement recommendations, DB-backed job history, and job-derived risk summaries.
+Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, read-only network readiness evidence, read-only DRS Advisor Phase 1 recommendations, DB-backed job history, and job-derived risk summaries.
 
 It is not currently a full DRS backend, migration execution engine, app deployment system, GitLab environment controller, CI/CD orchestrator, or LLM assistant product.
 
@@ -14,7 +14,7 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 | Source of truth for actual infrastructure | Proxmox actual VM/node/task/storage/network state. |
 | Gjallar-owned operational data | Create VM requests/VM records, approval evidence, job records, artifacts, and future target identity/policy/reconciliation data. |
 | Safety posture | Read-only by default. Live mutation is limited to approval-gated Create VM native clone/config/power-policy post-check and acknowledgement-gated start for stopped non-template VMs. |
-| DRS Advisor | Target product direction, not current backend execution. |
+| DRS Advisor | Read-only Phase 1 recommendations, not current backend execution. |
 
 ## Active Routes
 
@@ -24,7 +24,7 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 | `/infra` | `InstanceList` | VM inventory grouped by node, plus gated Start for stopped non-template VMs. |
 | `/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
 | `/create` | `CreateInstanceWizard` | Guided Create VM review, approval, native create. |
-| `/placement` | `PlacementScreen` | Frontend read-only placement read model. |
+| `/drs` | `DrsAdvisorScreen` | Backend-owned read-only DRS Advisor Phase 1 read model. |
 | `/jobs` | `TaskBoard` | Read-only job/run and artifact inspection. |
 | `/risks` | `OperationalRiskDashboard` | Read-only risk list derived from jobs. |
 
@@ -34,8 +34,9 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 |---|---|---|
 | Frontend routing | `frontend/src/App.jsx` | Route shell, navigation, dashboard implementation. |
 | Frontend API client | `frontend/src/services/apiV1.js` | `/api/v1` client and envelope unwrapping. |
-| Frontend view models | `frontend/src/utils/*.js` | Domain normalization for inventory, placement, jobs, risks, network readiness, and Create VM. |
+| Frontend view models | `frontend/src/utils/*.js` | Domain normalization for inventory, DRS Advisor, jobs, risks, network readiness, and Create VM. |
 | Backend API | `backend/app/api/v1/router.py` | `/api/v1` routes and job progress orchestration. |
+| DRS Advisor | `backend/app/drs/*` | Read-only Phase 1 recommendation calculation. |
 | Read-only inventory | `backend/app/proxmox/inventory.py` | Fake/live Proxmox read-only adapter. |
 | Proxmox mutation | `backend/app/proxmox/client.py` | Separate native mutation client used by gated mutation paths only. |
 | Create VM | `backend/app/vm_create/*` | Draft, preflight, plan, approval, manifest evidence, and native create. |
@@ -54,11 +55,10 @@ It is not currently a full DRS backend, migration execution engine, app deployme
 | Create VM records | `vm_create_requests` and `vm_instances` tables. |
 | Jobs/Runs | `job_runs` rows plus `job_artifacts`, including `vm_create` and `vm_start` jobs. |
 | Risks/Alerts | Derived from `risks` arrays in job status records. |
-| Placement recommendations | Frontend view model from inventory, jobs, and risks. No DRS backend route. |
+| DRS Advisor recommendations | Backend read-only calculator from inventory and job-derived risks. |
 
 ## Non-Goals In Current Implementation
 
-- No `/api/v1/drs/*` backend.
 - No Networks API write path, YAML persistence, DB migration, or Proxmox network mutation.
 - No approved migration execution, DRS operation locks, migration UPID tracking, or reconciliation backend.
 - No DB identity table, VM fingerprint table, policy table, or DRS audit table.

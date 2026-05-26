@@ -21,6 +21,10 @@ assert.equal(API_V1_ENDPOINTS.jobs, '/jobs')
 assert.equal(API_V1_ENDPOINTS.risks, '/risks')
 assert.equal(API_V1_ENDPOINTS.vms, '/vms')
 assert.equal(API_V1_ENDPOINTS.nodes, '/nodes')
+assert.equal(API_V1_ENDPOINTS.drsSummary, '/drs/summary')
+assert.equal(API_V1_ENDPOINTS.drsRecommendations, '/drs/recommendations')
+assert.equal(API_V1_ENDPOINTS.drsRecommendation('rec/1'), '/drs/recommendations/rec%2F1')
+assert.equal(API_V1_ENDPOINTS.drsRecommendationCheck('rec/1'), '/drs/recommendations/rec%2F1/check')
 assert.equal(API_V1_ENDPOINTS.vmStart('node/a', 306), '/nodes/node%2Fa/vms/306/actions/start')
 assert.equal(API_V1_ENDPOINTS.jobArtifacts('job/a b'), '/jobs/job%2Fa%20b/artifacts')
 assert.equal(API_V1_ENDPOINTS.vmCreateReadiness, '/vm-create/readiness')
@@ -59,6 +63,12 @@ assert.equal((await client.listProfiles()).url, '/custom/api/v1/profiles')
 assert.equal((await client.listTemplates()).url, '/custom/api/v1/templates')
 assert.equal((await client.listStorage()).url, '/custom/api/v1/storage')
 assert.equal((await client.listNetworks()).url, '/custom/api/v1/networks')
+assert.equal((await client.getDrsSummary()).url, '/custom/api/v1/drs/summary')
+assert.equal((await client.listDrsRecommendations()).url, '/custom/api/v1/drs/recommendations')
+assert.equal((await client.getDrsRecommendation('rec/1')).url, '/custom/api/v1/drs/recommendations/rec%2F1')
+assert.deepEqual((await client.checkDrsRecommendation('rec/1', { reference_only: true })).body, { reference_only: true })
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.equal(calls.at(-1).url, '/custom/api/v1/drs/recommendations/rec%2F1/check')
 assert.equal((await client.getVmCreateReadiness()).url, '/custom/api/v1/vm-create/readiness')
 assert.deepEqual((await client.createVmDraft({ operator_id: 'hermes' })).body, { operator_id: 'hermes' })
 assert.equal(calls.at(-1).options.method, 'POST')
@@ -111,6 +121,10 @@ for (const forbidden of [
   forbiddenEndpoint('/api', '/llm'),
   forbiddenEndpoint('/vm-create/', 'execute'),
   forbiddenEndpoint('/vm-create/', 'archive'),
+  forbiddenEndpoint('/drs/recommendations/', 'approve'),
+  forbiddenEndpoint('/drs/recommendations/', 'migrate'),
+  forbiddenEndpoint('/drs/recommendations/', 'live-migrate'),
+  forbiddenEndpoint('/drs/recommendations/', 'check-now'),
 ]) {
   assert.ok(!source.includes(forbidden), `apiV1 client must not reintroduce legacy endpoint ${forbidden}`)
 }

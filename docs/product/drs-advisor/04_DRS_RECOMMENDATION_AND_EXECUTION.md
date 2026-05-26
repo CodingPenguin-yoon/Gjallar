@@ -1,8 +1,8 @@
 # DRS Recommendation and Execution
 
-## 1. 현재 Placement recommendation baseline
+## 1. 현재 DRS Phase 1 recommendation baseline
 
-현재 `frontend/src/utils/placement.js`는 read-only recommendation을 만든다.
+현재 `backend/app/drs/advisor.py`는 backend-owned read-only recommendation을 만들고 `frontend/src/utils/drsAdvisor.js`는 이 endpoint를 소비한다.
 
 현재 로직:
 
@@ -17,9 +17,9 @@
 - bridge evidence와 storage evidence를 확인
 - blocker가 있어도 riskLevel은 yellow로 표시
 - execution.available은 false
-- readOnly true, allowedActions 빈 배열
+- read_only true, executable false, allowed_actions 빈 배열
 
-이 구현은 DRS Advisor의 첫 계산/화면 seed로 재사용한다.
+이 구현은 DRS Advisor의 첫 계산/화면 seed다.
 하지만 MVP 목표는 backend-backed, identity/policy aware, final pre-check gated, approval-executable recommendation이다.
 
 ## 2. Target DRS model

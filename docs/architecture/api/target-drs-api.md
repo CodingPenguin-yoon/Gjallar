@@ -2,18 +2,18 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-This document lists candidate DRS Advisor APIs for future work. None of these `/api/v1/drs/*` routes are current implementation as of 2026-05-14.
+This document lists DRS Advisor APIs and separates current Phase 1 read-only implementation from future execution work.
 
-Current `/placement` is a frontend read-only read model built from existing inventory, jobs, and risks APIs. It has no backend DRS recommendation engine, approval persistence, migration execution, locks, UPID tracking, or reconciliation backend.
+Current `/drs` is a read-only DRS Advisor Phase 1 screen backed by `/api/v1/drs/*` summary/recommendation/detail/check endpoints. It has no approval persistence, migration execution, locks, UPID tracking, or reconciliation backend.
 
 ## Candidate Endpoints
 
 | Candidate endpoint | Target purpose | Current status |
 |---|---|---|
-| `GET /api/v1/drs/summary` | DRS dashboard summary: blockers, candidates, recent migrations, policy coverage. | Not implemented. |
-| `GET /api/v1/drs/recommendations` | Backend-owned recommendation list from identity, policy, current Proxmox inventory, and risk evidence. | Not implemented. |
-| `GET /api/v1/drs/recommendations/{recommendation_id}` | Detailed evidence bundle for one recommendation. | Not implemented. |
-| `POST /api/v1/drs/recommendations/{recommendation_id}/check-now` | Refresh route evidence for operator reference. This does not authorize migration. | Not implemented. |
+| `GET /api/v1/drs/summary` | DRS dashboard summary: blockers, candidates, policy gaps. | Phase 1 read-only implemented. |
+| `GET /api/v1/drs/recommendations` | Backend-owned recommendation list from current Proxmox inventory and risk evidence. | Phase 1 read-only implemented. |
+| `GET /api/v1/drs/recommendations/{recommendation_id}` | Detailed evidence bundle for one recommendation. | Phase 1 read-only implemented. |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/check` | Reference-only recalculation. This does not authorize migration. | Phase 1 read-only implemented. |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/precheck` | Final pre-check immediately before migration: reread Proxmox, verify identity/fingerprint/policy/locks/target. | Not implemented. |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/approve-migrate` | Persist warning acknowledgement, acquire locks, create a `drs_migration` job, and start migration only after final pre-check allows it. | Not implemented. |
 | `GET /api/v1/drs/jobs/{job_id}` | Read DRS migration job state, UPID, task polling, and post-check status. | Not implemented. |
@@ -39,7 +39,7 @@ Target DRS execution must not be "approve means migrate". The minimum target seq
 
 ## Explicit Non-Current Items
 
-- `/api/v1/drs/*` route surface.
+- DRS mutation route surface.
 - DRS DB identity, fingerprint, metadata, policy, approval, lock, operation, or reconciliation tables.
 - Migration execution client in a DRS path.
 - UPID tracking for DRS migration.

@@ -70,6 +70,21 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
             ],
             vm["ip_evidence"],
         )
+        self.assertEqual(
+            [
+                {
+                    "interface_name": "net0",
+                    "bridge_id": "vmbr0",
+                    "source": "config",
+                    "interface_type": "proxmox_net_config",
+                    "model": "virtio",
+                    "tag": "",
+                    "firewall": True,
+                    "link_down": None,
+                }
+            ],
+            vm["nic_bridge_evidence"],
+        )
         self.assertFalse(vm["template"])
         self.assertEqual("local-lvm", vm["storage_id"])
         self.assertEqual("scsi0", vm["disks"][0]["device"])
@@ -133,15 +148,21 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                 "boot": "order=scsi0;net0",
                 "scsi0": "local-lvm:vm-202-disk-0,size=80G,format=raw,discard=on,iothread=1",
                 "ide2": "local:iso/debian.iso,media=cdrom",
+                "net0": "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=40,firewall=1,link_down=0",
+                "net1": "virtio,bridge=vmbr2",
+                "net2": "virtio=AA:BB:CC:DD:EE:00,firewall=1",
+                "net3": "virtio,bridge=",
                 "ipconfig0": "ip=192.168.2.202/24,gw=192.168.2.1",
                 "tags": "db;critical",
             },
             "/nodes/node10/qemu/101/config": {
                 "scsi0": "fast-nvme:vm-101-disk-0,size=40G",
+                "net0": "virtio,bridge=vmbr1",
                 "ipconfig0": "ip=dhcp",
             },
             "/nodes/node10/qemu/150/config": {
                 "virtio0": "fast-nvme:vm-150-disk-0,size=20G",
+                "net0": "virtio=AA:BB:CC:DD:EE:AA",
                 "ipconfig0": "ip=192.168.2.150/24",
                 "agent": "0",
             },
@@ -242,6 +263,48 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertFalse(evidence_202[("guest_agent", "br-46ea44f7", "172.18.0.1")]["duplicate_warning_eligible"])
         self.assertEqual("observed", evidence_202[("guest_agent", "vmbr0", "10.250.0.1")]["scope"])
         self.assertFalse(evidence_202[("guest_agent", "vmbr0", "10.250.0.1")]["duplicate_warning_eligible"])
+        self.assertEqual(
+            [
+                {
+                    "interface_name": "net0",
+                    "bridge_id": "vmbr0",
+                    "source": "config",
+                    "interface_type": "proxmox_net_config",
+                    "model": "virtio",
+                    "tag": "40",
+                    "firewall": True,
+                    "link_down": False,
+                },
+                {
+                    "interface_name": "net1",
+                    "bridge_id": "vmbr2",
+                    "source": "config",
+                    "interface_type": "proxmox_net_config",
+                    "model": "virtio",
+                    "tag": "",
+                    "firewall": None,
+                    "link_down": None,
+                },
+            ],
+            first_vms[0]["nic_bridge_evidence"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "interface_name": "net0",
+                    "bridge_id": "vmbr1",
+                    "source": "config",
+                    "interface_type": "proxmox_net_config",
+                    "model": "virtio",
+                    "tag": "",
+                    "firewall": None,
+                    "link_down": None,
+                }
+            ],
+            first_vms[1]["nic_bridge_evidence"],
+        )
+        self.assertEqual([], first_vms[2]["nic_bridge_evidence"])
+        self.assertNotIn("AA:BB", repr(first_vms[0]["nic_bridge_evidence"]))
         evidence_101 = first_vms[1]["ip_evidence"][0]
         self.assertEqual("ens18", evidence_101["interface_name"])
         self.assertEqual("primary", evidence_101["scope"])

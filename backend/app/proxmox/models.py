@@ -73,6 +73,21 @@ class IpEvidenceInventory:
 
 
 @dataclass(frozen=True)
+class NicBridgeEvidenceInventory:
+    interface_name: str
+    bridge_id: str
+    source: str = "config"
+    interface_type: str = "proxmox_net_config"
+    model: str = ""
+    tag: str = ""
+    firewall: bool | None = None
+    link_down: bool | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class DiskInventory:
     device: str
     bus: str
@@ -126,6 +141,7 @@ class VmInventory:
     disk_gb: int
     ip_addresses: tuple[str, ...] = ()
     ip_evidence: tuple[IpEvidenceInventory, ...] = ()
+    nic_bridge_evidence: tuple[NicBridgeEvidenceInventory, ...] = ()
     guest_agent: GuestAgentInventory = field(default_factory=lambda: GuestAgentInventory(False))
     tags: tuple[str, ...] = ()
     storage_id: str = "unknown"
@@ -135,6 +151,7 @@ class VmInventory:
         data = asdict(self)
         data["ip_addresses"] = list(self.ip_addresses)
         data["ip_evidence"] = [item.to_dict() for item in self.ip_evidence]
+        data["nic_bridge_evidence"] = [item.to_dict() for item in self.nic_bridge_evidence]
         data["guest_agent"] = self.guest_agent.to_dict()
         data["tags"] = list(self.tags)
         data["disks"] = [disk.to_dict() for disk in self.disks]

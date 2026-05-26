@@ -17,6 +17,7 @@
 | Profiles/readiness | `profiles`, `vm-create/readiness` | Create VM option/readiness source. |
 | Network readiness | `GET /nodes`, `/vms`, `/networks` | Frontend-composed read-only migration pre-check evidence. Proxmox bridge mutation, API write path, YAML persistence 없음. |
 | Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | DB-backed job status와 job-derived risks. |
+| DRS Advisor | `drs/summary`, `drs/recommendations`, `drs/recommendations/{recommendation_id}`, `drs/recommendations/{recommendation_id}/check` | Read-only Phase 1 recommendation/read model. Migration execution 없음. |
 | Create VM | `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, native create까지. |
 
 ## Create VM에서 가장 헷갈리는 endpoint
@@ -26,6 +27,6 @@
 
 ## 현재 없는 API
 
-Target DRS API는 future-only입니다. 현재 `/api/v1/drs/*` route는 없습니다. 현재 `/placement`는 기존 inventory/jobs/risks API를 조합하는 frontend read-only read model입니다.
+DRS Phase 1 read-only API는 구현되어 있습니다. 아직 없는 것은 DRS final pre-check, approve/migrate, DRS job/lock/reconcile mutation API입니다.
 
 자세한 target 후보는 [architecture/api/target-drs-api.md](architecture/api/target-drs-api.md)를 봅니다.

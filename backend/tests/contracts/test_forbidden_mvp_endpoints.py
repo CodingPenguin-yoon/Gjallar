@@ -44,6 +44,19 @@ class ForbiddenMvpEndpointTests(unittest.TestCase):
         offenders = [path for path in self.paths if path.startswith("/api/v1/runtime-targets")]
         self.assertEqual([], offenders, f"Runtime Target write/API is deferred from MVP: {offenders}")
 
+    def test_drs_mutation_routes_are_not_exposed_in_phase_one(self):
+        forbidden_drs_paths = {
+            "/api/v1/drs/recommendations/{recommendation_id}/approve",
+            "/api/v1/drs/recommendations/{recommendation_id}/migrate",
+            "/api/v1/drs/recommendations/{recommendation_id}/migration",
+            "/api/v1/drs/recommendations/{recommendation_id}/live-migrate",
+            "/api/v1/drs/recommendations/{recommendation_id}/check-now",
+            "/api/v1/drs/live-migrate",
+            "/api/v1/drs/migrate",
+        }
+        offenders = sorted(forbidden_drs_paths & set(self.paths))
+        self.assertEqual([], offenders, f"DRS Phase 1 must stay advisory-only: {offenders}")
+
 
 if __name__ == "__main__":
     unittest.main()

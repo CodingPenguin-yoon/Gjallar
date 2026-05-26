@@ -4,17 +4,17 @@
 
 기준 문서: [DRS Advisor product direction](../product/drs-advisor/README.md), [Placement and target DRS Advisor](../architecture/placement-drs-advisor/overview.md), [target DRS API](../architecture/api/target-drs-api.md), [target DRS flow](../architecture/flows/drs-approve-migrate-reconcile.md).
 
-DRS Advisor는 Gjallar의 다음 MVP product target입니다. 현재 구현은 아직 backend DRS Advisor가 아니라 read-only Placement seed입니다.
+DRS Advisor는 Gjallar의 다음 MVP product target입니다. 현재 구현은 backend-owned read-only Phase 1 recommendation seed입니다.
 
 자세한 한국어 제품 설명은 [product/drs-advisor/README.md](product/drs-advisor/README.md)를 봅니다.
 
 ## 현재 상태
 
-- `/placement` route는 존재하지만 label/책임은 아직 Placement 중심입니다.
-- `frontend/src/utils/placement.js`가 inventory/jobs/risks를 조합해 후보를 계산합니다.
-- 현재 recommendation은 CPU/Memory current usage, imbalance, bridge/storage evidence, red risk exclusion을 사용합니다.
-- Execution은 `available: false`, `readOnly: true`, `allowedActions: []`입니다.
-- 현재 `/api/v1/drs/*` route는 없습니다.
+- `/drs` route는 `DRS Advisor` label을 사용합니다.
+- `frontend/src/utils/drsAdvisor.js`가 backend DRS endpoint를 소비합니다.
+- 현재 recommendation은 CPU/Memory current usage, imbalance, bridge/storage/passthrough/target pressure evidence, red risk exclusion을 사용합니다.
+- Execution은 `available: false`, `read_only: true`, `executable: false`, `allowed_actions: []`입니다.
+- 현재 `/api/v1/drs/summary`, `/recommendations`, detail, `/check`는 read-only로 존재합니다.
 
 ## 목표
 

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 const {
   buildNetworkReadinessModel,
   buildSourceMigrationReadinessView,
+  buildVmIpEvidenceDisplay,
   statusTone,
 } = await import('../src/utils/networkReadiness.js')
 
@@ -109,7 +110,26 @@ assert.deepEqual(sourceViewBlockedTarget.networkComparisons.map((comparison) => 
   },
 ])
 assert.ok(!sourceView.targetRows.some((row) => row.targetNodeId === 'yoonmanserver2'))
-assert.deepEqual(sourceView.sourceVms.map((vm) => vm.name), ['app-01'])
+assert.deepEqual(sourceView.nodeVms.map((vm) => `${vm.nodeId}:${vm.name}`), [
+  'yoonmanserver2:app-01',
+  'yoonmanserver3:app-02',
+])
+assert.deepEqual(sourceView.nodeVmGroups.map((group) => ({
+  nodeId: group.nodeId,
+  displayName: group.displayName,
+  vmNames: group.vms.map((vm) => vm.name),
+})), [
+  {
+    nodeId: 'yoonmanserver2',
+    displayName: 'yoonmanserver2',
+    vmNames: ['app-01'],
+  },
+  {
+    nodeId: 'yoonmanserver3',
+    displayName: 'yoonmanserver3',
+    vmNames: ['app-02'],
+  },
+])
 assert.equal(sourceView.summary.ready, 0)
 assert.equal(sourceView.summary.needsReview, 1)
 assert.equal(sourceView.summary.blocked, 1)
@@ -121,7 +141,7 @@ assert.equal(sourceView.summary.remapCandidates, 0)
 assert.equal(sourceView.summary.exactMatches, 0)
 assert.equal(sourceView.summary.bridgeNameUnverifiedMappings, 1)
 assert.equal(sourceView.summary.missingMappings, 1)
-assert.equal(sourceView.summary.impactedVms, 1)
+assert.equal(sourceView.summary.nodeVms, 2)
 assert.equal(sourceView.summary.duplicateIpWarnings, 1)
 assert.deepEqual(sourceView.duplicateIpWarnings.map((warning) => warning.ipAddress), ['192.168.2.141'])
 assert.deepEqual(sourceView.duplicateIpWarnings[0].vmIds, ['101', '102'])
@@ -140,12 +160,11 @@ assert.equal(missingEvidenceView.targetRows.length, 1)
 assert.equal(missingEvidenceView.targetRows[0].status, 'unknown')
 assert.equal(missingEvidenceView.targetRows[0].reason, 'bridge_evidence_missing')
 
-assert.equal(model.vms[0].readiness.status, 'unknown')
-assert.equal(model.vms[0].readiness.reason, 'vm_nic_bridge_evidence_missing')
 assert.deepEqual(model.vms[0].ipAddresses, ['192.168.2.141'])
 assert.equal(model.vms[0].guestAgent.available, true)
 assert.deepEqual(model.duplicateIpWarnings.map((warning) => warning.ipAddress), ['192.168.2.141'])
 assert.deepEqual(model.vms[0].duplicateIps, ['192.168.2.141'])
+assert.deepEqual(model.vms[0].warnings.map((warning) => warning.code), ['vm_nic_bridge_evidence_missing', 'duplicate_ip_observed'])
 assert.equal(statusTone('ready'), 'green')
 assert.equal(statusTone('needs_review'), 'yellow')
 assert.equal(statusTone('blocked'), 'red')
@@ -192,6 +211,59 @@ const internalEvidenceModel = buildNetworkReadinessModel({
 assert.deepEqual(internalEvidenceModel.duplicateIpWarnings, [])
 assert.deepEqual(internalEvidenceModel.vms[0].ipAddresses, ['172.17.0.1'])
 assert.deepEqual(internalEvidenceModel.vms[0].duplicateIps, [])
+const internalOnlyIpDisplay = buildVmIpEvidenceDisplay(internalEvidenceModel.vms[0])
+assert.equal(internalOnlyIpDisplay.representative.label, '172.17.0.1 (internal)')
+assert.deepEqual(internalOnlyIpDisplay.hidden, [])
+
+const mixedIpEvidenceModel = buildNetworkReadinessModel({
+  vms: [
+    {
+      vmid: 203,
+      name: 'mixed-ip-evidence',
+      node_id: 'node-a',
+      ip_evidence: [
+        {
+          ip_address: '172.17.0.1',
+          source: 'guest_agent',
+          interface_name: 'docker0',
+          scope: 'internal',
+          duplicate_warning_eligible: false,
+        },
+        {
+          ip_address: '10.0.0.5',
+          source: 'guest_agent',
+          interface_name: 'eth1',
+          scope: 'observed',
+          duplicate_warning_eligible: true,
+        },
+        {
+          ip_address: '192.168.2.141',
+          source: 'config',
+          interface_name: 'ipconfig0',
+          scope: 'primary',
+          primary_candidate: true,
+          duplicate_warning_eligible: true,
+        },
+        {
+          ip_address: '10.0.0.6',
+          source: 'guest_agent',
+          interface_name: 'eth2',
+          scope: 'observed',
+          duplicate_warning_eligible: true,
+        },
+      ],
+    },
+  ],
+})
+assert.deepEqual(mixedIpEvidenceModel.vms[0].ipAddresses, ['172.17.0.1', '10.0.0.5', '192.168.2.141', '10.0.0.6'])
+assert.deepEqual(mixedIpEvidenceModel.vms[0].duplicateWarningIps, ['10.0.0.5', '192.168.2.141', '10.0.0.6'])
+const mixedIpDisplay = buildVmIpEvidenceDisplay(mixedIpEvidenceModel.vms[0])
+assert.equal(mixedIpDisplay.representative.label, '192.168.2.141')
+assert.deepEqual(mixedIpDisplay.hidden.map((item) => item.label), [
+  '10.0.0.5 (observed)',
+  '10.0.0.6 (observed)',
+  '172.17.0.1 (internal)',
+])
 
 const primaryEvidenceModel = buildNetworkReadinessModel({
   vms: [
@@ -230,6 +302,58 @@ const primaryEvidenceModel = buildNetworkReadinessModel({
 assert.deepEqual(primaryEvidenceModel.duplicateIpWarnings.map((warning) => warning.ipAddress), ['192.168.2.141'])
 assert.deepEqual(primaryEvidenceModel.vms[0].duplicateIps, ['192.168.2.141'])
 assert.deepEqual(primaryEvidenceModel.vms[1].duplicateIps, ['192.168.2.141'])
+
+const nicBridgeEvidenceModel = buildNetworkReadinessModel({
+  vms: [
+    {
+      vmid: 401,
+      name: 'nic-evidence-a',
+      node_id: 'node-a',
+      ip_addresses: ['10.10.0.5'],
+      nic_bridge_evidence: [
+        {
+          interface_name: 'net0',
+          bridge_id: 'vmbr0',
+          source: 'config',
+          interface_type: 'proxmox_net_config',
+          model: 'virtio',
+          tag: '40',
+          firewall: true,
+          link_down: false,
+        },
+      ],
+    },
+    {
+      vmid: 402,
+      name: 'nic-evidence-b',
+      node_id: 'node-b',
+      ip_addresses: ['10.10.0.5'],
+      nicBridgeEvidence: [
+        {
+          interfaceName: 'net1',
+          bridgeId: 'vmbr0',
+          source: 'config',
+          interfaceType: 'proxmox_net_config',
+        },
+      ],
+    },
+  ],
+})
+assert.deepEqual(nicBridgeEvidenceModel.vms[0].nicBridgeEvidence[0], {
+  interfaceName: 'net0',
+  bridgeId: 'vmbr0',
+  source: 'config',
+  interfaceType: 'proxmox_net_config',
+  model: 'virtio',
+  tag: '40',
+  firewall: true,
+  linkDown: false,
+  raw: nicBridgeEvidenceModel.vms[0].raw.nic_bridge_evidence[0],
+})
+assert.deepEqual(nicBridgeEvidenceModel.duplicateIpWarnings.map((warning) => warning.ipAddress), ['10.10.0.5'])
+assert.deepEqual(nicBridgeEvidenceModel.vms[0].warnings.map((warning) => warning.code), ['duplicate_ip_observed'])
+assert.deepEqual(nicBridgeEvidenceModel.vms[1].warnings.map((warning) => warning.code), ['duplicate_ip_observed'])
+assert.ok(!nicBridgeEvidenceModel.vms[0].warnings.some((warning) => warning.code === 'vm_nic_bridge_evidence_missing'))
 
 const activeNormalizationModel = buildNetworkReadinessModel({
   nodes: [
@@ -696,8 +820,26 @@ assert.doesNotMatch(screenSource, /Subnet mapping by node/)
 assert.doesNotMatch(screenSource, /Observed subnet mapping/)
 assert.doesNotMatch(screenSource, /Bridge ID matrix/)
 assert.doesNotMatch(screenSource, /Shared active bridges/)
-assert.match(screenSource, /영향 VM/)
+assert.match(screenSource, /노드별 VM/)
+assert.doesNotMatch(screenSource, /영향 VM/)
+assert.match(screenSource, /NodeVmTable/)
+assert.match(screenSource, /view\.nodeVms/)
+assert.match(screenSource, /view\.nodeVmGroups/)
+assert.match(screenSource, /colSpan=\{6\}/)
+assert.match(screenSource, /group\.displayName/)
+assert.match(screenSource, /<th className="px-4 py-3 whitespace-nowrap">연결 vmbr<\/th>/)
+assert.doesNotMatch(screenSource, /<th className="px-4 py-3">준비도<\/th>/)
+assert.match(screenSource, /VmBridgeCell/)
+assert.match(screenSource, /vm\.nicBridgeEvidence/)
+assert.match(screenSource, />X<\/span>/)
+assert.match(screenSource, /<th className="px-4 py-3 whitespace-nowrap">관찰 IP<\/th>/)
+assert.match(screenSource, /buildVmIpEvidenceDisplay/)
+assert.match(screenSource, /aria-expanded=\{expanded\}/)
+assert.match(screenSource, /aria-label=\{toggleLabel\}/)
+assert.match(screenSource, /\+\{hiddenCount\}/)
 assert.match(screenSource, /vm_nic_bridge_evidence_missing/)
+assert.match(screenSource, /vm\.warnings/)
+assert.match(screenSource, /warningLabel/)
 assert.match(screenSource, /apiV1Client\.listNodes\(\)/)
 assert.match(screenSource, /apiV1Client\.listVms\(\)/)
 assert.match(screenSource, /apiV1Client\.listNetworks\(\)/)

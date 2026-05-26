@@ -4,7 +4,7 @@
 
 기준 문서: [영어 VM operations architecture](../../architecture/VM_OPERATIONS_ARCHITECTURE.md), [Current implemented state](../../current/README.md), [DRS Advisor product docs](../../product/drs-advisor/README.md).
 
-Gjallar는 Proxmox 운영자를 위한 Operations & Risk Console입니다. 현재 구현은 live/read-only inventory, stopped VM start action, guided VM creation, placement evidence, job history, risk summary를 제공합니다. CI/CD 시스템, source deployment tool, GitLab environment controller, LLM assistant product가 아닙니다.
+Gjallar는 Proxmox 운영자를 위한 Operations & Risk Console입니다. 현재 구현은 live/read-only inventory, stopped VM start action, guided VM creation, read-only DRS Advisor Phase 1, job history, risk summary를 제공합니다. CI/CD 시스템, source deployment tool, GitLab environment controller, LLM assistant product가 아닙니다.
 
 ## Active system shape
 
@@ -29,7 +29,7 @@ React operator UI
 | `/infra` | [InstanceList.jsx](../../../frontend/src/components/InstanceList.jsx) | VM inventory, detail evidence, stopped VM Start action. |
 | `/networks` | [NetworkReadinessScreen.jsx](../../../frontend/src/components/NetworkReadinessScreen.jsx) | read-only Network Readiness / migration pre-check visualization. |
 | `/create` | [CreateInstanceWizard.jsx](../../../frontend/src/components/CreateInstanceWizard.jsx) | guided Create VM flow. |
-| `/placement` | [PlacementScreen.jsx](../../../frontend/src/components/PlacementScreen.jsx) | frontend-only read-only placement seed. |
+| `/drs` | [DrsAdvisorScreen.jsx](../../../frontend/src/components/DrsAdvisorScreen.jsx) | read-only DRS Advisor Phase 1 recommendations and reference checks. |
 | `/jobs` | [TaskBoard.jsx](../../../frontend/src/components/TaskBoard.jsx) | job/run progress와 artifact metadata. |
 | `/risks` | [OperationalRiskDashboard.jsx](../../../frontend/src/components/OperationalRiskDashboard.jsx) | job-derived risk summaries. |
 
@@ -40,6 +40,7 @@ React operator UI
 | [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py) | `/api/v1` route composition, response envelopes, job recording, gate orchestration. |
 | [backend/app/proxmox/inventory.py](../../../backend/app/proxmox/inventory.py) | live/fake read-only inventory. Proxmox mutation을 넣으면 안 되는 경계입니다. |
 | [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py) | gated mutation path에서만 쓰는 explicit mutation client. |
+| [backend/app/drs](../../../backend/app/drs) | Phase 1 read-only DRS Advisor recommendation calculation. |
 | [backend/app/vm_create](../../../backend/app/vm_create) | draft, preflight, plan, approval, manifest evidence, native runner helpers. |
 | [backend/app/vm_actions](../../../backend/app/vm_actions) | Create VM과 read-only inventory에서 분리된 기존 VM action helper. |
 | [backend/app/jobs](../../../backend/app/jobs) | DB-backed job status, artifacts, approval records, risk source data. |
@@ -47,7 +48,7 @@ React operator UI
 
 ## Current API surface
 
-Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks`, `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks`, `nodes/{node_id}/vms/{vmid}/actions/start`.
+Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks`, `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks`, `drs/summary`, `drs/recommendations`, `drs/recommendations/{recommendation_id}`, `drs/recommendations/{recommendation_id}/check`, `nodes/{node_id}/vms/{vmid}/actions/start`.
 
 Create VM: `profiles`, `vm-create/readiness`, `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create`.
 
@@ -55,11 +56,11 @@ Networks는 live bridge readiness와 migration pre-check evidence를 read-only�
 
 상세는 [api/current-api-v1.md](api/current-api-v1.md)를 봅니다.
 
-## DRS Advisor target gap
+## DRS Advisor Phase 1 and target gap
 
-현재 `/placement`는 read-only Placement screen입니다. Backend DRS recommendation API, identity/fingerprint/policy DB, final pre-check, approval-gated live migration, operation locks, UPID tracking, reconciliation은 없습니다.
+현재 `/drs`는 read-only DRS Advisor Phase 1 screen입니다. Backend가 `/api/v1/drs/*` summary/recommendation/detail/check read model을 제공하지만, 모든 recommendation은 `executable=false`이고 Proxmox migration mutation은 없습니다.
 
-Target 방향은 `/placement` route를 유지할 수 있더라도 product label과 flow를 DRS Advisor로 바꾸고, backend-owned `/api/v1/drs/*` read/execution model을 추가하는 것입니다.
+남은 target gap은 identity/fingerprint/policy DB, final pre-check, approval-gated live migration, operation locks, UPID tracking, reconciliation입니다.
 
 ## 주요 data flow
 
@@ -73,4 +74,4 @@ Native Create VM flow는 Create wizard -> draft/preflight/plan/approve -> final 
 
 ## Safety boundaries
 
-현재 제외되는 항목: direct VM stop/reset/delete/snapshot, DRS migration execution, Proxmox bridge mutation, SSH/Ansible/app smoke, LLM/chat product route, `/api/v1/drs/*` backend. Existing VM start는 stopped non-template VM에 대한 별도 gated action이고, 새 VM first boot/IP/cloud-init 검증은 Create VM `boot_and_verify`에서만 수행됩니다.
+현재 제외되는 항목: direct VM stop/reset/delete/snapshot, DRS migration execution, Proxmox bridge mutation, SSH/Ansible/app smoke, LLM/chat product route. Existing VM start는 stopped non-template VM에 대한 별도 gated action이고, 새 VM first boot/IP/cloud-init 검증은 Create VM `boot_and_verify`에서만 수행됩니다.

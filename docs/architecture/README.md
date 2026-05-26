@@ -36,7 +36,7 @@ Do not copy old PRD statements blindly. Several early PRD slices describe single
 
 Important boundaries:
 
-- Current `/placement` is a frontend read-only Placement read model, not backend DRS Advisor execution.
+- Current `/drs` is a backend-owned read-only DRS Advisor Phase 1 read model, not DRS execution.
 - Current Create VM live mutation is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
 - Legacy `POST /api/v1/vm-create/{draft_id}/execute` has been removed; current live VM creation is `proxmox-create`.
 - Current Create VM networking uses selected target-node active live bridge plus explicit `bridge_id`, `static_ip`, `prefix`, and `gateway`.

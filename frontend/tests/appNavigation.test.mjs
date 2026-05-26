@@ -5,12 +5,13 @@ import { join, relative } from 'node:path'
 const srcRoot = new URL('../src', import.meta.url)
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
 
-for (const label of ['Dashboard', 'Infra Explorer', 'Networks', 'Create VM', 'Placement', 'Jobs/Runs', 'Risks/Alerts']) {
+for (const label of ['Dashboard', 'Infra Explorer', 'Networks', 'Create VM', 'DRS Advisor', 'Jobs/Runs', 'Risks/Alerts']) {
   assert.ok(app.includes(label), `App navigation must expose PRD label: ${label}`)
 }
-for (const route of ['path="/infra"', 'path="/networks"', 'path="/create"', 'path="/placement"', 'path="/jobs"', 'path="/risks"']) {
+for (const route of ['path="/infra"', 'path="/networks"', 'path="/create"', 'path="/drs"', 'path="/jobs"', 'path="/risks"']) {
   assert.ok(app.includes(route), `App routes must expose PRD route: ${route}`)
 }
+assert.doesNotMatch(app, /path="\/placement"|PlacementScreen|label: 'Placement'/, 'Placement must not remain an active product route')
 assert.doesNotMatch(app, /from ['"]\.\/services\/api(?:\.js)?['"]/, 'App must not import the legacy /api client')
 assert.doesNotMatch(app, /LlmInfraChat|LLM Assistant|\/assistant|Sparkles/, 'LLM assistant must not be routed or shown in MVP nav')
 assert.doesNotMatch(app, /provisionInstance|checkIpAvailability|handleProvision|provisioningRequest|onProvision|isProvisioning/, 'App must not own legacy provisioning execution flow')
@@ -31,10 +32,10 @@ assert.deepEqual(
   activeImports.sort(),
   [
     './components/CreateInstanceWizard',
+    './components/DrsAdvisorScreen',
     './components/InstanceList',
     './components/NetworkReadinessScreen',
     './components/OperationalRiskDashboard',
-    './components/PlacementScreen',
     './components/TaskBoard',
   ].sort(),
   'Only PRD MVP screen components should be actively routed from App',

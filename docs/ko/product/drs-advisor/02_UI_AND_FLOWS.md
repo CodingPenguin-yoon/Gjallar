@@ -6,9 +6,9 @@
 
 ## 현재 UI baseline
 
-Current routes are Dashboard `/`, Infra Explorer `/infra`, Networks `/networks`, Create VM `/create`, Placement `/placement`, Jobs/Runs `/jobs`, Risks/Alerts `/risks`.
+Current routes are Dashboard `/`, Infra Explorer `/infra`, Networks `/networks`, Create VM `/create`, DRS Advisor `/drs`, Jobs/Runs `/jobs`, Risks/Alerts `/risks`.
 
-DRS Advisor MVP는 route 구조를 크게 흔들지 않고 `/placement` route를 DRS Advisor label/flow로 전환하는 방향입니다.
+DRS Advisor Phase 1은 `/drs` route에서 read-only recommendation table/detail/check flow를 제공합니다.
 
 ## 왜 각 화면이 필요한가
 
@@ -52,4 +52,4 @@ Confirm modal은 VM identity, fingerprint assertion, source/target, policy, sens
 
 ## Current gap
 
-현재 `/placement`에는 migration button이 없습니다. Backend DRS route, final pre-check, lock, UPID tracking, DRS Jobs/Risks integration은 future입니다.
+현재 `/drs`에는 migration button이 없습니다. Final pre-check, lock, UPID tracking, DRS Jobs/Risks integration은 future입니다.

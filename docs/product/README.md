@@ -24,8 +24,8 @@ This product tree is focused on product direction. Current implemented status, o
 
 - The active contract is `/api/v1`.
 - Old `/api/instances`, `/api/provision`, deploy/task/log/LLM surfaces are not active.
-- Current `/placement` is a read-only Placement seed; the target direction is DRS Advisor.
-- There is no `/api/v1/drs/*`, identity/fingerprint DB, final pre-check, live migration, operation locks, UPID tracking, or reconciliation yet.
+- Current `/drs` is a backend-owned read-only DRS Advisor Phase 1 seed.
+- There is no DRS identity/fingerprint DB, final pre-check, live migration, operation locks, UPID tracking, or reconciliation yet.
 - The active Create VM path is native Proxmox preview/create.
 - The legacy Terraform Create VM executor route surface and helper code are removed.
 - Create VM success is powered-off/stopped only after Proxmox post-check and `observed_after`.
