@@ -18,9 +18,9 @@
 
 ## 전체 요약
 
-현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이다.
+현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`, 그리고 admin 전용 `Admin Users`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이며, auth/admin route는 [backend/app/auth/](../../../backend/app/auth/)에서 같은 `/api/v1` contract로 등록된다.
 
-구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only DRS Advisor Phase 1, DB-backed Jobs/Runs, job-derived Risks/Alerts, 그리고 Create VM supporting capability다.
+구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only DRS Advisor Phase 1, DB-backed Jobs/Runs, job-derived Risks/Alerts, Create VM supporting capability, 그리고 admin local-user management다.
 
 DRS Advisor는 read-only Phase 1까지 구현되어 있다. 아직 identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
 

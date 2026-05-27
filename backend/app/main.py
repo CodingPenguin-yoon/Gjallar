@@ -19,6 +19,7 @@ if env_path.exists():
     load_dotenv(env_path, override=False)
 
 from app.api.v1.router import router as api_v1_router
+from app.auth.admin_api import router as admin_router
 from app.auth.api import router as auth_router
 from app.auth.config import allowed_origins
 from app.auth.origin import reject_unexpected_unsafe_origin
@@ -42,6 +43,7 @@ app.middleware("http")(reject_unexpected_unsafe_origin)
 
 # API 라우트 등록
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(api_v1_router)
 # PRD v1 MVP exposes only the explicit /api/v1 operator surface.
 

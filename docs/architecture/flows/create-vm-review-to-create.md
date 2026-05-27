@@ -44,7 +44,7 @@ The current frontend payload includes selected fields such as:
 
 | Field | Current meaning |
 |---|---|
-| `operator_id` | Operator identifier, default `ui-operator`. |
+| `operator_id` | Compatibility payload field. Current UI derives it from the authenticated session user; trusted actor evidence comes from the session, not this field. |
 | `job_id` | UI-generated or operator-edited job id. |
 | `profile_id` | One of current static-seed profiles. |
 | `target_node_id` | Selected Proxmox node. |

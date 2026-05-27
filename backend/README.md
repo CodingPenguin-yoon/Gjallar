@@ -8,12 +8,13 @@ Current MVP product source of truth is `docs/product/drs-advisor/`. If this docu
 
 The target direction is DRS Advisor. The current backend provides Gjallar login,
 server-side sessions, role-based API protection, read-only Proxmox inventory,
-gated VM start from Infra Explorer, Jobs/Runs, Risks, read-only DRS Advisor
-surfaces, and approval-gated Create VM support. Create VM's active mutation path
-is native Proxmox API clone/config/post-check; the legacy Terraform executor
-route surface and helper code are removed. The backend does not yet provide DRS
-identity/fingerprint tables, final pre-check, Proxmox live migration execution,
-operation locks, or reconciliation.
+admin-only local user management, gated VM start from Infra Explorer,
+Jobs/Runs, Risks, read-only DRS Advisor surfaces, and approval-gated Create VM
+support. Create VM's active mutation path is native Proxmox API
+clone/config/post-check; the legacy Terraform executor route surface and helper
+code are removed. The backend does not yet provide DRS identity/fingerprint
+tables, final pre-check, Proxmox live migration execution, operation locks, or
+reconciliation.
 
 Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 
@@ -24,6 +25,10 @@ DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or aut
 - Public API contract: `/api/v1`
 - Auth: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and
   `GET /api/v1/auth/me`
+- Admin user management: `GET/POST /api/v1/admin/users`,
+  `PATCH /api/v1/admin/users/{username}/role`,
+  `POST /api/v1/admin/users/{username}/disable`, and
+  `POST /api/v1/admin/users/{username}/reset-password`
 - Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
 - Infra Explorer VM start: acknowledgement/idempotency-gated QEMU start for stopped non-template VMs, with Proxmox task polling and `vm_start` job/artifact evidence
 - Create VM: draft, preflight, plan, approval, Proxmox native preview/create, optional boot-and-verify, and DB request/VM records
@@ -76,7 +81,15 @@ PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username park
 
 `disable-user` and `reset-password` revoke existing sessions for the target user.
 `set-role` does not revoke sessions; existing sessions pick up the role on their
-next request.
+next request. `disable-user` rejects disabling the last enabled admin, and
+`set-role` rejects demoting the last enabled admin away from `admin`. Disabled
+admin rows do not count toward that protection. `reset-password` is not blocked
+by last-admin protection.
+
+Admins can also use the browser UI at `/admin/users` or the admin API endpoints
+listed above. Admin API responses return only safe user summaries and revoked
+session counts; they never return password hashes, session token hashes, raw
+secrets, or plaintext passwords.
 
 ## Validate
 
@@ -93,7 +106,8 @@ PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
   `HttpOnly`, `SameSite=Lax` cookie. Only a hash of the cookie token is stored.
 - Roles are ordered `viewer < operator < admin`.
 - Read-only `/api/v1` APIs require `viewer` or above. Create VM workflow POSTs,
-  Create VM live create, and VM Start require `operator` or `admin`.
+  Create VM live create, and VM Start require `operator` or `admin`. Admin user
+  management requires `admin`.
 - Create VM profiles are schema-managed by Alembic and seeded separately with `cd backend && PYTHONPATH=. venv/bin/python -m app.db.seed_create_vm_profiles`. The seed is idempotent and no-ops when any profile row already exists.
 - Jobs/Runs progress and artifacts are stored through `GJALLAR_DATABASE_URL` in `job_runs` and `job_artifacts`.
 - Do not commit `.env`, tokens, secrets, `data/`, or local runtime artifacts.

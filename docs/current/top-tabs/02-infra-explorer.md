@@ -2,7 +2,7 @@
 
 평가일: 2026-05-15
 
-검증 기준: worker가 backend targeted VM action/inventory/job tests -> passed, frontend `node --test frontend/tests/apiV1Client.test.mjs frontend/tests/apiV1ViewModels.test.mjs frontend/tests/infraExplorerScreen.test.mjs frontend/tests/jobsScreen.test.mjs` -> passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-27에 backend `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests` -> 182 passed, 33 warnings, 29 subtests passed, frontend `node --test frontend/tests/*.mjs` -> 13 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 

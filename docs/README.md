@@ -97,7 +97,12 @@ Operations:
 - Inventory is read-only and may use a fake fallback when live Proxmox inventory is unavailable.
 - Create VM is a gated draft -> preflight -> plan -> approval -> Proxmox native create path.
 - Terraform legacy executor routes/helper code and Terraform-named state metadata are removed from active contracts.
-- Live native create remains explicit-acknowledgement only and creates/configures a powered-off VM after Proxmox post-check/`observed_after`.
+- Live native create remains explicit-acknowledgement only. Default `stopped`
+  requests create/configure a powered-off VM after Proxmox
+  post-check/`observed_after`; optional `boot_and_verify` starts the new VM and
+  verifies guest-agent IP plus cloud-init completion.
+- Admin-only local user management is available at `/admin/users` and
+  `/api/v1/admin/users*`; there is still no public signup.
 - Target Create VM profile/template/network design uses DB-seeded profiles, Proxmox live templates, and selected target-node live bridges; current code still has known implementation gaps documented in status.
 - Read-only DRS Advisor Phase 1 exists today; target direction is identity-aware,
   approved Proxmox migration control.

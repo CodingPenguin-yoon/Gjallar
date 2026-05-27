@@ -250,13 +250,13 @@ function firstRangeStart(bridge) {
   return range?.start || ''
 }
 
-function buildInitialForm(config) {
+function buildInitialForm(config, currentUser = null) {
   const defaults = buildCreateVmDefaults()
   const now = new Date()
   const datePart = now.toISOString().slice(0, 10).replaceAll('-', '')
   const timePart = now.toTimeString().slice(0, 8).replaceAll(':', '')
   const input = buildCreateVmInputFromConfig(config, {
-    operatorId: 'ui-operator',
+    operatorId: currentUser?.username || 'authenticated-session',
     jobId: `ui-${datePart}-${timePart}`,
     profileId: config.profileId || config.profile_id || 'general-vm',
     targetNodeId: 'yoonmanserver2',
@@ -289,7 +289,7 @@ function buildInitialForm(config) {
 
 function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentUser = null, canExecuteLiveMutation = true }) {
   const navigate = useNavigate()
-  const [form, setForm] = useState(() => buildInitialForm(config))
+  const [form, setForm] = useState(() => buildInitialForm(config, currentUser))
   const [model, setModel] = useState(null)
   const [approval, setApproval] = useState(null)
   const [createResult, setCreateResult] = useState(null)
@@ -363,6 +363,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
     : 'Proxmox에 꺼진 상태의 VM을 실제로 만드는 것을 승인합니다.'
   const nativeCreateButtonLabel = model?.review?.firstPowerOnIncluded ? '생성 후 부팅 확인' : 'Proxmox native create'
   const liveMutationDisabledReason = canExecuteLiveMutation ? '' : 'operator 또는 admin 권한이 필요합니다.'
+  const sessionOperatorId = currentUser?.username || form.operatorId || 'authenticated-session'
 
   useEffect(() => {
     let cancelled = false
@@ -407,6 +408,16 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!currentUser?.username) return
+    setForm((current) => {
+      if (current.operatorId === currentUser.username) return current
+      const next = { ...current, operatorId: currentUser.username }
+      onConfigChange(next)
+      return next
+    })
+  }, [currentUser?.username, onConfigChange])
 
   const applyFormPatch = (patch) => {
     setForm((current) => {
@@ -709,10 +720,13 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">담당자</span>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.operatorId} onChange={(event) => updateForm('operatorId', event.target.value)} />
-          </label>
+          <div className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">세션 사용자</span>
+            <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <span className="truncate font-medium text-slate-950">{sessionOperatorId}</span>
+              {currentUser?.role && <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">{currentUser.role}</span>}
+            </div>
+          </div>
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">작업 ID</span>
             <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.jobId} onChange={(event) => updateForm('jobId', event.target.value)} />

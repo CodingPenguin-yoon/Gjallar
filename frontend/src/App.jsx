@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Clock3, Database, HardDrive, LayoutDashboard, List, LogOut, Network, Plus, RefreshCw, Server, UserCircle } from 'lucide-react'
+import { Activity, AlertTriangle, Clock3, Database, HardDrive, LayoutDashboard, List, LogOut, Network, Plus, RefreshCw, Server, UserCircle, UserCog } from 'lucide-react'
+import AdminUsersScreen from './components/AdminUsersScreen'
 import CreateInstanceWizard from './components/CreateInstanceWizard'
 import InstanceList from './components/InstanceList'
 import NetworkReadinessScreen from './components/NetworkReadinessScreen'
@@ -8,7 +9,7 @@ import OperationalRiskDashboard from './components/OperationalRiskDashboard'
 import DrsAdvisorScreen from './components/DrsAdvisorScreen'
 import TaskBoard from './components/TaskBoard'
 import { apiV1Client } from './services/apiV1'
-import { authFailureMessage, canOperate } from './utils/auth'
+import { authFailureMessage, canAdmin, canOperate } from './utils/auth'
 import middlepiaStackLogo from './assets/middlepia-stack.svg'
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { label: 'Jobs/Runs', path: '/jobs', icon: Clock3 },
   { label: 'Risks/Alerts', path: '/risks', icon: AlertTriangle },
 ]
+const adminNavItem = { label: 'Admin Users', path: '/admin/users', icon: UserCog }
 
 const DASHBOARD_DATA_LABELS = ['Cluster', 'Nodes', 'VMs', 'Storage', 'Networks', 'Jobs/Runs', 'Risks/Alerts']
 
@@ -365,6 +367,10 @@ function onlineNodeLabel(nodes) {
   return `${online}/${nodes.length} online`
 }
 
+function AdminGuard({ currentUser, children }) {
+  return canAdmin(currentUser) ? children : <Navigate to="/" replace />
+}
+
 function LoginPage({ onLogin }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -466,6 +472,19 @@ function App() {
     return response
   }
 
+  const refreshCurrentUser = async () => {
+    try {
+      const response = await apiV1Client.me()
+      setAuthState(response.authenticated && response.user
+        ? { status: 'authenticated', user: response.user }
+        : { status: 'anonymous', user: null })
+      return response
+    } catch {
+      setAuthState({ status: 'anonymous', user: null })
+      return null
+    }
+  }
+
   const handleLogout = async () => {
     try {
       await apiV1Client.logout()
@@ -494,6 +513,8 @@ function App() {
 
   const currentUser = authState.user
   const canMutate = canOperate(currentUser)
+  const isAdmin = canAdmin(currentUser)
+  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -526,7 +547,7 @@ function App() {
       <nav className="bg-white border-b border-gray-200 shadow-sm" aria-label="Gjallar primary navigation">
         <div className="container mx-auto px-8">
           <div className="flex overflow-x-auto">
-            {navItems.map(({ label, path, icon: Icon, end }) => (
+            {visibleNavItems.map(({ label, path, icon: Icon, end }) => (
               <NavLink key={path} to={path} end={end} className={navClass}>
                 <Icon className="w-5 h-5" />
                 {label}
@@ -578,6 +599,16 @@ function App() {
               <div className="mx-auto max-w-7xl">
                 <OperationalRiskDashboard />
               </div>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <AdminGuard currentUser={currentUser}>
+                <div className="mx-auto max-w-7xl">
+                  <AdminUsersScreen currentUser={currentUser} onCurrentUserChanged={refreshCurrentUser} />
+                </div>
+              </AdminGuard>
             }
           />
           <Route path="/login" element={<Navigate to="/" replace />} />

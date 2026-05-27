@@ -84,6 +84,10 @@ Current request fields:
 }
 ```
 
+`operator_id` remains accepted for compatibility and tests, but the browser UI
+derives it from the authenticated session user. Audit/job/request evidence uses
+trusted session actor fields, not payload `operator_id`.
+
 The backend resolves `proposed_vmid` from inventory via `suggest_next_vmid()`.
 VMID is not operator-supplied in the active draft request.
 

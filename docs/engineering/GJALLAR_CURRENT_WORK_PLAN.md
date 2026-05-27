@@ -57,6 +57,8 @@ Use `AGENTS.md` for execution mode:
 - Read-only `/api/v1` surfaces require `viewer` or above, while Create VM
   workflow writes, Create VM live create, and VM Start require `operator` or
   `admin`.
+- Admin-only local user management is implemented at `/admin/users` and
+  `/api/v1/admin/users*`; CLI and API share last-enabled-admin protection.
 - Inventory is read-only Proxmox live inventory with fake fallback.
 - Create VM currently supports draft, preflight, plan, approval, manifest
   commit, Proxmox native preview/create, Jobs/Runs progress, and artifacts.
@@ -238,13 +240,16 @@ Planned slices:
 - [x] Add actor evidence to mutation jobs and Create VM request records.
 - [x] Add frontend `/login`, session bootstrap, logout, and role-aware controls.
 - [x] Add tests for unauthenticated, viewer, operator, and admin behavior.
+- [x] Add admin-only local user management UI/API without public signup.
+- [x] Share last-enabled-admin protection between CLI and API.
+- [x] Make Create VM display the session-derived actor instead of editable
+  `operator_id`.
 - [ ] Record Create VM live smoke for `stopped` and `boot_and_verify`.
 
 Non-goals:
 
 - OAuth/SSO/2FA.
 - API token automation.
-- admin user-management UI.
 - SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
   registration.
 
@@ -273,6 +278,9 @@ Non-goals:
 - Session-derived actor evidence is recorded in Create VM and VM Start
   jobs/artifacts/request records as `actor_user_id`, `actor_username`, and
   `actor_role`.
+- Local user disable/reset revoke target sessions. Role changes do not revoke
+  sessions. The last enabled admin cannot be disabled or demoted, and disabled
+  admin rows do not count toward that guard.
 
 ## Future Decisions
 
@@ -298,7 +306,6 @@ Current implementation order is tracked in
 Recommended next major slice:
 
 1. Record Create VM live smoke and update runbook/docs with observed results.
-2. Follow up on docs/risk hygiene from the auth stabilization review.
-3. Then implement DRS identity/fingerprint DB and read-only resolver.
-4. Feed resolver output into DRS recommendation blockers before any migration
+2. Then implement DRS identity/fingerprint DB and read-only resolver.
+3. Feed resolver output into DRS recommendation blockers before any migration
    execution work.

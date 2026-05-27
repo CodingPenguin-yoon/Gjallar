@@ -2,7 +2,9 @@
 
 Status source: [current product status](../../current/README.md). Top-tab status index: [top tabs](../../current/top-tabs/README.md).
 
-This document describes the current `/api/v1` route surface implemented in `backend/app/api/v1/router.py` and consumed by `frontend/src/services/apiV1.js`.
+This document describes the current `/api/v1` route surface implemented in
+`backend/app/api/v1/router.py` plus auth/admin routers under `backend/app/auth/`,
+and consumed by `frontend/src/services/apiV1.js`.
 
 ## Response Envelope
 
@@ -27,6 +29,7 @@ Current error responses are not fully normalized. Many failures raise FastAPI `H
 | Inventory | Read-only only. `app.proxmox.inventory` must not mutate Proxmox. |
 | Network readiness | Read-only frontend-composed selected-source migration pre-check evidence. No API write path, YAML persistence, DB migration, Proxmox network mutation, or DRS execution authority. |
 | Jobs/artifacts | Create VM and VM start steps write job status and artifacts to `job_runs` and `job_artifacts` through `GJALLAR_DATABASE_URL`. |
+| Auth/admin | Login/session endpoints are public as documented below. Local user management is admin-only and returns safe summaries only. |
 | Native create | `proxmox-create` is the active live mutation path for Create VM. Default requests finish stopped; `boot_and_verify` starts the new VM and verifies guest-agent IP plus cloud-init completion. |
 | Existing VM start | `POST /nodes/{node_id}/vms/{vmid}/actions/start` is the only existing-VM power action. It requires acknowledgement, idempotency, fresh inventory precheck, task polling, running post-check, and job/artifact evidence. |
 | Terraform | Legacy plan/apply route surface, helper code, and Terraform-named state metadata are removed from active contracts. |
@@ -36,6 +39,14 @@ Current error responses are not fully normalized. Many failures raise FastAPI `H
 
 | Endpoint | Purpose | Data source | Side effects | Frontend use | Notes |
 |---|---|---|---|---|---|
+| `POST /api/v1/auth/login` | Create a browser session. | Local `users` table. | Writes a server-side session and sets an opaque `HttpOnly` cookie. | Login route. | Failed login returns `401`. No public signup exists. |
+| `POST /api/v1/auth/logout` | Revoke the current browser session. | Local `sessions` table. | Revokes the session and clears the cookie. | Shell logout. | Safe to call when no session is present. |
+| `GET /api/v1/auth/me` | Return session status. | Local `sessions` and `users` tables. | Clears stale cookies when needed. | App bootstrap and self-role refresh. | Anonymous callers receive `authenticated=false`. |
+| `GET /api/v1/admin/users` | List local users. | Local `users` table. | None. | `/admin/users`. | Requires `admin`; returns username, role, enabled, timestamps only. |
+| `POST /api/v1/admin/users` | Create a local user. | Request body and local `users` table. | Writes a user row with password hash. | `/admin/users`. | Body: `{username,password,role}`. Response never returns plaintext password or hash. Duplicate users return `409`. |
+| `PATCH /api/v1/admin/users/{username}/role` | Change a local user's role. | Local `users` table. | Updates role/timestamp; does not revoke sessions. | `/admin/users`. | Last enabled admin cannot be demoted away from `admin`; that returns `409`. Unknown user returns `404`. |
+| `POST /api/v1/admin/users/{username}/disable` | Disable a local user. | Local `users` and `sessions` tables. | Disables user and revokes active target sessions. | `/admin/users`. | Last enabled admin cannot be disabled; disabled admin rows do not count toward the guard. |
+| `POST /api/v1/admin/users/{username}/reset-password` | Set an admin-supplied password. | Local `users` and `sessions` tables. | Updates password hash and revokes active target sessions. | `/admin/users`. | Not blocked by last-admin protection. Response includes only safe user summary and revoked session count. |
 | `GET /api/v1/cluster/summary` | Cluster counts and high-level mode. | Inventory adapter snapshot. | None. | Dashboard. | Returns `cluster_id=gjallar-mvp`, node/vm/template counts, `risk_level=unknown`. |
 | `GET /api/v1/nodes` | Read-only node inventory. | Inventory adapter. | None. | Dashboard, Infra Explorer, Create VM options. | Node rows include status, CPU/memory usage, storage, networks. |
 | `GET /api/v1/vms` | Read-only VM inventory. | Inventory adapter. | None. | Dashboard, Infra Explorer, Networks readiness. | Excludes templates; includes disks, tags, legacy `ip_addresses`, structured `ip_evidence`, and guest-agent evidence when available. |

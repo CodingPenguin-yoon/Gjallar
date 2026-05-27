@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-16
+Last refreshed: 2026-05-27
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -9,7 +9,7 @@ This file is the docs source of truth for implemented behavior after active code
 ## Product direction vs implemented state
 
 - Product target: DRS Advisor is the next MVP success line.
-- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, read-only DRS Advisor Phase 1, Jobs/Runs, Risks/Alerts, and Create VM supporting capability.
+- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, read-only DRS Advisor Phase 1, Jobs/Runs, Risks/Alerts, Create VM supporting capability, and admin local-user management.
 - Current gap: VM identity/fingerprint policy, DRS final pre-check, approval-gated live migration, Proxmox UPID tracking, operation locks, and reconciliation are not implemented yet.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
@@ -28,6 +28,11 @@ This file is the docs source of truth for implemented behavior after active code
   source.
 - Current Create VM create policy is explicit per request: the default `stopped` policy performs native Proxmox clone, boot disk resize when needed, config, and stopped post-check; the optional `boot_and_verify` policy starts the new VM, waits for guest-agent IP discovery, and verifies `cloud-init status --wait`. SSH login, Ansible, app bootstrap, and DRS identity registration remain deferred.
 - Existing VM start is a separate Infra Explorer action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Jobs/Runs evidence.
+- Admin local-user management is available at `/admin/users` for users with the
+  `admin` role. The backend endpoints are `GET/POST /api/v1/admin/users`,
+  `PATCH /api/v1/admin/users/{username}/role`,
+  `POST /api/v1/admin/users/{username}/disable`, and
+  `POST /api/v1/admin/users/{username}/reset-password`.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
 - `/drs` is currently a read-only DRS Advisor Phase 1 screen. It consumes backend `/api/v1/drs/*` read endpoints; all recommendations remain `executable=false`.
@@ -46,6 +51,11 @@ This file is the docs source of truth for implemented behavior after active code
   Proxmox `agent` config is not treated as guest-agent-ready evidence.
 - `general-vm` defaults to 2 CPU / 4096 MB RAM / 50 GB disk to match the live Ubuntu template size; preflight blocks requests smaller than the selected template disk and blocks template/requested disks above the selected profile disk max.
 - There are no destructive VM list controls.
+- There is no public signup flow. Local users are created by CLI or by an
+  authenticated admin. Account disable and password reset revoke target
+  sessions; role changes do not revoke sessions. The last enabled admin cannot
+  be disabled or demoted, and disabled admin rows do not count toward that
+  protection.
 - VM start writes a `vm_start_observed_after` DB artifact with observed-before inventory, Proxmox UPID/task evidence, observed-after status, target locator, idempotency key, and redacted connection context.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
@@ -104,13 +114,16 @@ Remaining Create VM gaps:
 - `boot_and_verify` now covers first boot, guest-agent IP discovery, and
   cloud-init completion for the new VM. SSH/Ansible/app bootstrap smoke remains
   deferred.
+- Create VM shows the authenticated session user as the request actor instead
+  of exposing an editable `operator_id` field. Backend job/request evidence
+  continues to use trusted session actor fields.
 
 ## Recent verification baseline
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests`: `148 passed, 1 warning, 29 subtests passed`.
-- Frontend `node --test frontend/tests/*.mjs`: `11 passed`.
+- Backend `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests`: `182 passed, 33 warnings, 29 subtests passed`.
+- Frontend `node --test frontend/tests/*.mjs`: `13 passed`.
 - Frontend `pnpm --dir frontend lint`: passed.
 - Frontend `pnpm --dir frontend build`: passed.
 - `git diff --check`: passed.

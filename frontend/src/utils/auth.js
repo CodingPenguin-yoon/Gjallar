@@ -18,6 +18,10 @@ export function canOperate(user) {
   return hasRole(user, 'operator')
 }
 
+export function canAdmin(user) {
+  return hasRole(user, 'admin')
+}
+
 export function authFailureMessage(error, fallback = '요청을 처리하지 못했습니다.') {
   if (error?.status === 401) return '로그인이 필요합니다.'
   if (error?.status === 403) return '권한이 부족합니다.'

@@ -77,9 +77,13 @@ PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username park
 
 `disable-user` and `reset-password` revoke existing sessions for the target user.
 `set-role` does not revoke sessions; existing sessions pick up the role on their
-next request. The backend stores a PBKDF2 password hash and server-side session
-records; the browser receives only an opaque `HttpOnly`, `SameSite=Lax` session
-cookie.
+next request. `disable-user` refuses to disable the last enabled admin, and
+`set-role` refuses to demote the last enabled admin away from `admin`. Disabled
+admin rows do not count toward that guard. `reset-password` is still allowed for
+the last enabled admin and revokes that user's sessions.
+
+The backend stores a PBKDF2 password hash and server-side session records; the
+browser receives only an opaque `HttpOnly`, `SameSite=Lax` session cookie.
 
 Login/logout flow:
 
@@ -87,13 +91,31 @@ Login/logout flow:
 - API login: `POST /api/v1/auth/login`
 - API logout: `POST /api/v1/auth/logout`
 - Session bootstrap: `GET /api/v1/auth/me`
+- Admin UI: `/admin/users`
+
+Admin user-management APIs:
+
+```http
+GET /api/v1/admin/users
+POST /api/v1/admin/users
+PATCH /api/v1/admin/users/{username}/role
+POST /api/v1/admin/users/{username}/disable
+POST /api/v1/admin/users/{username}/reset-password
+```
+
+All admin APIs require an `admin` session. Successful responses use the
+standard `{ ok, data, meta }` envelope and return only safe user summaries plus
+revoked session counts where relevant. They must not return password hashes,
+session token hashes, raw secrets, or plaintext passwords. Operator errors use
+structured `detail` objects; last-admin protection returns `409`, unknown users
+return `404`, and validation errors return `400`.
 
 Role behavior:
 
 - `viewer`: can read protected inventory/jobs/risks/DRS surfaces.
 - `operator`: viewer permissions plus Create VM workflow writes, Create VM live
   create, and VM Start.
-- `admin`: operator permissions; user-management UI is still not implemented.
+- `admin`: operator permissions plus local user management.
 
 Create VM draft/preflight/plan/approve/proxmox-preview all write Gjallar
 job/artifact state, so they require `operator` or `admin`. Read-only GET APIs
@@ -146,8 +168,52 @@ node --test frontend/tests/authFlow.test.mjs frontend/tests/apiV1Client.test.mjs
 - Create VM workflow writes and live actions require login with `operator` or
   `admin`, exact approval metadata, fresh red-risk checks, and explicit native
   Proxmox create acknowledgement.
-- Create VM success remains stopped/powered-off and does not auto-start.
+- Create VM default `stopped` success remains powered-off after post-check and
+  does not auto-start. The optional `boot_and_verify` request explicitly starts
+  the new VM and verifies guest-agent IP plus cloud-init completion.
 - Existing VM start requires an in-app acknowledgement, idempotency key, fresh inventory precheck, Proxmox task polling, and observed-after running evidence.
 - Do not rely on destructive VM list controls; the current UI does not expose stop/reset/shutdown/reboot/delete/terminate.
 - Live Proxmox Create VM smoke was not run during auth stabilization. Running
   the live smoke matrix still requires explicit approval.
+
+## Live Create VM Smoke Checklist
+
+Do not run this section without explicit user approval in the current session.
+The checklist performs live Proxmox mutation through
+`POST /api/v1/vm-create/{draft_id}/proxmox-create`.
+
+Before approval:
+
+1. Confirm the target Proxmox cluster, node, storage, bridge, template, and VMID
+   range with the operator.
+2. Confirm the logged-in user has `operator` or `admin`.
+3. Confirm `GJALLAR_DATABASE_URL`, Proxmox mutation credentials, and
+   `GJALLAR_DEFAULT_SSH_PUBLIC_KEY` are loaded from the intended `.env`.
+4. Run the non-live validations first:
+
+```bash
+PYTHONPATH=backend backend/venv/bin/python -m pytest -q \
+  backend/tests/contracts/test_api_v1_vm_create.py \
+  backend/tests/contracts/test_api_v1_vm_create_approval_execute.py
+node --test frontend/tests/createVmFlow.test.mjs
+```
+
+After explicit approval, run and record:
+
+1. Default `stopped` creation with the selected live template, storage, bridge,
+   and static IP or DHCP choice. Confirm the job completes, the DB
+   `vm_create_requests`/`vm_instances` rows exist, and `observed_after` shows the
+   VM on the target node with status `stopped`.
+2. `boot_and_verify` creation. Confirm the job completes, Proxmox reports
+   `running`, guest-agent IP evidence is present, and cloud-init completion is
+   recorded.
+3. Static IP creation with explicit `static_ip`, `prefix`, and `gateway`.
+   Confirm the reviewed network values match the Proxmox config and job
+   artifacts.
+4. One intentionally invalid target combination, such as template/node/storage
+   mismatch, to confirm the operator-facing error is understandable and no
+   success record is written.
+
+For each live run, capture the job id, request id, VMID/name, target node,
+power policy, actor fields, risk level, artifact ids, observed state, and
+cleanup decision. Do not run stop/delete cleanup unless separately approved.

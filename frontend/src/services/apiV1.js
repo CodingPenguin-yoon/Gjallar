@@ -4,6 +4,10 @@ export const API_V1_ENDPOINTS = Object.freeze({
   authLogin: '/auth/login',
   authLogout: '/auth/logout',
   authMe: '/auth/me',
+  adminUsers: '/admin/users',
+  adminUserRole: (username) => `/admin/users/${encodePathPart(username)}/role`,
+  adminUserDisable: (username) => `/admin/users/${encodePathPart(username)}/disable`,
+  adminUserResetPassword: (username) => `/admin/users/${encodePathPart(username)}/reset-password`,
   clusterSummary: '/cluster/summary',
   nodes: '/nodes',
   vms: '/vms',
@@ -104,11 +108,17 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
   const clientConfig = { baseUrl: normalizeBaseUrl(baseUrl), fetchImpl }
   const get = (path) => requestJson({ ...clientConfig, path })
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
+  const patch = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PATCH', body })
 
   return Object.freeze({
     login: (username, password) => post(API_V1_ENDPOINTS.authLogin, { username, password }),
     logout: () => post(API_V1_ENDPOINTS.authLogout, {}),
     me: () => get(API_V1_ENDPOINTS.authMe),
+    listAdminUsers: () => get(API_V1_ENDPOINTS.adminUsers),
+    createAdminUser: (payload = {}) => post(API_V1_ENDPOINTS.adminUsers, payload),
+    setAdminUserRole: (username, role) => patch(API_V1_ENDPOINTS.adminUserRole(username), { role }),
+    disableAdminUser: (username) => post(API_V1_ENDPOINTS.adminUserDisable(username), {}),
+    resetAdminUserPassword: (username, password) => post(API_V1_ENDPOINTS.adminUserResetPassword(username), { password }),
     clusterSummary: () => get(API_V1_ENDPOINTS.clusterSummary),
     listNodes: () => get(API_V1_ENDPOINTS.nodes),
     listVms: () => get(API_V1_ENDPOINTS.vms),

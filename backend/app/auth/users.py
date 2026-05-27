@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, text, update
 
 from app.auth.passwords import hash_password, verify_password
 from app.auth.roles import VALID_ROLES, AuthenticatedUser, normalize_role
@@ -35,6 +35,18 @@ class UserSummary:
 class UserOperationResult:
     user: AuthenticatedUser
     revoked_sessions: int = 0
+
+
+class UserNotFoundError(ValueError):
+    """Raised when an account operation targets a missing local user."""
+
+
+class DuplicateUserError(ValueError):
+    """Raised when an account operation would create a duplicate username."""
+
+
+class LastEnabledAdminError(ValueError):
+    """Raised when an account operation would remove the last enabled admin."""
 
 
 def _now() -> datetime:
@@ -78,8 +90,41 @@ def _get_user_or_raise(session, username: str) -> UserRecord:
     normalized_username = normalize_username(username)
     row = session.scalar(select(UserRecord).where(UserRecord.username == normalized_username))
     if row is None:
-        raise ValueError(f"Unknown user: {normalized_username}")
+        raise UserNotFoundError(f"Unknown user: {normalized_username}")
     return row
+
+
+def _enabled_admin_count(session) -> int:
+    count = session.scalar(
+        select(func.count())
+        .select_from(UserRecord)
+        .where(UserRecord.role == "admin")
+        .where(UserRecord.enabled.is_(True))
+    )
+    return int(count or 0)
+
+
+def _is_enabled_admin(row: UserRecord) -> bool:
+    return bool(row.enabled) and normalize_role(row.role) == "admin"
+
+
+def _serialize_enabled_admin_guard(session) -> None:
+    if session.get_bind().dialect.name == "sqlite":
+        session.execute(text("BEGIN IMMEDIATE"))
+        return
+    session.scalars(
+        select(UserRecord)
+        .where(UserRecord.role == "admin")
+        .where(UserRecord.enabled.is_(True))
+        .with_for_update()
+    ).all()
+
+
+def _ensure_not_last_enabled_admin(session, row: UserRecord, *, action: str) -> None:
+    if not _is_enabled_admin(row):
+        return
+    if _enabled_admin_count(session) <= 1:
+        raise LastEnabledAdminError(f"Cannot {action} the last enabled admin user: {row.username}")
 
 
 def _revoke_active_sessions(session, *, user_id: str, revoked_at: datetime) -> int:
@@ -100,7 +145,7 @@ def create_user(*, username: str, password: str, role: str, enabled: bool = True
     with session_scope() as session:
         existing = session.scalar(select(UserRecord).where(UserRecord.username == normalized_username))
         if existing is not None:
-            raise ValueError(f"User already exists: {normalized_username}")
+            raise DuplicateUserError(f"User already exists: {normalized_username}")
         row = UserRecord(
             user_id=f"user_{uuid.uuid4().hex}",
             username=normalized_username,
@@ -125,11 +170,20 @@ def list_users() -> list[UserSummary]:
         return [_user_summary(row) for row in rows]
 
 
+def get_user_summary(*, username: str) -> UserSummary:
+    with session_scope() as session:
+        return _user_summary(_get_user_or_raise(session, username))
+
+
 def set_user_role(*, username: str, role: str) -> AuthenticatedUser:
     normalized_role = normalize_role(role)
     now = _now()
     with session_scope() as session:
+        if normalized_role != "admin":
+            _serialize_enabled_admin_guard(session)
         row = _get_user_or_raise(session, username)
+        if normalized_role != "admin":
+            _ensure_not_last_enabled_admin(session, row, action="demote")
         row.role = normalized_role
         row.updated_at = now
         session.flush()
@@ -139,7 +193,9 @@ def set_user_role(*, username: str, role: str) -> AuthenticatedUser:
 def disable_user(*, username: str) -> UserOperationResult:
     now = _now()
     with session_scope() as session:
+        _serialize_enabled_admin_guard(session)
         row = _get_user_or_raise(session, username)
+        _ensure_not_last_enabled_admin(session, row, action="disable")
         row.enabled = False
         row.updated_at = now
         revoked_sessions = _revoke_active_sessions(session, user_id=row.user_id, revoked_at=now)

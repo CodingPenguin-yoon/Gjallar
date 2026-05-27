@@ -40,6 +40,7 @@ surfaces:
 | DRS Advisor | `/drs` UI with backend-owned read-only recommendations/check. | Phase 1 implemented; all recommendations `executable=false`. |
 | Jobs/Runs | DB-backed latest job state and artifact metadata. | Implemented for Create VM and VM start. |
 | Risks/Alerts | Job-derived risk summaries. | Implemented; not yet a DRS blocker engine. |
+| Auth/Admin | Local login, server-side sessions, RBAC, and admin local-user management. | Implemented; no public signup/OAuth/API tokens. |
 
 Implemented DB tables:
 
@@ -48,6 +49,8 @@ Implemented DB tables:
 - `job_artifacts`
 - `vm_create_requests`
 - `vm_instances`
+- `users`
+- `sessions`
 
 Not implemented yet:
 
@@ -65,8 +68,9 @@ Not implemented yet:
 DRS Advisor is the next MVP success line. Create VM is a strong supporting
 capability, but it must not define DRS execution semantics.
 
-Before DRS Phase 2 implementation, close the Create VM supporting capability
-with login/session/role-based authorization. The agreed stabilization plan is
+Before DRS Phase 2 implementation, keep the Create VM supporting capability
+closed under login/session/role-based authorization and admin-managed local
+accounts. The agreed stabilization plan is
 [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md).
 
 DRS execution must not open until VM identity, fingerprint, metadata, policy,
@@ -78,7 +82,7 @@ contracts are in place.
 | Feature | Implemented | Remaining | Next action | Key docs |
 |---|---|---|---|---|
 | `/drs` read-only Advisor | Backend endpoints and UI route exist. | Add real identity/policy evidence and richer table fields. | Close Phase 1 docs/tests, then start identity DB. | [`05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) |
-| Create VM auth/session hardening | Create VM native flow is implemented, but app-level login/role protection is not yet in place. | Users/sessions, role checks, frontend login, actor evidence, live smoke. | Stabilize Create VM before DRS Phase 2. | [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md) |
+| Create VM auth/session hardening | Login/session/RBAC, actor evidence, and admin local-user management are implemented. | Approved live smoke matrix. | Run live smoke only with explicit approval, then proceed to DRS identity. | [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md) |
 | Recommendation calculation | Uses current CPU/memory pressure, imbalance, bridge/storage evidence, red-risk exclusion. | 15m average/peak metrics, HA/quorum/task/lock evidence. | Add identity/fingerprint first; metrics can follow in same Phase 2 track. | [`04_DRS_RECOMMENDATION_AND_EXECUTION.md`](../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) |
 | VM identity/fingerprint | Create VM stores `observed_after` fingerprint evidence in artifacts and `vm_instances`. | No generalized identity for all Proxmox VMs. | Implement DRS identity/fingerprint DB and resolver. | [`03_DATA_DB_AND_IDENTITY.md`](../product/drs-advisor/03_DATA_DB_AND_IDENTITY.md), [`data-identity/overview.md`](../architecture/data-identity/overview.md) |
 | Metadata/policy | Not implemented for DRS. | owner/environment/sensitivity/migration_policy, allowed/restricted/blocked. | Add read-only metadata/policy model after identity table shape. | [`03_DATA_DB_AND_IDENTITY.md`](../product/drs-advisor/03_DATA_DB_AND_IDENTITY.md) |

@@ -40,7 +40,12 @@
 
 ## Payload and approval boundary
 
-Payload includes `operator_id`, `job_id`, `profile_id`, `target_node_id`, `storage_id`, `bridge_id`, explicit static fields, `template_id`, `template_vmid`, `template_node_id`, hardware overrides, access fields. Incoming `network_id`/`networkId` is not the source of truth.
+Payload includes compatibility `operator_id`, `job_id`, `profile_id`,
+`target_node_id`, `storage_id`, `bridge_id`, explicit static fields,
+`template_id`, `template_vmid`, `template_node_id`, hardware overrides, access
+fields. Current UI derives `operator_id` from the authenticated session user,
+and trusted actor evidence comes from session fields, not payload
+`operator_id`. Incoming `network_id`/`networkId` is not the source of truth.
 
 Approval packet includes `plan_artifact_id`, `review_summary_checksum`, `yellow_risk_acknowledged`. Native create additionally requires `proxmox_mutation_acknowledged`.
 

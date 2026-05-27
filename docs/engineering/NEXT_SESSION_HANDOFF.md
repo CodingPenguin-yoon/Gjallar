@@ -13,6 +13,8 @@ Last updated: 2026-05-27
   `viewer`, `operator`, and `admin`.
 - Read APIs require `viewer` or above. Create VM workflow writes, Create VM
   live create, and VM Start require `operator` or `admin`.
+- Admin-only local user management is implemented at `/admin/users` and
+  `/api/v1/admin/users*`.
 - First admin is created with
   `cd backend && python -m app.auth.users create-admin --username yoon`.
 - Auth endpoints are active:
@@ -22,6 +24,11 @@ Last updated: 2026-05-27
 - Create VM power policy is request-level:
   - `stopped`: default, clone/config and stopped post-check.
   - `boot_and_verify`: start the new VM, observe guest-agent IP, and verify `cloud-init status --wait`.
+- Create VM displays the authenticated session user as actor evidence instead
+  of exposing editable payload `operator_id`.
+- Last enabled admin protection is shared by CLI and API: the last enabled
+  admin cannot be disabled or demoted; disabled admins do not count. Password
+  reset still revokes target sessions and is not blocked by that guard.
 - SSH login, Ansible verification, app bootstrap, background reconciliation, and DRS identity registration are not implemented.
 - Live Proxmox Create VM smoke was not run during auth stabilization and still
   requires explicit approval.
@@ -30,7 +37,7 @@ Last updated: 2026-05-27
 
 ## Validation Baseline
 
-Most recent auth stabilization validation:
+Most recent operations-console stabilization validation:
 
 ```bash
 PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
@@ -40,7 +47,8 @@ pnpm --dir frontend build
 git diff --check
 ```
 
-Recorded backend result after auth stabilization: `166 passed, 13 warnings, 29 subtests passed`.
+Recorded backend result after operations-console stabilization:
+`182 passed, 33 warnings, 29 subtests passed`.
 
 ## Next Work 1: Create VM Live Smoke Matrix
 
@@ -79,7 +87,6 @@ Keep out of scope for this smoke:
 
 - OAuth/SSO/2FA.
 - API token automation.
-- admin user-management UI.
 - SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
   registration.
 
@@ -92,8 +99,8 @@ Targets:
 
 - Update `docs/current/README.md` and any top-tab status docs that still imply
   Create VM is unauthenticated.
-- Record that admin user management UI, password reset, OAuth/SSO/2FA, API
-  tokens, and live smoke are not part of the completed auth foundation.
+- Keep password reset email flows, OAuth/SSO/2FA, API tokens, and live smoke
+  clearly separated from the completed auth/admin foundation.
 - Keep DRS execution authority separate from Create VM mutation authority.
 
 ## Next Work 3: DRS Advisor Identity And Execution Prep

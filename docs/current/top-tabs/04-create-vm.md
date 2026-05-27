@@ -1,8 +1,8 @@
 # Create VM
 
-평가일: 2026-05-16
+평가일: 2026-05-27
 
-검증 기준: 2026-05-16에 backend `PYTHONPATH=backend backend/venv/bin/pytest -q backend/tests` -> 148 passed, 1 warning, 29 subtests passed, frontend `for test_file in frontend/tests/*.mjs; do node "$test_file"; done` -> passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-27에 backend `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests` -> 182 passed, 33 warnings, 29 subtests passed, frontend `node --test frontend/tests/*.mjs` -> 13 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
 
 ## 구현 수준
 
@@ -29,6 +29,11 @@ Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan
 ## 현재 구현
 
 primary UI flow는 default draft 생성, read-only preflight, artifact-backed dry-run plan, review checksum, approval validation, final acknowledgement, Proxmox native create gate로 이어진다. 별도 "생성 요청 저장" 단계는 current UI에서 제거됐고, `proxmox-create`는 manifest commit SHA를 요구하지 않는다.
+
+Wizard의 요청자는 editable `operator_id` 입력이 아니라 현재 로그인 세션의
+username/role 표시다. Backend job/request evidence는 payload 값이 아니라
+trusted session actor fields인 `actor_user_id`, `actor_username`,
+`actor_role`을 기록한다.
 
 Access/SSH는 현재 구현되어 있다. Wizard는 cloud-init user와 SSH public key
 입력을 보낸다. Backend는 request key 또는 backend env/file default key를

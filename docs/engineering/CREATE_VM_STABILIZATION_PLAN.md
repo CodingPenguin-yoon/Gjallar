@@ -47,8 +47,8 @@ Gjallar should behave like an operator console:
 5. The backend creates a server-side session and returns an `HttpOnly` cookie.
 6. Read-only APIs require at least `viewer`.
 7. VM create and VM start require at least `operator`.
-8. Admin-only user management can be added later, but the first admin is created
-   by CLI.
+8. The first admin can be created by CLI, and admins can manage local users
+   through the admin-only UI/API.
 
 ## Roles
 
@@ -58,7 +58,7 @@ Keep the first role model deliberately small.
 |---|---:|---:|---:|
 | `viewer` | yes | no | no |
 | `operator` | yes | yes | no |
-| `admin` | yes | yes | future |
+| `admin` | yes | yes | yes |
 
 Rules:
 
@@ -105,6 +105,16 @@ POST /api/v1/auth/logout
 GET /api/v1/auth/me
 ```
 
+- admin-only user management API:
+
+```http
+GET /api/v1/admin/users
+POST /api/v1/admin/users
+PATCH /api/v1/admin/users/{username}/role
+POST /api/v1/admin/users/{username}/disable
+POST /api/v1/admin/users/{username}/reset-password
+```
+
 - dependency helpers:
 
 ```python
@@ -127,6 +137,12 @@ POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start
   - `actor_user_id`
   - `actor_username`
   - `actor_role`
+- share local-account safety between CLI and API:
+  - disabling the last enabled admin is rejected
+  - demoting the last enabled admin away from `admin` is rejected
+  - disabled admin rows do not count
+  - password reset still revokes target sessions and is not blocked by the
+    last-admin guard
 
 ## Frontend Scope
 
@@ -147,6 +163,8 @@ Planned pieces:
 ```js
 fetch(url, { credentials: 'include' })
 ```
+- `/admin/users` route visible only to admins, with route-level guard for direct
+  access.
 
 ## Security Defaults
 
@@ -215,7 +233,6 @@ Do not include these in the Create VM stabilization slice:
 - OAuth, SSO, or 2FA.
 - self-service signup.
 - password reset email flow.
-- admin user-management UI.
 - fine-grained per-project permissions.
 - API token automation.
 - SSH smoke, Ansible, or app bootstrap.
@@ -239,6 +256,8 @@ Create VM stabilization is complete when:
 - backend tests, frontend tests, lint, build, and `git diff --check` pass.
 - Create VM live smoke is recorded for `stopped` and `boot_and_verify`.
 - docs/runbook explain first-admin creation, login, logout, and role behavior.
+- admins can list, create, role-change, disable, and reset local users without a
+  public signup flow.
 
 ## Next After This Plan
 

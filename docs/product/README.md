@@ -28,6 +28,10 @@ This product tree is focused on product direction. Current implemented status, o
 - There is no DRS identity/fingerprint DB, final pre-check, live migration, operation locks, UPID tracking, or reconciliation yet.
 - The active Create VM path is native Proxmox preview/create.
 - The legacy Terraform Create VM executor route surface and helper code are removed.
-- Create VM success is powered-off/stopped only after Proxmox post-check and `observed_after`.
+- Create VM default success is powered-off/stopped after Proxmox post-check and
+  `observed_after`; optional `boot_and_verify` starts the new VM and verifies
+  guest-agent IP plus cloud-init completion.
+- Local users are managed by CLI or admin-only UI/API. There is no public
+  signup flow.
 - Inventory is read-only with fake fallback.
 - Dashboard and read-only screens should remain usable when DB-backed job history is unavailable or temporarily unreadable.
