@@ -243,6 +243,18 @@ After immediate explicit approval, run and record:
 
 Live smoke results matrix:
 
+For a DB-backed Create VM job, collect the curated non-live evidence summary
+without contacting Proxmox. Load the intended `.env` first so
+`GJALLAR_DATABASE_URL` points at the evidence DB:
+
+```bash
+cd backend
+set -a
+. ../.env
+set +a
+PYTHONPATH=. venv/bin/python -m app.vm_create.evidence --job-id <job-id>
+```
+
 | Case | Run timestamp | Code revision | Endpoint / HTTP / meta / status / message | Job id | Request id | VMID / name | Target node | Power policy | Actor fields | Risk level / codes | Approval evidence | Artifact ids / types / path / checksum | Proxmox UPID / task / resize / start side effects | `observed_after` summary | Guest-agent IP | `cloud_init` | `boot_verification` | DB `vm_create_request` / `vm_instance` evidence | Cleanup decision | Remaining risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Default stopped creation | `<timestamp>` | `<commit>` | `<endpoint>; <http>; meta=<meta>; status=<status>; message=<message>` | `<job-id>` | `<request-id>` | `<vmid> / <name>` | `<node>` | `stopped` | `<actor-id>; <username>; <role>` | `<level>; <codes>` | `<approval-timestamp>; <session>; proxmox_mutation_acknowledged=true` | `<ids>; <types>; <paths>; <checksums>` | `<upid>; task=<task>; resize=<none-or-detail>; start=<none>` | `<status stopped; node; config summary>` | `<none-or-ip>` | `<state>` | `<not-requested>` | `<request-row>; <instance-row>` | `<operator decision>` | `<risk>` |
