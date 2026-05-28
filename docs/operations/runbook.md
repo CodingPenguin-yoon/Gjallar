@@ -173,8 +173,9 @@ node --test frontend/tests/authFlow.test.mjs frontend/tests/apiV1Client.test.mjs
   the new VM and verifies guest-agent IP plus cloud-init completion.
 - Existing VM start requires an in-app acknowledgement, idempotency key, fresh inventory precheck, Proxmox task polling, and observed-after running evidence.
 - Do not rely on destructive VM list controls; the current UI does not expose stop/reset/shutdown/reboot/delete/terminate.
-- Live Proxmox Create VM smoke was not run during auth stabilization. Running
-  the live smoke matrix still requires explicit approval.
+- Live Proxmox Create VM smoke completed on 2026-05-28 and is recorded in
+  [`create-vm-live-smoke-2026-05-28.md`](create-vm-live-smoke-2026-05-28.md).
+  Future live smoke runs still require explicit approval in the active session.
 
 ## Live Create VM Smoke Checklist
 
@@ -184,6 +185,12 @@ The checklist performs live Proxmox mutation through
 Approval is one-time and session-bound; it is not standing approval for later
 runs. The final mutation call still requires immediate explicit approval and
 `proxmox_mutation_acknowledged=true`.
+
+Latest recorded run: 2026-05-28, approved target `yoonserver3`, template
+`yoonmanserver / VMID 118 / ubuntu-templte`, storage `nas-server`, bridge
+`vmbr0`, static range `192.168.2.140-150/24`, gateway `192.168.2.1`,
+operator `yoon / admin`, cleanup policy `leave stopped`. Results:
+[`create-vm-live-smoke-2026-05-28.md`](create-vm-live-smoke-2026-05-28.md).
 
 Before approval:
 
@@ -242,6 +249,10 @@ After immediate explicit approval, run and record:
    artifacts.
 
 Live smoke results matrix:
+
+The observed 2026-05-28 matrix is recorded in
+[`create-vm-live-smoke-2026-05-28.md`](create-vm-live-smoke-2026-05-28.md).
+Keep the table below as the collection template for future approved runs.
 
 For a DB-backed Create VM job, collect the curated non-live evidence summary
 without contacting Proxmox. Load the intended `.env` first so

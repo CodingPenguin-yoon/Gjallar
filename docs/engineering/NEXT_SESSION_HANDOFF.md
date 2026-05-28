@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-Last updated: 2026-05-27
+Last updated: 2026-05-28
 
 ## Current State
 
@@ -30,10 +30,12 @@ Last updated: 2026-05-27
   admin cannot be disabled or demoted; disabled admins do not count. Password
   reset still revokes target sessions and is not blocked by that guard.
 - SSH login, Ansible verification, app bootstrap, background reconciliation, and DRS identity registration are not implemented.
-- Live Proxmox Create VM smoke was not run during auth stabilization and still
-  requires explicit approval.
-- Next immediate implementation work is the Create VM live smoke matrix plus
-  docs/risk follow-up from the auth stabilization review.
+- Approved Proxmox Create VM live smoke completed on 2026-05-28. Results are in
+  [`../operations/create-vm-live-smoke-2026-05-28.md`](../operations/create-vm-live-smoke-2026-05-28.md).
+  Future live smoke or cleanup mutations still require explicit active-session
+  approval.
+- Next immediate implementation work is DRS Advisor identity/fingerprint and
+  final pre-check prep.
 
 ## Validation Baseline
 
@@ -50,30 +52,20 @@ git diff --check
 Recorded backend result after operations-console stabilization:
 `182 passed, 33 warnings, 29 subtests passed`.
 
-## Next Work 1: Create VM Live Smoke Matrix
+## Completed Work: Create VM Live Smoke Matrix
 
-Goal: verify the auth-protected Create VM behavior against live Proxmox after
-explicit approval.
+Goal completed: verify the auth-protected Create VM behavior against live
+Proxmox after explicit approval.
 
-Start by reading:
+Recorded on 2026-05-28:
 
-- `docs/operations/runbook.md`
-- `backend/app/api/v1/router.py`
-- `backend/app/main.py`
-- `backend/app/db/models.py`
-- `frontend/src/App.jsx`
-- `frontend/src/services/apiV1.js`
-- `frontend/src/components/CreateInstanceWizard.jsx`
-- `frontend/src/components/InstanceList.jsx`
+1. Negative bridge gate: red blocked with `side_effects=[]`.
+2. `stopped` creation: VMID 137, final stopped.
+3. `boot_and_verify`: VMID 138, guest-agent IP and cloud-init verified, then
+   stopped by approved cleanup.
+4. Static IP creation: VMID 139, final stopped.
 
-Run and record:
-
-1. `stopped` creation with default settings.
-2. `boot_and_verify` with DHCP and guest-agent IP display.
-3. Static IP creation with explicit `static_ip`, `prefix`, and `gateway`.
-4. Invalid target combination, such as template/node/storage mismatch, to confirm the error is understandable.
-
-Check Jobs/Runs after each run:
+Jobs/Runs evidence checked:
 
 - authenticated actor evidence
 - job status and stage
@@ -90,20 +82,7 @@ Keep out of scope for this smoke:
 - SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
   registration.
 
-## Next Work 2: Docs And Risk Follow-Up
-
-Goal: close documentation drift and explicitly capture remaining auth/Create VM
-risks before DRS Phase 2.
-
-Targets:
-
-- Update `docs/current/README.md` and any top-tab status docs that still imply
-  Create VM is unauthenticated.
-- Keep password reset email flows, OAuth/SSO/2FA, API tokens, and live smoke
-  clearly separated from the completed auth/admin foundation.
-- Keep DRS execution authority separate from Create VM mutation authority.
-
-## Next Work 3: DRS Advisor Identity And Execution Prep
+## Next Work 1: DRS Advisor Identity And Execution Prep
 
 Goal: extend the implemented read-only DRS Phase 1 without adding migration mutation yet.
 
@@ -117,6 +96,19 @@ Start by reading:
 - `backend/app/drs/advisor.py`
 - `backend/app/api/v1/router.py`
 - `backend/app/proxmox/inventory.py`
+
+## Next Work 2: Docs And Risk Follow-Up
+
+Goal: close documentation drift and explicitly capture remaining auth/Create VM
+risks before DRS Phase 2.
+
+Targets:
+
+- Update `docs/current/README.md` and any top-tab status docs that still imply
+  Create VM is unauthenticated.
+- Keep password reset email flows, OAuth/SSO/2FA, API tokens, and live smoke
+  clearly separated from the completed auth/admin foundation.
+- Keep DRS execution authority separate from Create VM mutation authority.
 
 Implemented backend endpoints are read-only:
 

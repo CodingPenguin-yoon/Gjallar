@@ -1,8 +1,8 @@
 # Create VM
 
-평가일: 2026-05-27
+평가일: 2026-05-28
 
-검증 기준: 2026-05-27에 backend `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests` -> 182 passed, 33 warnings, 29 subtests passed, frontend `node --test frontend/tests/*.mjs` -> 13 passed, `pnpm --dir frontend lint` -> passed, `pnpm --dir frontend build` -> passed, `git diff --check` -> passed를 기록했다.
+검증 기준: 2026-05-28에 live Create VM smoke matrix를 실행했다. Negative bridge gate는 red blocked + `side_effects=[]`, default `stopped`는 VMID 137 stopped, `boot_and_verify`는 VMID 138 running/IP/cloud-init 검증 후 stopped cleanup, static IP stopped는 VMID 139 stopped로 기록됐다. 상세 결과는 [`../../operations/create-vm-live-smoke-2026-05-28.md`](../../operations/create-vm-live-smoke-2026-05-28.md)에 있다.
 
 ## 구현 수준
 
@@ -49,6 +49,11 @@ Native create는 `/nodes/{template_node}/qemu/{template_vmid}/clone` full clone,
 Removed Terraform plan/apply URLs are absent from the route table and return FastAPI 404.
 
 현재 생성 정책은 요청별로 명시된다. 기본값은 `stopped`이며 plan/review는 `first_power_on_included=false`, VMInstance manifest는 `desired_power_state: stopped`를 기록한다. 선택값 `boot_and_verify`는 `first_power_on_included=true`, `desired_power_state: running`을 기록하고 native create가 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. SSH login, Ansible, app deploy, DRS identity registration은 아직 deferred다.
+
+2026-05-28 live smoke에서 `stopped`, `boot_and_verify`, explicit static IP
+stopped 생성이 승인된 Proxmox target에서 통과했다. `boot_and_verify`는 생성
+성공 시점의 request/VM evidence가 `running`을 기록하고, 승인된 cleanup 후
+Proxmox 최종 상태가 `stopped`임을 별도로 기록한다.
 
 Profiles는 현재 `GJALLAR_DATABASE_URL`의 DB seed source로 구현되어 있다.
 Alembic migration이 schema를 만들고, `python -m app.db.seed_create_vm_profiles`
@@ -120,7 +125,7 @@ Legacy `execute/archive` manifest commit APIs are removed from the active route 
 
 ## 다음 구현 slice
 
-Create VM의 Terraform executor와 Terraform-named state metadata는 active
-contract에서 제거됐다. DRS 작업에서는 approval checksum, artifact publication,
-job status 기록 패턴만 참고하고, 별도 `/api/v1/drs/*` read model과 final
-pre-check 계약을 먼저 만든다.
+Create VM live smoke까지 완료됐으므로, 다음 slice는 DRS identity/fingerprint
+및 final pre-check 설계/구현이다. DRS 작업에서는 Create VM의 approval
+checksum, artifact publication, job status 기록 패턴만 참고하고, 별도
+`/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.

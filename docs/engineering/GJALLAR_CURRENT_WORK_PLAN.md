@@ -41,9 +41,9 @@ Use `AGENTS.md` for execution mode:
 - Gjallar's next MVP success line is DRS Advisor.
 - Create VM is a supporting capability, not the MVP success line.
 - Active Create VM mutation path is Proxmox native API.
-- Create VM stabilization now includes Gjallar login, server-side sessions, and
-  simple role-based authorization. The remaining stabilization follow-up is the
-  approved live smoke matrix.
+- Create VM stabilization now includes Gjallar login, server-side sessions,
+  simple role-based authorization, and the approved 2026-05-28 live smoke
+  matrix.
 - Terraform Create VM executor routes/helper code and Terraform-named state
   fields are removed from the active code/API/artifact contracts.
 - Create VM profile/template/network target design is documented in
@@ -145,7 +145,7 @@ Planned slices:
 
 ## Workstream C: Native Proxmox Create Quality
 
-Status: implemented in code/tests; final live smoke matrix remains a follow-up.
+Status: implemented in code/tests and live-smoked on 2026-05-28.
 
 Goal: keep the active Create VM implementation Proxmox-native and auditable.
 
@@ -218,7 +218,7 @@ pnpm --dir frontend build
 
 ## Workstream G: Create VM Stabilization
 
-Status: implemented except live smoke.
+Status: implemented and live-smoked on 2026-05-28.
 
 Goal: close Create VM as a safe supporting capability before DRS Phase 2.
 
@@ -244,7 +244,8 @@ Planned slices:
 - [x] Share last-enabled-admin protection between CLI and API.
 - [x] Make Create VM display the session-derived actor instead of editable
   `operator_id`.
-- [ ] Record Create VM live smoke for `stopped` and `boot_and_verify`.
+- [x] Record Create VM live smoke for `stopped`, `boot_and_verify`, static IP,
+  and a negative pre-mutation gate.
 
 Non-goals:
 
@@ -305,7 +306,6 @@ Current implementation order is tracked in
 
 Recommended next major slice:
 
-1. Record Create VM live smoke and update runbook/docs with observed results.
-2. Then implement DRS identity/fingerprint DB and read-only resolver.
-3. Feed resolver output into DRS recommendation blockers before any migration
+1. Implement DRS identity/fingerprint DB and read-only resolver.
+2. Feed resolver output into DRS recommendation blockers before any migration
    execution work.

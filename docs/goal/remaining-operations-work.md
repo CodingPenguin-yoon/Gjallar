@@ -11,7 +11,9 @@
   - UI: `/admin/users`
   - API: `/api/v1/admin/users*`
   - Last enabled admin protection in shared service logic
-- Create VM supports default `stopped` creation and optional `boot_and_verify`, but live Proxmox smoke has not been run.
+- Create VM supports default `stopped` creation and optional `boot_and_verify`.
+  Approved live Proxmox smoke completed on 2026-05-28 and is recorded in
+  `docs/operations/create-vm-live-smoke-2026-05-28.md`.
 
 ## Non-Negotiables
 
@@ -24,13 +26,17 @@
 
 ## Recommended Goal Order
 
-1. Create VM live smoke matrix and result recording.
-2. DRS identity and final pre-check preparation.
-3. Reconciliation worker for Proxmox/Gjallar state drift.
-4. SSH/Ansible/app bootstrap readiness, if still desired after live smoke.
-5. Account/session operations polish.
+1. DRS identity and final pre-check preparation.
+2. Reconciliation worker for Proxmox/Gjallar state drift.
+3. SSH/Ansible/app bootstrap readiness, if still desired after live smoke.
+4. Account/session operations polish.
+
+Completed: Create VM live smoke matrix and result recording.
 
 ## Goal 1: Create VM Live Smoke Matrix
+
+Status: completed on 2026-05-28. Evidence is recorded in
+`docs/operations/create-vm-live-smoke-2026-05-28.md`.
 
 Primary objective: prove the current Create VM path against a real Proxmox target, record evidence, and update docs without expanding product scope.
 
@@ -190,7 +196,9 @@ git diff --check
 
 ## Remaining Risk To Carry Forward
 
-- Live Proxmox Create VM smoke has not been run yet.
+- Create VM live smoke is complete for the approved 2026-05-28 target, but any
+  future live smoke or cleanup mutation still needs explicit active-session
+  approval.
 - DRS Advisor remains read-only and does not have identity/fingerprint policy, final pre-check, operation locks, UPID tracking, or execution.
 - Reconciliation is not implemented.
 - SSH/Ansible/app bootstrap remains deferred.

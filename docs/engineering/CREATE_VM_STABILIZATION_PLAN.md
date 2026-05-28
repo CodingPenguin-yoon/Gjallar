@@ -1,6 +1,10 @@
 # Create VM Stabilization Plan
 
-Last updated: 2026-05-27
+Last updated: 2026-05-28
+
+Status: completed for the intended stabilization slice. Approved live smoke is
+recorded in
+[`../operations/create-vm-live-smoke-2026-05-28.md`](../operations/create-vm-live-smoke-2026-05-28.md).
 
 ## Purpose
 
@@ -254,7 +258,8 @@ Create VM stabilization is complete when:
 - unsafe mutation requests without a valid session return `401`.
 - mutation requests with insufficient role return `403`.
 - backend tests, frontend tests, lint, build, and `git diff --check` pass.
-- Create VM live smoke is recorded for `stopped` and `boot_and_verify`.
+- Create VM live smoke is recorded for `stopped`, `boot_and_verify`, static IP,
+  and a negative pre-mutation gate.
 - docs/runbook explain first-admin creation, login, logout, and role behavior.
 - admins can list, create, role-change, disable, and reset local users without a
   public signup flow.

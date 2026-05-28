@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-27
+Last refreshed: 2026-05-28
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -60,6 +60,12 @@ This file is the docs source of truth for implemented behavior after active code
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
 - Task failure, unknown cloned disk size, resize failure, VM missing, stopped-policy powered-on mismatch, or boot-and-verify guest-agent/cloud-init failure records failed/`needs_reconciliation` and does not mark the manifest applied.
+- Approved live Create VM smoke completed on 2026-05-28 against
+  `yoonserver3` using template `yoonmanserver / 118 / ubuntu-templte`, storage
+  `nas-server`, bridge `vmbr0`, and explicit static IPs. The matrix covered a
+  negative bridge gate with `side_effects=[]`, default `stopped`, optional
+  `boot_and_verify`, and static IP stopped creation. Results are recorded in
+  [`../operations/create-vm-live-smoke-2026-05-28.md`](../operations/create-vm-live-smoke-2026-05-28.md).
 
 ## Create VM Implementation And Gaps
 
@@ -122,11 +128,18 @@ Remaining Create VM gaps:
 
 Development smoke and test results recorded for this refresh:
 
-- Backend `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests`: `182 passed, 33 warnings, 29 subtests passed`.
-- Frontend `node --test frontend/tests/*.mjs`: `13 passed`.
-- Frontend `pnpm --dir frontend lint`: passed.
-- Frontend `pnpm --dir frontend build`: passed.
-- `git diff --check`: passed.
+- Pre-live and post-doc backend targeted validation
+  `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/contracts backend/tests/vm_create backend/tests/proxmox`:
+  `170 passed, 33 warnings, 26 subtests passed`.
+- Pre-live and post-doc frontend `node --test frontend/tests/createVmFlow.test.mjs`:
+  passed.
+- Post-doc `git diff --check`: passed.
+- Live Create VM smoke matrix: negative gate, stopped create, boot-and-verify,
+  and static IP stopped create passed with final smoke VMs left stopped.
+- Full prior auth-stabilization baseline remains:
+  backend `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests`
+  `182 passed, 33 warnings, 29 subtests passed`; frontend
+  `node --test frontend/tests/*.mjs` `13 passed`; lint/build passed.
 
 ## Practical reading
 
