@@ -26,7 +26,8 @@
 
 ## Recommended Goal Order
 
-1. DRS identity and final pre-check preparation.
+1. DRS identity and final pre-check preparation. Detailed next goal:
+   `docs/goal/drs-safe-execution-readiness-foundation.md`.
 2. Reconciliation worker for Proxmox/Gjallar state drift.
 3. SSH/Ansible/app bootstrap readiness, if still desired after live smoke.
 4. Account/session operations polish.
@@ -96,6 +97,9 @@ Primary objective: prove the current Create VM path against a real Proxmox targe
 - Any live cleanup decision is explicit.
 
 ## Goal 2: DRS Identity And Final Pre-Check Preparation
+
+Detailed execution guide:
+`docs/goal/drs-safe-execution-readiness-foundation.md`.
 
 Primary objective: prepare the DRS Advisor path for safe future execution without enabling live migration by default.
 
