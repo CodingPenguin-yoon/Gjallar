@@ -267,6 +267,249 @@ def test_allowed_policy_can_reach_read_only_final_precheck_would_pass():
     assert conflicts["active_task"]["status"] == "not_collected"
     assert conflicts["ha_state"]["status"] == "not_collected"
     assert conflicts["cluster_quorum"]["status"] == "not_collected"
+    readiness = result["approval_readiness"]
+    assert readiness["final_precheck_passed"] is True
+    assert readiness["approval_packet_creatable"] is True
+    assert readiness["job_intent_creatable"] is True
+    assert readiness["runnable"] is False
+    assert readiness["proxmox_mutation_enabled"] is False
+    assert readiness["allowed_actions"] == []
+    assert readiness["side_effects"] == []
+    assert readiness["warning_acknowledged"] is False
+    assert readiness["warning_codes"] == []
+    assert readiness["warnings"] == []
+    assert readiness["evidence_binding"]["recommendation_checksum"].startswith("sha256:")
+    assert readiness["evidence_binding"]["final_precheck_checksum"].startswith("sha256:")
+    assert "proxmox_active_task_not_collected" in readiness["runnable_blockers"]
+    assert "proxmox_ha_state_not_collected" in readiness["runnable_blockers"]
+    assert "proxmox_cluster_quorum_not_collected" in readiness["runnable_blockers"]
+    assert "live_migration_execution_not_implemented" in readiness["runnable_blockers"]
+
+
+def test_allowed_policy_creates_local_approval_packet_and_pending_non_runnable_job():
+    from app.drs.advisor import build_drs_check_result
+    from app.drs.approval import create_approval_packet_and_job_intent
+    from app.jobs.runs import get_job_run
+
+    adapter = MutableDrsAdapter(identity_mode="high")
+    first = _first_recommendation(adapter)
+    _set_policy(first["identity_evidence"]["vm_identity_id"], "allowed")
+    recommendation = _first_recommendation(adapter)
+    result = build_drs_check_result(
+        adapter,
+        recommendation["id"],
+        risks=[],
+        payload={"recommendation": recommendation},
+    )
+
+    packet = create_approval_packet_and_job_intent(
+        result,
+        payload={"recommendation": recommendation},
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+    )
+
+    assert packet["executable"] is False
+    assert packet["allowed_actions"] == []
+    assert packet["runnable"] is False
+    assert packet["proxmox_mutation_enabled"] is False
+    assert packet["side_effects"] == []
+    assert packet["approval_packet"]["packet_status"] == "approved"
+    assert packet["approval_packet"]["recommendation_id"] == recommendation["id"]
+    assert packet["approval_packet"]["vm_identity_id"] == recommendation["identity_evidence"]["vm_identity_id"]
+    assert packet["approval_packet"]["source_node_id"] == recommendation["source_node_id"]
+    assert packet["approval_packet"]["target_node_id"] == recommendation["target_node_id"]
+    assert packet["approval_packet"]["actor_username"] == "operator"
+    assert packet["approval_packet"]["warning_acknowledged"] is False
+    assert packet["approval_packet"]["warning_codes"] == []
+    assert packet["approval_packet"]["warnings"] == []
+    assert packet["approval_packet"]["recommendation_checksum"].startswith("sha256:")
+    assert packet["approval_packet"]["final_precheck_checksum"].startswith("sha256:")
+    assert packet["job_intent"]["status"] == "pending"
+    assert packet["job_intent"]["runnable"] is False
+    assert packet["job_intent"]["proxmox_mutation_enabled"] is False
+    assert packet["job_intent"]["side_effects"] == []
+    assert packet["job_intent"]["approved_actor"]["username"] == "operator"
+    assert packet["job_intent"]["final_precheck_summary"]["status"] == "would_pass"
+    assert packet["job_intent"]["lock_evidence"]["matching_lock_ids"] == []
+    assert {artifact["type"] for artifact in packet["artifacts"]} == {
+        "drs_recommendation_evidence",
+        "drs_final_precheck",
+        "drs_approval_packet",
+        "drs_job_intent",
+    }
+
+    job_run = get_job_run(packet["job_intent"]["job_id"])
+    assert job_run is not None
+    assert job_run["job_type"] == "drs_migration"
+    assert job_run["status"] == "pending"
+    assert [step["id"] for step in job_run["steps"]] == [
+        "recommendation",
+        "final_precheck",
+        "approval",
+        "job_intent",
+    ]
+    assert "task_poll" not in [step["id"] for step in job_run["steps"]]
+    assert "post_check" not in [step["id"] for step in job_run["steps"]]
+    assert "reconciliation" not in [step["id"] for step in job_run["steps"]]
+
+
+def test_synthetic_warnings_require_acknowledgement_before_local_approval_intent():
+    from sqlalchemy import func, select
+
+    from app.db.models import DrsApprovalPacketRecord, DrsMigrationJobRecord, JobRunRecord
+    from app.db.session import session_scope
+    from app.drs.advisor import build_drs_check_result
+    from app.drs.approval import (
+        DrsApprovalBlockedError,
+        build_approval_readiness,
+        create_approval_packet_and_job_intent,
+    )
+
+    adapter = MutableDrsAdapter(identity_mode="high")
+    first = _first_recommendation(adapter)
+    _set_policy(first["identity_evidence"]["vm_identity_id"], "allowed")
+    recommendation = _first_recommendation(adapter)
+    result = build_drs_check_result(
+        adapter,
+        recommendation["id"],
+        risks=[],
+        payload={"recommendation": recommendation},
+    )
+    result["warnings"] = [
+        {
+            "code": "synthetic_route_warning",
+            "message": "Synthetic warning for acknowledgement gate coverage.",
+            "severity": "warning",
+        }
+    ]
+    actor = {"user_id": "operator-1", "username": "operator", "role": "operator"}
+
+    readiness = build_approval_readiness(result)
+
+    assert readiness["final_precheck_passed"] is True
+    assert readiness["warnings_ack_required"] is True
+    assert readiness["warning_acknowledged"] is False
+    assert readiness["warning_codes"] == ["synthetic_route_warning"]
+    assert readiness["approval_packet_creatable"] is False
+    assert readiness["job_intent_creatable"] is False
+    assert "warnings_not_acknowledged" in readiness["blockers"]
+
+    with pytest.raises(DrsApprovalBlockedError) as blocked:
+        create_approval_packet_and_job_intent(result, payload={}, actor=actor)
+
+    assert blocked.value.code == "DRS_APPROVAL_GATE_BLOCKED"
+    assert "warnings_not_acknowledged" in blocked.value.readiness["blockers"]
+    with session_scope() as session:
+        assert session.scalar(select(func.count()).select_from(DrsApprovalPacketRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(DrsMigrationJobRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(JobRunRecord)) == 0
+
+    acknowledged = build_approval_readiness(result, warning_acknowledged=True)
+    assert acknowledged["approval_packet_creatable"] is True
+    assert acknowledged["job_intent_creatable"] is True
+    assert acknowledged["warning_acknowledged"] is True
+    assert acknowledged["blockers"] == []
+
+    packet = create_approval_packet_and_job_intent(
+        result,
+        payload={"warning_acknowledged": True},
+        actor=actor,
+    )
+
+    assert packet["executable"] is False
+    assert packet["runnable"] is False
+    assert packet["proxmox_mutation_enabled"] is False
+    assert packet["side_effects"] == []
+    assert packet["approval_packet"]["warning_acknowledged"] is True
+    assert packet["approval_packet"]["warning_codes"] == ["synthetic_route_warning"]
+    assert packet["job_intent"]["status"] == "pending"
+    assert packet["job_intent"]["runnable"] is False
+
+
+def _blocked_approval_check(case):
+    from app.drs.advisor import build_drs_check_result
+
+    if case == "unknown_identity":
+        adapter = MutableDrsAdapter(identity_mode="unknown")
+        recommendation = _first_recommendation(adapter)
+    elif case == "medium_identity":
+        adapter = MutableDrsAdapter(identity_mode="medium")
+        recommendation = _first_recommendation(adapter)
+    elif case == "unknown_policy":
+        adapter = MutableDrsAdapter(identity_mode="high")
+        recommendation = _first_recommendation(adapter)
+    elif case in {"restricted_policy", "blocked_policy"}:
+        adapter = MutableDrsAdapter(identity_mode="high")
+        first = _first_recommendation(adapter)
+        _set_policy(
+            first["identity_evidence"]["vm_identity_id"],
+            "restricted" if case == "restricted_policy" else "blocked",
+        )
+        recommendation = _first_recommendation(adapter)
+    elif case in {"active_lock", "stale_lock", "reconciliation_required_lock"}:
+        adapter = MutableDrsAdapter(identity_mode="high")
+        first = _first_recommendation(adapter)
+        _set_policy(first["identity_evidence"]["vm_identity_id"], "allowed")
+        recommendation = _first_recommendation(adapter)
+        _set_operation_lock(recommendation, case.removesuffix("_lock"))
+    elif case == "config_lock":
+        adapter = MutableDrsAdapter(identity_mode="high", config_lock="backup")
+        first = _first_recommendation(adapter)
+        _set_policy(first["identity_evidence"]["vm_identity_id"], "allowed")
+        recommendation = _first_recommendation(adapter)
+    elif case == "changed_state":
+        adapter = MutableDrsAdapter(identity_mode="high")
+        first = _first_recommendation(adapter)
+        _set_policy(first["identity_evidence"]["vm_identity_id"], "allowed")
+        recommendation = _first_recommendation(adapter)
+        adapter.set_vm_status("stopped")
+    else:
+        raise AssertionError(f"unknown case: {case}")
+
+    return build_drs_check_result(
+        adapter,
+        recommendation["id"],
+        risks=[],
+        payload={"recommendation": recommendation},
+    )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unknown_identity",
+        "medium_identity",
+        "unknown_policy",
+        "restricted_policy",
+        "blocked_policy",
+        "active_lock",
+        "stale_lock",
+        "reconciliation_required_lock",
+        "config_lock",
+        "changed_state",
+    ],
+)
+def test_blocked_or_unknown_states_do_not_create_approval_packet_or_job(case):
+    from sqlalchemy import func, select
+
+    from app.db.models import DrsApprovalPacketRecord, DrsMigrationJobRecord, JobRunRecord
+    from app.db.session import session_scope
+    from app.drs.approval import DrsApprovalBlockedError, create_approval_packet_and_job_intent
+
+    result = _blocked_approval_check(case)
+    assert result["would_be_executable"] is False
+
+    with pytest.raises(DrsApprovalBlockedError):
+        create_approval_packet_and_job_intent(
+            result,
+            payload={},
+            actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        )
+
+    with session_scope() as session:
+        assert session.scalar(select(func.count()).select_from(DrsApprovalPacketRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(DrsMigrationJobRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(JobRunRecord)) == 0
 
 
 @pytest.mark.parametrize(

@@ -323,3 +323,96 @@ class OperationLockRecord(Base):
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DrsApprovalPacketRecord(Base):
+    """Local DRS approval packet bound to recommendation and pre-check evidence."""
+
+    __tablename__ = "drs_approval_packets"
+    __table_args__ = (
+        UniqueConstraint("job_id", name="uq_drs_approval_packets_job_id"),
+        CheckConstraint(
+            "packet_status in ('approved', 'blocked')",
+            name="ck_drs_approval_packets_packet_status",
+        ),
+        Index("ix_drs_approval_packets_recommendation", "recommendation_id", "created_at"),
+        Index("ix_drs_approval_packets_identity", "vm_identity_id", "created_at"),
+        Index("ix_drs_approval_packets_route", "cluster_id", "source_node_id", "target_node_id", "created_at"),
+    )
+
+    approval_packet_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    packet_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    recommendation_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    cluster_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    vm_identity_id: Mapped[str] = mapped_column(ForeignKey("vm_identities.vm_identity_id"), nullable=False, index=True)
+    vmid: Mapped[int] = mapped_column(Integer, nullable=False)
+    vm_name: Mapped[str] = mapped_column(String(240), nullable=False, default="")
+    source_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    target_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    actor_username: Mapped[str] = mapped_column(String(80), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(40), nullable=False)
+    warning_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    warning_codes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    warnings: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    recommendation_checksum: Mapped[str] = mapped_column(String(80), nullable=False)
+    final_precheck_checksum: Mapped[str] = mapped_column(String(80), nullable=False)
+    approval_packet_checksum: Mapped[str] = mapped_column(String(80), nullable=False)
+    recommendation_artifact_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    final_precheck_artifact_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    approval_artifact_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    final_precheck_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    lock_evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class DrsMigrationJobRecord(Base):
+    """Local non-runnable DRS migration job intent substrate."""
+
+    __tablename__ = "drs_migration_jobs"
+    __table_args__ = (
+        UniqueConstraint("approval_packet_id", name="uq_drs_migration_jobs_approval_packet_id"),
+        CheckConstraint(
+            "status in ('pending', 'blocked', 'cancelled')",
+            name="ck_drs_migration_jobs_status",
+        ),
+        Index("ix_drs_migration_jobs_recommendation", "recommendation_id", "created_at"),
+        Index("ix_drs_migration_jobs_identity_status", "vm_identity_id", "status"),
+        Index("ix_drs_migration_jobs_route_status", "cluster_id", "source_node_id", "target_node_id", "status"),
+    )
+
+    job_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    approval_packet_id: Mapped[str] = mapped_column(
+        ForeignKey("drs_approval_packets.approval_packet_id"),
+        nullable=False,
+        index=True,
+    )
+    recommendation_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    cluster_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    vm_identity_id: Mapped[str] = mapped_column(ForeignKey("vm_identities.vm_identity_id"), nullable=False, index=True)
+    vmid: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    target_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    runnable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    proxmox_mutation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    side_effects: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    runnable_blockers: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    final_precheck_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    lock_evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    approved_actor: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    job_intent_artifact_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

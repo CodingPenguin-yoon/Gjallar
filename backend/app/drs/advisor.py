@@ -992,7 +992,7 @@ def build_drs_check_result(
     )
     if not precheck_pass:
         blockers = _unique([*blockers, "drs_final_precheck_failed"])
-    return {
+    result = {
         "recommendation_id": recommendation_id,
         "read_only": True,
         "executable": False,
@@ -1028,3 +1028,7 @@ def build_drs_check_result(
             "execution": dict(READ_ONLY_EXECUTION),
         },
     }
+    from app.drs.approval import build_approval_readiness
+
+    result["approval_readiness"] = build_approval_readiness(result)
+    return result

@@ -342,6 +342,31 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         start_mutation.assert_not_called()
 
 
+def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_work(monkeypatch):
+    _create_user(monkeypatch, username="drs-viewer", role="viewer")
+    client = _client()
+    path = "/api/v1/drs/recommendations/authz-rec/approval-packets"
+
+    with patch("app.api.v1.router.create_approval_packet_and_job_intent") as create_local_intent, patch(
+        "app.api.v1.router.get_default_proxmox_mutation_client"
+    ) as mutation_client_factory, patch("app.api.v1.router.run_proxmox_create") as create_mutation, patch(
+        "app.api.v1.router.record_job_run"
+    ) as record_job_run:
+        unauthenticated = client.post(path, json={"warning_acknowledged": True})
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+        _login(client, username="drs-viewer")
+        viewer = client.post(path, json={"warning_acknowledged": True})
+        assert viewer.status_code == 403
+        assert viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+
+        create_local_intent.assert_not_called()
+        mutation_client_factory.assert_not_called()
+        create_mutation.assert_not_called()
+        record_job_run.assert_not_called()
+
+
 def test_viewer_cannot_write_create_vm_workflow_state(monkeypatch):
     _create_user(monkeypatch, username="workflow-viewer", role="viewer")
     client = _client()

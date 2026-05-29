@@ -47,6 +47,7 @@ class ForbiddenMvpEndpointTests(unittest.TestCase):
     def test_drs_mutation_routes_are_not_exposed_in_phase_one(self):
         forbidden_drs_paths = {
             "/api/v1/drs/recommendations/{recommendation_id}/approve",
+            "/api/v1/drs/recommendations/{recommendation_id}/approve-migrate",
             "/api/v1/drs/recommendations/{recommendation_id}/migrate",
             "/api/v1/drs/recommendations/{recommendation_id}/migration",
             "/api/v1/drs/recommendations/{recommendation_id}/live-migrate",

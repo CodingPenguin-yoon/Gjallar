@@ -10,6 +10,8 @@ def test_drs_identity_models_are_registered_in_metadata():
     assert "vm_identity_observations" in Base.metadata.tables
     assert "vm_migration_policies" in Base.metadata.tables
     assert "operation_locks" in Base.metadata.tables
+    assert "drs_approval_packets" in Base.metadata.tables
+    assert "drs_migration_jobs" in Base.metadata.tables
     assert {"cluster_id", "stable_fingerprint"} <= set(Base.metadata.tables["vm_identities"].columns.keys())
     assert {"vm_identity_id", "policy"} <= set(Base.metadata.tables["vm_migration_policies"].columns.keys())
     assert {
@@ -37,6 +39,57 @@ def test_drs_identity_models_are_registered_in_metadata():
         "ix_operation_locks_route_status",
         "ix_operation_locks_expires_at",
     } <= {index.name for index in Base.metadata.tables["operation_locks"].indexes}
+    assert {
+        "approval_packet_id",
+        "packet_status",
+        "job_id",
+        "recommendation_id",
+        "vm_identity_id",
+        "source_node_id",
+        "target_node_id",
+        "actor_user_id",
+        "warning_acknowledged",
+        "warning_codes",
+        "warnings",
+        "recommendation_checksum",
+        "final_precheck_checksum",
+        "approval_packet_checksum",
+        "final_precheck_summary",
+        "lock_evidence",
+    } <= set(Base.metadata.tables["drs_approval_packets"].columns.keys())
+    assert {
+        "job_id",
+        "approval_packet_id",
+        "recommendation_id",
+        "vm_identity_id",
+        "status",
+        "runnable",
+        "proxmox_mutation_enabled",
+        "side_effects",
+        "runnable_blockers",
+        "final_precheck_summary",
+        "lock_evidence",
+        "approved_actor",
+        "job_intent_artifact_id",
+    } <= set(Base.metadata.tables["drs_migration_jobs"].columns.keys())
+    assert "ck_drs_approval_packets_packet_status" in {
+        constraint.name for constraint in Base.metadata.tables["drs_approval_packets"].constraints
+    }
+    assert {
+        "ck_drs_migration_jobs_status",
+        "uq_drs_migration_jobs_approval_packet_id",
+    } <= {constraint.name for constraint in Base.metadata.tables["drs_migration_jobs"].constraints}
+    assert {
+        "ix_drs_approval_packets_recommendation",
+        "ix_drs_approval_packets_identity",
+        "ix_drs_approval_packets_route",
+        "ix_drs_migration_jobs_recommendation",
+        "ix_drs_migration_jobs_identity_status",
+        "ix_drs_migration_jobs_route_status",
+    } <= (
+        {index.name for index in Base.metadata.tables["drs_approval_packets"].indexes}
+        | {index.name for index in Base.metadata.tables["drs_migration_jobs"].indexes}
+    )
 
 
 def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_path, monkeypatch):
@@ -51,7 +104,7 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
     reset_session_cache()
 
     config = Config(str(Path("backend/alembic.ini").resolve()))
-    upgrade(config, "20260528_0020")
+    upgrade(config, "20260529_0021")
 
     engine = create_engine(database_url, future=True)
     inspector = inspect(engine)
@@ -60,6 +113,8 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
         assert inspector.has_table("vm_identity_observations")
         assert inspector.has_table("vm_migration_policies")
         assert inspector.has_table("operation_locks")
+        assert inspector.has_table("drs_approval_packets")
+        assert inspector.has_table("drs_migration_jobs")
         assert "uq_vm_identities_cluster_fingerprint" in {
             constraint["name"] for constraint in inspector.get_unique_constraints("vm_identities")
         }
@@ -78,6 +133,28 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
             "ck_operation_locks_scope_type",
             "ck_operation_locks_status",
         } <= {constraint["name"] for constraint in inspector.get_check_constraints("operation_locks")}
+        assert "uq_drs_approval_packets_job_id" in {
+            constraint["name"] for constraint in inspector.get_unique_constraints("drs_approval_packets")
+        }
+        assert "uq_drs_migration_jobs_approval_packet_id" in {
+            constraint["name"] for constraint in inspector.get_unique_constraints("drs_migration_jobs")
+        }
+        assert {
+            "ck_drs_approval_packets_packet_status",
+        } <= {constraint["name"] for constraint in inspector.get_check_constraints("drs_approval_packets")}
+        assert {
+            "ck_drs_migration_jobs_status",
+        } <= {constraint["name"] for constraint in inspector.get_check_constraints("drs_migration_jobs")}
+        assert {
+            "ix_drs_approval_packets_recommendation",
+            "ix_drs_approval_packets_identity",
+            "ix_drs_approval_packets_route",
+        } <= {index["name"] for index in inspector.get_indexes("drs_approval_packets")}
+        assert {
+            "ix_drs_migration_jobs_recommendation",
+            "ix_drs_migration_jobs_identity_status",
+            "ix_drs_migration_jobs_route_status",
+        } <= {index["name"] for index in inspector.get_indexes("drs_migration_jobs")}
     finally:
         engine.dispose()
         reset_session_cache()

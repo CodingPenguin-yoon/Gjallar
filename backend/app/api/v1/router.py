@@ -13,6 +13,7 @@ from app.auth.roles import AuthenticatedUser, actor_detail_fields, actor_evidenc
 from app.core.redaction import redact_secrets
 from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_create
 from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, find_drs_recommendation
+from app.drs.approval import DrsApprovalBlockedError, create_approval_packet_and_job_intent
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
@@ -437,6 +438,31 @@ def check_drs_recommendation(recommendation_id: str, payload: dict | None = None
     return success_response(
         result,
         meta={"source": adapter.source, "mode": "drs_advisor_read_only"},
+    )
+
+
+@router.post("/drs/recommendations/{recommendation_id}/approval-packets")
+def create_drs_approval_packet(
+    recommendation_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    """Create local-only DRS approval and non-runnable migration job intent state."""
+    adapter = _inventory_adapter()
+    result = build_drs_check_result(adapter, recommendation_id, risks=_drs_risks(), payload=payload)
+    if result is None:
+        raise HTTPException(status_code=404, detail="DRS recommendation not found")
+    try:
+        packet = create_approval_packet_and_job_intent(
+            result,
+            payload=payload or {},
+            actor=actor_evidence(actor),
+        )
+    except DrsApprovalBlockedError as exc:
+        raise HTTPException(status_code=409, detail=exc.to_detail()) from exc
+    return success_response(
+        packet,
+        meta={"source": adapter.source, "mode": "drs_local_approval_packet_no_mutation"},
     )
 
 

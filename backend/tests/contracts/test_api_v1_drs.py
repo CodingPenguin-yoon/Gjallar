@@ -23,11 +23,13 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "/api/v1/drs/recommendations",
             "/api/v1/drs/recommendations/{recommendation_id}",
             "/api/v1/drs/recommendations/{recommendation_id}/check",
+            "/api/v1/drs/recommendations/{recommendation_id}/approval-packets",
         }
         self.assertEqual([], sorted(expected - self.paths))
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/check-now", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/approve", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/migrate", self.paths)
+        self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/migration", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/live-migrate", self.paths)
 
     def test_recommendations_are_read_only_and_filter_candidates(self):
@@ -165,9 +167,66 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertTrue(data["check"]["recalculated"])
         self.assertFalse(data["execution"]["available"])
         self.assertEqual([], data["allowed_actions"])
+        self.assertFalse(data["approval_readiness"]["runnable"])
+        self.assertFalse(data["approval_readiness"]["proxmox_mutation_enabled"])
+        self.assertEqual([], data["approval_readiness"]["allowed_actions"])
         self.assertEqual("drs_migration", data["check"]["checks"]["operation_lock"]["evidence"]["operation_type"])
         self.assertIn("proxmox_conflicts", data["check"]["checks"])
         record_job_run.assert_not_called()
+
+    def test_approval_packet_route_creates_local_non_runnable_job_without_proxmox_mutation(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        adapter = _adapter()
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
+            v1_router,
+            "_drs_risks",
+            return_value=[{"level": "red", "vmid": 104, "code": "vm_blocked"}],
+        ), patch.object(v1_router, "get_default_proxmox_mutation_client") as mutation_client, patch.object(
+            v1_router,
+            "run_proxmox_create",
+        ) as create_mutation:
+            recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
+            _set_policy(recommendation["identity_evidence"]["vm_identity_id"], "allowed")
+            recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
+            response = v1_router.create_drs_approval_packet(
+                recommendation["id"],
+                {
+                    "recommendation": recommendation,
+                    "actor": {"user_id": "payload-user", "username": "payload", "role": "admin"},
+                    "source_node_id": "payload-source",
+                    "target_node_id": "payload-target",
+                    "vmid": 999,
+                    "blockers": ["payload-blocker"],
+                },
+                actor=actor,
+            )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("drs_local_approval_packet_no_mutation", response["meta"]["mode"])
+        data = response["data"]
+        self.assertFalse(data["executable"])
+        self.assertEqual([], data["allowed_actions"])
+        self.assertFalse(data["runnable"])
+        self.assertFalse(data["proxmox_mutation_enabled"])
+        self.assertEqual([], data["side_effects"])
+        self.assertEqual("approved", data["approval_packet"]["packet_status"])
+        self.assertEqual(recommendation["id"], data["approval_packet"]["recommendation_id"])
+        self.assertEqual(recommendation["identity_evidence"]["vm_identity_id"], data["approval_packet"]["vm_identity_id"])
+        self.assertEqual(recommendation["source_node_id"], data["approval_packet"]["source_node_id"])
+        self.assertEqual(recommendation["target_node_id"], data["approval_packet"]["target_node_id"])
+        self.assertEqual("operator", data["approval_packet"]["actor_username"])
+        self.assertEqual("operator", data["job_intent"]["approved_actor"]["username"])
+        self.assertEqual("pending", data["job_intent"]["status"])
+        self.assertFalse(data["job_intent"]["runnable"])
+        self.assertFalse(data["job_intent"]["proxmox_mutation_enabled"])
+        self.assertEqual([], data["job_intent"]["side_effects"])
+        self.assertIn("live_migration_execution_not_implemented", data["job_intent"]["runnable_blockers"])
+        self.assertEqual("would_pass", data["job_intent"]["final_precheck_summary"]["status"])
+        mutation_client.assert_not_called()
+        create_mutation.assert_not_called()
 
 
 def _adapter(
@@ -298,6 +357,23 @@ def _adapter(
         )
 
     return StubDrsAdapter()
+
+
+def _set_policy(vm_identity_id, policy):
+    from app.db.models import VmMigrationPolicyRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        session.add(
+            VmMigrationPolicyRecord(
+                policy_id=f"policy-{policy}-{vm_identity_id}",
+                vm_identity_id=vm_identity_id,
+                policy=policy,
+                reason=f"{policy} in API contract test",
+                source="manual",
+                updated_by="test",
+            )
+        )
 
 
 if __name__ == "__main__":

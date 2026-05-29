@@ -31,15 +31,30 @@ VM_START_STEP_LABELS = {
     "task_poll": "Proxmox 작업 확인",
     "post_check": "시작 후 확인",
 }
+DRS_MIGRATION_STEP_ORDER = ["recommendation", "final_precheck", "approval", "job_intent"]
+DRS_MIGRATION_STEP_LABELS = {
+    "recommendation": "DRS 추천 확인",
+    "final_precheck": "최종 사전 확인",
+    "approval": "DRS 승인 패킷",
+    "job_intent": "로컬 작업 의도",
+}
 TERMINAL_STATUSES = {"completed", "failed", "blocked"}
 
 
 def _step_order(job_type: str) -> list[str]:
-    return VM_START_STEP_ORDER if job_type == "vm_start" else VM_CREATE_STEP_ORDER
+    if job_type == "vm_start":
+        return VM_START_STEP_ORDER
+    if job_type == "drs_migration":
+        return DRS_MIGRATION_STEP_ORDER
+    return VM_CREATE_STEP_ORDER
 
 
 def _step_labels(job_type: str) -> dict[str, str]:
-    return VM_START_STEP_LABELS if job_type == "vm_start" else VM_CREATE_STEP_LABELS
+    if job_type == "vm_start":
+        return VM_START_STEP_LABELS
+    if job_type == "drs_migration":
+        return DRS_MIGRATION_STEP_LABELS
+    return VM_CREATE_STEP_LABELS
 
 
 def _now_iso() -> str:

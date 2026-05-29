@@ -32,6 +32,10 @@ Completed foundation:
   final pre-check when present.
 - Active task, HA state, and cluster quorum/health are explicit
   `not_collected` read-only evidence in the current adapter.
+- Local DRS approval packet and pending `drs_migration` job intent substrate
+  exist for passing final pre-checks, bound to compact recommendation and
+  final-precheck checksums. These records are local evidence only:
+  `runnable=false`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.
 - DRS UI shows compact identity and policy evidence.
 - DRS execution remains closed: `executable=false`, `allowed_actions=[]`.
 
@@ -40,9 +44,8 @@ Known remaining gaps:
 - Operation lock acquisition/release is not implemented.
 - Active Proxmox task, HA, and quorum collection is not implemented beyond
   explicit `not_collected` final pre-check evidence.
-- Approval packet, approval checksum, and warning acknowledgement are not
-  implemented.
-- `drs_migration` job substrate is not implemented.
+- Approval UI is not implemented; warning acknowledgement fields exist in the
+  local packet substrate, but current checks do not emit warnings.
 - Live migration mutation, UPID tracking, post-check, and reconciliation are
   not implemented.
 
@@ -64,25 +67,26 @@ Known remaining gaps:
 
 ## Recommended Order
 
-Completed: Goal 3 DRS Final Pre-Check And Operation Lock Foundation.
+Completed:
+
+- Goal 3 DRS Final Pre-Check And Operation Lock Foundation.
+- Goal 4 DRS Approval And Migration Job Substrate as local-only substrate.
 
 Next remaining goals:
 
-1. Goal 4: DRS Approval And Migration Job Substrate.
-2. Goal 5: DRS Live Migration Execution And UPID Tracking.
-3. Goal 6: DRS Post-Check And Reconciliation.
-4. Goal 7: DRS UI And Operations Polish.
+1. Goal 5: DRS Live Migration Execution And UPID Tracking.
+2. Goal 6: DRS Post-Check And Reconciliation.
+3. Goal 7: DRS UI And Operations Polish.
 
-The order matters. Live migration should not be opened before operation locks,
-approval, job state, and final pre-check safety gates exist.
+The order matters. Live migration remains closed until Goal 5 explicitly opens
+the narrow execution path with UPID tracking.
 
 ## Goal 3: DRS Final Pre-Check And Operation Lock Foundation
 
 Status: completed as a read-only foundation. Operation lock schema/model,
 read-only lock lookup, config-lock evidence, and explicit `not_collected`
-active task/HA/quorum evidence are implemented. Lock acquisition/release,
-approval, DRS job substrate, live migration, UPID tracking, post-check, and
-reconciliation remain future goals.
+active task/HA/quorum evidence are implemented. Lock acquisition/release, live
+migration, UPID tracking, post-check, and reconciliation remain future goals.
 
 ### Objective
 
@@ -145,6 +149,8 @@ git diff --check
 ```
 
 ## Goal 4: DRS Approval And Migration Job Substrate
+
+Status: completed as local-only substrate. Live migration remains closed.
 
 ### Objective
 
