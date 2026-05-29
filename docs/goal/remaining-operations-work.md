@@ -14,6 +14,12 @@
 - Create VM supports default `stopped` creation and optional `boot_and_verify`.
   Approved live Proxmox smoke completed on 2026-05-28 and is recorded in
   `docs/operations/create-vm-live-smoke-2026-05-28.md`.
+- DRS Safe Execution Readiness Foundation is implemented. DRS now has
+  DB-backed VM identity observations, migration policy memory, identity/policy
+  blockers, DB-backed operation lock lookup, config-lock evidence, and a
+  read-only final pre-check model. Live migration execution, operation lock
+  acquisition/release, approval/job substrate, UPID tracking, and reconciliation
+  are still deferred.
 
 ## Non-Negotiables
 
@@ -26,13 +32,22 @@
 
 ## Recommended Goal Order
 
-1. DRS identity and final pre-check preparation. Detailed next goal:
-   `docs/goal/drs-safe-execution-readiness-foundation.md`.
-2. Reconciliation worker for Proxmox/Gjallar state drift.
-3. SSH/Ansible/app bootstrap readiness, if still desired after live smoke.
-4. Account/session operations polish.
+Next remaining goal:
 
-Completed: Create VM live smoke matrix and result recording.
+1. DRS approval and migration job substrate. Detailed DRS slice guide:
+   `docs/goal/drs-execution-goal-slices.md`.
+2. DRS live migration execution and UPID tracking.
+3. DRS post-check and reconciliation.
+4. SSH/Ansible/app bootstrap readiness, if still desired after DRS safety work.
+5. Account/session operations polish.
+
+Completed:
+
+- Create VM live smoke matrix and result recording.
+- DRS Safe Execution Readiness Foundation:
+  `docs/goal/drs-safe-execution-readiness-foundation.md`.
+- DRS final pre-check and operation lock foundation:
+  `docs/goal/drs-execution-goal-slices.md`.
 
 ## Goal 1: Create VM Live Smoke Matrix
 
@@ -98,6 +113,8 @@ Primary objective: prove the current Create VM path against a real Proxmox targe
 
 ## Goal 2: DRS Identity And Final Pre-Check Preparation
 
+Status: completed on 2026-05-28.
+
 Detailed execution guide:
 `docs/goal/drs-safe-execution-readiness-foundation.md`.
 
@@ -124,28 +141,114 @@ Primary objective: prepare the DRS Advisor path for safe future execution withou
 - Tests prove stale/unsafe recommendations are blocked.
 - Docs separate DRS readiness from DRS execution.
 
-## Goal 3: Reconciliation Worker
+## Goal 3: DRS Final Pre-Check And Operation Lock Foundation
+
+Status: completed on 2026-05-28 as a read-only foundation.
+
+Detailed execution guide:
+`docs/goal/drs-execution-goal-slices.md`.
+
+Primary objective: close the largest remaining pre-execution safety gap with
+DB-backed operation locks and stronger read-only final pre-check evidence
+without enabling live migration.
+
+### Current Goal 3 Foundation
+
+1. `operation_locks` schema/model exists for `drs_migration`.
+2. DRS final pre-check queries active/stale/reconciliation-required locks for
+   VM identity, Proxmox locator, and route scopes.
+3. Released locks do not block; open locks block `would_be_executable`.
+4. VM config-lock evidence is collected from curated inventory fields and
+   blocks when present.
+5. Active task, HA state, and quorum/cluster health remain explicit
+   `not_collected` evidence in the current adapter.
+
+### Out Of Scope
+
+- Approval modal or approval endpoint.
+- `drs_migration` job creation.
+- Proxmox live migration mutation.
+- UPID tracking.
+- Operation lock acquisition/release flow.
+- Reconciliation worker.
+
+### Definition Of Done
+
+- Operation lock state is no longer reported as `not_implemented`.
+- Active or stale locks block `would_be_executable`.
+- Final pre-check explains conflict evidence without mutating Proxmox.
+- DRS recommendations and checks remain `executable=false`.
+
+## Goal 4: DRS Approval And Migration Job Substrate
+
+Detailed execution guide:
+`docs/goal/drs-execution-goal-slices.md`.
+
+Primary objective: add local approval evidence, warning acknowledgement, and
+`drs_migration` job state before any live migration mutation exists.
+
+### Scope
+
+1. Add approval packet/checksum model.
+2. Bind approval to exact recommendation and final pre-check evidence.
+3. Add warning acknowledgement fields.
+4. Add `drs_migration` job shape without invoking Proxmox migration.
+5. Expose read-only readiness/job evidence in Jobs/Runs.
+
+### Definition Of Done
+
+- Approval/job state cannot bypass blockers.
+- No Proxmox mutation API is called.
+- Jobs/Runs can represent DRS migration intent safely.
+
+## Goal 5: DRS Live Migration Execution And UPID Tracking
+
+Detailed execution guide:
+`docs/goal/drs-execution-goal-slices.md`.
+
+Primary objective: add the first narrow live migration path only after identity,
+policy, final pre-check, approval, operation lock, and job gates exist.
+
+### Scope
+
+1. Add a dedicated DRS Proxmox migration mutation client.
+2. Require high-confidence identity, `allowed` policy, passing final pre-check,
+   valid approval, and acquired lock.
+3. Invoke Proxmox live migration only after all gates pass.
+4. Store UPID and task metadata.
+5. Poll enough task state to classify immediate result.
+6. Mark ambiguous states as `needs_reconciliation`.
+
+### Definition Of Done
+
+- Blocked conditions do not call Proxmox mutation APIs.
+- UPID is stored and visible in job evidence.
+- Execution remains narrow and approval-gated.
+
+## Goal 6: DRS Post-Check And Reconciliation
+
+Detailed execution guide:
+`docs/goal/drs-execution-goal-slices.md`.
 
 Primary objective: detect and report drift between Proxmox actual state and Gjallar DB/job state.
 
 ### Scope
 
-1. Define reconciliation records and job/artifact behavior.
-2. Compare Proxmox actual VM state against:
-   - `vm_instances`
-   - `vm_create_requests`
-   - latest job status/artifacts
-3. Surface drift as operator-visible jobs/risks.
-4. Keep reconciliation read-only at first.
-5. Add tests using fake inventory/adapters.
+1. Post-check VM location, power state, and fingerprint after migration.
+2. Define reconciliation records and job/artifact behavior.
+3. Compare Proxmox actual VM/task state against DRS job and lock state.
+4. Surface `needs_reconciliation` as operator-visible jobs/risks.
+5. Add read-only Reconcile Now preview before any corrective mutation.
+6. Add tests using fake inventory/adapters.
 
 ### Definition Of Done
 
 - Drift can be detected and displayed without mutating Proxmox.
 - Operators can see what Gjallar believes vs what Proxmox reports.
+- Proxmox task success alone does not mark Gjallar migration success.
 - Docs explain how to respond to drift manually.
 
-## Goal 4: SSH/Ansible/App Bootstrap Readiness
+## Goal 7: SSH/Ansible/App Bootstrap Readiness
 
 Primary objective: optionally extend post-create confidence after Create VM live smoke is stable.
 
@@ -161,7 +264,7 @@ Primary objective: optionally extend post-create confidence after Create VM live
 - Bootstrap checks are explicit, opt-in, and safe.
 - Create VM base success remains independent from app deploy success unless a later goal changes that contract.
 
-## Goal 5: Account/Session Operations Polish
+## Goal 8: Account/Session Operations Polish
 
 Primary objective: improve operational convenience without changing the auth model.
 
@@ -203,6 +306,9 @@ git diff --check
 - Create VM live smoke is complete for the approved 2026-05-28 target, but any
   future live smoke or cleanup mutation still needs explicit active-session
   approval.
-- DRS Advisor remains read-only and does not have identity/fingerprint policy, final pre-check, operation locks, UPID tracking, or execution.
-- Reconciliation is not implemented.
+- DRS Advisor remains read-only. Identity/fingerprint policy, DB-backed
+  operation lock lookup, config-lock evidence, and read-only final pre-check
+  foundation exist, but operation lock acquisition/release, approval/job
+  substrate, UPID tracking, live migration execution, and reconciliation are not
+  implemented.
 - SSH/Ansible/app bootstrap remains deferred.

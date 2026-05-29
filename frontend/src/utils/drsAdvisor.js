@@ -53,6 +53,8 @@ function normalizeBlockers(source = {}) {
 function normalizeRecommendation(source = {}) {
   const effect = asObject(source.estimated_effect ?? source.estimatedEffect)
   const evidence = asObject(source.evidence)
+  const identityEvidence = asObject(source.identity_evidence ?? source.identityEvidence ?? evidence.identity)
+  const policyEvidence = asObject(source.policy_evidence ?? source.policyEvidence ?? evidence.policy)
   return {
     id: asText(source.id, 'unknown'),
     status: asText(source.status, 'blocked'),
@@ -75,6 +77,8 @@ function normalizeRecommendation(source = {}) {
       sourceTargetDelta: asNumber(effect.source_target_delta ?? effect.sourceTargetDelta),
     },
     evidence,
+    identityEvidence,
+    policyEvidence,
     readOnly: source.read_only !== false,
     executable: source.executable === true,
     allowedActions: asArray(source.allowed_actions ?? source.allowedActions),
@@ -170,7 +174,12 @@ export async function checkDrsRecommendation(client = apiV1Client, recommendatio
     recommendationId: asText(result.recommendation_id ?? result.recommendationId, recommendationId),
     readOnly: result.read_only !== false,
     executable: result.executable === true,
+    wouldBeExecutable: result.would_be_executable === true || result.wouldBeExecutable === true,
     execution: normalizeExecution(result.execution),
+    blockers: normalizeBlockers(result),
+    identityEvidence: asObject(result.identity_evidence ?? result.identityEvidence),
+    policyEvidence: asObject(result.policy_evidence ?? result.policyEvidence),
+    checkedAt: asText(result.checked_at ?? result.checkedAt, ''),
     check: asObject(result.check),
     recommendation: normalizeRecommendation(result.recommendation),
   }

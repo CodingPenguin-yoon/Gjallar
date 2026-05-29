@@ -1,13 +1,17 @@
 """Read-only DRS Advisor calculations.
 
-Phase 1 deliberately produces advisory candidates only. It never writes jobs,
-artifacts, database records, or Proxmox mutations.
+Phase 1 deliberately produces advisory candidates only. It may record compact
+identity observations, but it never writes jobs, artifacts, or Proxmox mutations.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
+
+from app.drs.identity import DEFAULT_CLUSTER_ID, migration_policy_evidence, resolve_inventory_identities
+from app.drs.operation_locks import lock_blockers, recommendation_lock_evidence
 
 
 THRESHOLDS = {
@@ -26,9 +30,6 @@ READ_ONLY_EXECUTION = {
     "reason": "DRS Phase 1 is advisory only; live migration execution is not exposed.",
 }
 BASE_BLOCKERS = (
-    "identity_unknown",
-    "metadata_missing",
-    "policy_unknown",
     "final_precheck_not_run",
 )
 LOCAL_STORAGE_TYPES = {"dir", "lvm", "lvmthin", "zfspool", "zfs"}
@@ -175,6 +176,16 @@ def _disk_storage_ids(vm: Any) -> list[str]:
     )
 
 
+def _disk_volume_ids(vm: Any) -> list[str]:
+    return _unique(
+        [
+            _field(disk, "volume_id", "volumeId", default="")
+            for disk in _as_list(_field(vm, "disks", default=[]))
+            if _as_text(_field(disk, "volume_id", "volumeId", default="")).lower() != "unknown"
+        ]
+    )
+
+
 def _vm_bridge_ids(vm: Any) -> list[str]:
     evidence = _as_list(_field(vm, "nic_bridge_evidence", "nicBridgeEvidence", default=[]))
     return _unique(
@@ -183,6 +194,15 @@ def _vm_bridge_ids(vm: Any) -> list[str]:
             for item in evidence
         ]
     )
+
+
+def _vm_mac_addresses(vm: Any) -> list[str]:
+    direct = _as_list(_field(vm, "mac_addresses", "macAddresses", default=[]))
+    nic_macs = [
+        _field(item, "mac_address", "macAddress", "mac", default="")
+        for item in _as_list(_field(vm, "nic_bridge_evidence", "nicBridgeEvidence", default=[]))
+    ]
+    return _unique([str(item).strip().lower() for item in [*direct, *nic_macs]])
 
 
 def _normalize_vm(source: Any) -> dict[str, Any]:
@@ -204,7 +224,12 @@ def _normalize_vm(source: Any) -> dict[str, Any]:
         "memory_mb": _as_int(_field(source, "memory_mb", "memoryMb", default=0)),
         "disk_gb": _as_float(_field(source, "disk_gb", "diskGb", default=0)),
         "storage_ids": storage_ids,
+        "disk_volume_ids": _disk_volume_ids(source),
         "bridge_ids": _vm_bridge_ids(source),
+        "smbios1": _as_text(_field(source, "smbios1", default="")),
+        "vmgenid": _as_text(_field(source, "vmgenid", default="")),
+        "mac_addresses": _vm_mac_addresses(source),
+        "config_lock": _as_text(_field(source, "config_lock", "configLock", default="")),
         "tags": _unique(_as_list(_field(source, "tags", default=[]))),
         "raw": source,
     }
@@ -327,12 +352,136 @@ def _blocker_detail(code: str) -> dict[str, str]:
         "metadata_missing": "Required VM metadata/fingerprint records are not available.",
         "policy_unknown": "Placement policy data is not available.",
         "final_precheck_not_run": "Final migration precheck has not run.",
+        "vm_identity_unknown": "VM identity has no usable stable fingerprint.",
+        "vm_identity_uncertain": "VM identity evidence is not high confidence.",
+        "migration_policy_unknown": "DRS migration policy defaults to unknown.",
+        "migration_policy_restricted": "DRS migration policy restricts execution for this VM.",
+        "migration_policy_blocked": "DRS migration policy blocks execution for this VM.",
+        "drs_final_precheck_failed": "Read-only DRS final pre-check did not pass.",
+        "stale_recommendation": "Current inventory no longer matches the recommendation.",
+        "source_vm_missing": "Source VM is no longer present in current inventory.",
+        "source_node_changed": "Source VM is no longer on the recommended source node.",
+        "target_node_unavailable": "Recommended target node is unavailable.",
+        "vm_state_ineligible": "VM state is not eligible for the current DRS rule set.",
+        "identity_conflict": "Current identity evidence contains a conflict signal.",
         "route_unknown": "Route, storage, or network evidence is insufficient.",
         "local_storage_dependency": "VM depends on local-style storage.",
         "passthrough_device_dependency": "VM has passthrough evidence.",
         "target_over_threshold": "Estimated target pressure would reach or exceed the critical threshold.",
+        "operation_lock_active": "An active DRS operation lock matches this VM or route.",
+        "operation_lock_stale": "A stale DRS operation lock matches this VM or route.",
+        "operation_lock_reconciliation_required": "A DRS operation lock requires reconciliation before execution.",
+        "vm_config_lock": "The VM has a Proxmox config lock.",
     }
     return {"code": code, "message": messages.get(code, code), "severity": "blocking"}
+
+
+def _unsupported_proxmox_evidence(name: str) -> dict[str, Any]:
+    return {
+        "status": "not_collected",
+        "blocking": False,
+        "source": "inventory_adapter",
+        "detail": f"{name} evidence is not collected by the current read-only inventory adapter.",
+    }
+
+
+def _proxmox_conflict_evidence(source_vm: dict[str, Any] | None) -> dict[str, Any]:
+    config_lock = _as_text((source_vm or {}).get("config_lock"))
+    config_lock_evidence = {
+        "status": "conflict" if config_lock else "pass",
+        "blocking": bool(config_lock),
+        "source": "vm_config.lock",
+        "lock": config_lock,
+    }
+    return {
+        "blocking": config_lock_evidence["blocking"],
+        "config_lock": config_lock_evidence,
+        "active_task": _unsupported_proxmox_evidence("active task"),
+        "ha_state": _unsupported_proxmox_evidence("HA state"),
+        "cluster_quorum": _unsupported_proxmox_evidence("cluster health/quorum"),
+    }
+
+
+def _proxmox_conflict_status(conflicts: dict[str, Any]) -> str:
+    if conflicts.get("blocking") is True:
+        return "failed"
+    unsupported = ("active_task", "ha_state", "cluster_quorum")
+    if any(_as_text(conflicts.get(name, {}).get("status")) in {"not_collected", "not_implemented"} for name in unsupported):
+        return "not_collected"
+    return "pass"
+
+
+def _default_identity_evidence(vm: dict[str, Any], *, cluster_id: str, source: str) -> dict[str, Any]:
+    return {
+        "vm_identity_id": None,
+        "stable_fingerprint": "",
+        "match_confidence": "unknown",
+        "match_reason": "identity_resolution_not_available",
+        "identity_status": "unknown",
+        "fingerprint_components": {
+            "smbios1_uuid": "",
+            "vmgenid": "",
+            "mac_addresses": vm.get("mac_addresses", []),
+            "disk_volume_ids": vm.get("disk_volume_ids", []),
+            "locator": {
+                "cluster_id": cluster_id,
+                "node_id": vm["node_id"],
+                "vmid": vm["vmid"],
+                "name": vm["name"],
+            },
+        },
+        "source": source,
+        "conflict_signal": False,
+        "blocking": True,
+    }
+
+
+def _default_policy_evidence(identity_evidence: dict[str, Any]) -> dict[str, Any]:
+    reason = "VM identity must resolve with high confidence before DRS can evaluate migration policy."
+    if identity_evidence.get("match_confidence") == "high":
+        reason = "No DRS migration policy has been recorded for this VM identity."
+    return {
+        "policy_id": None,
+        "vm_identity_id": identity_evidence.get("vm_identity_id"),
+        "policy": "unknown",
+        "source": "default",
+        "reason": reason,
+        "updated_by": None,
+    }
+
+
+def _identity_policy_blockers(
+    identity_evidence: dict[str, Any],
+    policy_evidence: dict[str, Any],
+) -> list[str]:
+    confidence = _as_text(identity_evidence.get("match_confidence"), "unknown")
+    conflict = identity_evidence.get("conflict_signal") is True
+    blockers: list[str] = []
+    if confidence == "high" and not conflict:
+        policy = _as_text(policy_evidence.get("policy"), "unknown")
+        if policy == "unknown":
+            blockers.extend(["migration_policy_unknown", "policy_unknown"])
+        elif policy == "restricted":
+            blockers.append("migration_policy_restricted")
+        elif policy == "blocked":
+            blockers.append("migration_policy_blocked")
+        return blockers
+    if confidence == "unknown":
+        blockers.extend(["vm_identity_unknown", "identity_unknown", "metadata_missing"])
+    else:
+        blockers.extend(["vm_identity_uncertain", "metadata_missing"])
+    if conflict:
+        blockers.append("identity_conflict")
+    return blockers
+
+
+def _cluster_id(adapter: Any, snapshot: Any | None) -> str:
+    connection = _field(snapshot, "connection", default={})
+    return _as_text(
+        _field(connection, "cluster_id", "clusterId", default=None)
+        or _field(adapter, "cluster_id", "clusterId", default=None),
+        DEFAULT_CLUSTER_ID,
+    )
 
 
 def _estimate_pressure_effect(vm: dict[str, Any], source_node: dict[str, Any]) -> float:
@@ -372,6 +521,8 @@ def _build_recommendation(
     source_node: dict[str, Any],
     target_node: dict[str, Any],
     nodes: list[dict[str, Any]],
+    identity_evidence: dict[str, Any],
+    policy_evidence: dict[str, Any],
 ) -> dict[str, Any]:
     route = _route_evidence(vm, source_node, target_node)
     local_storage = _local_storage_evidence(vm, nodes)
@@ -380,6 +531,7 @@ def _build_recommendation(
     target_pressure_after = min(100, target_node["pressure"] + pressure_effect)
     target_over_threshold = target_pressure_after >= THRESHOLDS["critical"]
     blockers = [
+        *_identity_policy_blockers(identity_evidence, policy_evidence),
         *BASE_BLOCKERS,
         "route_unknown" if route["blocked"] else "",
         "local_storage_dependency" if local_storage["blocked"] else "",
@@ -403,6 +555,8 @@ def _build_recommendation(
         "thresholds": dict(THRESHOLDS),
         "blockers": blockers,
         "blocker_details": [_blocker_detail(code) for code in blockers],
+        "identity_evidence": identity_evidence,
+        "policy_evidence": policy_evidence,
         "estimated_effect": {
             "source_pressure_before": round(source_node["pressure"], 2),
             "target_pressure_before": round(target_node["pressure"], 2),
@@ -429,6 +583,8 @@ def _build_recommendation(
             "route": route,
             "storage": local_storage,
             "passthrough": passthrough,
+            "identity": identity_evidence,
+            "policy": policy_evidence,
             "target_over_threshold": {
                 "blocked": target_over_threshold,
                 "critical_threshold": THRESHOLDS["critical"],
@@ -442,7 +598,34 @@ def _build_recommendation(
     }
 
 
-def _build_recommendations(nodes: list[dict[str, Any]], vms: list[dict[str, Any]], risks: list[Any]) -> list[dict[str, Any]]:
+def _identity_evidence_for_vm(
+    vm: dict[str, Any],
+    identity_map: dict[tuple[str, int], Any],
+    *,
+    cluster_id: str,
+    source: str,
+) -> dict[str, Any]:
+    resolution = identity_map.get((vm["node_id"], vm["vmid"]))
+    if resolution is None:
+        return _default_identity_evidence(vm, cluster_id=cluster_id, source=source)
+    return resolution.to_evidence()
+
+
+def _policy_evidence_for_identity(identity_evidence: dict[str, Any]) -> dict[str, Any]:
+    if identity_evidence.get("match_confidence") != "high" or identity_evidence.get("conflict_signal") is True:
+        return _default_policy_evidence(identity_evidence)
+    return migration_policy_evidence(identity_evidence)
+
+
+def _build_recommendations(
+    nodes: list[dict[str, Any]],
+    vms: list[dict[str, Any]],
+    risks: list[Any],
+    *,
+    identity_map: dict[tuple[str, int], Any],
+    cluster_id: str,
+    source: str,
+) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
     sources = sorted(
         [node for node in nodes if node["online"] and node["pressure"] >= THRESHOLDS["hot"]],
@@ -468,12 +651,21 @@ def _build_recommendations(nodes: list[dict[str, Any]], vms: list[dict[str, Any]
             and not _has_red_risk(vm, risks)
         ]
         for vm in sorted(source_vms, key=lambda item: (-item["memory_mb"], -item["disk_gb"], item["name"]))[:3]:
+            identity_evidence = _identity_evidence_for_vm(
+                vm,
+                identity_map,
+                cluster_id=cluster_id,
+                source=source,
+            )
+            policy_evidence = _policy_evidence_for_identity(identity_evidence)
             recommendations.append(
                 _build_recommendation(
                     vm=vm,
                     source_node=source_node,
                     target_node=target_node,
                     nodes=nodes,
+                    identity_evidence=identity_evidence,
+                    policy_evidence=policy_evidence,
                 )
             )
     return sorted(
@@ -514,9 +706,11 @@ def _summary(nodes: list[dict[str, Any]], vms: list[dict[str, Any]], risks: list
     }
 
 
-def build_drs_advisor_model(adapter: Any, *, risks: list[Any] | None = None) -> dict[str, Any]:
-    """Return a read-only DRS Advisor model from current inventory evidence."""
+def _calculate_drs_model(adapter: Any, *, risks: list[Any] | None = None) -> dict[str, Any]:
     snapshot = _snapshot(adapter)
+    source = _source_label(adapter, snapshot)
+    cluster_id = _cluster_id(adapter, snapshot)
+    observed_at = _as_text(_field(snapshot, "observed_at", default=""))
     storages = [_normalize_storage(item) for item in _adapter_items(adapter, snapshot, "list_storage", "storage")]
     networks = [_normalize_network(item) for item in _adapter_items(adapter, snapshot, "list_networks", "networks")]
     nodes = [
@@ -529,9 +723,22 @@ def build_drs_advisor_model(adapter: Any, *, risks: list[Any] | None = None) -> 
     ]
     nodes = _with_vm_counts(nodes, vms)
     risk_items = list(risks or [])
-    recommendations = _build_recommendations(nodes, vms, risk_items)
+    identity_map = resolve_inventory_identities(
+        vms,
+        cluster_id=cluster_id,
+        observed_at=_field(snapshot, "observed_at", default=None),
+        source=source,
+    )
+    recommendations = _build_recommendations(
+        nodes,
+        vms,
+        risk_items,
+        identity_map=identity_map,
+        cluster_id=cluster_id,
+        source=source,
+    )
     summary = _summary(nodes, vms, risk_items, recommendations)
-    return {
+    model = {
         "summary": summary,
         "recommendations": recommendations,
         "thresholds": dict(THRESHOLDS),
@@ -540,12 +747,28 @@ def build_drs_advisor_model(adapter: Any, *, risks: list[Any] | None = None) -> 
         "allowed_actions": [],
         "execution": dict(READ_ONLY_EXECUTION),
         "evidence": {
-            "source": _source_label(adapter, snapshot),
-            "observed_at": _as_text(_field(snapshot, "observed_at", default="")),
+            "source": source,
+            "cluster_id": cluster_id,
+            "observed_at": observed_at,
             "candidate_filter": "running_non_template_vms_without_red_risk",
             "passthrough_detection": "tags_only",
         },
     }
+    return {
+        "model": model,
+        "nodes": nodes,
+        "vms": vms,
+        "risks": risk_items,
+        "identity_map": identity_map,
+        "cluster_id": cluster_id,
+        "source": source,
+        "observed_at": observed_at,
+    }
+
+
+def build_drs_advisor_model(adapter: Any, *, risks: list[Any] | None = None) -> dict[str, Any]:
+    """Return a read-only DRS Advisor model from current inventory evidence."""
+    return _calculate_drs_model(adapter, risks=risks)["model"]
 
 
 def find_drs_recommendation(
@@ -561,33 +784,247 @@ def find_drs_recommendation(
     return None
 
 
+def _payload_reference(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    source = payload.get("recommendation")
+    if not isinstance(source, dict):
+        source = payload
+    fields = {
+        "id": _as_text(source.get("id") or payload.get("recommendation_id") or payload.get("recommendationId")),
+        "vmid": _as_int(source.get("vmid"), 0),
+        "vm_name": _as_text(source.get("vm_name") or source.get("vmName")),
+        "source_node_id": _as_text(source.get("source_node_id") or source.get("sourceNodeId")),
+        "target_node_id": _as_text(source.get("target_node_id") or source.get("targetNodeId")),
+    }
+    return {key: value for key, value in fields.items() if value not in {"", 0}}
+
+
+def _reference_value(reference: dict[str, Any], key: str, fallback: Any = None) -> Any:
+    return reference.get(key, fallback)
+
+
+def _matching_reference(current: dict[str, Any], reference: dict[str, Any]) -> bool:
+    for key in ("vmid", "source_node_id", "target_node_id"):
+        if key in reference and _reference_value(current, key) != reference[key]:
+            return False
+    return True
+
+
+def _check_item(
+    status: str,
+    *,
+    blocker: str | None = None,
+    detail: str = "",
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"status": status}
+    if blocker:
+        payload["blocker"] = blocker
+    if detail:
+        payload["detail"] = detail
+    if evidence is not None:
+        payload["evidence"] = evidence
+    return payload
+
+
 def build_drs_check_result(
     adapter: Any,
     recommendation_id: str,
     *,
     risks: list[Any] | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    model = build_drs_advisor_model(adapter, risks=risks)
+    calculated = _calculate_drs_model(adapter, risks=risks)
+    model = calculated["model"]
     recommendation = next(
         (item for item in model["recommendations"] if item["id"] == recommendation_id),
         None,
     )
-    if recommendation is None:
-        return None
+    payload_reference = _payload_reference(payload)
+    reference = recommendation or payload_reference
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    vms = calculated["vms"]
+    nodes = calculated["nodes"]
+    identity_map = calculated["identity_map"]
+    source_vm = None
+    if reference.get("vmid") is not None:
+        source_vm = next((vm for vm in vms if vm["vmid"] == _as_int(reference.get("vmid"))), None)
+    target_node = next(
+        (node for node in nodes if node["id"] == _as_text(reference.get("target_node_id"))),
+        None,
+    )
+    identity_evidence = {}
+    policy_evidence = {}
+    if recommendation is not None:
+        identity_evidence = dict(recommendation.get("identity_evidence") or {})
+        policy_evidence = dict(recommendation.get("policy_evidence") or {})
+    elif source_vm is not None:
+        identity_evidence = _identity_evidence_for_vm(
+            source_vm,
+            identity_map,
+            cluster_id=calculated["cluster_id"],
+            source=calculated["source"],
+        )
+        policy_evidence = _policy_evidence_for_identity(identity_evidence)
+    else:
+        identity_evidence = _default_identity_evidence(
+            {
+                "node_id": _as_text(reference.get("source_node_id"), "unknown"),
+                "vmid": _as_int(reference.get("vmid"), 0),
+                "name": _as_text(reference.get("vm_name"), "unknown"),
+                "mac_addresses": [],
+                "disk_volume_ids": [],
+            },
+            cluster_id=calculated["cluster_id"],
+            source=calculated["source"],
+        )
+        policy_evidence = _default_policy_evidence(identity_evidence)
+
+    stale = recommendation is None or (bool(payload_reference) and recommendation is not None and not _matching_reference(recommendation, payload_reference))
+    source_exists = source_vm is not None
+    source_node_matches = bool(
+        source_vm is not None
+        and reference.get("source_node_id")
+        and source_vm["node_id"] == _as_text(reference.get("source_node_id"))
+    )
+    target_eligible = bool(target_node and target_node["online"])
+    vm_state_eligible = bool(
+        source_vm is not None
+        and source_vm["status"] == "running"
+        and not source_vm["template"]
+        and not _has_red_risk(source_vm, calculated["risks"])
+    )
+    route = recommendation.get("evidence", {}).get("route", {}) if recommendation else {}
+    storage = recommendation.get("evidence", {}).get("storage", {}) if recommendation else {}
+    passthrough = recommendation.get("evidence", {}).get("passthrough", {}) if recommendation else {}
+    target_threshold = recommendation.get("evidence", {}).get("target_over_threshold", {}) if recommendation else {}
+    route_ok = bool(
+        recommendation is not None
+        and route.get("blocked") is not True
+        and route.get("network_evidence_sufficient") is True
+        and route.get("storage_evidence_sufficient") is True
+    )
+    current_rule_blockers = [
+        blocker
+        for blocker in (recommendation or {}).get("blockers", [])
+        if blocker
+        not in {
+            "final_precheck_not_run",
+            "migration_policy_unknown",
+            "policy_unknown",
+            "migration_policy_restricted",
+            "migration_policy_blocked",
+            "vm_identity_unknown",
+            "vm_identity_uncertain",
+            "identity_unknown",
+            "metadata_missing",
+        }
+    ]
+    no_current_rule_blockers = not current_rule_blockers
+    identity_high = identity_evidence.get("match_confidence") == "high" and identity_evidence.get("conflict_signal") is not True
+    policy_allowed = policy_evidence.get("policy") == "allowed"
+    operation_lock_evidence = recommendation_lock_evidence(
+        cluster_id=calculated["cluster_id"],
+        vm_identity_id=identity_evidence.get("vm_identity_id"),
+        vmid=reference.get("vmid") if reference.get("vmid") is not None else (source_vm or {}).get("vmid"),
+        source_node_id=reference.get("source_node_id") or (source_vm or {}).get("node_id"),
+        target_node_id=reference.get("target_node_id"),
+    )
+    operation_lock_blockers = lock_blockers(operation_lock_evidence)
+    proxmox_conflicts = _proxmox_conflict_evidence(source_vm)
+    proxmox_conflict_blocker = "vm_config_lock" if proxmox_conflicts["config_lock"]["blocking"] else None
+
+    checks = {
+        "recommendation_freshness": _check_item("pass" if not stale else "failed", blocker="stale_recommendation" if stale else None),
+        "source_vm": _check_item("pass" if source_exists else "failed", blocker="source_vm_missing" if not source_exists else None),
+        "source_node": _check_item("pass" if source_node_matches else "failed", blocker="source_node_changed" if source_exists and not source_node_matches else None),
+        "target_node": _check_item("pass" if target_eligible else "failed", blocker="target_node_unavailable" if not target_eligible else None),
+        "vm_state": _check_item("pass" if vm_state_eligible else "failed", blocker="vm_state_ineligible" if not vm_state_eligible else None),
+        "route": _check_item("pass" if route_ok else "failed", blocker="route_unknown" if not route_ok else None),
+        "storage": _check_item("pass" if not storage.get("blocked") else "failed", blocker="local_storage_dependency" if storage.get("blocked") else None),
+        "passthrough": _check_item("pass" if not passthrough.get("blocked") else "failed", blocker="passthrough_device_dependency" if passthrough.get("blocked") else None),
+        "target_threshold": _check_item("pass" if not target_threshold.get("blocked") else "failed", blocker="target_over_threshold" if target_threshold.get("blocked") else None),
+        "identity": _check_item("pass" if identity_high else "failed", blocker="vm_identity_uncertain" if identity_evidence.get("match_confidence") != "unknown" else "vm_identity_unknown"),
+        "policy": _check_item("pass" if policy_allowed else "failed", blocker=f"migration_policy_{policy_evidence.get('policy', 'unknown')}"),
+        "operation_lock": _check_item(
+            "pass" if not operation_lock_blockers else "failed",
+            blocker=operation_lock_blockers[0] if operation_lock_blockers else None,
+            evidence=operation_lock_evidence,
+        ),
+        "proxmox_config_lock": _check_item(
+            "failed" if proxmox_conflicts["config_lock"]["blocking"] else "pass",
+            blocker=proxmox_conflict_blocker,
+            evidence=proxmox_conflicts["config_lock"],
+        ),
+        "proxmox_active_task": _check_item("not_collected", evidence=proxmox_conflicts["active_task"]),
+        "proxmox_ha_state": _check_item("not_collected", evidence=proxmox_conflicts["ha_state"]),
+        "proxmox_cluster_quorum": _check_item("not_collected", evidence=proxmox_conflicts["cluster_quorum"]),
+        "proxmox_conflicts": _check_item(
+            _proxmox_conflict_status(proxmox_conflicts),
+            blocker=proxmox_conflict_blocker,
+            evidence=proxmox_conflicts,
+        ),
+    }
+    blockers = []
+    for item in checks.values():
+        blocker = item.get("blocker")
+        if blocker:
+            blockers.append(blocker)
+    blockers.extend(current_rule_blockers)
+    blockers.extend(operation_lock_blockers)
+    blockers = _unique(blockers)
+    precheck_pass = all(
+        [
+            not stale,
+            source_exists,
+            source_node_matches,
+            target_eligible,
+            vm_state_eligible,
+            route_ok,
+            no_current_rule_blockers,
+            identity_high,
+            policy_allowed,
+            not operation_lock_blockers,
+            not proxmox_conflicts["blocking"],
+        ]
+    )
+    if not precheck_pass:
+        blockers = _unique([*blockers, "drs_final_precheck_failed"])
     return {
         "recommendation_id": recommendation_id,
         "read_only": True,
         "executable": False,
+        "would_be_executable": precheck_pass,
         "allowed_actions": [],
         "execution": dict(READ_ONLY_EXECUTION),
         "thresholds": dict(THRESHOLDS),
+        "blockers": blockers,
+        "blocker_details": [_blocker_detail(code) for code in blockers],
+        "identity_evidence": identity_evidence,
+        "policy_evidence": policy_evidence,
+        "checked_at": checked_at,
         "check": {
-            "status": "blocked",
+            "status": "would_pass" if precheck_pass else "blocked",
             "reference_only": True,
             "recalculated": True,
-            "blockers": list(recommendation["blockers"]),
-            "reason": "Reference-only recalculation completed; execution remains unavailable in DRS Phase 1.",
+            "would_be_executable": precheck_pass,
+            "blockers": blockers,
+            "checks": checks,
+            "checked_at": checked_at,
+            "reason": "Read-only final pre-check completed; live migration execution remains unavailable.",
             "observed_at": model["evidence"]["observed_at"],
         },
-        "recommendation": recommendation,
+        "recommendation": recommendation or {
+            "id": recommendation_id,
+            "status": "stale",
+            "blockers": blockers,
+            "identity_evidence": identity_evidence,
+            "policy_evidence": policy_evidence,
+            "read_only": True,
+            "executable": False,
+            "allowed_actions": [],
+            "execution": dict(READ_ONLY_EXECUTION),
+        },
     }

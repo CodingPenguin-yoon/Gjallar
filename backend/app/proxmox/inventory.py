@@ -37,11 +37,13 @@ _ENV_LOCK = threading.Lock()
 _DEFAULT_ADAPTER_LOCK = threading.Lock()
 _DEFAULT_ADAPTER_SIGNATURE: tuple[Any, ...] | None = None
 _DEFAULT_ADAPTER: FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter | None = None
+_DEFAULT_CLUSTER_ID = "gjallar-mvp"
 _DISK_SIZE_PATTERN = re.compile(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGTP]?)", re.IGNORECASE)
 _DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
 _NIC_CONFIG_KEY_PATTERN = re.compile(r"^net\d+$")
 _NIC_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 _NIC_SAFE_MODEL_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
+_MAC_ADDRESS_PATTERN = re.compile(r"^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$")
 _NATURAL_SPLIT_PATTERN = re.compile(r"(\d+)")
 _GUEST_PRIMARY_INTERFACE_PREFIXES = ("eth", "ens", "enp", "eno")
 _GUEST_INTERNAL_INTERFACE_PREFIXES = ("veth", "cni", "flannel", "cali", "virbr")
@@ -115,6 +117,14 @@ def _first_present_value(row: dict[str, Any], *keys: str) -> object:
 
 def _network_text(value: object) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _read_text_env(name: str, default: str = "") -> str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    text = str(raw).strip()
+    return text or default
 
 
 def _network_optional_int(value: object) -> int | None:
@@ -399,6 +409,13 @@ def _safe_vlan_tag(value: object) -> str:
     return ""
 
 
+def _normalize_mac_address(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if not text or not _MAC_ADDRESS_PATTERN.fullmatch(text):
+        return ""
+    return text
+
+
 def _extract_nic_model(parts: list[tuple[str, str, str]]) -> str:
     if not parts:
         return ""
@@ -409,6 +426,21 @@ def _extract_nic_model(parts: list[tuple[str, str, str]]) -> str:
     if normalized_name in _NIC_CONFIG_OPTION_NAMES:
         return ""
     return _safe_nic_model(name)
+
+
+def _extract_nic_mac_address(parts: list[tuple[str, str, str]], values: dict[str, str]) -> str:
+    for key in ("macaddr", "mac", "hwaddr"):
+        normalized = _normalize_mac_address(values.get(key))
+        if normalized:
+            return normalized
+    if not parts:
+        return ""
+    name, separator, value = parts[0]
+    if not separator:
+        return ""
+    if name.strip().lower() in _NIC_CONFIG_OPTION_NAMES:
+        return ""
+    return _normalize_mac_address(value)
 
 
 def _extract_nic_bridge_evidence(config_data: dict[str, Any]) -> tuple[NicBridgeEvidenceInventory, ...]:
@@ -439,12 +471,22 @@ def _extract_nic_bridge_evidence(config_data: dict[str, Any]) -> tuple[NicBridge
                 interface_name=interface_name,
                 bridge_id=bridge_id,
                 model=_extract_nic_model(parts),
+                mac_address=_extract_nic_mac_address(parts, values),
                 tag=_safe_vlan_tag(values.get("tag")),
                 firewall=_proxmox_optional_bool(values.get("firewall")),
                 link_down=_proxmox_optional_bool(values.get("link_down")),
             )
         )
     return _deduplicate_nic_bridge_evidence(evidence)
+
+
+def _extract_mac_addresses(config_data: dict[str, Any]) -> tuple[str, ...]:
+    addresses = [
+        item.mac_address
+        for item in _extract_nic_bridge_evidence(config_data)
+        if item.mac_address
+    ]
+    return tuple(dict.fromkeys(sorted(addresses)))
 
 
 def _extract_configured_ip_evidence(config_data: dict[str, Any]) -> tuple[IpEvidenceInventory, ...]:
@@ -725,8 +767,10 @@ class FakeProxmoxInventoryAdapter:
         *,
         source_config: dict[str, Any] | None = None,
         observed_at: str = "2026-05-09T02:38:00+09:00",
+        cluster_id: str = _DEFAULT_CLUSTER_ID,
     ) -> None:
-        self._source_config = dict(source_config or {"mode": self.source})
+        self.cluster_id = str(cluster_id or _DEFAULT_CLUSTER_ID).strip() or _DEFAULT_CLUSTER_ID
+        self._source_config = {"mode": self.source, "cluster_id": self.cluster_id, **dict(source_config or {})}
         self._observed_at = observed_at
         self._storages = (
             StorageInventory(
@@ -840,6 +884,7 @@ class FakeProxmoxInventoryAdapter:
                         interface_name="net0",
                         bridge_id="vmbr0",
                         model="virtio",
+                        mac_address="aa:bb:cc:dd:ee:65",
                         firewall=True,
                     ),
                 ),
@@ -860,6 +905,9 @@ class FakeProxmoxInventoryAdapter:
                         discard="on",
                     ),
                 ),
+                smbios1="uuid=11111111-2222-3333-4444-555555555565",
+                vmgenid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                mac_addresses=("aa:bb:cc:dd:ee:65",),
             ),
         )
 
@@ -924,11 +972,13 @@ class LiveProxmoxInventoryAdapter:
         guest_agent_timeout_seconds: float = 3.0,
         cache_ttl_seconds: float = 10.0,
         detail_workers: int = 8,
+        cluster_id: str = _DEFAULT_CLUSTER_ID,
     ) -> None:
         self.api_url = str(api_url).rstrip("/")
         self.token_id = str(token_id)
         self.token_secret = str(token_secret)
         self.tls_insecure = bool(tls_insecure)
+        self.cluster_id = str(cluster_id or _DEFAULT_CLUSTER_ID).strip() or _DEFAULT_CLUSTER_ID
         self.connect_timeout_seconds = max(float(connect_timeout_seconds), 0.1)
         self.read_timeout_seconds = max(float(read_timeout_seconds), 0.5)
         self.guest_agent_timeout_seconds = max(float(guest_agent_timeout_seconds), 0.5)
@@ -942,6 +992,7 @@ class LiveProxmoxInventoryAdapter:
         self._detail_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
         self._source_config = {
             "mode": self.source,
+            "cluster_id": self.cluster_id,
             "api_url": self.api_url,
             "token_id": self.token_id,
             "token_secret": self.token_secret,
@@ -1042,6 +1093,10 @@ class LiveProxmoxInventoryAdapter:
             "cloud_init_ready": _config_cloud_init_ready(config_data),
             "tags": _extract_tags(config_data),
             "storage_id": next((disk.storage_id for disk in disks if disk.storage_id != "unknown"), _extract_storage_id(config_data)),
+            "smbios1": str(config_data.get("smbios1") or "").strip(),
+            "vmgenid": str(config_data.get("vmgenid") or "").strip(),
+            "mac_addresses": _extract_mac_addresses(config_data),
+            "config_lock": str(config_data.get("lock") or "").strip(),
         }
         with self._detail_cache_lock:
             self._detail_cache[cache_key] = (time.time(), detail)
@@ -1089,6 +1144,10 @@ class LiveProxmoxInventoryAdapter:
             tags=tuple(detail.get("tags") or ()),
             storage_id=str(detail.get("storage_id") or "unknown"),
             disks=tuple(detail.get("disks") or ()),
+            smbios1=str(detail.get("smbios1") or ""),
+            vmgenid=str(detail.get("vmgenid") or ""),
+            mac_addresses=tuple(detail.get("mac_addresses") or ()),
+            config_lock=str(detail.get("config_lock") or ""),
         )
 
     def _collect_inventory(self) -> InventorySnapshot:
@@ -1158,6 +1217,10 @@ class LiveProxmoxInventoryAdapter:
                             "guest_agent": GuestAgentInventory(available=False),
                             "tags": (),
                             "storage_id": "unknown",
+                            "smbios1": "",
+                            "vmgenid": "",
+                            "mac_addresses": (),
+                            "config_lock": "",
                         }
 
         nodes = []
@@ -1282,6 +1345,7 @@ def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInvent
     cache_ttl_seconds = _read_float_env("PROXMOX_VM_INVENTORY_CACHE_TTL_SECONDS", 10.0, minimum=0.0)
     detail_workers = _read_int_env("PROXMOX_VM_INVENTORY_WORKERS", 8, minimum=1)
     guest_agent_timeout_seconds = _read_float_env("PROXMOX_GUEST_AGENT_TIMEOUT_SECONDS", 3.0, minimum=0.5)
+    cluster_id = _read_text_env("GJALLAR_CLUSTER_ID", _DEFAULT_CLUSTER_ID)
 
     if mode == "fake" or not (api_url and token_id and token_secret):
         return FakeProxmoxInventoryAdapter(
@@ -1291,7 +1355,8 @@ def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInvent
                 "token_id": token_id,
                 "token_secret": token_secret,
                 "tls_insecure": tls_insecure,
-            }
+            },
+            cluster_id=cluster_id,
         )
 
     return LiveProxmoxInventoryAdapter(
@@ -1304,6 +1369,7 @@ def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInvent
         guest_agent_timeout_seconds=guest_agent_timeout_seconds,
         cache_ttl_seconds=cache_ttl_seconds,
         detail_workers=detail_workers,
+        cluster_id=cluster_id,
     )
 
 
@@ -1324,6 +1390,7 @@ def get_default_inventory_adapter() -> FakeProxmoxInventoryAdapter | LiveProxmox
         os.getenv("PROXMOX_VM_INVENTORY_CACHE_TTL_SECONDS", ""),
         os.getenv("PROXMOX_VM_INVENTORY_WORKERS", ""),
         os.getenv("PROXMOX_GUEST_AGENT_TIMEOUT_SECONDS", ""),
+        os.getenv("GJALLAR_CLUSTER_ID", ""),
     )
 
     with _DEFAULT_ADAPTER_LOCK:

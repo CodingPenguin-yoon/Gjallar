@@ -79,6 +79,7 @@ class NicBridgeEvidenceInventory:
     source: str = "config"
     interface_type: str = "proxmox_net_config"
     model: str = ""
+    mac_address: str = ""
     tag: str = ""
     firewall: bool | None = None
     link_down: bool | None = None
@@ -146,6 +147,10 @@ class VmInventory:
     tags: tuple[str, ...] = ()
     storage_id: str = "unknown"
     disks: tuple[DiskInventory, ...] = ()
+    smbios1: str = ""
+    vmgenid: str = ""
+    mac_addresses: tuple[str, ...] = ()
+    config_lock: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -155,6 +160,7 @@ class VmInventory:
         data["guest_agent"] = self.guest_agent.to_dict()
         data["tags"] = list(self.tags)
         data["disks"] = [disk.to_dict() for disk in self.disks]
+        data["mac_addresses"] = list(self.mac_addresses)
         return data
 
 

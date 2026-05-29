@@ -55,13 +55,15 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertFalse(recommendation["execution"]["available"])
         self.assertEqual([], recommendation["execution"]["allowed_actions"])
         self.assertEqual(
-            {"identity_unknown", "metadata_missing", "policy_unknown", "final_precheck_not_run"},
+            {"migration_policy_unknown", "policy_unknown", "final_precheck_not_run"},
             set(recommendation["blockers"]),
         )
+        self.assertEqual("high", recommendation["identity_evidence"]["match_confidence"])
+        self.assertEqual("unknown", recommendation["policy_evidence"]["policy"])
         self.assertEqual(2, data["summary"]["running_candidate_vms"])
         self.assertEqual(1, data["summary"]["excluded_red_risk_vms"])
 
-    def test_blockers_include_phase_one_identity_metadata_policy_route_local_and_passthrough(self):
+    def test_blockers_include_policy_route_local_and_passthrough(self):
         from app.api.v1 import router as v1_router
 
         adapter = _adapter(
@@ -77,8 +79,9 @@ class ApiV1DrsContractTests(unittest.TestCase):
         ):
             recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
 
-        self.assertIn("identity_unknown", recommendation["blockers"])
-        self.assertIn("metadata_missing", recommendation["blockers"])
+        self.assertNotIn("vm_identity_unknown", recommendation["blockers"])
+        self.assertNotIn("metadata_missing", recommendation["blockers"])
+        self.assertIn("migration_policy_unknown", recommendation["blockers"])
         self.assertIn("policy_unknown", recommendation["blockers"])
         self.assertIn("final_precheck_not_run", recommendation["blockers"])
         self.assertIn("route_unknown", recommendation["blockers"])
@@ -161,6 +164,9 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertTrue(data["check"]["reference_only"])
         self.assertTrue(data["check"]["recalculated"])
         self.assertFalse(data["execution"]["available"])
+        self.assertEqual([], data["allowed_actions"])
+        self.assertEqual("drs_migration", data["check"]["checks"]["operation_lock"]["evidence"]["operation_type"])
+        self.assertIn("proxmox_conflicts", data["check"]["checks"])
         record_job_run.assert_not_called()
 
 

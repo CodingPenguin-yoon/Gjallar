@@ -29,7 +29,7 @@ Create VM native Proxmox flow는 삭제하지 않는다.
 
 - Frontend navigation은 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`를 제공한다.
 - Dashboard는 `/api/v1/cluster/summary`, `nodes`, `vms`, `storage`, `networks`, `jobs`, `risks`를 조합해 노드/VM/storage/risk summary를 보여준다.
-- DRS Advisor는 `/api/v1/drs/*` read-only endpoint와 `frontend/src/utils/drsAdvisor.js`를 사용한다. CPU/Memory current usage, node imbalance, bridge/storage evidence, red risk exclusion을 사용하며 모든 recommendation은 `executable: false`다.
+- DRS Advisor는 `/api/v1/drs/*` read-only endpoint와 `frontend/src/utils/drsAdvisor.js`를 사용한다. CPU/Memory current usage, node imbalance, bridge/storage evidence, red risk exclusion, DB-backed identity evidence, migration policy evidence를 사용하며 모든 recommendation/check result는 `executable: false`다.
 - Jobs/Runs는 `/api/v1/jobs`, `/api/v1/jobs/{job_id}`, `/api/v1/jobs/{job_id}/artifacts` 기반 read-only 화면이다.
 - Risks/Alerts는 `/api/v1/risks`를 읽어 job-derived risk를 높은 위험도부터 보여준다.
 - Backend `/api/v1`은 read-only Proxmox inventory, Jobs/Runs, Risks, Create VM draft/preflight/plan/approval/Proxmox native create gates를 제공한다.
@@ -39,10 +39,13 @@ Create VM native Proxmox flow는 삭제하지 않는다.
 ## DRS Advisor로 확장할 gap
 
 - DRS recommendation execution authority가 없다.
-- DB-backed identity/fingerprint/metadata/policy/lock/reconciliation table이 없다.
-- SMBIOS UUID/vmgenid/MAC list fingerprint가 아직 inventory model에 명시적으로 없다.
+- DB-backed operation locks now exist for DRS final pre-check lookup, but
+  reconciliation records and broader DRS metadata/job tables remain absent.
+- DRS metadata beyond identity/policy는 아직 구현되어 있지 않다.
 - 15분 average/peak metric series와 1분 polling substrate가 없다.
-- HA state, quorum, config lock, passthrough, active Proxmox task evidence가 DRS final pre-check용으로 정규화되어 있지 않다.
+- Config-lock evidence is collected for DRS final pre-check. HA state, quorum,
+  and active Proxmox task collection remain absent and surface as unsupported
+  evidence in the current foundation.
 - Proxmox live migration request, UPID tracking, post-check, timeout, Reconcile Now가 없다.
 - DRS Advisor UI는 read-only Phase 1이고 execution flow로 확장해야 한다.
 

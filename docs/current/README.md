@@ -9,8 +9,8 @@ This file is the docs source of truth for implemented behavior after active code
 ## Product direction vs implemented state
 
 - Product target: DRS Advisor is the next MVP success line.
-- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, read-only DRS Advisor Phase 1, Jobs/Runs, Risks/Alerts, Create VM supporting capability, and admin local-user management.
-- Current gap: VM identity/fingerprint policy, DRS final pre-check, approval-gated live migration, Proxmox UPID tracking, operation locks, and reconciliation are not implemented yet.
+- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, read-only DRS Advisor Phase 1 with identity/policy readiness foundation, DB-backed operation lock lookup, config-lock evidence, and read-only final pre-check, Jobs/Runs, Risks/Alerts, Create VM supporting capability, and admin local-user management.
+- Current gap: approval-gated live migration, Proxmox UPID tracking, operation lock acquisition/release, task/HA/quorum evidence, DRS migration jobs, and reconciliation are not implemented yet.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
@@ -35,7 +35,7 @@ This file is the docs source of truth for implemented behavior after active code
   `POST /api/v1/admin/users/{username}/reset-password`.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
-- `/drs` is currently a read-only DRS Advisor Phase 1 screen. It consumes backend `/api/v1/drs/*` read endpoints; all recommendations remain `executable=false`.
+- `/drs` is currently a read-only DRS Advisor Phase 1 screen with DB-backed VM identity/policy evidence, DB-backed operation lock lookup, config-lock evidence, and a read-only final pre-check model. It consumes backend `/api/v1/drs/*` read endpoints; all recommendations and checks remain `executable=false`.
 
 ## Implemented behavior
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -187,3 +187,139 @@ class VmInstanceRecord(Base):
     create_job_id: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     created_at: Mapped[str] = mapped_column(String(80), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class VmIdentityRecord(Base):
+    """Long-lived DRS identity for one observed Proxmox VM."""
+
+    __tablename__ = "vm_identities"
+    __table_args__ = (
+        UniqueConstraint("cluster_id", "stable_fingerprint", name="uq_vm_identities_cluster_fingerprint"),
+        CheckConstraint(
+            "identity_status in ('active', 'uncertain', 'retired')",
+            name="ck_vm_identities_identity_status",
+        ),
+    )
+
+    vm_identity_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    cluster_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    stable_fingerprint: Mapped[str] = mapped_column(String(96), nullable=False)
+    identity_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class VmIdentityObservationRecord(Base):
+    """Compact read-only Proxmox VM identity observation."""
+
+    __tablename__ = "vm_identity_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "match_confidence in ('high', 'medium', 'low', 'unknown')",
+            name="ck_vm_identity_observations_match_confidence",
+        ),
+        Index("ix_vm_identity_observations_identity_seen", "vm_identity_id", "observed_at"),
+        Index("ix_vm_identity_observations_locator", "cluster_id", "node_id", "vmid"),
+        Index("ix_vm_identity_observations_fingerprint", "cluster_id", "fingerprint_hash"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    vm_identity_id: Mapped[str] = mapped_column(ForeignKey("vm_identities.vm_identity_id"), nullable=False, index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cluster_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    vmid: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(240), nullable=False)
+    power_state: Mapped[str] = mapped_column(String(80), nullable=False)
+    template: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fingerprint_hash: Mapped[str] = mapped_column(String(96), nullable=False)
+    fingerprint_components: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    match_confidence: Mapped[str] = mapped_column(String(20), nullable=False)
+    match_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class VmMigrationPolicyRecord(Base):
+    """Operator DRS migration policy for one VM identity."""
+
+    __tablename__ = "vm_migration_policies"
+    __table_args__ = (
+        UniqueConstraint("vm_identity_id", name="uq_vm_migration_policies_vm_identity_id"),
+        CheckConstraint(
+            "policy in ('unknown', 'allowed', 'restricted', 'blocked')",
+            name="ck_vm_migration_policies_policy",
+        ),
+        CheckConstraint(
+            "source in ('default', 'manual', 'tag', 'imported')",
+            name="ck_vm_migration_policies_source",
+        ),
+    )
+
+    policy_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    vm_identity_id: Mapped[str] = mapped_column(ForeignKey("vm_identities.vm_identity_id"), nullable=False, index=True)
+    policy: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="default")
+    updated_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class OperationLockRecord(Base):
+    """Local DRS operation lock state for future migration execution gates."""
+
+    __tablename__ = "operation_locks"
+    __table_args__ = (
+        CheckConstraint(
+            "operation_type in ('drs_migration')",
+            name="ck_operation_locks_operation_type",
+        ),
+        CheckConstraint(
+            "scope_type in ('vm_identity', 'proxmox_locator', 'route')",
+            name="ck_operation_locks_scope_type",
+        ),
+        CheckConstraint(
+            "status in ('active', 'released', 'stale', 'reconciliation_required')",
+            name="ck_operation_locks_status",
+        ),
+        Index("ix_operation_locks_scope_status", "operation_type", "scope_type", "scope_key", "status"),
+        Index("ix_operation_locks_cluster_identity_status", "cluster_id", "vm_identity_id", "status"),
+        Index("ix_operation_locks_locator_status", "cluster_id", "source_node_id", "vmid", "status"),
+        Index("ix_operation_locks_route_status", "cluster_id", "source_node_id", "target_node_id", "status"),
+        Index("ix_operation_locks_expires_at", "expires_at"),
+    )
+
+    operation_lock_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    operation_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    cluster_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    vm_identity_id: Mapped[str | None] = mapped_column(ForeignKey("vm_identities.vm_identity_id"), nullable=True)
+    vmid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_node_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_node_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    owner_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

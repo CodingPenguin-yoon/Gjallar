@@ -63,6 +63,18 @@ function blockerPresent(blockers, code) {
   return blockers.includes(code)
 }
 
+function identityTone(confidence) {
+  if (confidence === 'high') return 'green'
+  if (confidence === 'unknown') return 'yellow'
+  return 'yellow'
+}
+
+function policyTone(policy) {
+  if (policy === 'allowed') return 'green'
+  if (policy === 'blocked') return 'red'
+  return 'yellow'
+}
+
 function PressureBar({ label, value, sub }) {
   const width = boundedPercent(value)
   return (
@@ -193,6 +205,8 @@ function RecommendationQueue({ recommendations, selectedId, loadingDetail, check
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">No DRS candidates are available.</div>
         ) : recommendations.map((recommendation) => {
           const route = routeStatus(recommendation)
+          const identityConfidence = recommendation.identityEvidence?.match_confidence || recommendation.identityEvidence?.matchConfidence || 'unknown'
+          const migrationPolicy = recommendation.policyEvidence?.policy || 'unknown'
           return (
             <article
               key={recommendation.id}
@@ -237,6 +251,8 @@ function RecommendationQueue({ recommendations, selectedId, loadingDetail, check
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
+                <EvidenceBadge label="Identity" value={identityConfidence} ok={identityConfidence === 'high'} />
+                <EvidenceBadge label="Policy" value={migrationPolicy} ok={migrationPolicy === 'allowed'} />
                 <EvidenceBadge label="Network evidence" value={route.networkOk ? 'sufficient' : 'unknown'} ok={route.networkOk} />
                 <EvidenceBadge label="Storage evidence" value={route.storageOk ? 'sufficient' : 'unknown'} ok={route.storageOk} />
                 <EvidenceBadge label="Delta" value={formatPercent(recommendation.estimatedEffect.sourceTargetDelta)} ok={recommendation.estimatedEffect.sourceTargetDelta >= (recommendation.thresholds?.source_target_delta ?? 25)} />
@@ -340,11 +356,18 @@ function DetailPanel({ detail, checkResult }) {
   const bridgeMatches = evidenceValue(route, 'matching_target_bridge_ids', 'matchingTargetBridgeIds')
   const passthroughTags = evidenceValue(passthrough, 'matched_tags', 'matchedTags')
   const targetBlocked = targetThreshold.blocked === true || blockerPresent(detail.blockers, 'target_over_threshold')
+  const identityEvidence = detail.identityEvidence || detail.evidence?.identity || {}
+  const policyEvidence = detail.policyEvidence || detail.evidence?.policy || {}
+  const identityConfidence = identityEvidence.match_confidence || identityEvidence.matchConfidence || 'unknown'
+  const identityStatus = identityEvidence.identity_status || identityEvidence.identityStatus || 'unknown'
+  const migrationPolicy = policyEvidence.policy || 'unknown'
+  const fingerprint = identityEvidence.stable_fingerprint || identityEvidence.stableFingerprint || '-'
+  const fingerprintLabel = fingerprint === '-' ? '-' : `${fingerprint.slice(0, 18)}...`
   const identityRows = [
-    ['Identity', blockerPresent(detail.blockers, 'identity_unknown') ? 'unknown' : 'available'],
-    ['Metadata', blockerPresent(detail.blockers, 'metadata_missing') ? 'missing' : 'available'],
-    ['Policy', blockerPresent(detail.blockers, 'policy_unknown') ? 'unknown' : 'available'],
-    ['Final pre-check', blockerPresent(detail.blockers, 'final_precheck_not_run') ? 'not run' : 'available'],
+    ['Identity', identityConfidence, identityTone(identityConfidence)],
+    ['Status', identityStatus, identityTone(identityConfidence)],
+    ['Fingerprint', fingerprintLabel, identityConfidence === 'high' ? 'green' : 'yellow'],
+    ['Policy', migrationPolicy, policyTone(migrationPolicy)],
   ]
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -400,13 +423,15 @@ function DetailPanel({ detail, checkResult }) {
 
         <DetailSection title="Identity / Metadata / Policy" icon={ShieldCheck}>
           <div className="grid grid-cols-2 gap-1.5">
-            {identityRows.map(([label, value]) => (
+            {identityRows.map(([label, value, tone]) => (
               <div key={label} className="min-w-0 rounded-md bg-slate-50 px-2 py-1.5 text-xs">
                 <div className="truncate font-semibold text-slate-900">{label}</div>
-                <div className="mt-0.5 truncate text-slate-600">{value}</div>
+                <div className={`mt-0.5 truncate font-semibold ${tone === 'green' ? 'text-emerald-700' : tone === 'red' ? 'text-red-700' : 'text-amber-700'}`}>{value}</div>
               </div>
             ))}
           </div>
+          <DetailStatusRow label="Policy source" value={policyEvidence.source || 'default'} />
+          <DetailStatusRow label="Policy reason" value={policyEvidence.reason || 'not recorded'} />
         </DetailSection>
       </div>
 
@@ -424,9 +449,7 @@ function DetailPanel({ detail, checkResult }) {
               <div className="mt-1 text-xs leading-5 text-slate-600">{detail.execution.reason}</div>
             </div>
           </div>
-          <button type="button" disabled className="inline-flex w-fit shrink-0 cursor-not-allowed items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-400">
-            Approve & Migrate
-          </button>
+          <StatusPill>allowed actions none</StatusPill>
         </div>
       </div>
     </section>

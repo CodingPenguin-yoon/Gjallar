@@ -1,5 +1,10 @@
 # Goal 2: DRS Safe Execution Readiness Foundation
 
+Status: completed on 2026-05-28.
+
+Follow-on DRS slices are tracked in
+`docs/goal/drs-execution-goal-slices.md`.
+
 ## Purpose
 
 This goal prepares DRS Advisor for safe future execution without adding live
@@ -74,8 +79,10 @@ Correct slice:
 - Create VM live smoke completed on 2026-05-28.
 - Create VM stores `observed_after` fingerprint evidence for newly created VMs.
 - DRS Advisor is currently read-only.
-- DRS final pre-check, identity/fingerprint policy, operation locks, live
-  migration, UPID tracking, and reconciliation are not implemented yet.
+- DRS final pre-check, identity/fingerprint policy, DB-backed operation lock
+  lookup, and config-lock evidence are implemented as read-only foundations.
+- Live migration, approval/job substrate, operation lock acquisition/release,
+  UPID tracking, and reconciliation are not implemented yet.
 - Proxmox remains the source of truth for actual VM, node, task, HA, storage,
   and network state.
 
@@ -226,9 +233,9 @@ Minimum checks:
 - VM power/state is still eligible according to current DRS rules.
 - Storage and network evidence still match the recommendation.
 - Recommendation is not stale.
-- No existing conflict signal is present. If full operation locks are not part
-  of this goal, report the lock check as `not_implemented` and keep execution
-  false.
+- No existing conflict signal is present. DB-backed DRS operation lock lookup
+  reports matching active/stale/reconciliation-required locks and blocks
+  `would_be_executable`; released locks do not block.
 
 Output should include:
 
@@ -334,8 +341,8 @@ git diff --check
 
 - Live migration execution.
 - Proxmox mutation calls.
-- Operation lock implementation, except a read-only placeholder/check result if
-  needed by final pre-check output.
+- Operation lock acquisition/release or reconciliation behavior beyond the
+  read-only lookup foundation.
 - Full reconciliation worker.
 - Bulk policy UI.
 - Full owner/team/environment metadata system.

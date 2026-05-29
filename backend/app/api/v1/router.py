@@ -429,10 +429,9 @@ def get_drs_recommendation(recommendation_id: str) -> dict:
 
 @router.post("/drs/recommendations/{recommendation_id}/check")
 def check_drs_recommendation(recommendation_id: str, payload: dict | None = None) -> dict:
-    """Run a reference-only recalculation for one recommendation."""
-    del payload
+    """Run a read-only final pre-check for one recommendation."""
     adapter = _inventory_adapter()
-    result = build_drs_check_result(adapter, recommendation_id, risks=_drs_risks())
+    result = build_drs_check_result(adapter, recommendation_id, risks=_drs_risks(), payload=payload)
     if result is None:
         raise HTTPException(status_code=404, detail="DRS recommendation not found")
     return success_response(

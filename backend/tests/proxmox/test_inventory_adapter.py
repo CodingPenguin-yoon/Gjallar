@@ -78,6 +78,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                     "source": "config",
                     "interface_type": "proxmox_net_config",
                     "model": "virtio",
+                    "mac_address": "aa:bb:cc:dd:ee:65",
                     "tag": "",
                     "firewall": True,
                     "link_down": None,
@@ -85,6 +86,10 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
             ],
             vm["nic_bridge_evidence"],
         )
+        self.assertEqual("uuid=11111111-2222-3333-4444-555555555565", vm["smbios1"])
+        self.assertEqual("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", vm["vmgenid"])
+        self.assertEqual(["aa:bb:cc:dd:ee:65"], vm["mac_addresses"])
+        self.assertEqual("", vm["config_lock"])
         self.assertFalse(vm["template"])
         self.assertEqual("local-lvm", vm["storage_id"])
         self.assertEqual("scsi0", vm["disks"][0]["device"])
@@ -146,6 +151,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
             "/nodes/node10/network": [{"iface": "vmbr1", "type": "bridge", "active": 1}],
             "/nodes/node2/qemu/202/config": {
                 "boot": "order=scsi0;net0",
+                "lock": "backup",
                 "scsi0": "local-lvm:vm-202-disk-0,size=80G,format=raw,discard=on,iothread=1",
                 "ide2": "local:iso/debian.iso,media=cdrom",
                 "net0": "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=40,firewall=1,link_down=0",
@@ -271,6 +277,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                     "source": "config",
                     "interface_type": "proxmox_net_config",
                     "model": "virtio",
+                    "mac_address": "aa:bb:cc:dd:ee:ff",
                     "tag": "40",
                     "firewall": True,
                     "link_down": False,
@@ -281,6 +288,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                     "source": "config",
                     "interface_type": "proxmox_net_config",
                     "model": "virtio",
+                    "mac_address": "",
                     "tag": "",
                     "firewall": None,
                     "link_down": None,
@@ -296,6 +304,7 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
                     "source": "config",
                     "interface_type": "proxmox_net_config",
                     "model": "virtio",
+                    "mac_address": "",
                     "tag": "",
                     "firewall": None,
                     "link_down": None,
@@ -303,6 +312,11 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
             ],
             first_vms[1]["nic_bridge_evidence"],
         )
+        self.assertEqual(["aa:bb:cc:dd:ee:ff"], first_vms[0]["mac_addresses"])
+        self.assertEqual([], first_vms[1]["mac_addresses"])
+        self.assertEqual([], first_vms[2]["mac_addresses"])
+        self.assertEqual("backup", first_vms[0]["config_lock"])
+        self.assertEqual("", first_vms[1]["config_lock"])
         self.assertEqual([], first_vms[2]["nic_bridge_evidence"])
         self.assertNotIn("AA:BB", repr(first_vms[0]["nic_bridge_evidence"]))
         evidence_101 = first_vms[1]["ip_evidence"][0]

@@ -29,7 +29,18 @@ const recommendation = {
   target_node_id: 'node-b',
   target_node_name: 'node-b',
   reason: 'Source node is hot and target pressure is lower by 42%.',
-  blockers: ['identity_unknown', 'metadata_missing', 'policy_unknown', 'final_precheck_not_run', 'local_storage_dependency'],
+  blockers: ['migration_policy_unknown', 'policy_unknown', 'final_precheck_not_run', 'local_storage_dependency'],
+  identity_evidence: {
+    vm_identity_id: 'vmid-1',
+    stable_fingerprint: 'sha256:abcdef0123456789',
+    match_confidence: 'high',
+    identity_status: 'active',
+  },
+  policy_evidence: {
+    policy: 'unknown',
+    source: 'default',
+    reason: 'No DRS migration policy has been recorded',
+  },
   thresholds: { hot: 70, critical: 85, source_target_delta: 25 },
   estimated_effect: {
     source_pressure_before: 82,
@@ -97,6 +108,8 @@ assert.equal(viewModel.execution.available, false)
 assert.equal(viewModel.recommendations[0].id, recommendation.id)
 assert.equal(viewModel.recommendations[0].vmName, 'app-01')
 assert.deepEqual(viewModel.recommendations[0].blockers, recommendation.blockers)
+assert.equal(viewModel.recommendations[0].identityEvidence.match_confidence, 'high')
+assert.equal(viewModel.recommendations[0].policyEvidence.policy, 'unknown')
 assert.equal(viewModel.recommendations[0].estimatedEffect.sourceTargetDelta, 42)
 assert.equal(drsToneClass('critical').includes('red'), true)
 assert.equal(drsToneClass('hot').includes('amber'), true)
@@ -122,7 +135,11 @@ const fakeClient = {
       recommendation_id: id,
       read_only: true,
       executable: false,
+      would_be_executable: false,
       execution: { available: false, allowed_actions: [], reason: 'advisory only' },
+      blockers: recommendation.blockers,
+      identity_evidence: recommendation.identity_evidence,
+      policy_evidence: recommendation.policy_evidence,
       check: {
         status: 'blocked',
         reference_only: true,
@@ -145,8 +162,11 @@ const checkResult = await checkDrsRecommendation(fakeClient, recommendation.id, 
 assert.equal(checkResult.recommendationId, recommendation.id)
 assert.equal(checkResult.readOnly, true)
 assert.equal(checkResult.executable, false)
+assert.equal(checkResult.wouldBeExecutable, false)
 assert.equal(checkResult.check.reference_only, true)
 assert.equal(checkResult.execution.available, false)
+assert.equal(checkResult.identityEvidence.match_confidence, 'high')
+assert.equal(checkResult.policyEvidence.policy, 'unknown')
 
 const utilitySource = readFileSync(new URL('../src/utils/drsAdvisor.js', import.meta.url), 'utf8')
 for (const forbidden of ['loadPlacementModel', 'buildPlacementViewModel', 'listNodes', 'listVms', 'listStorage', 'listNetworks']) {
@@ -180,9 +200,10 @@ assert.match(screenSource, /Passthrough Evidence/)
 assert.match(screenSource, /Target Threshold/)
 assert.match(screenSource, /Identity \/ Metadata \/ Policy/)
 assert.match(screenSource, /Execution Boundary/)
-assert.match(screenSource, /Approve & Migrate/)
 assert.match(screenSource, /executable false/)
 assert.match(screenSource, /allowed actions: none/)
+assert.match(screenSource, /allowed actions none/)
+assert.doesNotMatch(screenSource, /Approve & Migrate/)
 assert.doesNotMatch(screenSource, /Recommendation Impact|RecommendationImpactList|RecommendationTable|<table|overflow-x-auto/)
 assert.doesNotMatch(screenSource, /PlacementScreen|loadPlacementModel|placementToneClass/)
 

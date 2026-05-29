@@ -22,6 +22,6 @@
 
 구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, read-only DRS Advisor Phase 1, DB-backed Jobs/Runs, job-derived Risks/Alerts, Create VM supporting capability, 그리고 admin local-user management다.
 
-DRS Advisor는 read-only Phase 1까지 구현되어 있다. 아직 identity/fingerprint DB model, 15분 average/peak metric substrate, final pre-check, approval-gated live migration, UPID tracking, operation lock, reconciliation은 구현되어 있지 않다.
+DRS Advisor는 read-only Phase 1까지 구현되어 있다. Identity/fingerprint DB model, migration policy memory, read-only final pre-check, DB-backed operation lock lookup, config-lock evidence가 구현되어 있다. 아직 15분 average/peak metric substrate, approval-gated live migration, UPID tracking, DRS operation lock acquisition/release, active task/HA/quorum evidence, reconciliation은 구현되어 있지 않다.
 
 Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. 실제 생성은 `proxmox-create`가 approval과 final acknowledgement 뒤에 clone UPID polling, 필요한 boot disk resize, config, power-policy post-check, `observed_after` artifact와 DB request/VM record를 끝낸 뒤에만 완료로 기록한다. 기본 `stopped` 정책은 VM을 꺼진 상태로 끝내고, 선택 `boot_and_verify` 정책은 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. Terraform plan/apply와 legacy `execute/archive` route surface는 제거됐고 old URL은 404다. SSH/Ansible/app bootstrap smoke는 deferred다.
