@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +25,8 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "/api/v1/drs/recommendations/{recommendation_id}",
             "/api/v1/drs/recommendations/{recommendation_id}/check",
             "/api/v1/drs/recommendations/{recommendation_id}/approval-packets",
+            "/api/v1/drs/migration-jobs/{job_id}/execute",
+            "/api/v1/drs/migration-jobs/{job_id}/reconcile-preview",
         }
         self.assertEqual([], sorted(expected - self.paths))
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/check-now", self.paths)
@@ -223,10 +226,70 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertFalse(data["job_intent"]["runnable"])
         self.assertFalse(data["job_intent"]["proxmox_mutation_enabled"])
         self.assertEqual([], data["job_intent"]["side_effects"])
-        self.assertIn("live_migration_execution_not_implemented", data["job_intent"]["runnable_blockers"])
+        self.assertNotIn("live_migration_execution_not_implemented", data["job_intent"]["runnable_blockers"])
+        self.assertIn("proxmox_active_task_not_collected", data["job_intent"]["runnable_blockers"])
+        self.assertIn("proxmox_ha_state_not_collected", data["job_intent"]["runnable_blockers"])
+        self.assertIn("proxmox_cluster_quorum_not_collected", data["job_intent"]["runnable_blockers"])
         self.assertEqual("would_pass", data["job_intent"]["final_precheck_summary"]["status"])
         mutation_client.assert_not_called()
         create_mutation.assert_not_called()
+
+    def test_migration_job_execute_route_delegates_to_drs_execution_only(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        expected = {
+            "status": "running",
+            "proxmox_upid": "UPID:node-a:0001:migrate",
+            "side_effects": ["drs_operation_locks_acquired", "proxmox_migrate_invoked"],
+        }
+        with patch.object(v1_router, "_inventory_adapter", return_value=_adapter()), patch.object(
+            v1_router,
+            "_drs_risks",
+            return_value=[],
+        ), patch.object(v1_router, "execute_drs_migration_job", return_value=expected) as execute, patch.object(
+            v1_router,
+            "get_default_proxmox_mutation_client",
+        ) as create_vm_client:
+            response = asyncio.run(v1_router.execute_drs_migration_job_action("job-drs-1", {}, actor=actor))
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("drs_live_migration_execution", response["meta"]["mode"])
+        self.assertEqual(expected, response["data"])
+        execute.assert_called_once()
+        create_vm_client.assert_not_called()
+
+    def test_reconcile_preview_route_is_read_only_and_not_create_vm_coupled(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        expected = {
+            "job_id": "job-drs-1",
+            "read_only": True,
+            "proxmox_mutation_enabled": False,
+            "side_effects": [],
+            "corrective_mutation_enabled": False,
+            "post_check": {"status": "pass"},
+        }
+        with patch.object(v1_router, "build_drs_migration_reconciliation_preview", return_value=expected) as preview, patch.object(
+            v1_router,
+            "execute_drs_migration_job",
+        ) as execute, patch.object(
+            v1_router,
+            "get_default_proxmox_mutation_client",
+        ) as create_vm_client:
+            response = asyncio.run(v1_router.preview_drs_migration_reconciliation_action("job-drs-1", {}, actor=actor))
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("drs_reconciliation_preview_read_only", response["meta"]["mode"])
+        self.assertTrue(response["data"]["read_only"])
+        self.assertFalse(response["data"]["proxmox_mutation_enabled"])
+        self.assertEqual([], response["data"]["side_effects"])
+        preview.assert_called_once()
+        execute.assert_not_called()
+        create_vm_client.assert_not_called()
 
 
 def _adapter(

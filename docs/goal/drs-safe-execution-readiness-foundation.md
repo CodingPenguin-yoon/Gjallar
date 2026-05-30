@@ -4,6 +4,9 @@ Status: completed on 2026-05-28.
 
 Follow-on DRS slices are tracked in
 `docs/goal/drs-execution-goal-slices.md`.
+For the current next-session entry point, start with `docs/goal/README.md`.
+Sections below describe the original foundation goal scope as of its
+implementation session.
 
 ## Purpose
 
@@ -76,13 +79,19 @@ Correct slice:
 
 ## Starting Point
 
+This section describes the original Goal 2 starting point. The current
+worktree later added approval/job substrate, operation lock acquisition/release,
+live migration execution, UPID/task tracking, and Goal 6 post-check/
+reconciliation.
+
 - Create VM live smoke completed on 2026-05-28.
 - Create VM stores `observed_after` fingerprint evidence for newly created VMs.
 - DRS Advisor is currently read-only.
 - DRS final pre-check, identity/fingerprint policy, DB-backed operation lock
   lookup, and config-lock evidence are implemented as read-only foundations.
-- Live migration, approval/job substrate, operation lock acquisition/release,
-  UPID tracking, and reconciliation are not implemented yet.
+- At this original starting point, live migration, approval/job substrate,
+  operation lock acquisition/release, UPID tracking, and reconciliation were
+  not implemented yet.
 - Proxmox remains the source of truth for actual VM, node, task, HA, storage,
   and network state.
 

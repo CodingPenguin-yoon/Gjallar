@@ -1,9 +1,15 @@
 # Goal 5: DRS Live Migration Execution And UPID Tracking
 
+Status: completed in the current worktree on 2026-05-30. This file is retained
+as the Goal 5 implementation brief and review reference. Goal 6 post-check and
+reconciliation was implemented later in
+`docs/goal/drs-goal-6-post-check-reconciliation.md`.
+
 ## Session Prompt Source
 
-Use this file as the detailed task brief for the next DRS goal session.
-The short goal prompt can point here instead of embedding the full instructions.
+Use this file as the detailed task brief only when reviewing or repairing Goal
+5 work. Do not use it as the next active DRS goal unless Goal 5 changes are
+missing from the worktree.
 
 ## Controlling References
 
@@ -72,9 +78,9 @@ final pre-check, approval, operation locks, and job state are in place.
 - Automatic DRS.
 - Bulk migrations.
 - Complex placement rules.
-- Full post-check and reconciliation workflow beyond the minimum state needed
-  to avoid false success.
-- Reconcile Now or corrective mutation.
+- Goal 6 verified post-check/reconciliation; that follow-up was delivered
+  later by Goal 6.
+- Corrective reconciliation mutation.
 - Broad execution UI polish.
 
 ## Suggested Validation
@@ -84,3 +90,10 @@ PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/drs backen
 node --test frontend/tests/drsAdvisor.test.mjs
 git diff --check
 ```
+
+Goal 5 did not include a live Proxmox migration smoke. Its validation was
+automated fake/mock validation plus the relevant backend/frontend suites. Live
+smoke target selection for a future operations run should use
+`192.168.2.140-150/24` only as a candidate guard, with the full identity,
+policy, final pre-check, approval, lock, and explicit user-approval gates still
+required.

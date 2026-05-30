@@ -278,12 +278,13 @@ def test_allowed_policy_can_reach_read_only_final_precheck_would_pass():
     assert readiness["warning_acknowledged"] is False
     assert readiness["warning_codes"] == []
     assert readiness["warnings"] == []
+    assert readiness["reconciliation"]["required"] is False
     assert readiness["evidence_binding"]["recommendation_checksum"].startswith("sha256:")
     assert readiness["evidence_binding"]["final_precheck_checksum"].startswith("sha256:")
     assert "proxmox_active_task_not_collected" in readiness["runnable_blockers"]
     assert "proxmox_ha_state_not_collected" in readiness["runnable_blockers"]
     assert "proxmox_cluster_quorum_not_collected" in readiness["runnable_blockers"]
-    assert "live_migration_execution_not_implemented" in readiness["runnable_blockers"]
+    assert "live_migration_execution_not_implemented" not in readiness["runnable_blockers"]
 
 
 def test_allowed_policy_creates_local_approval_packet_and_pending_non_runnable_job():
@@ -347,10 +348,13 @@ def test_allowed_policy_creates_local_approval_packet_and_pending_non_runnable_j
         "final_precheck",
         "approval",
         "job_intent",
+        "operation_lock",
+        "migration",
+        "task_poll",
+        "post_check",
+        "reconciliation",
     ]
-    assert "task_poll" not in [step["id"] for step in job_run["steps"]]
-    assert "post_check" not in [step["id"] for step in job_run["steps"]]
-    assert "reconciliation" not in [step["id"] for step in job_run["steps"]]
+    assert "post_check" in [step["id"] for step in job_run["steps"]]
 
 
 def test_synthetic_warnings_require_acknowledgement_before_local_approval_intent():
@@ -542,6 +546,8 @@ def test_open_operation_locks_block_final_precheck(status, expected_blocker):
     operation_lock = result["check"]["checks"]["operation_lock"]
     assert operation_lock["status"] == "failed"
     assert operation_lock["evidence"]["matching_locks"][0]["status"] == status
+    if status == "reconciliation_required":
+        assert result["approval_readiness"]["reconciliation"]["required"] is True
 
 
 def test_locator_operation_lock_matches_cluster_and_vmid_not_source_node():

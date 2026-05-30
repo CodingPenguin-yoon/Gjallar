@@ -1,9 +1,14 @@
 # Goal 4: DRS Approval And Migration Job Substrate
 
+Status: completed. This file is retained as the Goal 4 implementation brief
+and review reference. The next active DRS goal is tracked from
+`docs/goal/README.md`.
+
 ## Session Prompt Source
 
-Use this file as the detailed task brief for the next DRS goal session.
-The short goal prompt can point here instead of embedding the full instructions.
+Use this file as the detailed task brief only when reviewing or repairing Goal
+4 work. Do not use it as the next active DRS goal unless Goal 4 changes are
+missing from the worktree.
 
 ## Controlling References
 

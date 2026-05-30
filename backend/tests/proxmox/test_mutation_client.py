@@ -154,5 +154,119 @@ class ProxmoxMutationClientTests(unittest.TestCase):
         self.assertEqual("invalid urlencoded string", details["response_json"]["errors"]["sshkeys"])
 
 
+class DrsProxmoxMigrationClientTests(unittest.TestCase):
+    def test_migrate_vm_uses_dedicated_qemu_migrate_endpoint_payload(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient
+
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            return "UPID:node-a:0001:migrate"
+
+        client = DrsProxmoxMigrationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!drs",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.migrate_vm(source_node="node-a", target_node="node-b", vmid=101)
+
+        self.assertEqual("UPID:node-a:0001:migrate", result)
+        self.assertEqual(
+            [("POST", "/nodes/node-a/qemu/101/migrate", {"target": "node-b", "online": 1}, None)],
+            calls,
+        )
+
+    def test_migrate_vm_requires_non_empty_upid(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient, DrsProxmoxMigrationError
+
+        client = DrsProxmoxMigrationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!drs",
+            token_secret="secret",
+            request=lambda *args, **kwargs: "",
+        )
+
+        with self.assertRaises(DrsProxmoxMigrationError):
+            client.migrate_vm(source_node="node-a", target_node="node-b", vmid=101)
+
+    def test_collect_live_precheck_reads_active_tasks_quorum_ha_and_migration_preconditions(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient
+
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            if path == "/nodes/node-a/tasks?source=active&vmid=101":
+                return []
+            if path == "/cluster/status":
+                return [{"type": "cluster", "name": "cluster-a", "quorate": 1}]
+            if path == "/cluster/ha/resources?type=vm":
+                return [{"sid": "vm:101", "state": "started", "group": "ha"}]
+            if path == "/nodes/node-a/qemu/101/migrate?target=node-b":
+                return {
+                    "running": True,
+                    "allowed_nodes": ["node-b"],
+                    "not_allowed_nodes": {},
+                    "local_disks": [],
+                    "local_resources": [],
+                    "dependent-ha-resources": [],
+                }
+            self.fail(f"unexpected call: {method} {path}")
+
+        client = DrsProxmoxMigrationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!drs",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.collect_live_precheck(source_node="node-a", target_node="node-b", vmid=101)
+
+        self.assertEqual("pass", result["status"])
+        self.assertEqual([], result["blockers"])
+        self.assertEqual("pass", result["checks"]["proxmox_active_task"]["status"])
+        self.assertEqual("pass", result["checks"]["proxmox_cluster_quorum"]["status"])
+        self.assertEqual("pass", result["checks"]["proxmox_ha_state"]["status"])
+        self.assertEqual("pass", result["checks"]["proxmox_migration_preconditions"]["status"])
+        self.assertEqual(
+            [
+                ("GET", "/nodes/node-a/tasks?source=active&vmid=101", None, None),
+                ("GET", "/cluster/status", None, None),
+                ("GET", "/cluster/ha/resources?type=vm", None, None),
+                ("GET", "/nodes/node-a/qemu/101/migrate?target=node-b", None, None),
+            ],
+            calls,
+        )
+
+    def test_collect_live_precheck_blocks_active_task_before_migration(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient
+
+        def record_request(method, path, *, data=None, timeout=None):
+            if path == "/nodes/node-a/tasks?source=active&vmid=101":
+                return [{"upid": "UPID:node-a:busy", "type": "qmigrate", "status": "running"}]
+            if path == "/cluster/status":
+                return [{"type": "cluster", "name": "cluster-a", "quorate": 1}]
+            if path == "/cluster/ha/resources?type=vm":
+                return []
+            if path == "/nodes/node-a/qemu/101/migrate?target=node-b":
+                return {"running": True, "allowed_nodes": ["node-b"], "not_allowed_nodes": {}}
+            self.fail(f"unexpected call: {method} {path}")
+
+        client = DrsProxmoxMigrationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!drs",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.collect_live_precheck(source_node="node-a", target_node="node-b", vmid=101)
+
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("proxmox_active_task_conflict", result["blockers"])
+
+
 if __name__ == "__main__":
     unittest.main()

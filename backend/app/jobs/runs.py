@@ -31,14 +31,29 @@ VM_START_STEP_LABELS = {
     "task_poll": "Proxmox 작업 확인",
     "post_check": "시작 후 확인",
 }
-DRS_MIGRATION_STEP_ORDER = ["recommendation", "final_precheck", "approval", "job_intent"]
+DRS_MIGRATION_STEP_ORDER = [
+    "recommendation",
+    "final_precheck",
+    "approval",
+    "job_intent",
+    "operation_lock",
+    "migration",
+    "task_poll",
+    "post_check",
+    "reconciliation",
+]
 DRS_MIGRATION_STEP_LABELS = {
     "recommendation": "DRS 추천 확인",
     "final_precheck": "최종 사전 확인",
     "approval": "DRS 승인 패킷",
     "job_intent": "로컬 작업 의도",
+    "operation_lock": "DRS 작업 잠금",
+    "migration": "Proxmox 마이그레이션 요청",
+    "task_poll": "Proxmox 작업 확인",
+    "post_check": "마이그레이션 후 확인",
+    "reconciliation": "조정 필요",
 }
-TERMINAL_STATUSES = {"completed", "failed", "blocked"}
+TERMINAL_STATUSES = {"completed", "failed", "blocked", "timed_out", "ambiguous", "needs_reconciliation"}
 
 
 def _step_order(job_type: str) -> list[str]:
@@ -103,6 +118,8 @@ def _merge_steps(
         previous_status = str(step.get("status") or "pending")
         if stage_index < 0:
             next_status = previous_status
+        elif job_type == "drs_migration" and stage == "reconciliation" and step_id == "post_check":
+            next_status = previous_status if previous_status in {"completed", "blocked", "failed"} else "pending"
         elif index < stage_index:
             next_status = "completed"
         elif index == stage_index:

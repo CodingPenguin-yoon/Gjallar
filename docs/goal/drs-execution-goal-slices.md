@@ -36,23 +36,41 @@ Completed foundation:
   exist for passing final pre-checks, bound to compact recommendation and
   final-precheck checksums. These records are local evidence only:
   `runnable=false`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.
+- Goal 5 live migration execution and UPID tracking exists as a narrow backend
+  path:
+  - dedicated DRS migration client separate from Create VM mutation authority
+  - approval/final-pre-check/lock gates before mutation
+  - UPID/task metadata storage
+  - conservative `needs_reconciliation` handling for ambiguous outcomes
+- Goal 6 post-check and reconciliation exists in the current worktree:
+  - completion requires Proxmox task `OK` plus direct target-node status/config
+    post-check, matching fingerprint, expected power state, and no conflicting
+    active task
+  - operation locks release only after verified post-check
+  - ambiguous outcomes stay `needs_reconciliation` and locks become
+    `reconciliation_required`
+  - read-only Reconcile preview exists before any corrective mutation
 - DRS UI shows compact identity and policy evidence.
-- DRS execution remains closed: `executable=false`, `allowed_actions=[]`.
+- Goal 5 and Goal 6 validation used automated fake/mock tests. No live Proxmox
+  DRS migration smoke has been run yet.
 
 Known remaining gaps:
 
-- Operation lock acquisition/release is not implemented.
-- Active Proxmox task, HA, and quorum collection is not implemented beyond
-  explicit `not_collected` final pre-check evidence.
-- Approval UI is not implemented; warning acknowledgement fields exist in the
-  local packet substrate, but current checks do not emit warnings.
-- Live migration mutation, UPID tracking, post-check, and reconciliation are
-  not implemented.
+- Corrective reconciliation mutation and background reconciliation automation
+  remain deferred.
+- The read-only advisor final pre-check adapter still reports some active
+  task, HA, and quorum evidence as explicit `not_collected`; the execution path
+  collects live pre-mutation checks separately.
+- Approval UI and broad execution UI polish are not implemented.
+- A live DRS migration smoke run is still pending explicit user approval in a
+  future active session.
 
 ## Standing Non-Negotiables
 
-- Do not add live migration execution until the live execution goal explicitly
-  asks for it.
+- Do not broaden live migration execution beyond the Goal 5 narrow backend
+  path unless a later goal explicitly scopes it.
+- Do not run live Proxmox mutation or smoke without explicit user approval in
+  the active session.
 - Do not call Proxmox mutation APIs from read-only foundation goals.
 - Keep DRS execution authority separate from Create VM mutation authority.
 - Proxmox current state remains the source of truth for VM/node/task/HA/storage
@@ -71,22 +89,42 @@ Completed:
 
 - Goal 3 DRS Final Pre-Check And Operation Lock Foundation.
 - Goal 4 DRS Approval And Migration Job Substrate as local-only substrate.
+- Goal 5 DRS Live Migration Execution And UPID Tracking.
+- Goal 6 DRS Post-Check And Reconciliation.
 
 Next remaining goals:
 
-1. Goal 5: DRS Live Migration Execution And UPID Tracking.
-2. Goal 6: DRS Post-Check And Reconciliation.
-3. Goal 7: DRS UI And Operations Polish.
+1. Goal 7: DRS UI And Operations Polish.
+2. Optional approved live DRS migration smoke evidence recording.
 
-The order matters. Live migration remains closed until Goal 5 explicitly opens
-the narrow execution path with UPID tracking.
+The order matters. Goal 5 opened only the narrow execution path with UPID
+tracking, and Goal 6 made completion dependent on verified post-check evidence.
+Goal 7 should expose that lifecycle clearly without weakening backend gates.
+
+## Live Migration Smoke Target Guard
+
+The approved Create VM smoke range remains the candidate range for a future DRS
+live migration smoke:
+
+- Static network: `192.168.2.140-150/24`
+- Gateway: `192.168.2.1`
+- Bridge used in the recorded smoke: `vmbr0`
+- Evidence source:
+  `docs/operations/create-vm-live-smoke-2026-05-28.md`
+
+Use this range only to narrow test VM candidates. It is not execution
+authority. A live migration still requires high-confidence identity/fingerprint,
+current Proxmox locator, migration policy `allowed`, passing final pre-check,
+valid approval, operation lock, and explicit active-session user approval.
 
 ## Goal 3: DRS Final Pre-Check And Operation Lock Foundation
 
 Status: completed as a read-only foundation. Operation lock schema/model,
 read-only lock lookup, config-lock evidence, and explicit `not_collected`
-active task/HA/quorum evidence are implemented. Lock acquisition/release, live
-migration, UPID tracking, post-check, and reconciliation remain future goals.
+active task/HA/quorum evidence are implemented. At Goal 3 completion, lock
+acquisition/release, live migration, UPID tracking, post-check, and
+reconciliation were future goals. Goal 5 later added the narrow mutation and
+UPID path; Goal 6 later added verified post-check and reconciliation state.
 
 ### Objective
 
@@ -137,7 +175,8 @@ must not execute migration.
 - Config-lock evidence is collected and blocks when present.
 - Current Proxmox conflict evidence is represented as read-only checks.
 - Unknown/uncollected conflict evidence is explicit and not treated as healthy.
-- `executable` remains false and no Proxmox mutation path is added.
+- For this goal, `executable` remains false and no Proxmox mutation path is
+  added.
 - Focused backend tests and docs pass/update.
 
 ### Suggested Validation
@@ -150,7 +189,8 @@ git diff --check
 
 ## Goal 4: DRS Approval And Migration Job Substrate
 
-Status: completed as local-only substrate. Live migration remains closed.
+Status: completed as local-only substrate. Live migration remained closed for
+Goal 4 and was later opened only through the narrow Goal 5 backend path.
 
 ### Objective
 
@@ -180,7 +220,7 @@ can be safely started. This goal should still avoid live migration execution.
 - UPID tracking.
 - Task polling.
 - Post-check.
-- Reconcile Now.
+- Corrective reconciliation action.
 
 ### Definition Of Done
 
@@ -191,6 +231,9 @@ can be safely started. This goal should still avoid live migration execution.
 - No Proxmox mutation API is called.
 
 ## Goal 5: DRS Live Migration Execution And UPID Tracking
+
+Status: completed in the current worktree on 2026-05-30. Standalone brief:
+`docs/goal/drs-goal-5-live-migration-upid.md`.
 
 ### Objective
 
@@ -231,12 +274,15 @@ final pre-check, approval, operation locks, and job state are in place.
 
 ## Goal 6: DRS Post-Check And Reconciliation
 
+Status: completed in the current worktree on 2026-05-30. Standalone brief:
+`docs/goal/drs-goal-6-post-check-reconciliation.md`.
+
 ### Objective
 
 Make migration outcomes trustworthy after task completion, timeout, or worker
 restart.
 
-### Scope
+### Implemented Scope
 
 1. Post-check VM on target node after Proxmox task result.
 2. Verify:
@@ -252,13 +298,16 @@ restart.
    - worker restart during migration
    - Proxmox task success but post-check mismatch
    - fingerprint mismatch
-6. Add read-only Reconcile Now preview before any corrective mutation.
+6. Add read-only Reconcile preview before any corrective mutation.
+7. Keep `192.168.2.140-150/24` only as the candidate guard for a future
+   approved live smoke. No live DRS migration smoke was run for Goal 6.
 
 ### Out Of Scope
 
 - Automatic cleanup or deletion.
 - Automatic rollback.
 - Broad remediation automation.
+- Live smoke without explicit active-session approval.
 
 ### Definition Of Done
 
@@ -266,6 +315,8 @@ restart.
 - Post-check must pass before job success and lock release.
 - Ambiguous states become `needs_reconciliation`.
 - Operators can see expected vs observed state.
+- Read-only Reconcile preview exists and performs no corrective mutation.
+- No live smoke evidence was recorded because no live smoke was run.
 
 ## Goal 7: DRS UI And Operations Polish
 

@@ -17,9 +17,17 @@
 - DRS Safe Execution Readiness Foundation is implemented. DRS now has
   DB-backed VM identity observations, migration policy memory, identity/policy
   blockers, DB-backed operation lock lookup, config-lock evidence, and a
-  read-only final pre-check model. Live migration execution, operation lock
-  acquisition/release, approval/job substrate, UPID tracking, and reconciliation
-  are still deferred.
+  read-only final pre-check model.
+- DRS Goal 4 approval/job substrate is implemented.
+- DRS Goal 5 live migration execution and UPID tracking is implemented in the
+  current worktree as a narrow backend path. The validation was automated
+  fake/mock validation; no live Proxmox DRS migration smoke has been run yet.
+- DRS Goal 6 post-check and reconciliation is implemented in the current
+  worktree. Completion requires Proxmox task `OK` plus direct target-node
+  status/config post-check, expected power state, matching DRS fingerprint, and
+  no conflicting active task. Ambiguous outcomes stay `needs_reconciliation`;
+  locks release only after verified post-check. A read-only Reconcile preview
+  exists. No live Proxmox DRS migration smoke has been run yet.
 
 ## Non-Negotiables
 
@@ -27,19 +35,22 @@
 - Do not add public signup.
 - Do not add OAuth, SSO, 2FA, email reset, or API tokens unless a later goal explicitly asks for them.
 - Keep DRS execution authority separate from Create VM mutation authority.
+- Treat `192.168.2.140-150/24` only as a future DRS live-smoke candidate
+  range, not as execution authority.
+- Do not treat IP, VMID, node, name, tags, or Create VM records alone as stable
+  DRS identity.
 - Follow `AGENTS.md`: main session coordinates; for non-trivial work delegate explorer, reviewer, docs_researcher, then worker; only worker edits code.
 - Prefer small, cohesive, production-oriented changes over broad rewrites.
 
 ## Recommended Goal Order
 
-Next remaining goal:
+Next remaining DRS goal:
 
-1. DRS approval and migration job substrate. Detailed DRS slice guide:
+1. DRS UI and operations polish:
    `docs/goal/drs-execution-goal-slices.md`.
-2. DRS live migration execution and UPID tracking.
-3. DRS post-check and reconciliation.
-4. SSH/Ansible/app bootstrap readiness, if still desired after DRS safety work.
-5. Account/session operations polish.
+2. Optional approved live DRS migration smoke evidence recording.
+3. SSH/Ansible/app bootstrap readiness, if still desired after DRS safety work.
+4. Account/session operations polish.
 
 Completed:
 
@@ -48,6 +59,12 @@ Completed:
   `docs/goal/drs-safe-execution-readiness-foundation.md`.
 - DRS final pre-check and operation lock foundation:
   `docs/goal/drs-execution-goal-slices.md`.
+- DRS approval and migration job substrate:
+  `docs/goal/drs-goal-4-approval-job-substrate.md`.
+- DRS live migration execution and UPID tracking:
+  `docs/goal/drs-goal-5-live-migration-upid.md`.
+- DRS post-check and reconciliation:
+  `docs/goal/drs-goal-6-post-check-reconciliation.md`.
 
 ## Goal 1: Create VM Live Smoke Matrix
 
@@ -181,8 +198,10 @@ without enabling live migration.
 
 ## Goal 4: DRS Approval And Migration Job Substrate
 
+Status: completed.
+
 Detailed execution guide:
-`docs/goal/drs-execution-goal-slices.md`.
+`docs/goal/drs-goal-4-approval-job-substrate.md`.
 
 Primary objective: add local approval evidence, warning acknowledgement, and
 `drs_migration` job state before any live migration mutation exists.
@@ -203,8 +222,11 @@ Primary objective: add local approval evidence, warning acknowledgement, and
 
 ## Goal 5: DRS Live Migration Execution And UPID Tracking
 
+Status: completed in the current worktree on 2026-05-30. No live Proxmox DRS
+migration smoke was run as part of Goal 5.
+
 Detailed execution guide:
-`docs/goal/drs-execution-goal-slices.md`.
+`docs/goal/drs-goal-5-live-migration-upid.md`.
 
 Primary objective: add the first narrow live migration path only after identity,
 policy, final pre-check, approval, operation lock, and job gates exist.
@@ -227,28 +249,59 @@ policy, final pre-check, approval, operation lock, and job gates exist.
 
 ## Goal 6: DRS Post-Check And Reconciliation
 
+Status: completed in the current worktree on 2026-05-30. No live Proxmox DRS
+migration smoke was run as part of Goal 6.
+
 Detailed execution guide:
-`docs/goal/drs-execution-goal-slices.md`.
+`docs/goal/drs-goal-6-post-check-reconciliation.md`.
 
 Primary objective: detect and report drift between Proxmox actual state and Gjallar DB/job state.
 
-### Scope
+### Implemented Scope
 
 1. Post-check VM location, power state, and fingerprint after migration.
 2. Define reconciliation records and job/artifact behavior.
 3. Compare Proxmox actual VM/task state against DRS job and lock state.
 4. Surface `needs_reconciliation` as operator-visible jobs/risks.
-5. Add read-only Reconcile Now preview before any corrective mutation.
+5. Add read-only Reconcile preview before any corrective mutation.
 6. Add tests using fake inventory/adapters.
+7. Use `192.168.2.140-150/24` only as the candidate range for a later approved
+   live smoke; identity/fingerprint, locator, policy, pre-check, approval, and
+   lock remain required.
 
 ### Definition Of Done
 
 - Drift can be detected and displayed without mutating Proxmox.
 - Operators can see what Gjallar believes vs what Proxmox reports.
 - Proxmox task success alone does not mark Gjallar migration success.
-- Docs explain how to respond to drift manually.
+- Locks release only after verified post-check.
+- Read-only Reconcile preview reports whether current evidence is a
+  verified-completion candidate or still needs reconciliation.
 
-## Goal 7: SSH/Ansible/App Bootstrap Readiness
+## Goal 7: DRS UI And Operations Polish
+
+Detailed execution guide:
+`docs/goal/drs-execution-goal-slices.md`.
+
+Primary objective: expose the DRS execution, post-check, and reconciliation
+lifecycle clearly without weakening backend gates.
+
+### Scope
+
+1. Show final pre-check details and blockers.
+2. Show operation lock status.
+3. Show migration job progress and UPID/task evidence.
+4. Show post-check and reconciliation state.
+5. Keep action buttons disabled or absent unless backend says the action is
+   available.
+
+### Definition Of Done
+
+- UI reflects backend authority, not local inference.
+- No migration action bypasses backend gates.
+- Operators can understand why a recommendation is blocked or safe to proceed.
+
+## Goal 8: SSH/Ansible/App Bootstrap Readiness
 
 Primary objective: optionally extend post-create confidence after Create VM live smoke is stable.
 
@@ -264,7 +317,7 @@ Primary objective: optionally extend post-create confidence after Create VM live
 - Bootstrap checks are explicit, opt-in, and safe.
 - Create VM base success remains independent from app deploy success unless a later goal changes that contract.
 
-## Goal 8: Account/Session Operations Polish
+## Goal 9: Account/Session Operations Polish
 
 Primary objective: improve operational convenience without changing the auth model.
 
@@ -306,9 +359,11 @@ git diff --check
 - Create VM live smoke is complete for the approved 2026-05-28 target, but any
   future live smoke or cleanup mutation still needs explicit active-session
   approval.
-- DRS Advisor remains read-only. Identity/fingerprint policy, DB-backed
-  operation lock lookup, config-lock evidence, and read-only final pre-check
-  foundation exist, but operation lock acquisition/release, approval/job
-  substrate, UPID tracking, live migration execution, and reconciliation are not
-  implemented.
+- DRS Advisor now has the narrow Goal 5 backend execution path and Goal 6
+  post-check/reconciliation path in the current worktree. Live DRS smoke
+  evidence, broad UI polish, background reconciliation automation, and
+  corrective reconciliation mutation remain deferred.
+- The `192.168.2.140-150/24` test range is a candidate selection guard only.
+  It must not replace DRS identity/fingerprint or explicit live-mutation
+  approval.
 - SSH/Ansible/app bootstrap remains deferred.

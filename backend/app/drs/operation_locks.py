@@ -1,11 +1,13 @@
-"""Read-only DRS operation lock lookup helpers."""
+"""DRS operation lock lookup and acquisition helpers."""
 
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import OperationLockRecord
@@ -20,12 +22,22 @@ LOCK_STATUS_BLOCKERS = {
     "reconciliation_required": "operation_lock_reconciliation_required",
 }
 _COMPACT_EVIDENCE_KEYS = {
+    "approval_packet_id",
+    "job_id",
     "source",
     "reason",
     "recommendation_id",
     "operation",
     "scope",
     "owner",
+    "upid",
+    "task_result",
+    "reconciliation_reason",
+    "source_node_id",
+    "target_node_id",
+    "vmid",
+    "post_check_status",
+    "post_check_reason",
 }
 
 
@@ -49,6 +61,10 @@ def _iso(value: Any) -> str | None:
     if isinstance(value, datetime):
         return value.isoformat()
     return None
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def identity_scope_key(cluster_id: str, vm_identity_id: str | None) -> str:
@@ -116,6 +132,10 @@ def _lock_to_evidence(row: OperationLockRecord) -> dict[str, Any]:
     }
 
 
+def compact_lock_rows(rows: list[OperationLockRecord]) -> list[dict[str, Any]]:
+    return [_lock_to_evidence(row) for row in rows]
+
+
 def query_open_locks_for_scopes(
     session: Session,
     scopes: list[dict[str, str]],
@@ -148,6 +168,149 @@ def query_open_locks_for_scopes(
             )
         ).scalars()
     )
+
+
+def _blocked_acquisition_result(scopes: list[dict[str, str]], locks: list[OperationLockRecord]) -> dict[str, Any]:
+    lock_evidence = compact_lock_rows(locks)
+    return {
+        "acquired": False,
+        "checked_scopes": scopes,
+        "locks": [],
+        "lock_ids": [],
+        "matching_locks": lock_evidence,
+        "matching_statuses": sorted({lock["status"] for lock in lock_evidence}),
+        "blockers": lock_blockers({"matching_locks": lock_evidence}) or ["operation_lock_active"],
+    }
+
+
+def acquire_drs_operation_locks(
+    session: Session,
+    *,
+    cluster_id: str,
+    vm_identity_id: str | None,
+    vmid: int | str | None,
+    source_node_id: str | None,
+    target_node_id: str | None,
+    owner_id: str,
+    reason: str,
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create active VM identity, locator, and route locks if all scopes are open."""
+    normalized_cluster_id = _as_text(cluster_id, DEFAULT_CLUSTER_ID)
+    scopes = operation_lock_scopes(
+        cluster_id=normalized_cluster_id,
+        vm_identity_id=vm_identity_id,
+        vmid=vmid,
+        source_node_id=source_node_id,
+        target_node_id=target_node_id,
+    )
+    existing = query_open_locks_for_scopes(session, scopes)
+    if existing:
+        return _blocked_acquisition_result(scopes, existing)
+
+    now = _now()
+    compact_evidence = dict(evidence or {})
+    rows: list[OperationLockRecord] = []
+    for scope in scopes:
+        lock = OperationLockRecord(
+            operation_lock_id=f"drslock-{uuid.uuid4().hex}",
+            operation_type=DRS_MIGRATION_OPERATION_TYPE,
+            scope_type=scope["scope_type"],
+            scope_key=scope["scope_key"],
+            status="active",
+            cluster_id=normalized_cluster_id,
+            vm_identity_id=_as_text(vm_identity_id) or None,
+            vmid=_as_int(vmid) or None,
+            source_node_id=_as_text(source_node_id) or None,
+            target_node_id=_as_text(target_node_id) or None,
+            owner_id=_as_text(owner_id) or None,
+            reason=_as_text(reason, "drs_migration_execution"),
+            evidence=compact_evidence,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(lock)
+        rows.append(lock)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        return _blocked_acquisition_result(scopes, query_open_locks_for_scopes(session, scopes))
+    locks = compact_lock_rows(rows)
+    return {
+        "acquired": True,
+        "checked_scopes": scopes,
+        "locks": locks,
+        "lock_ids": [lock["operation_lock_id"] for lock in locks],
+        "matching_locks": [],
+        "matching_statuses": [],
+        "blockers": [],
+    }
+
+
+def mark_locks_reconciliation_required(
+    session: Session,
+    *,
+    lock_ids: list[str],
+    reason: str,
+    evidence: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Conservatively mark active DRS locks as requiring reconciliation."""
+    if not lock_ids:
+        return []
+    now = _now()
+    rows = list(
+        session.execute(
+            select(OperationLockRecord)
+            .where(
+                OperationLockRecord.operation_lock_id.in_(lock_ids),
+                OperationLockRecord.operation_type == DRS_MIGRATION_OPERATION_TYPE,
+            )
+            .order_by(OperationLockRecord.scope_type, OperationLockRecord.operation_lock_id)
+        ).scalars()
+    )
+    for row in rows:
+        if row.status == "released":
+            continue
+        row.status = "reconciliation_required"
+        row.reason = _as_text(reason, "drs_migration_reconciliation_required")
+        row.evidence = {**_compact_row_evidence(row.evidence), **_compact_row_evidence(evidence or {})}
+        row.updated_at = now
+    session.flush()
+    return compact_lock_rows(rows)
+
+
+def release_drs_operation_locks(
+    session: Session,
+    *,
+    lock_ids: list[str],
+    reason: str,
+    evidence: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Release DRS locks after verified safe completion."""
+    if not lock_ids:
+        return []
+    now = _now()
+    rows = list(
+        session.execute(
+            select(OperationLockRecord)
+            .where(
+                OperationLockRecord.operation_lock_id.in_(lock_ids),
+                OperationLockRecord.operation_type == DRS_MIGRATION_OPERATION_TYPE,
+            )
+            .order_by(OperationLockRecord.scope_type, OperationLockRecord.operation_lock_id)
+        ).scalars()
+    )
+    for row in rows:
+        if row.status == "released":
+            continue
+        row.status = "released"
+        row.reason = _as_text(reason, "drs_migration_completed")
+        row.evidence = {**_compact_row_evidence(row.evidence), **_compact_row_evidence(evidence or {})}
+        row.released_at = now
+        row.updated_at = now
+    session.flush()
+    return compact_lock_rows(rows)
 
 
 def lock_blockers(lock_evidence: dict[str, Any]) -> list[str]:

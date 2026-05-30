@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -299,6 +299,15 @@ class OperationLockRecord(Base):
         Index("ix_operation_locks_locator_status", "cluster_id", "source_node_id", "vmid", "status"),
         Index("ix_operation_locks_route_status", "cluster_id", "source_node_id", "target_node_id", "status"),
         Index("ix_operation_locks_expires_at", "expires_at"),
+        Index(
+            "uq_operation_locks_open_scope",
+            "operation_type",
+            "scope_type",
+            "scope_key",
+            unique=True,
+            sqlite_where=text("status in ('active', 'stale', 'reconciliation_required')"),
+            postgresql_where=text("status in ('active', 'stale', 'reconciliation_required')"),
+        ),
     )
 
     operation_lock_id: Mapped[str] = mapped_column(String(100), primary_key=True)
@@ -374,13 +383,13 @@ class DrsApprovalPacketRecord(Base):
 
 
 class DrsMigrationJobRecord(Base):
-    """Local non-runnable DRS migration job intent substrate."""
+    """Local DRS migration job intent and compact execution state."""
 
     __tablename__ = "drs_migration_jobs"
     __table_args__ = (
         UniqueConstraint("approval_packet_id", name="uq_drs_migration_jobs_approval_packet_id"),
         CheckConstraint(
-            "status in ('pending', 'blocked', 'cancelled')",
+            "status in ('pending', 'blocked', 'cancelled', 'accepted', 'running', 'completed', 'failed', 'timed_out', 'ambiguous', 'needs_reconciliation')",
             name="ck_drs_migration_jobs_status",
         ),
         Index("ix_drs_migration_jobs_recommendation", "recommendation_id", "created_at"),
@@ -409,6 +418,45 @@ class DrsMigrationJobRecord(Base):
     lock_evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     approved_actor: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     job_intent_artifact_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    proxmox_upid: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    proxmox_task_node: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    migration_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    migration_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    task_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    task_exitstatus: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    task_result: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    task_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    task_log_excerpt: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    post_check_status: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    post_check_evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    post_check_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    operation_lock_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    reconciliation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class DrsReconciliationEventRecord(Base):
+    """Compact DRS reconciliation event for ambiguous or drift evidence."""
+
+    __tablename__ = "drs_reconciliation_events"
+    __table_args__ = (
+        Index("ix_drs_reconciliation_events_job_created", "job_id", "created_at"),
+        Index("ix_drs_reconciliation_events_status", "status", "created_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("drs_migration_jobs.job_id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

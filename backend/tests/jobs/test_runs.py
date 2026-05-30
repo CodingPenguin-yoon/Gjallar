@@ -52,7 +52,7 @@ class JobRunsTests(unittest.TestCase):
         self.assertEqual(["시작 사전 확인", "VM 시작 요청", "Proxmox 작업 확인", "시작 후 확인"], [step["label"] for step in run["steps"]])
         self.assertEqual(["completed", "completed", "running", "pending"], [step["status"] for step in run["steps"]])
 
-    def test_drs_migration_steps_are_non_mutating_and_not_vm_create_labels(self):
+    def test_drs_migration_steps_are_execution_specific_and_not_vm_create_labels(self):
         from app.jobs import runs as runs_module
 
         run = runs_module.record_job_run(
@@ -67,18 +67,36 @@ class JobRunsTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            ["recommendation", "final_precheck", "approval", "job_intent"],
+            [
+                "recommendation",
+                "final_precheck",
+                "approval",
+                "job_intent",
+                "operation_lock",
+                "migration",
+                "task_poll",
+                "post_check",
+                "reconciliation",
+            ],
             [step["id"] for step in run["steps"]],
         )
         self.assertEqual(
-            ["DRS 추천 확인", "최종 사전 확인", "DRS 승인 패킷", "로컬 작업 의도"],
+            [
+                "DRS 추천 확인",
+                "최종 사전 확인",
+                "DRS 승인 패킷",
+                "로컬 작업 의도",
+                "DRS 작업 잠금",
+                "Proxmox 마이그레이션 요청",
+                "Proxmox 작업 확인",
+                "마이그레이션 후 확인",
+                "조정 필요",
+            ],
             [step["label"] for step in run["steps"]],
         )
         self.assertNotIn("draft", [step["id"] for step in run["steps"]])
         self.assertNotIn("create", [step["id"] for step in run["steps"]])
-        self.assertNotIn("task_poll", [step["id"] for step in run["steps"]])
-        self.assertNotIn("post_check", [step["id"] for step in run["steps"]])
-        self.assertNotIn("reconciliation", [step["id"] for step in run["steps"]])
+        self.assertIn("post_check", [step["id"] for step in run["steps"]])
 
 
 if __name__ == "__main__":

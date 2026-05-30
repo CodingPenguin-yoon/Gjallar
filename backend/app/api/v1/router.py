@@ -14,9 +14,11 @@ from app.core.redaction import redact_secrets
 from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_create
 from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, find_drs_recommendation
 from app.drs.approval import DrsApprovalBlockedError, create_approval_packet_and_job_intent
+from app.drs.execution import DrsMigrationExecutionError, build_drs_migration_reconciliation_preview, execute_drs_migration_job
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
+from app.proxmox.drs_migration import get_default_drs_proxmox_migration_client
 from app.proxmox.inventory import get_default_inventory_adapter
 from app.vm_create.drafts import build_default_vm_draft, list_create_profile_options
 from app.vm_create.iac_readiness import run_iac_readiness
@@ -464,6 +466,64 @@ def create_drs_approval_packet(
         packet,
         meta={"source": adapter.source, "mode": "drs_local_approval_packet_no_mutation"},
     )
+
+
+async def execute_drs_migration_job_action(
+    job_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
+    """Execute one approved DRS migration job through the narrow operator-only path."""
+    _ = payload
+    try:
+        result = await run_in_threadpool(
+            execute_drs_migration_job,
+            job_id,
+            actor=actor_evidence(actor) if actor is not None else None,
+            inventory_adapter=_inventory_adapter(),
+            risks=_drs_risks(),
+            client_factory=get_default_drs_proxmox_migration_client,
+        )
+    except DrsMigrationExecutionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_detail()) from exc
+    return success_response(result, meta={"mode": "drs_live_migration_execution"})
+
+
+@router.post("/drs/migration-jobs/{job_id}/execute")
+async def execute_drs_migration_job_route(
+    job_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await execute_drs_migration_job_action(job_id, payload, actor=actor)
+
+
+async def preview_drs_migration_reconciliation_action(
+    job_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
+    """Preview DRS reconciliation evidence without corrective mutation."""
+    _ = payload
+    try:
+        result = await run_in_threadpool(
+            build_drs_migration_reconciliation_preview,
+            job_id,
+            actor=actor_evidence(actor) if actor is not None else None,
+            client_factory=get_default_drs_proxmox_migration_client,
+        )
+    except DrsMigrationExecutionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_detail()) from exc
+    return success_response(result, meta={"mode": "drs_reconciliation_preview_read_only"})
+
+
+@router.post("/drs/migration-jobs/{job_id}/reconcile-preview")
+async def preview_drs_migration_reconciliation_route(
+    job_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await preview_drs_migration_reconciliation_action(job_id, payload, actor=actor)
 
 
 async def start_vm_action(

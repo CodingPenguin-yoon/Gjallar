@@ -17,7 +17,6 @@ from app.jobs.artifacts import write_json_artifact
 from app.jobs.runs import record_job_run, run_dir
 
 DRS_MIGRATION_JOB_TYPE = "drs_migration"
-LIVE_EXECUTION_BLOCKER = "live_migration_execution_not_implemented"
 PROXMOX_NOT_COLLECTED_CHECKS = (
     "proxmox_active_task",
     "proxmox_ha_state",
@@ -332,13 +331,11 @@ def _warnings_from_check(check_result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _runnable_blockers(check_result: dict[str, Any]) -> list[str]:
     statuses = _check_statuses(check_result)
-    blockers = [
+    return [
         f"{name}_not_collected"
         for name in PROXMOX_NOT_COLLECTED_CHECKS
         if statuses.get(name, {}).get("status") in {"not_collected", "not_implemented"}
     ]
-    blockers.append(LIVE_EXECUTION_BLOCKER)
-    return blockers
 
 
 def _approval_blockers(check_result: dict[str, Any], warnings: list[dict[str, Any]], warning_acknowledged: bool) -> list[str]:
@@ -373,6 +370,16 @@ def build_approval_readiness(
     creatable = final_passed and warnings_satisfied
     recommendation_binding = compact_recommendation_binding(check_result)
     precheck_binding = compact_final_precheck_binding(check_result)
+    matching_locks = [
+        lock
+        for lock in precheck_binding["operation_lock"].get("matching_locks", [])
+        if isinstance(lock, dict)
+    ]
+    reconciliation_locks = [
+        lock
+        for lock in matching_locks
+        if _as_text(lock.get("status")) == "reconciliation_required"
+    ]
     source_node_id = _as_text(recommendation.get("source_node_id") or recommendation_binding.get("source_node_id"))
     target_node_id = _as_text(recommendation.get("target_node_id") or recommendation_binding.get("target_node_id"))
     vm_identity_id = identity.get("vm_identity_id")
@@ -385,6 +392,18 @@ def build_approval_readiness(
         "final_precheck_passed": final_passed,
         "final_precheck_summary": final_precheck_summary(check_result),
         "lock_evidence": precheck_binding["operation_lock"],
+        "reconciliation": {
+            "required": bool(reconciliation_locks),
+            "matching_lock_ids": [
+                lock["operation_lock_id"]
+                for lock in reconciliation_locks
+                if lock.get("operation_lock_id")
+            ],
+            "reasons": [
+                _as_text(lock.get("reason"), "operation_lock_reconciliation_required")
+                for lock in reconciliation_locks
+            ],
+        },
         "approval_packet_creatable": creatable,
         "job_intent_creatable": creatable,
         "runnable": False,

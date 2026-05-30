@@ -970,7 +970,7 @@ def build_drs_check_result(
     blockers = []
     for item in checks.values():
         blocker = item.get("blocker")
-        if blocker:
+        if blocker and item.get("status") != "pass":
             blockers.append(blocker)
     blockers.extend(current_rule_blockers)
     blockers.extend(operation_lock_blockers)
