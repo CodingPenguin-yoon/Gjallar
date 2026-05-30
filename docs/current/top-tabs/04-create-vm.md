@@ -50,13 +50,6 @@ Removed Terraform plan/apply URLs are absent from the route table and return Fas
 
 현재 생성 정책은 요청별로 명시된다. 기본값은 `stopped`이며 plan/review는 `first_power_on_included=false`, VMInstance manifest는 `desired_power_state: stopped`를 기록한다. 선택값 `boot_and_verify`는 `first_power_on_included=true`, `desired_power_state: running`을 기록하고 native create가 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. SSH login, Ansible, app deploy, DRS identity registration은 아직 deferred다.
 
-Post-create bootstrap readiness intent is separate from Create VM. The backend
-route `POST /api/v1/nodes/{node_id}/vms/{vmid}/bootstrap-readiness-intents`
-records sanitized read-only inventory evidence and `bootstrap_readiness`
-Jobs/Runs artifacts only; it does not change `proxmox-create` semantics,
-`VmCreateRequestRecord`, `VmInstanceRecord`, or Create VM success criteria.
-Live SSH login, Ansible, and app bootstrap execution remain deferred.
-
 2026-05-28 live smoke에서 `stopped`, `boot_and_verify`, explicit static IP
 stopped 생성이 승인된 Proxmox target에서 통과했다. `boot_and_verify`는 생성
 성공 시점의 request/VM evidence가 `running`을 기록하고, 승인된 cleanup 후
@@ -134,5 +127,4 @@ Legacy `execute/archive` manifest commit APIs are removed from the active route 
 
 Create VM live smoke, Goal 2-6 DRS backend slices, Goal Check 01-06, Goal 7
 DRS UI/operations polish, and Goal 7.5 DRS VM Policy Configuration이 완료됐다.
-Goal 8의 safe no-live bootstrap readiness intent slice도 구현됐다. 현재
-순서는 [`docs/goal/README.md`](../../goal/README.md)를 기준으로 본다.
+현재 순서는 [`docs/goal/README.md`](../../goal/README.md)를 기준으로 본다.

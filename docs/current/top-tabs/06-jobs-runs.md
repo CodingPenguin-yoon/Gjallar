@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Jobs/Runs는 read-only DB-backed job/artifact inspection 화면이다. Create VM progress/artifacts, Infra Explorer `vm_start` job evidence, DRS `drs_migration` job evidence, and backend-only `bootstrap_readiness` intent evidence가 구현되어 있다.
+현재 Jobs/Runs는 read-only DB-backed job/artifact inspection 화면이다. Create VM progress/artifacts, Infra Explorer `vm_start` job evidence, and DRS `drs_migration` job evidence가 구현되어 있다.
 
 ## 구현 API/endpoints
 
@@ -22,17 +22,9 @@
 
 ## 현재 구현
 
-backend는 `job_runs`와 `job_artifacts` 테이블에 job status와 artifacts를 저장하고, summary와 artifact metadata를 read-only로 반환한다. Artifact reference는 `db://job-artifacts/<artifact_id>` 형태이며 UI는 로컬 파일 경로를 노출하지 않는다. Create VM draft/preflight/plan/approval/create 단계, Infra Explorer VM start `precheck/start/task_poll/post_check` 단계, bootstrap readiness `target_precheck/inventory_evidence/intent_recorded` 단계, and DRS migration `recommendation/final_precheck/approval/job_intent/operation_lock/migration/task_poll/post_check/reconciliation` 단계가 job progress로 기록된다.
+backend는 `job_runs`와 `job_artifacts` 테이블에 job status와 artifacts를 저장하고, summary와 artifact metadata를 read-only로 반환한다. Artifact reference는 `db://job-artifacts/<artifact_id>` 형태이며 UI는 로컬 파일 경로를 노출하지 않는다. Create VM draft/preflight/plan/approval/create 단계, Infra Explorer VM start `precheck/start/task_poll/post_check` 단계, and DRS migration `recommendation/final_precheck/approval/job_intent/operation_lock/migration/task_poll/post_check/reconciliation` 단계가 job progress로 기록된다.
 
 `vm_start` jobs는 `vm_start_observed_after.json` artifact를 남긴다. Artifact에는 observed-before inventory, target node/VMID/name, idempotency key, Proxmox start UPID/task poll result, observed-after status, redacted connection context가 포함된다.
-
-`bootstrap_readiness` jobs는 `bootstrap_readiness_intent.json` artifact를
-남긴다. Artifact에는 target node/VMID/name, idempotency key, expected
-name/status/IP context, sanitized observed inventory, guest-agent IP evidence,
-trusted actor fields, and `proxmox_mutation_enabled=false`,
-`ssh_login_ran=false`, `ansible_ran=false`, `app_bootstrap_ran=false`,
-`side_effects=[]`가 포함된다. SSH login, Ansible, guest exec, VM start, app
-bootstrap은 실행하지 않는다.
 
 frontend는 job list, selected job detail, progress steps, artifact metadata를 보여준다. retry, cancel, live-run, VM mutation control은 없다.
 

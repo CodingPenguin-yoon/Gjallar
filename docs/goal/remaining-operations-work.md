@@ -29,10 +29,6 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
 - Goal 7 DRS UI/operations polish completed the minimal safe UI slice.
 - Goal 7.5 DRS VM policy configuration completed the manual policy UI/API and
   local audit evidence slice.
-- Goal 8 safe no-live bootstrap readiness intent slice is implemented as an
-  operator-only backend/API route that records sanitized read-only
-  `bootstrap_readiness` job/artifact evidence. Live SSH login, Ansible, and
-  app bootstrap execution remain deferred.
 - Goal 5 and Goal 6 validation used automated fake/mock validation. No live
   Proxmox DRS migration smoke has been run.
 
@@ -54,8 +50,8 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
 
 1. Optional approved live DRS migration smoke evidence recording after policy
    management exists and at least one VM is deliberately classified.
-2. Further Goal 8 live SSH/Ansible/app bootstrap execution work, if explicitly
-   desired after the safe no-live readiness intent slice.
+2. Goal 8 SSH/Ansible/app bootstrap readiness, if still desired after DRS
+   safety work.
 3. Goal 9 account/session operations polish.
 
 ## Completed Non-Goal Gate
@@ -77,7 +73,7 @@ UI/operations polish started. Goal 7 is now complete as a minimal safe UI slice.
 | Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Completed | `docs/goal/goal-check-01-06-implementation-quality.md` |
 | Goal 7: DRS UI And Operations Polish | Completed | `docs/goal/goal-07-drs-ui-operations-polish.md` |
 | Goal 7.5: DRS VM Policy Configuration | Completed | `docs/goal/goal-07-5-drs-vm-policy-management.md` |
-| Goal 8: SSH/Ansible/App Bootstrap Readiness | Safe no-live slice implemented; live execution deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` |
+| Goal 8: SSH/Ansible/App Bootstrap Readiness | Deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` |
 | Goal 9: Account/Session Operations Polish | Deferred | `docs/goal/goal-09-account-session-operations-polish.md` |
 
 ## Standard Validation
@@ -110,5 +106,4 @@ For docs-only restructuring, run the requested document checks and
 - The DRS advisor read-only final pre-check adapter still reports some active
   task, HA, and quorum evidence as explicit `not_collected`; execution collects
   live pre-mutation checks separately.
-- Live SSH/Ansible/app bootstrap execution remains deferred; only the safe
-  no-live bootstrap readiness intent route/job/artifact slice is implemented.
+- SSH/Ansible/app bootstrap remains deferred.

@@ -45,7 +45,7 @@ Important boundaries:
 - Legacy `POST /api/v1/vm-create/{draft_id}/execute` has been removed; current live VM creation is `proxmox-create`.
 - Current Create VM networking uses selected target-node active live bridge plus explicit `bridge_id`, `static_ip`, `prefix`, and `gateway`.
 - Terraform plan/apply endpoints are removed; the active frontend uses native Proxmox preview/create.
-- Jobs/Runs and Risks/Alerts are read-only UI surfaces. Jobs are DB-backed through `job_runs`/`job_artifacts`; risks are derived from recorded job risks. Current job producers include Create VM, Infra Explorer VM start, DRS migration, and the backend-only bootstrap readiness intent route.
+- Jobs/Runs and Risks/Alerts are read-only UI surfaces. Jobs are DB-backed through `job_runs`/`job_artifacts`; risks are derived from recorded job risks. Current job producers include Create VM and the Infra Explorer VM start action.
 
 ## Domain Index
 
