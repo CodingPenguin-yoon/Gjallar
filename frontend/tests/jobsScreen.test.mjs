@@ -151,14 +151,72 @@ assert.equal(model.artifacts[0].readOnly, true)
 assert.equal(model.artifacts[0].storageBackend, 'db')
 assert.deepEqual(model.artifacts[0].allowedActions, [])
 
+const drsModel = await loadJobsScreenModel({
+  async listJobs() {
+    return [
+      {
+        job_id: 'drs-mig-1',
+        job_type: 'drs_migration',
+        status: 'pending',
+        target_id: 'node-a->node-b:101',
+        risk_level: 'yellow',
+        artifact_count: 4,
+      },
+    ]
+  },
+  async getJob() {
+    return {
+      job_id: 'drs-mig-1',
+      job_type: 'drs_migration',
+      status: 'pending',
+      target_id: 'node-a->node-b:101',
+      risk_level: 'yellow',
+      details: {
+        approval_packet_id: 'drsap-1',
+        recommendation_id: 'drs-rec-1',
+        vm_identity_id: 'vmid-1',
+        source_node_id: 'node-a',
+        target_node_id: 'node-b',
+        proxmox_upid: '',
+        task_result: 'not_started',
+        task_status: { status: 'pending' },
+        task_exitstatus: '',
+        post_check_status: 'not_started',
+        reconciliation_reason: '',
+        operation_lock_ids: ['lock-a', 'lock-b'],
+        runnable: false,
+        proxmox_mutation_enabled: false,
+        side_effects: [],
+      },
+    }
+  },
+  async listJobArtifacts() {
+    return []
+  },
+}, { selectedJobId: 'drs-mig-1' })
+
+assert.equal(drsModel.selectedJob.type, 'drs_migration')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.title, 'DRS migration summary')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[0].items.find((item) => item.label === 'Approval packet').value, 'drsap-1')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[0].items.find((item) => item.label === 'Recommendation').value, 'drs-rec-1')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[0].items.find((item) => item.label === 'VM identity').value, 'vmid-1')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Runnable').value, '아니오')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Proxmox mutation enabled').value, '아니오')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Side effects').value, '-')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Task status').value, 'pending')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[2].items.find((item) => item.label === 'Post-check status').value, 'not_started')
+assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[2].items.find((item) => item.label === 'Operation locks').value, 'lock-a, lock-b')
+
 const source = readFileSync(new URL('../src/components/TaskBoard.jsx', import.meta.url), 'utf8')
 assert.match(source, /apiV1Client/)
 assert.match(source, /loadJobsScreenModel/)
 assert.match(source, /진행 상황/)
 assert.match(source, /생성 VM 요약/)
+assert.match(source, /DRS migration summary/)
 assert.match(source, /useSearchParams/)
 assert.doesNotMatch(source, /artifact\.path/, 'Jobs screen must not render internal artifact storage paths')
 assert.doesNotMatch(source, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'TaskBoard must not import the legacy /api client')
+assert.doesNotMatch(source, /executeDrsMigrationJob|reconcilePreviewDrsMigrationJob|createDrsApprovalPacket/, 'Jobs screen must not expose DRS mutation controls')
 
 const forbidden = (...parts) => parts.join('')
 for (const blocked of [

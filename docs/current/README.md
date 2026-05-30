@@ -145,7 +145,8 @@ Development smoke and test results recorded for this refresh:
 ## Practical reading
 
 - Use [`../goal/README.md`](../goal/README.md) for the current implementation
-  order. It places a non-numbered Goal Check gate before Goal 7.
+  order. Goal Check 01-06, Goal 7, and Goal 7.5 are complete; no live DRS
+  smoke was run.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

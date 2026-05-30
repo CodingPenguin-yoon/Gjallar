@@ -1,13 +1,13 @@
 # Next Session Handoff
 
-Last updated: 2026-05-28
+Last updated: 2026-05-31
 
 > Historical/stale handoff note: this file preserves the 2026-05-28 Create VM
 > smoke and session context, but it is no longer the source of current goal
 > sequencing. Use [`docs/goal/README.md`](../goal/README.md) for the active
-> sequence; the next active gate is
-> [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
-> Goal 7 remains DRS UI And Operations Polish and is pending after that check.
+> sequence. Goal Check 01-06, Goal 7, and Goal 7.5 are complete. No live DRS
+> smoke was run; future live smoke still requires explicit active-session
+> approval.
 
 ## Current State
 
@@ -42,10 +42,8 @@ Last updated: 2026-05-28
   Future live smoke or cleanup mutations still require explicit active-session
   approval.
 - Current goal sequencing has moved to
-  [`docs/goal/README.md`](../goal/README.md). The next active gate is the
-  non-numbered Goal Check:
-  [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
-  Goal 7 remains DRS UI And Operations Polish and is pending after that check.
+  [`docs/goal/README.md`](../goal/README.md). Goal 7.5 is complete; do not
+  restart it as next work.
 
 ## Validation Baseline
 
@@ -95,17 +93,16 @@ Keep out of scope for this smoke:
 ## Current Goal Pointer
 
 The "next work" sections previously in this handoff are historical and stale.
-Use [`docs/goal/README.md`](../goal/README.md) for current sequencing. The next
-active gate is the non-numbered Goal Check:
-[`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
-Goal 7 remains DRS UI And Operations Polish and is pending after that check:
-[`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
+Use [`docs/goal/README.md`](../goal/README.md) for current sequencing. Goal 7.5
+DRS VM Policy Configuration is complete; no live DRS smoke was run.
 
 ## First Commands In A New Session
 
 ```bash
 git status --short --branch
 git pull --ff-only
+nl -ba docs/goal/README.md | sed -n '1,120p'
+nl -ba docs/goal/goal-07-5-drs-vm-policy-management.md | sed -n '1,260p'
 nl -ba docs/engineering/GJALLAR_CURRENT_WORK_PLAN.md | sed -n '1,270p'
 nl -ba docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md | sed -n '1,260p'
 nl -ba docs/engineering/CREATE_VM_STABILIZATION_PLAN.md | sed -n '1,260p'

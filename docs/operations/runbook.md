@@ -168,6 +168,8 @@ node --test frontend/tests/authFlow.test.mjs frontend/tests/apiV1Client.test.mjs
 - Create VM workflow writes and live actions require login with `operator` or
   `admin`, exact approval metadata, fresh red-risk checks, and explicit native
   Proxmox create acknowledgement.
+- DRS VM policy updates write only Gjallar-local policy/audit rows. They do not
+  start migration, approve migration, reconcile state, or write Proxmox tags.
 - Create VM default `stopped` success remains powered-off after post-check and
   does not auto-start. The optional `boot_and_verify` request explicitly starts
   the new VM and verifies guest-agent IP plus cloud-init completion.
@@ -176,6 +178,57 @@ node --test frontend/tests/authFlow.test.mjs frontend/tests/apiV1Client.test.mjs
 - Live Proxmox Create VM smoke completed on 2026-05-28 and is recorded in
   [`create-vm-live-smoke-2026-05-28.md`](create-vm-live-smoke-2026-05-28.md).
   Future live smoke runs still require explicit approval in the active session.
+
+## DRS VM Policy Classification
+
+Use the `/drs` UI policy configuration panel, or the API below, to classify one
+current high-confidence Gjallar VM identity. The policy key is
+`vm_identity_id`; do not classify by raw VMID, IP, name, node, tag, or a
+recommendation id alone.
+
+1. Log in as `operator` or `admin`.
+2. Read current policy coverage:
+
+```http
+GET /api/v1/drs/policies
+```
+
+3. Select a row with `policy_write_allowed=true` and copy its
+   `vm_identity_id` plus `expected_observation`.
+4. Set a policy with the copied observation guard:
+
+```http
+PUT /api/v1/drs/policies/{vm_identity_id}
+{
+  "policy": "allowed",
+  "reason": "operator-reviewed workload classification",
+  "policy_change_acknowledged": true,
+  "expected_observation": {
+    "cluster_id": "cluster-a",
+    "node_id": "node-a",
+    "vmid": 101,
+    "fingerprint_hash": "sha256:...",
+    "observed_at": "2026-05-31T00:00:00+00:00"
+  }
+}
+```
+
+Use `restricted` or `blocked` with a non-empty reason to keep the VM blocked.
+Reset to default blocking behavior with `"policy": "unknown"`; the reason may
+be blank. The backend ignores any client-provided actor, operator, `source`, or
+`updated_by` fields and records the authenticated session user.
+
+Verification:
+
+- `GET /api/v1/drs/policies/{vm_identity_id}` shows the new policy and latest
+  audit-bound observation guard.
+- `GET /api/v1/drs/recommendations` reflects `allowed`, `restricted`,
+  `blocked`, or default `unknown` in `policy_evidence`.
+- `POST /api/v1/drs/recommendations/{recommendation_id}/check` may report
+  `would_be_executable=true` when all gates including `allowed` pass, but the
+  response remains `executable=false` and `allowed_actions=[]`.
+- Stale, mismatched, retired, low-confidence, or conflict observations return
+  `409` and must not change policy or audit rows.
 
 ## Live Create VM Smoke Checklist
 

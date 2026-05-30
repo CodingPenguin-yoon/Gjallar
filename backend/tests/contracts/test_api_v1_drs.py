@@ -24,6 +24,8 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "/api/v1/drs/recommendations",
             "/api/v1/drs/recommendations/{recommendation_id}",
             "/api/v1/drs/recommendations/{recommendation_id}/check",
+            "/api/v1/drs/policies",
+            "/api/v1/drs/policies/{vm_identity_id}",
             "/api/v1/drs/recommendations/{recommendation_id}/approval-packets",
             "/api/v1/drs/migration-jobs/{job_id}/execute",
             "/api/v1/drs/migration-jobs/{job_id}/reconcile-preview",
@@ -34,6 +36,44 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/migrate", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/migration", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/live-migrate", self.paths)
+
+    def test_policy_routes_read_and_update_by_vm_identity_id_with_session_actor(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        adapter = _adapter()
+        with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
+            v1_router,
+            "_drs_risks",
+            return_value=[],
+        ):
+            policies = v1_router.list_drs_policies()
+            item = policies["data"]["items"][0]
+            response = v1_router.put_drs_policy(
+                item["vm_identity_id"],
+                {
+                    "policy": "allowed",
+                    "reason": "classified in API contract",
+                    "policy_change_acknowledged": True,
+                    "expected_observation": item["expected_observation"],
+                    "actor": {"user_id": "payload-user", "username": "payload", "role": "admin"},
+                    "updated_by": "payload",
+                    "source": "tag",
+                },
+                actor=actor,
+            )
+            updated = v1_router.get_drs_policy(item["vm_identity_id"])
+
+        self.assertTrue(policies["ok"])
+        self.assertEqual("drs_policy_management_read_only", policies["meta"]["mode"])
+        self.assertEqual("drs_policy_manual_update", response["meta"]["mode"])
+        self.assertEqual("allowed", response["data"]["new_policy"]["policy"])
+        self.assertEqual("operator", response["data"]["actor"]["username"])
+        self.assertEqual("operator", response["data"]["policy_item"]["policy"]["updated_by"])
+        self.assertEqual("manual", response["data"]["policy_item"]["policy"]["source"])
+        self.assertEqual("allowed", updated["data"]["policy"]["value"])
+        self.assertEqual(item["vm_identity_id"], updated["data"]["vm_identity_id"])
 
     def test_recommendations_are_read_only_and_filter_candidates(self):
         from app.api.v1 import router as v1_router

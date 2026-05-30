@@ -1,12 +1,12 @@
 # Placement / DRS Advisor
 
-평가일: 2026-05-30
+평가일: 2026-05-31
 
-검증 기준: 2026-05-30에 backend focused DRS validation `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/drs backend/tests/contracts backend/tests/db backend/tests/jobs backend/tests/proxmox` -> 166 passed, 34 warnings, 18 subtests passed를 기록했다. Frontend focused validation `node --test frontend/tests/drsAdvisor.test.mjs` passed, `git diff --check` passed.
+검증 기준: 2026-05-31에 backend focused DRS/API/DB validation `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/drs backend/tests/contracts backend/tests/db` and frontend focused validation `node --test frontend/tests/drsAdvisor.test.mjs frontend/tests/apiV1Client.test.mjs frontend/tests/authFlow.test.mjs`를 통과했다.
 
 ## 구현 수준
 
-현재 `/drs`는 read-only DRS Advisor recommendation seed, safe execution readiness foundation, first narrow approval-gated live migration execution slice, and backend post-check/reconciliation slice다. Backend DRS read model, DB-backed VM identity/fingerprint observation, migration policy memory, operation lock lookup/acquisition/release, read-only final pre-check contract, local approval packet/job intent substrate, dedicated DRS Proxmox migration client, UPID/task metadata persistence, verified post-check completion, reconciliation events, and read-only Reconcile preview가 구현되어 있다. Automatic DRS, bulk migration, corrective reconciliation mutation, background reconciliation automation, live DRS smoke evidence, and broad UI는 구현하지 않았다.
+현재 `/drs`는 read-only DRS Advisor recommendation seed, manual VM policy configuration, safe execution readiness foundation, first narrow approval-gated live migration execution slice, and backend post-check/reconciliation slice다. Backend DRS read model, DB-backed VM identity/fingerprint observation, manual migration policy memory/audit events, operation lock lookup/acquisition/release, read-only final pre-check contract, local approval packet/job intent substrate, dedicated DRS Proxmox migration client, UPID/task metadata persistence, verified post-check completion, reconciliation events, and read-only Reconcile preview가 구현되어 있다. Automatic DRS, bulk migration, corrective reconciliation mutation, background reconciliation automation, live DRS smoke evidence, and broad execution UI는 구현하지 않았다.
 
 ## 구현 API/endpoints
 
@@ -16,11 +16,16 @@ DRS Advisor backend endpoint는 다음 `/api/v1` 조회, local evidence, and nar
 - `GET /api/v1/drs/recommendations`
 - `GET /api/v1/drs/recommendations/{recommendation_id}`
 - `POST /api/v1/drs/recommendations/{recommendation_id}/check`
+- `GET /api/v1/drs/policies`
+- `GET /api/v1/drs/policies/{vm_identity_id}`
+- `PUT /api/v1/drs/policies/{vm_identity_id}`
 - `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets`
 - `POST /api/v1/drs/migration-jobs/{job_id}/execute`
 - `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`
 
 모든 recommendation과 final pre-check result는 `read_only=true`, `executable=false`, `allowed_actions=[]`다. `/check`는 current inventory를 다시 읽고 `would_be_executable`을 계산하지만 mutation authority는 제공하지 않는다.
+
+`/drs/policies`는 current non-template VM의 policy coverage를 `vm_identity_id` 기준으로 표시한다. `PUT /drs/policies/{vm_identity_id}`는 operator-only Gjallar-local manual update이며 `expected_observation` guard, `policy_change_acknowledged=true`, trusted session actor, and audit event row를 요구한다. `allowed`는 DRS prerequisite only이고 migration approval이 아니다. `unknown`, `restricted`, `blocked`는 계속 DRS-blocking이다.
 
 `/approval-packets`는 operator-only local evidence endpoint다. Passing final pre-check, high-confidence identity, allowed migration policy, no open operation lock, and warning acknowledgement gates are required before it writes a compact approval packet and pending `drs_migration` job intent. It does not call Proxmox mutation APIs; the job intent remains `runnable=false`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.
 
@@ -29,8 +34,8 @@ DRS Advisor backend endpoint는 다음 `/api/v1` 조회, local evidence, and nar
 ## 관련 파일
 
 - Frontend: [frontend/src/components/DrsAdvisorScreen.jsx](../../../frontend/src/components/DrsAdvisorScreen.jsx), [frontend/src/utils/drsAdvisor.js](../../../frontend/src/utils/drsAdvisor.js), [frontend/src/services/apiV1.js](../../../frontend/src/services/apiV1.js), [frontend/src/App.jsx](../../../frontend/src/App.jsx)
-- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/drs/advisor.py](../../../backend/app/drs/advisor.py), [backend/app/drs/approval.py](../../../backend/app/drs/approval.py), [backend/app/drs/execution.py](../../../backend/app/drs/execution.py), [backend/app/drs/identity.py](../../../backend/app/drs/identity.py), [backend/app/drs/operation_locks.py](../../../backend/app/drs/operation_locks.py), [backend/app/proxmox/drs_migration.py](../../../backend/app/proxmox/drs_migration.py), [backend/app/proxmox/inventory.py](../../../backend/app/proxmox/inventory.py), [backend/app/proxmox/models.py](../../../backend/app/proxmox/models.py), [backend/app/db/models.py](../../../backend/app/db/models.py)
-- Tests: [frontend/tests/drsAdvisor.test.mjs](../../../frontend/tests/drsAdvisor.test.mjs), [frontend/tests/appNavigation.test.mjs](../../../frontend/tests/appNavigation.test.mjs), [backend/tests/contracts/test_api_v1_drs.py](../../../backend/tests/contracts/test_api_v1_drs.py), [backend/tests/drs/test_identity_resolution.py](../../../backend/tests/drs/test_identity_resolution.py), [backend/tests/drs/test_advisor_readiness.py](../../../backend/tests/drs/test_advisor_readiness.py), [backend/tests/drs/test_execution.py](../../../backend/tests/drs/test_execution.py), [backend/tests/db/test_drs_identity_schema.py](../../../backend/tests/db/test_drs_identity_schema.py), [backend/tests/proxmox/test_inventory_adapter.py](../../../backend/tests/proxmox/test_inventory_adapter.py), [backend/tests/proxmox/test_mutation_client.py](../../../backend/tests/proxmox/test_mutation_client.py)
+- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/drs/advisor.py](../../../backend/app/drs/advisor.py), [backend/app/drs/policies.py](../../../backend/app/drs/policies.py), [backend/app/drs/approval.py](../../../backend/app/drs/approval.py), [backend/app/drs/execution.py](../../../backend/app/drs/execution.py), [backend/app/drs/identity.py](../../../backend/app/drs/identity.py), [backend/app/drs/operation_locks.py](../../../backend/app/drs/operation_locks.py), [backend/app/proxmox/drs_migration.py](../../../backend/app/proxmox/drs_migration.py), [backend/app/proxmox/inventory.py](../../../backend/app/proxmox/inventory.py), [backend/app/proxmox/models.py](../../../backend/app/proxmox/models.py), [backend/app/db/models.py](../../../backend/app/db/models.py)
+- Tests: [frontend/tests/drsAdvisor.test.mjs](../../../frontend/tests/drsAdvisor.test.mjs), [frontend/tests/apiV1Client.test.mjs](../../../frontend/tests/apiV1Client.test.mjs), [frontend/tests/authFlow.test.mjs](../../../frontend/tests/authFlow.test.mjs), [backend/tests/contracts/test_api_v1_drs.py](../../../backend/tests/contracts/test_api_v1_drs.py), [backend/tests/drs/test_policy_management.py](../../../backend/tests/drs/test_policy_management.py), [backend/tests/drs/test_identity_resolution.py](../../../backend/tests/drs/test_identity_resolution.py), [backend/tests/drs/test_advisor_readiness.py](../../../backend/tests/drs/test_advisor_readiness.py), [backend/tests/drs/test_execution.py](../../../backend/tests/drs/test_execution.py), [backend/tests/db/test_drs_identity_schema.py](../../../backend/tests/db/test_drs_identity_schema.py), [backend/tests/proxmox/test_inventory_adapter.py](../../../backend/tests/proxmox/test_inventory_adapter.py), [backend/tests/proxmox/test_mutation_client.py](../../../backend/tests/proxmox/test_mutation_client.py)
 
 ## 현재 구현
 
@@ -41,6 +46,8 @@ DRS Advisor backend endpoint는 다음 `/api/v1` 조회, local evidence, and nar
 VM identity foundation은 Proxmox inventory에서 SMBIOS UUID, VM generation ID, MAC addresses, disk volume IDs만 curated fingerprint evidence로 사용한다. node, VMID, name은 locator/supporting evidence이며 이것만으로 high confidence identity가 되지 않는다. Low/medium/unknown identity는 execution-blocking이고, policy는 high confidence identity 뒤에서만 의미 있게 평가된다.
 
 Migration policy default는 `unknown`이며 execution-blocking이다. Canonical blockers는 `vm_identity_unknown`, `vm_identity_uncertain`, `migration_policy_unknown`, `migration_policy_restricted`, `migration_policy_blocked`, `drs_final_precheck_failed`를 사용하고, compatibility blockers such as `identity_unknown`, `metadata_missing`, `policy_unknown`, `final_precheck_not_run`도 필요한 곳에 남아 있다.
+
+Manual policy configuration is attached only to Gjallar `vm_identity_id`. The UI shows current locator and observation guard evidence, blocks policy writes for uncertain identities, requires a deliberate review acknowledgement, and does not send actor/source/operator fields from the browser.
 
 `operation_locks`는 `drs_migration` operation type만 다루는 Gjallar-local table이다. `/check`는 VM identity, Proxmox locator, route scope를 조회한다. `active`, `stale`, `reconciliation_required` lock은 `would_be_executable=false`로 막고, `released` lock은 막지 않는다. `/check`는 lock row를 생성/갱신/해제하지 않는다. `/execute`는 mutation 전 같은 세 scope에 active lock을 transactionally 생성하며, acquisition이 막히면 Proxmox mutation을 호출하지 않는다.
 
@@ -56,7 +63,7 @@ Live migration uses only the dedicated DRS Proxmox client and calls `POST /nodes
 
 `/reconcile-preview` is read-only. It re-reads task and direct post-check evidence and returns whether the job is a verified-completion candidate or still needs reconciliation. It does not run corrective mutation and returns `proxmox_mutation_enabled=false`, `corrective_mutation_enabled=false`, `allowed_actions=[]`, and `side_effects=[]`.
 
-화면은 review model only notice를 표시하고, identity/policy evidence를 compact하게 표시한다. Broad migration 실행 UI는 제공하지 않는다.
+화면은 review model only notice, VM policy configuration panel, and compact identity/policy evidence를 표시한다. Broad migration 실행 UI는 제공하지 않는다.
 
 ## DRS Advisor 기준 gaps
 
@@ -68,6 +75,10 @@ Confirm modal, broad UI execution controls, corrective reconciliation workflow�
 
 현재 DRS recommendation은 seed일 뿐 execution 판단이 아니다. `/check`는 read-only final pre-check model이며, operation lock과 config-lock conflict evidence를 조회하지만 `executable=false`, `allowed_actions=[]`를 유지한다. 실제 mutation 판단은 stored approval/job, fresh final pre-check, live Proxmox evidence, and acquired locks가 모두 통과한 `/migration-jobs/{job_id}/execute`에서만 한다.
 
-## 다음 구현 gate
+## 다음 구현
 
-다음 gate는 비번호 Goal Check([`docs/goal/goal-check-01-06-implementation-quality.md`](../../goal/goal-check-01-06-implementation-quality.md))다. 이 check가 Goal 1-6 구현 품질을 검증하기 전에는 Goal 7 UI/operations polish([`docs/goal/goal-07-drs-ui-operations-polish.md`](../../goal/goal-07-drs-ui-operations-polish.md))를 시작하지 않는다. Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다. 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고, identity/fingerprint, current locator, policy, final pre-check, approval, operation lock, verified post-check contract를 별도로 통과해야 한다.
+Goal Check 01-06, Goal 7 UI/operations polish, and [`Goal 7.5 DRS VM Policy Configuration`](../../goal/goal-07-5-drs-vm-policy-management.md) are implemented in the current slice.
+Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다.
+향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고,
+identity/fingerprint, current locator, policy, final pre-check, approval, operation lock,
+verified post-check contract를 별도로 통과해야 한다.

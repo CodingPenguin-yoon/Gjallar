@@ -32,6 +32,10 @@ assert.equal(API_V1_ENDPOINTS.drsSummary, '/drs/summary')
 assert.equal(API_V1_ENDPOINTS.drsRecommendations, '/drs/recommendations')
 assert.equal(API_V1_ENDPOINTS.drsRecommendation('rec/1'), '/drs/recommendations/rec%2F1')
 assert.equal(API_V1_ENDPOINTS.drsRecommendationCheck('rec/1'), '/drs/recommendations/rec%2F1/check')
+assert.equal(API_V1_ENDPOINTS.drsRecommendationApprovalPackets('rec/1'), '/drs/recommendations/rec%2F1/approval-packets')
+assert.equal(API_V1_ENDPOINTS.drsPolicies, '/drs/policies')
+assert.equal(API_V1_ENDPOINTS.drsPolicy('vmid/1'), '/drs/policies/vmid%2F1')
+assert.equal(API_V1_ENDPOINTS.drsMigrationJobReconcilePreview('job/1'), '/drs/migration-jobs/job%2F1/reconcile-preview')
 assert.equal(API_V1_ENDPOINTS.vmStart('node/a', 306), '/nodes/node%2Fa/vms/306/actions/start')
 assert.equal(API_V1_ENDPOINTS.jobArtifacts('job/a b'), '/jobs/job%2Fa%20b/artifacts')
 assert.equal(API_V1_ENDPOINTS.vmCreateReadiness, '/vm-create/readiness')
@@ -98,6 +102,18 @@ assert.equal((await client.getDrsRecommendation('rec/1')).url, '/custom/api/v1/d
 assert.deepEqual((await client.checkDrsRecommendation('rec/1', { reference_only: true })).body, { reference_only: true })
 assert.equal(calls.at(-1).options.method, 'POST')
 assert.equal(calls.at(-1).url, '/custom/api/v1/drs/recommendations/rec%2F1/check')
+assert.deepEqual((await client.createDrsApprovalPacket('rec/1', { warning_acknowledged: true })).body, { warning_acknowledged: true })
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.equal(calls.at(-1).url, '/custom/api/v1/drs/recommendations/rec%2F1/approval-packets')
+assert.equal((await client.drsPolicies()).url, '/custom/api/v1/drs/policies')
+assert.equal(calls.at(-1).options.method, 'GET')
+assert.equal((await client.drsPolicy('vmid/1')).url, '/custom/api/v1/drs/policies/vmid%2F1')
+assert.deepEqual((await client.updateDrsPolicy('vmid/1', { policy: 'allowed' })).body, { policy: 'allowed' })
+assert.equal(calls.at(-1).options.method, 'PUT')
+assert.equal(calls.at(-1).url, '/custom/api/v1/drs/policies/vmid%2F1')
+assert.deepEqual((await client.reconcilePreviewDrsMigrationJob('job/1', {})).body, {})
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.equal(calls.at(-1).url, '/custom/api/v1/drs/migration-jobs/job%2F1/reconcile-preview')
 assert.equal((await client.getVmCreateReadiness()).url, '/custom/api/v1/vm-create/readiness')
 assert.deepEqual((await client.createVmDraft({ operator_id: 'hermes' })).body, { operator_id: 'hermes' })
 assert.equal(calls.at(-1).options.method, 'POST')
@@ -134,6 +150,19 @@ await assert.rejects(
   /Native Proxmox create failed/,
 )
 
+const nonJsonFailureClient = createApiV1Client({
+  baseUrl: '/custom/api/v1',
+  fetchImpl: async () => ({
+    ok: false,
+    status: 500,
+    text: async () => 'Internal Server Error',
+  }),
+})
+await assert.rejects(
+  () => nonJsonFailureClient.getDrsSummary(),
+  /API v1 request failed with status 500: Internal Server Error/,
+)
+
 assert.deepEqual(unwrapApiV1Envelope({ ok: true, data: [1, 2] }), [1, 2])
 assert.throws(
   () => unwrapApiV1Envelope({ ok: false, error: { code: 'blocked', message: 'red risk' } }),
@@ -161,5 +190,8 @@ for (const forbidden of [
 ]) {
   assert.ok(!source.includes(forbidden), `apiV1 client must not reintroduce legacy endpoint ${forbidden}`)
 }
+assert.doesNotMatch(source, /executeDrsMigrationJob|drsMigrationJobExecute/, 'apiV1 client must not expose DRS migration execute mutation helpers')
+assert.match(source, /updateDrsPolicy/, 'apiV1 client must expose manual DRS policy update helper')
+assert.match(source, /method: 'PUT'/, 'apiV1 client must support PUT for policy updates')
 
 console.log('apiV1Client RED contract exercised')

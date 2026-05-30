@@ -302,6 +302,68 @@ function buildCreateVmSummary(job, artifacts = []) {
   }
 }
 
+function listLabel(values) {
+  const items = asArray(values).map((value) => asText(value, '')).filter(Boolean)
+  return items.length ? items.join(', ') : '-'
+}
+
+function taskStatusLabel(value) {
+  if (!value) return '-'
+  if (typeof value === 'string') return value
+  const status = asObject(value)
+  return firstValue(status.status, status.exitstatus, status.result)
+}
+
+function buildDrsMigrationSummary(job) {
+  if (!job || String(job.type ?? '') !== 'drs_migration') return null
+
+  const details = asObject(job.raw?.details)
+  const sourceNode = firstValue(details.source_node_id, details.sourceNodeId)
+  const targetNode = firstValue(details.target_node_id, details.targetNodeId)
+  const operationLockIds = asArray(details.operation_lock_ids ?? details.operationLockIds)
+  const sideEffects = asArray(details.side_effects ?? details.sideEffects)
+  const taskStatus = details.task_status ?? details.taskStatus
+
+  return {
+    title: 'DRS migration summary',
+    subtitle: `${sourceNode}->${targetNode}`,
+    status: job.status,
+    sections: [
+      {
+        title: 'Intent',
+        items: [
+          { label: 'Approval packet', value: firstValue(details.approval_packet_id, details.approvalPacketId) },
+          { label: 'Recommendation', value: firstValue(details.recommendation_id, details.recommendationId) },
+          { label: 'VM identity', value: firstValue(details.vm_identity_id, details.vmIdentityId) },
+          { label: 'Source node', value: sourceNode },
+          { label: 'Target node', value: targetNode },
+        ],
+      },
+      {
+        title: 'Execution state',
+        items: [
+          { label: 'Runnable', value: yesNo(details.runnable) },
+          { label: 'Proxmox mutation enabled', value: yesNo(details.proxmox_mutation_enabled ?? details.proxmoxMutationEnabled) },
+          { label: 'Side effects', value: listLabel(sideEffects) },
+          { label: 'Proxmox UPID', value: firstValue(details.proxmox_upid, details.proxmoxUpid) },
+          { label: 'Task result', value: firstValue(details.task_result, details.taskResult) },
+          { label: 'Task status', value: taskStatusLabel(taskStatus) },
+          { label: 'Task exitstatus', value: firstValue(details.task_exitstatus, details.taskExitstatus, asObject(taskStatus).exitstatus) },
+        ],
+      },
+      {
+        title: 'Post-check / Reconciliation',
+        items: [
+          { label: 'Post-check status', value: firstValue(details.post_check_status, details.postCheckStatus) },
+          { label: 'Reconciliation reason', value: firstValue(details.reconciliation_reason, details.reconciliationReason) },
+          { label: 'Operation locks', value: listLabel(operationLockIds) },
+          { label: 'Reconciliation required', value: yesNo(details.reconciliation_required ?? details.reconciliationRequired) },
+        ],
+      },
+    ],
+  }
+}
+
 function firstJobId(model) {
   return model.items[0]?.id && model.items[0].id !== 'unknown' ? model.items[0].id : null
 }
@@ -337,6 +399,7 @@ export async function loadJobsScreenModel(client, { selectedJobId = null } = {})
       ? {
         ...selectedJob,
         vmSummary: buildCreateVmSummary(selectedJob, artifacts),
+        drsMigrationSummary: buildDrsMigrationSummary(selectedJob),
       }
       : null,
     artifacts,

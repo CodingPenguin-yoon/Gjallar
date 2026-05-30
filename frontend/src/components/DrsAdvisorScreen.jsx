@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, CheckCircle2, Eye, HardDrive, Lock, Network, RefreshCw, Route as RouteIcon, Server, ShieldCheck } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, ClipboardCheck, Eye, HardDrive, Lock, Network, RefreshCw, Route as RouteIcon, Server, ShieldCheck } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import {
+  canOfferDrsApprovalPacket,
+  canSubmitDrsApprovalPacket,
   checkDrsRecommendation,
+  createDrsApprovalPacket,
   drsToneClass,
   formatDrsBlocker,
   loadDrsAdvisorModel,
+  loadDrsPolicyCoverage,
   loadDrsRecommendationDetail,
+  submitDrsPolicyUpdate,
 } from '../utils/drsAdvisor'
+
+const POLICY_FILTERS = ['unknown', 'allowed', 'restricted', 'blocked']
+const CONFIDENCE_FILTERS = ['all', 'high', 'uncertain']
 
 function formatPercent(value) {
   const number = Number(value)
@@ -190,6 +199,240 @@ function BalanceOverviewPanel({ summary, thresholds, execution }) {
   )
 }
 
+function PolicyFilterButton({ active, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+        active
+          ? 'border-blue-300 bg-blue-50 text-blue-800'
+          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function policyValueTone(value) {
+  if (value === 'allowed') return 'green'
+  if (value === 'blocked') return 'red'
+  if (value === 'restricted') return 'yellow'
+  return 'yellow'
+}
+
+function confidenceFilterMatch(item, filter) {
+  if (filter === 'high') return item.identityConfidence === 'high'
+  if (filter === 'uncertain') return item.identityConfidence !== 'high'
+  return true
+}
+
+function policyLocation(item) {
+  const locator = item.currentLocator || {}
+  return `${locator.nodeId || '-'} / VMID ${locator.vmid ?? '-'}`
+}
+
+function PolicyCoveragePanel({
+  policyCoverage,
+  filters,
+  onPolicyFilterToggle,
+  onConfidenceFilter,
+  canOperate,
+  savingPolicyId,
+  onReviewPolicy,
+}) {
+  const items = asList(policyCoverage?.items)
+  const visibleItems = items.filter((item) => filters.policies[item.policy.value] && confidenceFilterMatch(item, filters.confidence))
+  const coverage = policyCoverage?.coverage || {}
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-950">VM Policy Configuration</h3>
+          <div className="mt-1 text-xs text-slate-500">
+            {coverage.totalNonTemplateVms ?? items.length} current non-template VMs · {coverage.writeAllowedCount ?? 0} writable identities
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+          <div className="flex flex-wrap gap-1.5">
+            {POLICY_FILTERS.map((policy) => (
+              <PolicyFilterButton
+                key={policy}
+                active={filters.policies[policy]}
+                onClick={() => onPolicyFilterToggle(policy)}
+              >
+                {policy}
+              </PolicyFilterButton>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {CONFIDENCE_FILTERS.map((filter) => (
+              <PolicyFilterButton
+                key={filter}
+                active={filters.confidence === filter}
+                onClick={() => onConfidenceFilter(filter)}
+              >
+                {filter === 'uncertain' ? 'identity uncertain' : filter}
+              </PolicyFilterButton>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 xl:grid-cols-2">
+        {visibleItems.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">No policy items match the selected filters.</div>
+        ) : visibleItems.map((item) => {
+          const blockers = item.policyWriteBlockers.length ? item.policyWriteBlockers : item.drsBlockerImpact.policyBlockers
+          return (
+            <article key={`${item.vmIdentityId || item.currentLocator.vmid}`} className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="truncate text-base font-semibold text-slate-950">{item.currentLocator.name}</h4>
+                    <StatusPill tone={policyValueTone(item.policy.value)}>{item.policy.value}</StatusPill>
+                    {item.currentDrsCandidate && <StatusPill tone="yellow">DRS candidate</StatusPill>}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">{policyLocation(item)}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onReviewPolicy(item)}
+                  disabled={!canOperate || !item.policyWriteAllowed || savingPolicyId === item.vmIdentityId}
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  {savingPolicyId === item.vmIdentityId ? 'Saving' : 'Review'}
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <DetailStatusRow label="Identity" value={item.identityConfidence} tone={item.identityConfidence === 'high' ? 'green' : 'yellow'} />
+                <DetailStatusRow label="Status" value={item.identityStatus} tone={item.identityStatus === 'active' ? 'green' : 'yellow'} />
+                <DetailStatusRow label="Observed" value={item.latestObservation.observedAt || '-'} />
+                <DetailStatusRow label="Source" value={item.policy.source || 'default'} />
+              </div>
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+                <div className="truncate">fingerprint {item.fingerprint.fingerprintHash || '-'}</div>
+                <div className="mt-1 truncate">reason {item.policy.reason || '-'}</div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <StatusPill tone={item.policyWriteAllowed ? 'green' : 'yellow'}>policy write {item.policyWriteAllowed ? 'allowed' : 'blocked'}</StatusPill>
+                <StatusPill tone="slate">migration approval unchanged</StatusPill>
+              </div>
+              {blockers.length > 0 && (
+                <div className="mt-3">
+                  <CompactBlockerList blockers={blockers} />
+                </div>
+              )}
+              {!canOperate && (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+                  DRS policy updates require operator or admin role.
+                </div>
+              )}
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function PolicyReviewModal({ item, saving, error, result, onCancel, onSubmit }) {
+  const [policy, setPolicy] = useState(item?.policy?.value || 'unknown')
+  const [reason, setReason] = useState(item?.policy?.reason || '')
+  const [acknowledged, setAcknowledged] = useState(false)
+  if (!item) return null
+  const reasonRequired = policy !== 'unknown'
+  const reasonReady = !reasonRequired || reason.trim().length > 0
+  const canSubmit = item.policyWriteAllowed && acknowledged && reasonReady && !saving
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-950">Review DRS Policy Change</h3>
+              <div className="mt-1 text-xs text-slate-500">{item.currentLocator.name} · {policyLocation(item)}</div>
+            </div>
+            <StatusPill tone={item.policyWriteAllowed ? 'green' : 'yellow'}>{item.policyWriteAllowed ? 'write allowed' : 'write blocked'}</StatusPill>
+          </div>
+        </div>
+        <div className="space-y-4 p-5">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+            Policy changes do not start migration, approve migration, or write Proxmox tags.
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DetailStatusRow label="Current policy" value={item.policy.value} tone={policyValueTone(item.policy.value)} />
+            <DetailStatusRow label="Identity confidence" value={item.identityConfidence} tone={item.identityConfidence === 'high' ? 'green' : 'yellow'} />
+            <DetailStatusRow label="Observed" value={item.expectedObservation.observedAt || '-'} />
+            <DetailStatusRow label="Fingerprint" value={item.expectedObservation.fingerprintHash || '-'} />
+          </div>
+          {item.policyWriteBlockers.length > 0 && <CompactBlockerList blockers={item.policyWriteBlockers} />}
+          <label className="block text-sm font-semibold text-slate-800">
+            Policy
+            <select
+              value={policy}
+              onChange={(event) => setPolicy(event.target.value)}
+              disabled={saving || !item.policyWriteAllowed}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+            >
+              {POLICY_FILTERS.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-semibold text-slate-800">
+            Reason
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              disabled={saving || !item.policyWriteAllowed}
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+            />
+          </label>
+          <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+              disabled={saving || !item.policyWriteAllowed}
+              className="mt-1"
+            />
+            <span>I reviewed the latest observation guard and understand this only changes the Gjallar DRS prerequisite policy.</span>
+          </label>
+          {reasonRequired && !reasonReady && <div className="text-xs font-semibold text-amber-700">A reason is required for allowed, restricted, or blocked.</div>}
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+          {result && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              Policy audit {result.auditEventId || 'no-op'} · {result.newPolicy.value}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(item, { policy, reason, acknowledged })}
+            disabled={!canSubmit}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            {saving ? 'Saving policy' : 'Save policy'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RecommendationQueue({ recommendations, selectedId, loadingDetail, checkingId, onSelect, onCheck }) {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -323,6 +566,178 @@ function DetailStatusRow({ label, value, tone }) {
   )
 }
 
+function checkTone(status) {
+  const normalized = String(status ?? '').toLowerCase()
+  if (normalized === 'pass' || normalized === 'would_pass' || normalized === 'completed') return 'green'
+  if (normalized === 'failed' || normalized === 'blocked') return 'red'
+  if (normalized === 'not_collected' || normalized === 'not_implemented' || normalized === 'not run') return 'yellow'
+  return 'slate'
+}
+
+function boolLabel(value) {
+  return value === true ? 'true' : 'false'
+}
+
+function lockLabel(lock) {
+  const source = lock || {}
+  return [
+    source.operation_lock_id || source.operationLockId,
+    source.status,
+    source.scope_type || source.scopeType,
+    source.reason,
+  ].filter(Boolean).join(' · ') || '-'
+}
+
+function scopeLabel(scope) {
+  const source = scope || {}
+  return [source.scope_type || source.scopeType, source.scope_key || source.scopeKey].filter(Boolean).join(':') || '-'
+}
+
+function CheckRows({ checks }) {
+  const rows = asList(checks)
+  if (!rows.length) {
+    return <div className="rounded-md border border-dashed border-slate-200 p-3 text-xs text-slate-500">Run Check to load final pre-check rows.</div>
+  }
+  return (
+    <div className="space-y-1.5">
+      {rows.map((check) => (
+        <div key={check.id} className="grid gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-slate-900">{check.label}</div>
+            {check.blocker && <div className="mt-0.5 truncate text-slate-500">{formatDrsBlocker(check.blocker)}</div>}
+          </div>
+          <StatusPill tone={checkTone(check.status)}>{check.status}</StatusPill>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OperationLockEvidence({ operationLock, approvalReadiness }) {
+  const lock = operationLock || {}
+  const matchingLocks = asList(lock.matchingLocks)
+  const reconciliation = approvalReadiness?.reconciliation || {}
+  const reconciliationLockIds = asList(reconciliation.matchingLockIds).length
+    ? reconciliation.matchingLockIds
+    : lock.reconciliationLockIds
+  return (
+    <DetailSection title="Operation Lock Evidence" icon={Lock}>
+      <div className="flex flex-wrap gap-1.5">
+        <StatusPill tone={checkTone(lock.status)}>status {lock.status || 'not run'}</StatusPill>
+        <StatusPill tone={lock.blocking ? 'yellow' : 'green'}>blocking {boolLabel(lock.blocking === true)}</StatusPill>
+        <StatusPill tone={reconciliation.required ? 'yellow' : 'green'}>reconciliation {reconciliation.required ? 'required' : 'not required'}</StatusPill>
+      </div>
+      <DetailStatusRow label="Operation" value={lock.operationType || '-'} />
+      <DetailStatusRow label="Cluster" value={lock.clusterId || '-'} />
+      <DetailStatusRow label="Matching locks" value={asCompactDisplay(lock.matchingLockIds, 3)} tone={matchingLocks.length ? 'yellow' : 'green'} />
+      <DetailStatusRow label="Reconciliation locks" value={asCompactDisplay(reconciliationLockIds, 3)} tone={reconciliation.required ? 'yellow' : 'green'} />
+      {matchingLocks.length > 0 && (
+        <div className="space-y-1">
+          {matchingLocks.slice(0, 3).map((item, index) => (
+            <div key={`${item.operation_lock_id || item.operationLockId || index}`} className="rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
+              {lockLabel(item)}
+            </div>
+          ))}
+        </div>
+      )}
+      {asList(lock.checkedScopes).length > 0 && (
+        <DetailStatusRow label="Checked scopes" value={asCompactDisplay(lock.checkedScopes.map(scopeLabel), 3)} />
+      )}
+    </DetailSection>
+  )
+}
+
+function ProxmoxConflictEvidence({ conflicts }) {
+  const source = conflicts || {}
+  return (
+    <DetailSection title="Proxmox Conflict Evidence" icon={AlertTriangle}>
+      <div className="flex flex-wrap gap-1.5">
+        <StatusPill tone={checkTone(source.status)}>conflicts {source.status || 'not run'}</StatusPill>
+        <StatusPill tone={asList(source.notCollected).length ? 'yellow' : 'green'}>not collected {asList(source.notCollected).length}</StatusPill>
+      </div>
+      <DetailStatusRow label="Config lock" value={source.configLock?.status || '-'} tone={source.configLock?.blocking ? 'red' : 'green'} />
+      <DetailStatusRow label="Active task" value={source.activeTask?.status || '-'} tone={source.activeTask?.status === 'not_collected' ? 'yellow' : undefined} />
+      <DetailStatusRow label="HA state" value={source.haState?.status || '-'} tone={source.haState?.status === 'not_collected' ? 'yellow' : undefined} />
+      <DetailStatusRow label="Cluster quorum" value={source.clusterQuorum?.status || '-'} tone={source.clusterQuorum?.status === 'not_collected' ? 'yellow' : undefined} />
+    </DetailSection>
+  )
+}
+
+function ApprovalReadinessPanel({
+  approvalReadiness,
+  currentUser,
+  canOperate,
+  creatingApproval,
+  approvalResult,
+  warningAcknowledged,
+  onWarningAcknowledgedChange,
+  onCreateApprovalPacket,
+}) {
+  if (!approvalReadiness) return null
+  const approvalReady = approvalReadiness.approvalPacketCreatable === true
+  const approvalOffered = canOfferDrsApprovalPacket(approvalReadiness)
+  const approvalSubmittable = canSubmitDrsApprovalPacket(approvalReadiness, { warningAcknowledged })
+  const viewerLocked = canOperate !== true
+  return (
+    <DetailSection title="Approval Readiness" icon={ClipboardCheck}>
+      <div className="flex flex-wrap gap-1.5">
+        <StatusPill tone={approvalReadiness.finalPrecheckPassed ? 'green' : 'yellow'}>final pre-check {approvalReadiness.finalPrecheckPassed ? 'passed' : 'blocked'}</StatusPill>
+        <StatusPill tone={approvalReady ? 'green' : 'yellow'}>approval packet creatable {boolLabel(approvalReady)}</StatusPill>
+        <StatusPill tone="slate">runnable {boolLabel(approvalReadiness.runnable)}</StatusPill>
+        <StatusPill tone="slate">proxmox mutation {boolLabel(approvalReadiness.proxmoxMutationEnabled)}</StatusPill>
+      </div>
+      <DetailStatusRow label="Session role" value={currentUser?.role || 'unknown'} tone={canOperate ? 'green' : 'yellow'} />
+      <DetailStatusRow label="Allowed actions" value={asCompactDisplay(approvalReadiness.allowedActions, 3)} />
+      <DetailStatusRow label="Side effects" value={asCompactDisplay(approvalReadiness.sideEffects, 3)} />
+      {approvalReadiness.blockers.length > 0 && <CompactBlockerList blockers={approvalReadiness.blockers} />}
+      {approvalReadiness.runnableBlockers.length > 0 && (
+        <DetailStatusRow label="Runnable blockers" value={asCompactDisplay(approvalReadiness.runnableBlockers, 3)} tone="yellow" />
+      )}
+      {approvalReadiness.warningsAckRequired && (
+        <label className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+          <input
+            type="checkbox"
+            checked={warningAcknowledged}
+            onChange={(event) => onWarningAcknowledgedChange(event.target.checked)}
+            disabled={viewerLocked || creatingApproval}
+            className="mt-0.5"
+          />
+          <span>Warning acknowledgement required for local approval packet creation.</span>
+        </label>
+      )}
+      {canOperate ? (
+        approvalOffered && (
+          <button
+            type="button"
+            onClick={onCreateApprovalPacket}
+            disabled={creatingApproval || !approvalSubmittable}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            {creatingApproval ? 'Creating approval packet' : 'Create approval packet'}
+          </button>
+        )
+      ) : (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+          DRS approval packet creation requires operator or admin role.
+        </div>
+      )}
+      {approvalResult && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
+          <div className="font-semibold">Local approval packet/job intent recorded</div>
+          <div className="mt-1">Approval packet {approvalResult.approvalPacketId || '-'}</div>
+          <div className="mt-1">Job intent {approvalResult.jobId || '-'}</div>
+          {approvalResult.jobId && (
+            <Link className="mt-2 inline-flex font-semibold text-emerald-900 underline" to={`/jobs?job=${encodeURIComponent(approvalResult.jobId)}`}>
+              Jobs/Runs
+            </Link>
+          )}
+        </div>
+      )}
+    </DetailSection>
+  )
+}
+
 function CompactPressurePair({ title, before, after }) {
   return (
     <div className="rounded-md bg-slate-50 px-2.5 py-2">
@@ -338,7 +753,17 @@ function CompactPressurePair({ title, before, after }) {
   )
 }
 
-function DetailPanel({ detail, checkResult }) {
+function DetailPanel({
+  detail,
+  checkResult,
+  currentUser,
+  canOperate,
+  creatingApproval,
+  approvalResult,
+  warningAcknowledged,
+  onWarningAcknowledgedChange,
+  onCreateApprovalPacket,
+}) {
   if (!detail) {
     return (
       <section className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
@@ -363,6 +788,8 @@ function DetailPanel({ detail, checkResult }) {
   const migrationPolicy = policyEvidence.policy || 'unknown'
   const fingerprint = identityEvidence.stable_fingerprint || identityEvidence.stableFingerprint || '-'
   const fingerprintLabel = fingerprint === '-' ? '-' : `${fingerprint.slice(0, 18)}...`
+  const finalPrecheck = checkResult?.finalPrecheck
+  const approvalReadiness = checkResult?.approvalReadiness
   const identityRows = [
     ['Identity', identityConfidence, identityTone(identityConfidence)],
     ['Status', identityStatus, identityTone(identityConfidence)],
@@ -433,6 +860,49 @@ function DetailPanel({ detail, checkResult }) {
           <DetailStatusRow label="Policy source" value={policyEvidence.source || 'default'} />
           <DetailStatusRow label="Policy reason" value={policyEvidence.reason || 'not recorded'} />
         </DetailSection>
+
+        {finalPrecheck && (
+          <DetailSection title="Final Pre-check" icon={CheckCircle2}>
+            <div className="flex flex-wrap gap-1.5">
+              <StatusPill tone={checkTone(finalPrecheck.status)}>status {finalPrecheck.status}</StatusPill>
+              <StatusPill tone="slate">read only {boolLabel(checkResult.readOnly)}</StatusPill>
+              <StatusPill tone="slate">executable {boolLabel(checkResult.executable)}</StatusPill>
+              <StatusPill tone="slate">allowed actions {checkResult.allowedActions.length}</StatusPill>
+            </div>
+            <DetailStatusRow label="Checked" value={finalPrecheck.checkedAt || checkResult.checkedAt || '-'} />
+            <DetailStatusRow label="Observed" value={finalPrecheck.observedAt || '-'} />
+            <DetailStatusRow label="Would be executable" value={boolLabel(checkResult.wouldBeExecutable)} tone={checkResult.wouldBeExecutable ? 'green' : 'yellow'} />
+            {checkResult.blockerDetails.length > 0 && (
+              <div className="space-y-1">
+                {checkResult.blockerDetails.slice(0, 4).map((blocker) => (
+                  <div key={blocker.code} className="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+                    <span className="font-semibold">{formatDrsBlocker(blocker.code)}</span>
+                    <span className="ml-1">{blocker.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <CheckRows checks={finalPrecheck.checks} />
+          </DetailSection>
+        )}
+
+        {finalPrecheck && (
+          <>
+            <OperationLockEvidence operationLock={checkResult.operationLock} approvalReadiness={approvalReadiness} />
+            <ProxmoxConflictEvidence conflicts={checkResult.proxmoxConflicts} />
+          </>
+        )}
+
+        <ApprovalReadinessPanel
+          approvalReadiness={approvalReadiness}
+          currentUser={currentUser}
+          canOperate={canOperate}
+          creatingApproval={creatingApproval}
+          approvalResult={approvalResult}
+          warningAcknowledged={warningAcknowledged}
+          onWarningAcknowledgedChange={onWarningAcknowledgedChange}
+          onCreateApprovalPacket={onCreateApprovalPacket}
+        />
       </div>
 
       <div className="mt-4">
@@ -468,21 +938,37 @@ function asCompactDisplay(value, limit = 2) {
   return hiddenCount > 0 ? `${visible} +${hiddenCount}` : visible
 }
 
-function DrsAdvisorScreen() {
+function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
   const [model, setModel] = useState(null)
+  const [policyCoverage, setPolicyCoverage] = useState(null)
   const [detail, setDetail] = useState(null)
   const [checkResult, setCheckResult] = useState(null)
+  const [approvalResult, setApprovalResult] = useState(null)
+  const [policyReviewItem, setPolicyReviewItem] = useState(null)
+  const [policyUpdateResult, setPolicyUpdateResult] = useState(null)
+  const [policyFilters, setPolicyFilters] = useState({
+    policies: { unknown: true, allowed: true, restricted: true, blocked: true },
+    confidence: 'all',
+  })
+  const [warningAcknowledged, setWarningAcknowledged] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(null)
   const [checkingId, setCheckingId] = useState(null)
+  const [creatingApproval, setCreatingApproval] = useState(false)
+  const [savingPolicyId, setSavingPolicyId] = useState(null)
+  const [policyError, setPolicyError] = useState(null)
   const [error, setError] = useState(null)
 
   const loadModel = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const nextModel = await loadDrsAdvisorModel(apiV1Client)
+      const [nextModel, nextPolicyCoverage] = await Promise.all([
+        loadDrsAdvisorModel(apiV1Client),
+        loadDrsPolicyCoverage(apiV1Client),
+      ])
       setModel(nextModel)
+      setPolicyCoverage(nextPolicyCoverage)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to load DRS Advisor')
     } finally {
@@ -497,6 +983,8 @@ function DrsAdvisorScreen() {
       const nextDetail = await loadDrsRecommendationDetail(apiV1Client, recommendationId)
       setDetail(nextDetail)
       setCheckResult(null)
+      setApprovalResult(null)
+      setWarningAcknowledged(false)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to load DRS recommendation')
     } finally {
@@ -511,12 +999,70 @@ function DrsAdvisorScreen() {
       const result = await checkDrsRecommendation(apiV1Client, recommendationId, {})
       setCheckResult(result)
       setDetail(result.recommendation)
+      setApprovalResult(null)
+      setWarningAcknowledged(false)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to check DRS recommendation')
     } finally {
       setCheckingId(null)
     }
   }, [])
+
+  const createApprovalPacket = useCallback(async () => {
+    if (!canOperate || !canSubmitDrsApprovalPacket(checkResult?.approvalReadiness, { warningAcknowledged })) return
+    setCreatingApproval(true)
+    setError(null)
+    try {
+      const result = await createDrsApprovalPacket(apiV1Client, checkResult.recommendationId, {
+        warningAcknowledged,
+      })
+      setApprovalResult(result)
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Unable to create DRS approval packet')
+    } finally {
+      setCreatingApproval(false)
+    }
+  }, [canOperate, checkResult?.approvalReadiness, checkResult?.recommendationId, warningAcknowledged])
+
+  const togglePolicyFilter = useCallback((policy) => {
+    setPolicyFilters((current) => ({
+      ...current,
+      policies: {
+        ...current.policies,
+        [policy]: !current.policies[policy],
+      },
+    }))
+  }, [])
+
+  const submitPolicyReview = useCallback(async (item, { policy, reason, acknowledged }) => {
+    if (!canOperate || !item?.policyWriteAllowed) return
+    setSavingPolicyId(item.vmIdentityId)
+    setPolicyError(null)
+    try {
+      const result = await submitDrsPolicyUpdate(apiV1Client, item.vmIdentityId, {
+        policy,
+        reason,
+        policyChangeAcknowledged: acknowledged,
+        expectedObservation: item.expectedObservationPayload,
+      })
+      setPolicyUpdateResult(result)
+      setPolicyReviewItem(null)
+      const [nextModel, nextPolicyCoverage] = await Promise.all([
+        loadDrsAdvisorModel(apiV1Client),
+        loadDrsPolicyCoverage(apiV1Client),
+      ])
+      setModel(nextModel)
+      setPolicyCoverage(nextPolicyCoverage)
+      if (result.recommendationImpact) {
+        setDetail(result.recommendationImpact)
+        setCheckResult(null)
+      }
+    } catch (nextError) {
+      setPolicyError(nextError instanceof Error ? nextError.message : 'Unable to update DRS policy')
+    } finally {
+      setSavingPolicyId(null)
+    }
+  }, [canOperate])
 
   useEffect(() => {
     loadModel()
@@ -574,6 +1120,26 @@ function DrsAdvisorScreen() {
 
       <BalanceOverviewPanel summary={summary} thresholds={thresholds} execution={model?.execution} />
 
+      <PolicyCoveragePanel
+        policyCoverage={policyCoverage}
+        filters={policyFilters}
+        onPolicyFilterToggle={togglePolicyFilter}
+        onConfidenceFilter={(confidence) => setPolicyFilters((current) => ({ ...current, confidence }))}
+        canOperate={canOperate}
+        savingPolicyId={savingPolicyId}
+        onReviewPolicy={(item) => {
+          setPolicyReviewItem(item)
+          setPolicyError(null)
+          setPolicyUpdateResult(null)
+        }}
+      />
+
+      {policyUpdateResult && !policyReviewItem && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+          DRS policy saved for {policyUpdateResult.vmIdentityId}; migration approval remains separate.
+        </div>
+      )}
+
       {loading && !model ? (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading DRS Advisor...</div>
       ) : (
@@ -586,8 +1152,30 @@ function DrsAdvisorScreen() {
             onSelect={loadDetail}
             onCheck={runCheck}
           />
-          <DetailPanel detail={detail} checkResult={checkResult} />
+          <DetailPanel
+            detail={detail}
+            checkResult={checkResult}
+            currentUser={currentUser}
+            canOperate={canOperate}
+            creatingApproval={creatingApproval}
+            approvalResult={approvalResult}
+            warningAcknowledged={warningAcknowledged}
+            onWarningAcknowledgedChange={setWarningAcknowledged}
+            onCreateApprovalPacket={createApprovalPacket}
+          />
         </div>
+      )}
+
+      {policyReviewItem && (
+        <PolicyReviewModal
+          key={policyReviewItem.vmIdentityId}
+          item={policyReviewItem}
+          saving={savingPolicyId === policyReviewItem.vmIdentityId}
+          error={policyError}
+          result={policyUpdateResult}
+          onCancel={() => setPolicyReviewItem(null)}
+          onSubmit={submitPolicyReview}
+        />
       )}
     </section>
   )

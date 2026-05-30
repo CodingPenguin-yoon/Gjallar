@@ -130,6 +130,49 @@ function CreateVmSummary({ summary }) {
   )
 }
 
+function DrsMigrationSummary({ summary }) {
+  if (!summary) return null
+
+  return (
+    <div className="mt-6">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+        <FileText className="h-4 w-4" />
+        DRS migration summary
+      </div>
+      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-lg font-bold text-slate-950">{summary.title}</div>
+            <div className="mt-1 text-sm text-slate-600">{summary.subtitle}</div>
+          </div>
+          <span className="w-fit rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-700">
+            {jobStatusLabel(summary.status)}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {summary.sections.map((section) => (
+          <section key={section.title} className="rounded-lg border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
+            <dl className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              {section.items.map((item) => (
+                <div key={`${section.title}-${item.label}`} className="min-w-0">
+                  <dt className="text-xs text-slate-500">{item.label}</dt>
+                  <dd className="mt-0.5 break-words text-sm font-medium text-slate-900">{item.value || '-'}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        DRS migration runs are shown for audit and reconciliation awareness only. This panel has no mutation controls.
+      </p>
+    </div>
+  )
+}
+
 function JobCard({ job, selected, onSelect }) {
   return (
     <button
@@ -201,6 +244,8 @@ function SelectedJobPanel({ job, artifacts }) {
 
       {job.vmSummary ? (
         <CreateVmSummary summary={job.vmSummary} />
+      ) : job.drsMigrationSummary ? (
+        <DrsMigrationSummary summary={job.drsMigrationSummary} />
       ) : (
         <div className="mt-6">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">

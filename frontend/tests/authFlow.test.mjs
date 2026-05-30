@@ -42,6 +42,7 @@ assert.match(appSource, /canOperate\(currentUser\)/, 'App must derive mutation p
 assert.match(appSource, /canAdmin\(currentUser\)/, 'App must derive admin permission from the authenticated role')
 assert.match(appSource, /canExecuteLiveMutation=\{canMutate\}/, 'Create VM live execution must receive role permission')
 assert.match(appSource, /canStartVms=\{canMutate\}/, 'VM Start controls must receive role permission')
+assert.match(appSource, /<DrsAdvisorScreen currentUser=\{currentUser\} canOperate=\{canMutate\}/, 'DRS Advisor must receive session user and operator permission')
 assert.match(appSource, /path="\/admin\/users"/, 'App must expose the admin user-management route')
 assert.match(appSource, /<AdminGuard currentUser=\{currentUser\}>/, 'Admin route must use a route-level admin guard')
 assert.match(appSource, /Admin Users/, 'Admin nav item must be available for admins')
@@ -60,5 +61,14 @@ const instanceListSource = readFileSync(new URL('../src/components/InstanceList.
 assert.match(instanceListSource, /canStartVms/, 'Instance list must guard VM Start by role')
 assert.match(instanceListSource, /VM Start requires operator or admin role/, 'Instance list must explain insufficient VM Start role')
 assert.match(instanceListSource, /canStartVms && canStartVm\(vm\)/, 'VM Start action button must be hidden unless the role can mutate')
+
+const drsSource = readFileSync(new URL('../src/components/DrsAdvisorScreen.jsx', import.meta.url), 'utf8')
+assert.match(drsSource, /function DrsAdvisorScreen\(\{ currentUser = null, canOperate = false \}\)/, 'DRS Advisor must accept current user and mutation permission props')
+assert.match(drsSource, /approvalReadiness\.approvalPacketCreatable/, 'DRS approval packet button must be gated by backend readiness')
+assert.match(drsSource, /canOperate \? \(/, 'DRS approval packet control must branch on operator permission')
+assert.match(drsSource, /DRS approval packet creation requires operator or admin role/, 'DRS Advisor must explain insufficient approval role')
+assert.match(drsSource, /DRS policy updates require operator or admin role/, 'DRS policy updates must explain insufficient mutation role')
+assert.match(drsSource, /submitDrsPolicyUpdate/, 'DRS policy updates must go through the API helper')
+assert.doesNotMatch(drsSource, /approved_actor|operator_id|actor:/, 'DRS approval payload must not include a frontend-supplied actor')
 
 console.log('authFlow contract exercised')

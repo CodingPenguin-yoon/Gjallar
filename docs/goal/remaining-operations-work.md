@@ -5,7 +5,7 @@
 Use `docs/goal/README.md` as the canonical entrypoint before starting work.
 This file is only the concise overall operations backlog, status, validation,
 commit/push, and risk overview. Detailed goal scope lives in the Goal 1 through
-Goal 9 documents linked below.
+Goal 9 documents, plus inserted Goal 7.5, linked below.
 
 ## Starting Point
 
@@ -26,6 +26,9 @@ Goal 9 documents linked below.
   pre-check model are implemented.
 - DRS approval/job substrate, narrow live migration execution with UPID/task
   tracking, and post-check/reconciliation are implemented.
+- Goal 7 DRS UI/operations polish completed the minimal safe UI slice.
+- Goal 7.5 DRS VM policy configuration completed the manual policy UI/API and
+  local audit evidence slice.
 - Goal 5 and Goal 6 validation used automated fake/mock validation. No live
   Proxmox DRS migration smoke has been run.
 
@@ -45,19 +48,17 @@ Goal 9 documents linked below.
 
 ## Recommended Order
 
-1. Goal Check: verify Goal 1-6 implementation quality.
-2. Goal 7 DRS UI and operations polish after the Goal Check passes.
-3. Optional approved live DRS migration smoke evidence recording.
-4. Goal 8 SSH/Ansible/app bootstrap readiness, if still desired after DRS
+1. Optional approved live DRS migration smoke evidence recording after policy
+   management exists and at least one VM is deliberately classified.
+2. Goal 8 SSH/Ansible/app bootstrap readiness, if still desired after DRS
    safety work.
-5. Goal 9 account/session operations polish.
+3. Goal 9 account/session operations polish.
 
-## Non-Goal Gate
+## Completed Non-Goal Gate
 
-Goal 7 remains Goal 7, but it is gated by a non-numbered Goal Check. The check
-must verify that Goal 1 through Goal 6 are genuinely implemented,
-production-quality, and not test-shaped or docs-only before UI/operations
-polish starts.
+The non-numbered Goal Check verified that Goal 1 through Goal 6 were genuinely
+implemented, production-quality, and not test-shaped or docs-only before Goal 7
+UI/operations polish started. Goal 7 is now complete as a minimal safe UI slice.
 
 ## Goal Table
 
@@ -69,8 +70,9 @@ polish starts.
 | Goal 4: DRS Approval And Migration Job Substrate | Completed | `docs/goal/goal-04-drs-approval-migration-job-substrate.md` |
 | Goal 5: DRS Live Migration Execution And UPID Tracking | Completed | `docs/goal/goal-05-drs-live-migration-upid-tracking.md` |
 | Goal 6: DRS Post-Check And Reconciliation | Completed | `docs/goal/goal-06-drs-post-check-reconciliation.md` |
-| Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Next | `docs/goal/goal-check-01-06-implementation-quality.md` |
-| Goal 7: DRS UI And Operations Polish | Pending after Goal Check | `docs/goal/goal-07-drs-ui-operations-polish.md` |
+| Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Completed | `docs/goal/goal-check-01-06-implementation-quality.md` |
+| Goal 7: DRS UI And Operations Polish | Completed | `docs/goal/goal-07-drs-ui-operations-polish.md` |
+| Goal 7.5: DRS VM Policy Configuration | Completed | `docs/goal/goal-07-5-drs-vm-policy-management.md` |
 | Goal 8: SSH/Ansible/App Bootstrap Readiness | Deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` |
 | Goal 9: Account/Session Operations Polish | Deferred | `docs/goal/goal-09-account-session-operations-polish.md` |
 
@@ -99,8 +101,8 @@ For docs-only restructuring, run the requested document checks and
 
 - Any future live Create VM smoke, cleanup, or DRS migration smoke still needs
   explicit active-session approval.
-- DRS live smoke evidence, broad UI polish, background reconciliation
-  automation, and corrective reconciliation mutation remain deferred.
+- DRS live smoke evidence, background reconciliation automation, and corrective
+  reconciliation mutation remain deferred.
 - The DRS advisor read-only final pre-check adapter still reports some active
   task, HA, and quorum evidence as explicit `not_collected`; execution collects
   live pre-mutation checks separately.

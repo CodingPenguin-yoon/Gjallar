@@ -277,6 +277,57 @@ class VmMigrationPolicyRecord(Base):
     )
 
 
+class VmMigrationPolicyEventRecord(Base):
+    """Immutable audit evidence for manual DRS VM migration policy changes."""
+
+    __tablename__ = "vm_migration_policy_events"
+    __table_args__ = (
+        CheckConstraint(
+            "old_policy in ('unknown', 'allowed', 'restricted', 'blocked')",
+            name="ck_vm_migration_policy_events_old_policy",
+        ),
+        CheckConstraint(
+            "new_policy in ('unknown', 'allowed', 'restricted', 'blocked')",
+            name="ck_vm_migration_policy_events_new_policy",
+        ),
+        CheckConstraint(
+            "source in ('manual')",
+            name="ck_vm_migration_policy_events_source",
+        ),
+        Index("ix_vm_migration_policy_events_identity_created", "vm_identity_id", "created_at"),
+        Index("ix_vm_migration_policy_events_policy_created", "policy_id", "created_at"),
+        Index("ix_vm_migration_policy_events_actor_created", "actor_user_id", "created_at"),
+        Index("ix_vm_migration_policy_events_locator_created", "cluster_id", "node_id", "vmid", "created_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    vm_identity_id: Mapped[str] = mapped_column(ForeignKey("vm_identities.vm_identity_id"), nullable=False, index=True)
+    policy_id: Mapped[str | None] = mapped_column(ForeignKey("vm_migration_policies.policy_id"), nullable=True, index=True)
+    old_policy: Mapped[str] = mapped_column(String(20), nullable=False)
+    new_policy: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="manual")
+    actor_user_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actor_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    cluster_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    vmid: Mapped[int] = mapped_column(Integer, nullable=False)
+    fingerprint_hash: Mapped[str] = mapped_column(String(96), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expected_observation: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    current_observation: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    validation_result: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class OperationLockRecord(Base):
     """Local DRS operation lock state for recommendation checks and execution gates."""
 

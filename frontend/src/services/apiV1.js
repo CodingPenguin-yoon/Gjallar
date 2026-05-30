@@ -25,6 +25,10 @@ export const API_V1_ENDPOINTS = Object.freeze({
   drsRecommendations: '/drs/recommendations',
   drsRecommendation: (recommendationId) => `/drs/recommendations/${encodePathPart(recommendationId)}`,
   drsRecommendationCheck: (recommendationId) => `/drs/recommendations/${encodePathPart(recommendationId)}/check`,
+  drsRecommendationApprovalPackets: (recommendationId) => `/drs/recommendations/${encodePathPart(recommendationId)}/approval-packets`,
+  drsPolicies: '/drs/policies',
+  drsPolicy: (vmIdentityId) => `/drs/policies/${encodePathPart(vmIdentityId)}`,
+  drsMigrationJobReconcilePreview: (jobId) => `/drs/migration-jobs/${encodePathPart(jobId)}/reconcile-preview`,
   vmCreateReadiness: '/vm-create/readiness',
   createVmDrafts: '/vm-create/drafts',
   vmCreatePreflight: (draftId) => `/vm-create/${encodePathPart(draftId)}/preflight`,
@@ -85,29 +89,45 @@ async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body }) {
   }
 
   const response = await fetchImpl(buildUrl(baseUrl, path), options)
-  const envelope = await response.json()
+  const { envelope, rawText } = await readResponsePayload(response)
   if (!response.ok) {
     const detail = envelope?.detail && typeof envelope.detail === 'object' ? envelope.detail : null
     const errorBody = envelope?.error && typeof envelope.error === 'object' ? envelope.error : null
     const commandError = firstCommandError(detail)
+    const rawMessage = rawText ? rawText.slice(0, 700) : ''
     const baseMessage = detail?.message || errorBody?.message || detail?.code || errorBody?.code || `API v1 request failed with status ${response.status}`
     const message = commandError ? `${baseMessage}: ${commandError.slice(0, 700)}` : baseMessage
-    const error = new Error(message)
+    const nextMessage = rawMessage && !commandError ? `${message}: ${rawMessage}` : message
+    const error = new Error(nextMessage)
     error.status = response.status
     error.authRequired = response.status === 401
     error.forbidden = response.status === 403
     error.code = detail?.code || errorBody?.code
-    error.details = detail || errorBody || envelope
+    error.details = detail || errorBody || envelope || rawText
     error.envelope = envelope
     throw error
   }
   return unwrapApiV1Envelope(envelope)
 }
 
+async function readResponsePayload(response) {
+  if (typeof response.text === 'function') {
+    const rawText = await response.text()
+    if (!rawText) return { envelope: null, rawText: '' }
+    try {
+      return { envelope: JSON.parse(rawText), rawText: '' }
+    } catch {
+      return { envelope: null, rawText }
+    }
+  }
+  return { envelope: await response.json(), rawText: '' }
+}
+
 export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defaultFetchImpl() } = {}) {
   const clientConfig = { baseUrl: normalizeBaseUrl(baseUrl), fetchImpl }
   const get = (path) => requestJson({ ...clientConfig, path })
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
+  const put = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PUT', body })
   const patch = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PATCH', body })
 
   return Object.freeze({
@@ -136,6 +156,11 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     listDrsRecommendations: () => get(API_V1_ENDPOINTS.drsRecommendations),
     getDrsRecommendation: (recommendationId) => get(API_V1_ENDPOINTS.drsRecommendation(recommendationId)),
     checkDrsRecommendation: (recommendationId, payload = {}) => post(API_V1_ENDPOINTS.drsRecommendationCheck(recommendationId), payload),
+    createDrsApprovalPacket: (recommendationId, payload = {}) => post(API_V1_ENDPOINTS.drsRecommendationApprovalPackets(recommendationId), payload),
+    drsPolicies: () => get(API_V1_ENDPOINTS.drsPolicies),
+    drsPolicy: (vmIdentityId) => get(API_V1_ENDPOINTS.drsPolicy(vmIdentityId)),
+    updateDrsPolicy: (vmIdentityId, payload = {}) => put(API_V1_ENDPOINTS.drsPolicy(vmIdentityId), payload),
+    reconcilePreviewDrsMigrationJob: (jobId, payload = {}) => post(API_V1_ENDPOINTS.drsMigrationJobReconcilePreview(jobId), payload),
     getVmCreateReadiness: () => get(API_V1_ENDPOINTS.vmCreateReadiness),
     createVmDraft: (payload = {}) => post(API_V1_ENDPOINTS.createVmDrafts, payload),
     preflightVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePreflight(draftId), payload),

@@ -301,8 +301,5 @@ Non-goals:
 
 ## Next Slice Candidate
 
-Current goal sequencing is tracked in `docs/goal/README.md`. The next active
-gate is the non-numbered Goal Check:
-`docs/goal/goal-check-01-06-implementation-quality.md`.
-Goal 7 remains DRS UI And Operations Polish and is pending after the check:
-`docs/goal/goal-07-drs-ui-operations-polish.md`.
+Current goal sequencing is tracked in `docs/goal/README.md`. Goal Check 01-06,
+Goal 7, and Goal 7.5 are complete. No live DRS smoke was run.

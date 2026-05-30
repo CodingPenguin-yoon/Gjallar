@@ -588,7 +588,7 @@ function App() {
             path="/drs"
             element={
               <div className="mx-auto max-w-7xl">
-                <DrsAdvisorScreen />
+                <DrsAdvisorScreen currentUser={currentUser} canOperate={canMutate} />
               </div>
             }
           />

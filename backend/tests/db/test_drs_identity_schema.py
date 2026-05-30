@@ -9,12 +9,39 @@ def test_drs_identity_models_are_registered_in_metadata():
     assert "vm_identities" in Base.metadata.tables
     assert "vm_identity_observations" in Base.metadata.tables
     assert "vm_migration_policies" in Base.metadata.tables
+    assert "vm_migration_policy_events" in Base.metadata.tables
     assert "operation_locks" in Base.metadata.tables
     assert "drs_approval_packets" in Base.metadata.tables
     assert "drs_migration_jobs" in Base.metadata.tables
     assert "drs_reconciliation_events" in Base.metadata.tables
     assert {"cluster_id", "stable_fingerprint"} <= set(Base.metadata.tables["vm_identities"].columns.keys())
     assert {"vm_identity_id", "policy"} <= set(Base.metadata.tables["vm_migration_policies"].columns.keys())
+    assert {
+        "event_id",
+        "vm_identity_id",
+        "policy_id",
+        "old_policy",
+        "new_policy",
+        "reason",
+        "source",
+        "actor_user_id",
+        "actor_username",
+        "actor_role",
+        "request_id",
+        "cluster_id",
+        "node_id",
+        "vmid",
+        "fingerprint_hash",
+        "observed_at",
+        "expected_observation",
+        "current_observation",
+        "validation_result",
+    } <= set(Base.metadata.tables["vm_migration_policy_events"].columns.keys())
+    assert {
+        "ck_vm_migration_policy_events_old_policy",
+        "ck_vm_migration_policy_events_new_policy",
+        "ck_vm_migration_policy_events_source",
+    } <= {constraint.name for constraint in Base.metadata.tables["vm_migration_policy_events"].constraints}
     assert {
         "operation_lock_id",
         "operation_type",
@@ -113,10 +140,15 @@ def test_drs_identity_models_are_registered_in_metadata():
         "ix_drs_migration_jobs_route_status",
         "ix_drs_reconciliation_events_job_created",
         "ix_drs_reconciliation_events_status",
+        "ix_vm_migration_policy_events_identity_created",
+        "ix_vm_migration_policy_events_policy_created",
+        "ix_vm_migration_policy_events_actor_created",
+        "ix_vm_migration_policy_events_locator_created",
     } <= (
         {index.name for index in Base.metadata.tables["drs_approval_packets"].indexes}
         | {index.name for index in Base.metadata.tables["drs_migration_jobs"].indexes}
         | {index.name for index in Base.metadata.tables["drs_reconciliation_events"].indexes}
+        | {index.name for index in Base.metadata.tables["vm_migration_policy_events"].indexes}
     )
 
 
@@ -132,7 +164,7 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
     reset_session_cache()
 
     config = Config(str(Path("backend/alembic.ini").resolve()))
-    upgrade(config, "20260530_0023")
+    upgrade(config, "20260531_0024")
 
     engine = create_engine(database_url, future=True)
     inspector = inspect(engine)
@@ -140,6 +172,7 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
         assert inspector.has_table("vm_identities")
         assert inspector.has_table("vm_identity_observations")
         assert inspector.has_table("vm_migration_policies")
+        assert inspector.has_table("vm_migration_policy_events")
         assert inspector.has_table("operation_locks")
         assert inspector.has_table("drs_approval_packets")
         assert inspector.has_table("drs_migration_jobs")
@@ -162,6 +195,28 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
         } <= migration_columns
         event_columns = {column["name"] for column in inspector.get_columns("drs_reconciliation_events")}
         assert {"event_id", "job_id", "event_type", "status", "reason", "evidence"} <= event_columns
+        policy_event_columns = {column["name"] for column in inspector.get_columns("vm_migration_policy_events")}
+        assert {
+            "event_id",
+            "vm_identity_id",
+            "policy_id",
+            "old_policy",
+            "new_policy",
+            "reason",
+            "source",
+            "actor_user_id",
+            "actor_username",
+            "actor_role",
+            "request_id",
+            "cluster_id",
+            "node_id",
+            "vmid",
+            "fingerprint_hash",
+            "observed_at",
+            "expected_observation",
+            "current_observation",
+            "validation_result",
+        } <= policy_event_columns
         assert "uq_vm_identities_cluster_fingerprint" in {
             constraint["name"] for constraint in inspector.get_unique_constraints("vm_identities")
         }
@@ -211,6 +266,19 @@ def test_alembic_head_creates_drs_identity_policy_and_operation_lock_tables(tmp_
             "ix_drs_reconciliation_events_job_created",
             "ix_drs_reconciliation_events_status",
         } <= {index["name"] for index in inspector.get_indexes("drs_reconciliation_events")}
+        assert {
+            "ix_vm_migration_policy_events_vm_identity_id",
+            "ix_vm_migration_policy_events_policy_id",
+            "ix_vm_migration_policy_events_identity_created",
+            "ix_vm_migration_policy_events_policy_created",
+            "ix_vm_migration_policy_events_actor_created",
+            "ix_vm_migration_policy_events_locator_created",
+        } <= {index["name"] for index in inspector.get_indexes("vm_migration_policy_events")}
+        assert {
+            "ck_vm_migration_policy_events_old_policy",
+            "ck_vm_migration_policy_events_new_policy",
+            "ck_vm_migration_policy_events_source",
+        } <= {constraint["name"] for constraint in inspector.get_check_constraints("vm_migration_policy_events")}
     finally:
         engine.dispose()
         reset_session_cache()

@@ -367,6 +367,36 @@ def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_wor
         record_job_run.assert_not_called()
 
 
+def test_drs_policy_put_requires_operator_before_service_or_db_mutation(monkeypatch):
+    _create_user(monkeypatch, username="drs-policy-viewer", role="viewer")
+    client = _client()
+    path = "/api/v1/drs/policies/vmid-authz"
+    payload = {
+        "policy": "allowed",
+        "reason": "authz should block before service",
+        "policy_change_acknowledged": True,
+        "expected_observation": {
+            "cluster_id": "cluster-a",
+            "node_id": "node-a",
+            "vmid": 101,
+            "fingerprint_hash": "sha256:test",
+            "observed_at": "2026-05-31T00:00:00+00:00",
+        },
+    }
+
+    with patch("app.api.v1.router.update_drs_policy") as update_policy:
+        unauthenticated = client.put(path, json=payload)
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+        _login(client, username="drs-policy-viewer")
+        viewer = client.put(path, json=payload)
+        assert viewer.status_code == 403
+        assert viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+
+        update_policy.assert_not_called()
+
+
 def test_drs_execute_and_reconcile_preview_routes_require_operator_before_work(monkeypatch):
     _create_user(monkeypatch, username="drs-exec-viewer", role="viewer")
     client = _client()

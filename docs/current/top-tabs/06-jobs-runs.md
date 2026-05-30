@@ -36,6 +36,10 @@ frontend는 job list, selected job detail, progress steps, artifact metadata를 
 
 DRS migration success는 Proxmox task success만으로 결정하지 않는다. Completed status requires task `OK` plus direct target-node status/config post-check, expected power-state evidence, matching fingerprint, and no conflicting active task. Ambiguous evidence remains `needs_reconciliation`.
 
-## 다음 구현 gate
+## 다음 구현
 
-다음 gate는 비번호 Goal Check([`docs/goal/goal-check-01-06-implementation-quality.md`](../../goal/goal-check-01-06-implementation-quality.md))다. 이 check가 Goal 1-6 구현 품질을 검증하기 전에는 Goal 7 DRS UI/operations polish를 시작하지 않는다. Backend read-only Reconcile preview exists, but corrective reconciliation mutation and broad UI action remain deferred.
+Goal Check 01-06, Goal 7 DRS UI/operations polish, and Goal 7.5 DRS VM Policy
+Configuration은 완료됐다. 현재 순서는
+[`docs/goal/README.md`](../../goal/README.md)를 기준으로 본다. Backend
+read-only Reconcile preview exists, but corrective reconciliation mutation and
+broad UI action remain deferred.

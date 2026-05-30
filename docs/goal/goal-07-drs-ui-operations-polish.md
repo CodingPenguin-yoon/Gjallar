@@ -1,11 +1,10 @@
 # Goal 7: DRS UI And Operations Polish
 
-Status: pending after Goal Check.
+Status: completed as a minimal safe UI slice.
 
-Prerequisite: complete the non-numbered Goal Check in
-`docs/goal/goal-check-01-06-implementation-quality.md`. Goal 7 must not start
-until that check verifies Goal 1 through Goal 6 are genuinely implemented,
-production-quality, and not test-shaped or docs-only.
+Prerequisite completed: the non-numbered Goal Check in
+`docs/goal/goal-check-01-06-implementation-quality.md` verified Goal 1 through
+Goal 6 with result `pass-with-risk`.
 
 ## Objective
 
@@ -60,9 +59,11 @@ Known remaining gaps:
 - The read-only advisor final pre-check adapter still reports some active task,
   HA, and quorum evidence as explicit `not_collected`; the execution path
   collects live pre-mutation checks separately.
-- Approval UI and broad execution UI polish are not implemented.
+- Broad execution UI is not implemented.
 - A live DRS migration smoke run is still pending explicit user approval in a
   future active session.
+- VM migration policy management is completed in Goal 7.5:
+  `docs/goal/goal-07-5-drs-vm-policy-management.md`.
 
 ## Standing Non-Negotiables
 

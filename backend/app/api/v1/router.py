@@ -15,6 +15,7 @@ from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_
 from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, find_drs_recommendation
 from app.drs.approval import DrsApprovalBlockedError, create_approval_packet_and_job_intent
 from app.drs.execution import DrsMigrationExecutionError, build_drs_migration_reconciliation_preview, execute_drs_migration_job
+from app.drs.policies import DrsPolicyServiceError, get_drs_policy_item, list_drs_policy_items, update_drs_policy
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
@@ -440,6 +441,54 @@ def check_drs_recommendation(recommendation_id: str, payload: dict | None = None
     return success_response(
         result,
         meta={"source": adapter.source, "mode": "drs_advisor_read_only"},
+    )
+
+
+@router.get("/drs/policies")
+def list_drs_policies() -> dict:
+    """Return current DRS VM migration policy management state."""
+    adapter = _inventory_adapter()
+    return success_response(
+        list_drs_policy_items(adapter, risks=_drs_risks()),
+        meta={"source": adapter.source, "mode": "drs_policy_management_read_only"},
+    )
+
+
+@router.get("/drs/policies/{vm_identity_id}")
+def get_drs_policy(vm_identity_id: str) -> dict:
+    """Return one current DRS VM migration policy item."""
+    adapter = _inventory_adapter()
+    try:
+        item = get_drs_policy_item(adapter, vm_identity_id, risks=_drs_risks())
+    except DrsPolicyServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_detail()) from exc
+    return success_response(
+        item,
+        meta={"source": adapter.source, "mode": "drs_policy_management_read_only"},
+    )
+
+
+@router.put("/drs/policies/{vm_identity_id}")
+def put_drs_policy(
+    vm_identity_id: str,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    """Manually update one Gjallar-local DRS VM migration policy."""
+    adapter = _inventory_adapter()
+    try:
+        result = update_drs_policy(
+            adapter,
+            vm_identity_id,
+            payload or {},
+            actor=actor,
+            risks=_drs_risks(),
+        )
+    except DrsPolicyServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_detail()) from exc
+    return success_response(
+        result,
+        meta={"source": adapter.source, "mode": "drs_policy_manual_update"},
     )
 
 

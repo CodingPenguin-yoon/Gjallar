@@ -39,7 +39,7 @@ surfaces:
 | Infra Explorer | VM/node inventory, VM detail, gated stopped-VM Start action. | Implemented; no DRS identity panel yet. |
 | Networks | Selected-source read-only network readiness and migration pre-check visualization. | Implemented; no mutation or DRS authority. |
 | Create VM | DB profile seed, draft/preflight/plan/approval, native Proxmox create, jobs/artifacts, request/VM records. | Implemented supporting capability. |
-| DRS Advisor | `/drs` UI with identity/policy evidence, read-only final pre-check, approval/job substrate, narrow execution route, UPID tracking, verified post-check, and read-only Reconcile preview. | Backend Goal 1-6 slices implemented; Goal Check gate is next before Goal 7 UI polish. |
+| DRS Advisor | `/drs` UI with identity/policy evidence, manual VM policy configuration, read-only final pre-check, approval/job substrate, narrow execution route, UPID tracking, verified post-check, and read-only Reconcile preview. | Goal Check, Goal 7 minimal UI polish, and Goal 7.5 VM policy configuration are complete. |
 | Jobs/Runs | DB-backed latest job state and artifact metadata. | Implemented for Create VM, VM start, and DRS migration jobs. |
 | Risks/Alerts | Job-derived risk summaries. | Implemented; not yet a DRS blocker engine. |
 | Auth/Admin | Local login, server-side sessions, RBAC, and admin local-user management. | Implemented; no public signup/OAuth/API tokens. |
@@ -54,6 +54,7 @@ Implemented DB tables:
 - `vm_identities`
 - `vm_identity_observations`
 - `vm_migration_policies`
+- `vm_migration_policy_events`
 - `operation_locks`
 - `drs_approval_packets`
 - `drs_migration_jobs`
@@ -65,7 +66,7 @@ Remaining or deferred:
 
 - DRS observed VM/node history
 - 15-minute average/peak metric substrate
-- broader DRS execution UI and operations polish
+- broader DRS execution UI beyond the safe slice
 - live DRS migration smoke evidence
 - corrective reconciliation mutation
 - background reconciliation automation
@@ -82,21 +83,21 @@ authorization and admin-managed local accounts. The stabilization plan is
 
 DRS execution authority remains gated by VM identity, fingerprint, policy,
 final pre-check, operation locks, approval, UPID tracking, post-check, and
-reconciliation contracts. Goal 7 UI polish must wait for the non-numbered Goal
-Check.
+reconciliation contracts. Goal 7.5 DRS VM Policy Configuration is complete; no
+live DRS smoke was run.
 
 ## Feature Matrix
 
 | Feature | Implemented | Remaining | Next action | Key docs |
 |---|---|---|---|---|
-| `/drs` Advisor | Backend endpoints and UI route exist with compact identity/policy evidence. | Broad execution UI polish and live DRS smoke evidence. | Run the Goal Check gate before Goal 7. | [`docs/goal/README.md`](../goal/README.md) |
+| `/drs` Advisor | Backend endpoints and UI route exist with compact identity/policy evidence plus manual VM policy configuration. | Broader execution UI and live DRS smoke evidence. | Follow `docs/goal/README.md` for the next user-selected task. | [`docs/goal/README.md`](../goal/README.md) |
 | Create VM auth/session hardening | Login/session/RBAC, actor evidence, admin local-user management, and approved 2026-05-28 live smoke are implemented. | Future live smoke or cleanup still needs explicit approval. | Keep as supporting capability. | [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md) |
-| Recommendation calculation | Uses current CPU/memory pressure, imbalance, bridge/storage evidence, red-risk exclusion, identity/policy blockers, operation-lock evidence, config-lock evidence, and final pre-check readiness. | 15m average/peak metrics and deeper read-only HA/quorum/task collection. | Audit Goal 1-6 quality before UI polish. | [`04_DRS_RECOMMENDATION_AND_EXECUTION.md`](../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) |
-| VM identity/fingerprint | DB-backed DRS identities, observations, curated fingerprints, confidence, and migration policy memory exist. | Quality audit and future operations polish. | Verify in Goal Check. | [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md) |
-| Metadata/policy | Migration policy memory exists with default `unknown` blocking execution. | Broad policy editor remains out of scope. | Verify in Goal Check. | [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md) |
+| Recommendation calculation | Uses current CPU/memory pressure, imbalance, bridge/storage evidence, red-risk exclusion, identity/policy blockers, operation-lock evidence, config-lock evidence, and final pre-check readiness. | 15m average/peak metrics and deeper read-only HA/quorum/task collection. | Keep as backend-owned evidence. | [`04_DRS_RECOMMENDATION_AND_EXECUTION.md`](../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) |
+| VM identity/fingerprint | DB-backed DRS identities, observations, curated fingerprints, confidence, migration policy memory, and manual VM policy configuration exist. | Future operations polish. | Keep identity policy keyed to `vm_identity_id`. | [`docs/goal/goal-07-5-drs-vm-policy-management.md`](../goal/goal-07-5-drs-vm-policy-management.md) |
+| Metadata/policy | Migration policy memory exists with default `unknown` blocking execution, manual UI/API updates, and audit evidence. | Richer future policy metadata/rule engine remains deferred. | Preserve `allowed` as prerequisite only. | [`docs/goal/goal-07-5-drs-vm-policy-management.md`](../goal/goal-07-5-drs-vm-policy-management.md) |
 | Final pre-check | Read-only final pre-check exists with identity, policy, operation-lock, and config-lock blockers. | Advisor adapter still marks some task/HA/quorum evidence as explicit `not_collected`; execution collects live pre-mutation evidence separately. | Verify in Goal Check. | [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md) |
-| Migration execution | Narrow approval-gated backend execution route exists with dedicated DRS migration client, operation locks, and UPID tracking. | Broad UI polish and live DRS smoke evidence. | Verify in Goal Check before Goal 7. | [`drs-approve-migrate-reconcile.md`](../architecture/flows/drs-approve-migrate-reconcile.md) |
-| Reconciliation/restart safety | Verified post-check, `needs_reconciliation`, reconciliation events, and read-only Reconcile preview exist. | Corrective mutation and background reconciliation automation remain deferred. | Verify in Goal Check before Goal 7. | [`05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) |
+| Migration execution | Narrow approval-gated backend execution route exists with dedicated DRS migration client, operation locks, and UPID tracking. | Live DRS smoke evidence remains pending explicit approval. | Do not broaden execution without a new explicit goal. | [`drs-approve-migrate-reconcile.md`](../architecture/flows/drs-approve-migrate-reconcile.md) |
+| Reconciliation/restart safety | Verified post-check, `needs_reconciliation`, reconciliation events, and read-only Reconcile preview exist. | Corrective mutation and background reconciliation automation remain deferred. | Keep deferred without a new explicit goal. | [`05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) |
 
 ## DRS Implementation Phases
 
@@ -281,11 +282,9 @@ in [`docs/goal/README.md`](../goal/README.md).
 
 Completed later work includes Create VM stabilization, DRS identity/fingerprint
 foundation, operation locks, approval/job substrate, narrow live migration
-execution with UPID tracking, and post-check/reconciliation. The next active
-gate is the non-numbered Goal Check:
-[`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
-Goal 7 remains DRS UI And Operations Polish, pending after that check:
-[`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
+execution with UPID tracking, post-check/reconciliation, Goal Check 01-06,
+Goal 7 DRS UI/operations polish, and Goal 7.5 DRS VM Policy Configuration. No
+live DRS smoke was run.
 
 Suggested first implementation boundary:
 
