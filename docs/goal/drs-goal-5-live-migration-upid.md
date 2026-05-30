@@ -1,7 +1,7 @@
 # Goal 5: DRS Live Migration Execution And UPID Tracking
 
-Status: completed in the current worktree on 2026-05-30. This file is retained
-as the Goal 5 implementation brief and review reference. Goal 6 post-check and
+Status: completed on 2026-05-30. This file is retained as the Goal 5
+implementation brief and review reference. Goal 6 post-check and
 reconciliation was implemented later in
 `docs/goal/drs-goal-6-post-check-reconciliation.md`.
 
@@ -9,7 +9,7 @@ reconciliation was implemented later in
 
 Use this file as the detailed task brief only when reviewing or repairing Goal
 5 work. Do not use it as the next active DRS goal unless Goal 5 changes are
-missing from the worktree.
+missing from the current checkout.
 
 ## Controlling References
 
@@ -29,7 +29,7 @@ Read these first:
 - `backend/tests/contracts/test_api_v1_drs.py`
 - `backend/tests/jobs/test_runs.py`
 
-Use the current worktree as authoritative. If Goal 5 work is already present,
+Use the current checkout as authoritative. If Goal 5 work is already present,
 inspect it, verify it against this brief, and continue from the actual current
 state instead of restarting.
 

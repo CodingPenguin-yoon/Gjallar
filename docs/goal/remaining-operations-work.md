@@ -1,5 +1,15 @@
 # Goal Guide: Remaining Gjallar Operations Work
 
+## Role In The Goal Set
+
+This is the broad operations backlog. Use `docs/goal/README.md` as the
+canonical map before starting work, then use this file only for the detailed
+Goal 1 through Goal 9 backlog text.
+
+Do not treat this file as a competing DRS goal sequence. DRS-specific details
+after Goal 2 are split into `docs/goal/drs-execution-goal-slices.md` and the
+standalone `docs/goal/drs-goal-*.md` briefs listed in the README.
+
 ## Starting Point
 
 - Session auth/RBAC was committed and pushed as `e7b4d13`.
@@ -19,15 +29,15 @@
   blockers, DB-backed operation lock lookup, config-lock evidence, and a
   read-only final pre-check model.
 - DRS Goal 4 approval/job substrate is implemented.
-- DRS Goal 5 live migration execution and UPID tracking is implemented in the
-  current worktree as a narrow backend path. The validation was automated
-  fake/mock validation; no live Proxmox DRS migration smoke has been run yet.
-- DRS Goal 6 post-check and reconciliation is implemented in the current
-  worktree. Completion requires Proxmox task `OK` plus direct target-node
-  status/config post-check, expected power state, matching DRS fingerprint, and
-  no conflicting active task. Ambiguous outcomes stay `needs_reconciliation`;
-  locks release only after verified post-check. A read-only Reconcile preview
-  exists. No live Proxmox DRS migration smoke has been run yet.
+- DRS Goal 5 live migration execution and UPID tracking is implemented as a
+  narrow backend path. The validation was automated fake/mock validation; no
+  live Proxmox DRS migration smoke has been run yet.
+- DRS Goal 6 post-check and reconciliation is implemented. Completion requires
+  Proxmox task `OK` plus direct target-node status/config post-check, expected
+  power state, matching DRS fingerprint, and no conflicting active task.
+  Ambiguous outcomes stay `needs_reconciliation`; locks release only after
+  verified post-check. A read-only Reconcile preview exists. No live Proxmox
+  DRS migration smoke has been run yet.
 
 ## Non-Negotiables
 
@@ -222,8 +232,8 @@ Primary objective: add local approval evidence, warning acknowledgement, and
 
 ## Goal 5: DRS Live Migration Execution And UPID Tracking
 
-Status: completed in the current worktree on 2026-05-30. No live Proxmox DRS
-migration smoke was run as part of Goal 5.
+Status: completed on 2026-05-30. No live Proxmox DRS migration smoke was run
+as part of Goal 5.
 
 Detailed execution guide:
 `docs/goal/drs-goal-5-live-migration-upid.md`.
@@ -249,8 +259,8 @@ policy, final pre-check, approval, operation lock, and job gates exist.
 
 ## Goal 6: DRS Post-Check And Reconciliation
 
-Status: completed in the current worktree on 2026-05-30. No live Proxmox DRS
-migration smoke was run as part of Goal 6.
+Status: completed on 2026-05-30. No live Proxmox DRS migration smoke was run
+as part of Goal 6.
 
 Detailed execution guide:
 `docs/goal/drs-goal-6-post-check-reconciliation.md`.
@@ -360,9 +370,9 @@ git diff --check
   future live smoke or cleanup mutation still needs explicit active-session
   approval.
 - DRS Advisor now has the narrow Goal 5 backend execution path and Goal 6
-  post-check/reconciliation path in the current worktree. Live DRS smoke
-  evidence, broad UI polish, background reconciliation automation, and
-  corrective reconciliation mutation remain deferred.
+  post-check/reconciliation path. Live DRS smoke evidence, broad UI polish,
+  background reconciliation automation, and corrective reconciliation mutation
+  remain deferred.
 - The `192.168.2.140-150/24` test range is a candidate selection guard only.
   It must not replace DRS identity/fingerprint or explicit live-mutation
   approval.

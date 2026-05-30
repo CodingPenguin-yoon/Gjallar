@@ -1,12 +1,13 @@
 # Goal 6: DRS Post-Check And Reconciliation
 
-Status: completed in the current worktree on 2026-05-30. No live Proxmox DRS
-migration smoke was run as part of Goal 6.
+Status: completed on 2026-05-30. No live Proxmox DRS migration smoke was run
+as part of Goal 6.
 
 ## Session Prompt Source
 
 Use this file as the Goal 6 implementation brief and review reference. Reopen
-it for implementation only if Goal 6 changes are missing from the worktree.
+it for implementation only if Goal 6 changes are missing from the current
+checkout.
 
 ## Starting Point
 
@@ -15,13 +16,13 @@ execution and Proxmox UPID/task tracking. The Goal 5 validation was automated
 fake/mock validation. It did not run an actual live Proxmox migration smoke.
 
 Goal 6 now makes the outcome trustworthy after task completion, timeout,
-restart, or ambiguous evidence. In the current worktree, DRS migration
-completion requires Proxmox task `OK` plus direct target-node status/config
-post-check, expected power-state evidence, matching DRS fingerprint, and no
-conflicting active task. Ambiguous outcomes stay `needs_reconciliation`; locks
-release only after verified post-check. A read-only Reconcile preview exists.
+restart, or ambiguous evidence. DRS migration completion requires Proxmox task
+`OK` plus direct target-node status/config post-check, expected power-state
+evidence, matching DRS fingerprint, and no conflicting active task. Ambiguous
+outcomes stay `needs_reconciliation`; locks release only after verified
+post-check. A read-only Reconcile preview exists.
 
-Use the current worktree as authoritative. If Goal 5 work is already present,
+Use the current checkout as authoritative. If Goal 5 work is already present,
 inspect it, verify it against `docs/goal/drs-goal-5-live-migration-upid.md`,
 and continue from the actual current state instead of restarting.
 

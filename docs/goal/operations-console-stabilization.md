@@ -1,5 +1,14 @@
 # Goal: Stabilize Gjallar Operations Console And Remove Legacy Code
 
+## Current Role
+
+This is a completed historical goal brief. It is retained for traceability of
+the operations-console stabilization work that preceded the current Goal 1
+through Goal 9 backlog.
+
+Use `docs/goal/README.md` as the active entry point. Do not treat this file as
+the next goal unless the user explicitly reopens this workstream.
+
 ## Starting Point
 
 - Session auth/RBAC was committed and pushed as `e7b4d13`.

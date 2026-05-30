@@ -8,7 +8,7 @@ and review reference. The next active DRS goal is tracked from
 
 Use this file as the detailed task brief only when reviewing or repairing Goal
 4 work. Do not use it as the next active DRS goal unless Goal 4 changes are
-missing from the worktree.
+missing from the current checkout.
 
 ## Controlling References
 
@@ -27,7 +27,7 @@ Read these first:
 - `backend/tests/contracts/test_api_v1_drs.py`
 - `backend/tests/db/test_drs_identity_schema.py`
 
-Use the current worktree as authoritative. If Goal 4 work is already present,
+Use the current checkout as authoritative. If Goal 4 work is already present,
 inspect it, verify it against this brief, and continue from the actual current
 state instead of restarting.
 

@@ -2,8 +2,12 @@
 
 ## Purpose
 
-This document is the goal-planning reference for DRS work after the safe
-execution readiness foundation.
+This document is the DRS execution sub-index for Goal 3 through Goal 7.
+Use `docs/goal/README.md` first for the canonical Goal 1 through Goal 9 map,
+then use this file for DRS execution details.
+
+Do not treat this file as a separate top-level backlog. It intentionally does
+not define Goal 1, Goal 2, Goal 8, or Goal 9.
 
 Before starting any new DRS goal, read this file together with:
 
@@ -42,7 +46,7 @@ Completed foundation:
   - approval/final-pre-check/lock gates before mutation
   - UPID/task metadata storage
   - conservative `needs_reconciliation` handling for ambiguous outcomes
-- Goal 6 post-check and reconciliation exists in the current worktree:
+- Goal 6 post-check and reconciliation exists:
   - completion requires Proxmox task `OK` plus direct target-node status/config
     post-check, matching fingerprint, expected power state, and no conflicting
     active task
@@ -232,7 +236,7 @@ can be safely started. This goal should still avoid live migration execution.
 
 ## Goal 5: DRS Live Migration Execution And UPID Tracking
 
-Status: completed in the current worktree on 2026-05-30. Standalone brief:
+Status: completed on 2026-05-30. Standalone brief:
 `docs/goal/drs-goal-5-live-migration-upid.md`.
 
 ### Objective
@@ -274,7 +278,7 @@ final pre-check, approval, operation locks, and job state are in place.
 
 ## Goal 6: DRS Post-Check And Reconciliation
 
-Status: completed in the current worktree on 2026-05-30. Standalone brief:
+Status: completed on 2026-05-30. Standalone brief:
 `docs/goal/drs-goal-6-post-check-reconciliation.md`.
 
 ### Objective
