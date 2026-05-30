@@ -47,7 +47,7 @@ VM identity foundation은 Proxmox inventory에서 SMBIOS UUID, VM generation ID,
 
 Migration policy default는 `unknown`이며 execution-blocking이다. Canonical blockers는 `vm_identity_unknown`, `vm_identity_uncertain`, `migration_policy_unknown`, `migration_policy_restricted`, `migration_policy_blocked`, `drs_final_precheck_failed`를 사용하고, compatibility blockers such as `identity_unknown`, `metadata_missing`, `policy_unknown`, `final_precheck_not_run`도 필요한 곳에 남아 있다.
 
-Manual policy configuration is attached only to Gjallar `vm_identity_id`. The UI shows current locator and observation guard evidence, blocks policy writes for uncertain identities, requires a deliberate review acknowledgement, and does not send actor/source/operator fields from the browser.
+Manual policy configuration is attached only to Gjallar `vm_identity_id`. The shared policy review modal is used by both `/drs` policy configuration and Infra Explorer VM rows. It shows current locator and observation guard evidence, blocks policy writes for uncertain identities, requires a deliberate policy select, reason, acknowledgement, and does not send actor/source/operator fields from the browser.
 
 `operation_locks`는 `drs_migration` operation type만 다루는 Gjallar-local table이다. `/check`는 VM identity, Proxmox locator, route scope를 조회한다. `active`, `stale`, `reconciliation_required` lock은 `would_be_executable=false`로 막고, `released` lock은 막지 않는다. `/check`는 lock row를 생성/갱신/해제하지 않는다. `/execute`는 mutation 전 같은 세 scope에 active lock을 transactionally 생성하며, acquisition이 막히면 Proxmox mutation을 호출하지 않는다.
 

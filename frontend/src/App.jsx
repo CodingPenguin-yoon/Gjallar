@@ -564,7 +564,7 @@ function App() {
             path="/infra"
             element={
               <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <InstanceList currentUser={currentUser} canStartVms={canMutate} />
+                <InstanceList currentUser={currentUser} canStartVms={canMutate} canManageDrsPolicies={canMutate} />
               </div>
             }
           />

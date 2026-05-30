@@ -4,13 +4,16 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Loader2,
   Play,
   RefreshCw,
   Server,
 } from 'lucide-react'
+import DrsPolicyReviewModal from './DrsPolicyReviewModal'
 import { apiV1Client } from '../services/apiV1'
 import { authFailureMessage } from '../utils/auth'
+import { formatDrsBlocker, loadDrsPolicyCoverage, submitDrsPolicyUpdate } from '../utils/drsAdvisor'
 import { loadInfraExplorerModel } from '../utils/infraExplorerScreen'
 
 function formatNumber(value, digits = 0) {
@@ -40,6 +43,45 @@ function statusLabel(status) {
 
 function canStartVm(vm = {}) {
   return Array.isArray(vm.allowedActions) && vm.allowedActions.includes('start')
+}
+
+function policyLocatorKey(nodeId, vmid) {
+  const node = String(nodeId || '').trim()
+  const id = vmid === null || vmid === undefined ? '' : String(vmid).trim()
+  return node && id ? `${node}:${id}` : ''
+}
+
+function buildPolicyCoverageIndex(policyCoverage) {
+  const items = Array.isArray(policyCoverage?.items) ? policyCoverage.items : []
+  return new Map(
+    items
+      .map((item) => [policyLocatorKey(item.currentLocator?.nodeId, item.currentLocator?.vmid), item])
+      .filter(([key]) => key),
+  )
+}
+
+function drsPolicyToneClass(policy) {
+  if (policy === 'allowed') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  if (policy === 'blocked') return 'bg-red-50 text-red-700 border-red-200'
+  if (policy === 'restricted') return 'bg-amber-50 text-amber-700 border-amber-200'
+  return 'bg-slate-50 text-slate-600 border-slate-200'
+}
+
+function formatPolicyBlockers(blockers = []) {
+  const visible = blockers.slice(0, 2).map(formatDrsBlocker)
+  const hiddenCount = blockers.length - visible.length
+  return hiddenCount > 0 ? `${visible.join(', ')} +${hiddenCount}` : visible.join(', ')
+}
+
+function drsPolicyReviewDisabledReason(item, canManageDrsPolicies, saving) {
+  if (!item) return 'No DRS policy item is available for this VM current locator.'
+  if (!canManageDrsPolicies) return 'DRS policy updates require operator or admin role.'
+  if (!item.policyWriteAllowed) {
+    const blockerText = formatPolicyBlockers(item.policyWriteBlockers || [])
+    return blockerText ? `DRS policy write blocked: ${blockerText}.` : 'DRS policy write is blocked for this VM identity.'
+  }
+  if (saving) return 'Saving DRS policy.'
+  return ''
 }
 
 function makeVmStartIdempotencyKey(vm = {}) {
@@ -185,9 +227,59 @@ function SignalStack({ vm }) {
   )
 }
 
-function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, currentUser = null, canStartVms = true }) {
+function DrsPolicyStatus({ item, coverageUnavailable }) {
+  if (coverageUnavailable) {
+    return (
+      <div className="min-w-0 text-xs">
+        <span className="inline-flex max-w-full rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-800">
+          <span className="truncate">unavailable</span>
+        </span>
+        <div className="mt-1 truncate text-[11px] text-amber-700">DRS context unavailable</div>
+      </div>
+    )
+  }
+
+  if (!item) {
+    return (
+      <div className="min-w-0 text-xs">
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
+          <span className="truncate">no identity</span>
+        </span>
+        <div className="mt-1 truncate text-[11px] text-slate-500">No current policy item</div>
+      </div>
+    )
+  }
+
+  const policy = item.policy?.value || 'unknown'
+  const blockerText = formatPolicyBlockers(item.policyWriteBlockers || [])
+  return (
+    <div className="min-w-0 text-xs">
+      <span className={`inline-flex max-w-full rounded border px-1.5 py-0.5 font-semibold ${drsPolicyToneClass(policy)}`} title={policy}>
+        <span className="truncate">{policy}</span>
+      </span>
+      <div className="mt-1 truncate text-[11px] text-slate-500" title={`identity ${item.identityConfidence}`}>
+        identity {item.identityConfidence}
+      </div>
+      {!item.policyWriteAllowed ? (
+        <div className="mt-1 truncate text-[11px] font-medium text-amber-700" title={blockerText || 'write blocked'}>
+          write blocked{blockerText ? `: ${blockerText}` : ''}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function InstanceList({
+  onLogsUpdate = () => {},
+  onStatusChange = () => {},
+  currentUser = null,
+  canStartVms = true,
+  canManageDrsPolicies = false,
+}) {
   const navigate = useNavigate()
   const [model, setModel] = useState(null)
+  const [policyCoverage, setPolicyCoverage] = useState(null)
+  const [policyCoverageWarning, setPolicyCoverageWarning] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -196,25 +288,47 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
   const [startAcknowledged, setStartAcknowledged] = useState(false)
   const [startSubmitting, setStartSubmitting] = useState(false)
   const [startError, setStartError] = useState('')
+  const [policyReviewItem, setPolicyReviewItem] = useState(null)
+  const [policySavingId, setPolicySavingId] = useState(null)
+  const [policyError, setPolicyError] = useState('')
+  const [policyUpdateResult, setPolicyUpdateResult] = useState(null)
 
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString()
     onLogsUpdate((prev) => [...prev, { timestamp, message, type }])
   }
 
+  const refreshPolicyCoverage = async () => {
+    try {
+      const nextPolicyCoverage = await loadDrsPolicyCoverage(apiV1Client)
+      setPolicyCoverage(nextPolicyCoverage)
+      setPolicyCoverageWarning('')
+      return nextPolicyCoverage
+    } catch (error) {
+      const message = error?.message || 'Failed to load DRS policy context'
+      setPolicyCoverage(null)
+      setPolicyCoverageWarning(`DRS policy context is unavailable. VM inventory remains available. ${message}`)
+      addLog(`DRS policy context unavailable: ${message}`, 'warning')
+      return null
+    }
+  }
+
   const fetchInfra = async () => {
     setRefreshing(true)
     setErrorMessage('')
+    setPolicyCoverageWarning('')
     try {
       const nextModel = await loadInfraExplorerModel(apiV1Client)
       setModel(nextModel)
       setExpandedGroups(Object.fromEntries((nextModel.nodes || []).map((node) => [node.id, true])))
+      await refreshPolicyCoverage()
       onStatusChange('idle')
       addLog(`Loaded ${nextModel.summary.totalVms} VMs across ${nextModel.summary.totalNodes} nodes`, 'success')
     } catch (error) {
       const message = error?.message || 'Failed to load Infra Explorer data'
       setErrorMessage(message)
       setModel(null)
+      setPolicyCoverage(null)
       onStatusChange('error')
       addLog(`Infra Explorer load failed: ${message}`, 'error')
     } finally {
@@ -237,6 +351,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
   }
 
   const nodes = model?.nodes || []
+  const policyItemsByLocator = buildPolicyCoverageIndex(policyCoverage)
 
   const toggleGroup = (nodeId) => {
     setExpandedGroups((current) => ({
@@ -260,6 +375,19 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
     setPendingStartVm(null)
     setStartAcknowledged(false)
     setStartError('')
+  }
+
+  const openPolicyReview = (item) => {
+    if (!item || !canManageDrsPolicies || !item.policyWriteAllowed) return
+    setPolicyReviewItem(item)
+    setPolicyError('')
+    setPolicyUpdateResult(null)
+  }
+
+  const closePolicyReview = () => {
+    if (policySavingId) return
+    setPolicyReviewItem(null)
+    setPolicyError('')
   }
 
   const confirmStartVm = async () => {
@@ -287,6 +415,30 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
       addLog(`VM start failed for ${pendingStartVm.name}: ${message}`, 'error')
     } finally {
       setStartSubmitting(false)
+    }
+  }
+
+  const submitPolicyReview = async (item, { policy, reason, acknowledged }) => {
+    if (!canManageDrsPolicies || !item?.policyWriteAllowed || policySavingId) return
+    setPolicySavingId(item.vmIdentityId)
+    setPolicyError('')
+    try {
+      const result = await submitDrsPolicyUpdate(apiV1Client, item.vmIdentityId, {
+        policy,
+        reason,
+        policyChangeAcknowledged: acknowledged,
+        expectedObservation: item.expectedObservationPayload,
+      })
+      setPolicyUpdateResult(result)
+      setPolicyReviewItem(null)
+      addLog(`DRS policy saved for ${item.currentLocator?.name || item.vmIdentityId}`, 'success')
+      await refreshPolicyCoverage()
+    } catch (error) {
+      const message = authFailureMessage(error, 'Unable to update DRS policy')
+      setPolicyError(message)
+      addLog(`DRS policy update failed for ${item.currentLocator?.name || item.vmIdentityId}: ${message}`, 'error')
+    } finally {
+      setPolicySavingId(null)
     }
   }
 
@@ -325,6 +477,30 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
       {!canStartVms ? (
         <div className="border-b border-yellow-100 bg-yellow-50 px-6 py-3 text-sm text-yellow-800">
           VM Start requires operator or admin role. Current role: {currentUser?.role || 'unknown'}.
+        </div>
+      ) : null}
+
+      {!canManageDrsPolicies ? (
+        <div className="border-b border-yellow-100 bg-yellow-50 px-6 py-3 text-sm text-yellow-800">
+          DRS policy review is visible, but updates require operator or admin role. Current role: {currentUser?.role || 'unknown'}.
+        </div>
+      ) : null}
+
+      {policyCoverageWarning ? (
+        <div className="border-b border-amber-100 bg-amber-50 px-6 py-3 text-sm text-amber-800">
+          {policyCoverageWarning}
+        </div>
+      ) : null}
+
+      {policyError && !policyReviewItem ? (
+        <div className="border-b border-red-100 bg-red-50 px-6 py-3 text-sm text-red-800">
+          {policyError}
+        </div>
+      ) : null}
+
+      {policyUpdateResult && !policyReviewItem ? (
+        <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-3 text-sm text-emerald-800">
+          DRS policy saved for {policyUpdateResult.vmIdentityId}; migration approval remains separate.
         </div>
       ) : null}
 
@@ -461,16 +637,17 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
                         <div className="px-4 py-4 text-sm text-slate-500">No instances observed on this server.</div>
                       ) : (
                         <div className="overflow-x-auto">
-                          <table className="min-w-[78rem] w-full table-fixed divide-y divide-slate-200 text-sm">
+                          <table className="min-w-[90rem] w-full table-fixed divide-y divide-slate-200 text-sm">
                             <colgroup>
-                              <col className="w-[17%] min-w-[12rem]" />
-                              <col className="w-[8%] min-w-[6rem]" />
-                              <col className="w-[15%] min-w-[11rem]" />
+                              <col className="w-[15%] min-w-[12rem]" />
+                              <col className="w-[7%] min-w-[6rem]" />
+                              <col className="w-[13%] min-w-[10rem]" />
                               <col className="w-[6%] min-w-[4rem]" />
                               <col className="w-[7%] min-w-[5rem]" />
-                              <col className="w-[28%] min-w-[22rem]" />
-                              <col className="w-[11%] min-w-[8rem]" />
-                              <col className="w-[8%] min-w-[6rem]" />
+                              <col className="w-[24%] min-w-[21rem]" />
+                              <col className="w-[9%] min-w-[8rem]" />
+                              <col className="w-[11%] min-w-[10rem]" />
+                              <col className="w-[8%] min-w-[7rem]" />
                             </colgroup>
                             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                               <tr>
@@ -481,6 +658,7 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
                                 <th scope="col" className="px-4 py-2 text-right font-medium">Memory</th>
                                 <th scope="col" className="px-4 py-2 text-left font-medium">Disk</th>
                                 <th scope="col" className="px-4 py-2 text-left font-medium">Signals</th>
+                                <th scope="col" className="px-4 py-2 text-left font-medium">DRS Policy</th>
                                 <th scope="col" className="px-4 py-2 text-center font-medium">Actions</th>
                               </tr>
                             </thead>
@@ -494,6 +672,10 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
                                 const diskLabel = vm.disks.length > 0
                                   ? vm.disks.map((disk) => `${disk.device} ${formatGb(disk.sizeGb)} ${disk.storageId}`).join(', ')
                                   : formatGb(vm.diskGb)
+                                const policyItem = policyItemsByLocator.get(policyLocatorKey(vm.nodeId, vm.vmid))
+                                const policySaving = policySavingId === policyItem?.vmIdentityId
+                                const policyDisabledReason = drsPolicyReviewDisabledReason(policyItem, canManageDrsPolicies, policySaving)
+                                const policyReviewDisabled = Boolean(policyDisabledReason)
 
                                 return (
                                   <tr key={`${vm.nodeId}:${vm.vmid ?? vm.id}`} className="align-top">
@@ -535,20 +717,33 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
                                     <td className="px-4 py-2 text-slate-600">
                                       <SignalStack vm={vm} />
                                     </td>
+                                    <td className="px-4 py-2 text-slate-600">
+                                      <DrsPolicyStatus item={policyItem} coverageUnavailable={Boolean(policyCoverageWarning)} />
+                                    </td>
                                     <td className="px-4 py-2 text-center">
-                                      {canStartVms && canStartVm(vm) ? (
+                                      <div className="flex items-center justify-center gap-1.5">
                                         <button
                                           type="button"
-                                          onClick={() => openStartDialog(vm)}
-                                          aria-label={`Start ${vm.name}`}
-                                          title={`Start ${vm.name}`}
-                                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+                                          onClick={() => openPolicyReview(policyItem)}
+                                          disabled={policyReviewDisabled}
+                                          aria-label={`Review DRS policy for ${vm.name}`}
+                                          title={policyDisabledReason || `Review DRS policy for ${vm.name}`}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
                                         >
-                                          <Play className="h-4 w-4" />
+                                          <ClipboardCheck className="h-4 w-4" />
                                         </button>
-                                      ) : (
-                                        <span className="text-xs text-slate-400">-</span>
-                                      )}
+                                        {canStartVms && canStartVm(vm) ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => openStartDialog(vm)}
+                                            aria-label={`Start ${vm.name}`}
+                                            title={`Start ${vm.name}`}
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+                                          >
+                                            <Play className="h-4 w-4" />
+                                          </button>
+                                        ) : null}
+                                      </div>
                                     </td>
                                   </tr>
                                 )
@@ -565,6 +760,18 @@ function InstanceList({ onLogsUpdate = () => {}, onStatusChange = () => {}, curr
           </div>
         )}
       </div>
+
+      {policyReviewItem ? (
+        <DrsPolicyReviewModal
+          key={policyReviewItem.vmIdentityId}
+          item={policyReviewItem}
+          saving={policySavingId === policyReviewItem.vmIdentityId}
+          error={policyError}
+          result={policyUpdateResult}
+          onCancel={closePolicyReview}
+          onSubmit={submitPolicyReview}
+        />
+      ) : null}
     </section>
   )
 }

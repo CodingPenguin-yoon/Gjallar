@@ -60,6 +60,8 @@ function createHookHarness() {
       for (const effect of effects) {
         await effect()
       }
+      await Promise.resolve()
+      await Promise.resolve()
     },
   }
 }
@@ -86,11 +88,16 @@ function compileInstanceListSource(source) {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Loader2,
   Play,
   RefreshCw,
   Server,
 } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.icons`
+    )
+    .replace(
+      /import\s+DrsPolicyReviewModal\s+from\s+'\.\/DrsPolicyReviewModal'/,
+      'const DrsPolicyReviewModal = globalThis.__INSTANCE_LIST_TEST_MOCKS__.drsPolicyModal'
     )
     .replace(
       /import\s+\{\s*apiV1Client\s*\}\s+from\s+'..\/services\/apiV1'/,
@@ -99,6 +106,10 @@ function compileInstanceListSource(source) {
     .replace(
       /import\s+\{\s*authFailureMessage\s*\}\s+from\s+'..\/utils\/auth'/,
       'const { authFailureMessage } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.auth'
+    )
+    .replace(
+      /import\s+\{\s*formatDrsBlocker,\s*loadDrsPolicyCoverage,\s*submitDrsPolicyUpdate\s*\}\s+from\s+'..\/utils\/drsAdvisor'/,
+      'const { formatDrsBlocker, loadDrsPolicyCoverage, submitDrsPolicyUpdate } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.drs'
     )
     .replace(
       /import\s+\{\s*loadInfraExplorerModel\s*\}\s+from\s+'..\/utils\/infraExplorerScreen'/,
@@ -129,6 +140,8 @@ const { loadInfraExplorerModel } = await importExpected(
 
 const calls = []
 const startCalls = []
+const policyLoadCalls = []
+const policyUpdateCalls = []
 const fakeClient = {
   async listNodes() {
     calls.push('listNodes')
@@ -197,6 +210,70 @@ const fakeClient = {
   },
 }
 
+const policyCoverage = {
+  items: [
+    {
+      vmIdentityId: 'identity-141',
+      identityConfidence: 'high',
+      identityStatus: 'active',
+      currentLocator: {
+        clusterId: 'cluster-a',
+        nodeId: 'yoonmanserver2',
+        vmid: 141,
+        name: 'app-01',
+        powerState: 'running',
+      },
+      expectedObservation: {
+        clusterId: 'cluster-a',
+        nodeId: 'yoonmanserver2',
+        vmid: 141,
+        observedAt: '2026-05-31T01:02:03Z',
+        fingerprintHash: 'hash-141',
+      },
+      expectedObservationPayload: {
+        cluster_id: 'cluster-a',
+        node_id: 'yoonmanserver2',
+        vmid: 141,
+        observed_at: '2026-05-31T01:02:03Z',
+        fingerprint_hash: 'hash-141',
+      },
+      policy: { value: 'allowed', reason: 'ops classified', source: 'manual' },
+      policyWriteAllowed: true,
+      policyWriteBlockers: [],
+    },
+    {
+      vmIdentityId: 'identity-142',
+      identityConfidence: 'uncertain',
+      identityStatus: 'active',
+      currentLocator: {
+        clusterId: 'cluster-a',
+        nodeId: 'yoonmanserver2',
+        vmid: 142,
+        name: 'stopped-app',
+        powerState: 'stopped',
+      },
+      expectedObservation: {
+        clusterId: 'cluster-a',
+        nodeId: 'yoonmanserver2',
+        vmid: 142,
+        observedAt: '2026-05-31T01:02:03Z',
+        fingerprintHash: 'hash-142',
+      },
+      expectedObservationPayload: {
+        cluster_id: 'cluster-a',
+        node_id: 'yoonmanserver2',
+        vmid: 142,
+        observed_at: '2026-05-31T01:02:03Z',
+        fingerprint_hash: 'hash-142',
+      },
+      policy: { value: 'restricted', reason: 'identity uncertain', source: 'default' },
+      policyWriteAllowed: false,
+      policyWriteBlockers: ['vm_identity_uncertain'],
+    },
+  ],
+  coverage: { totalNonTemplateVms: 2, writeAllowedCount: 1 },
+}
+
 const model = await loadInfraExplorerModel(fakeClient)
 assert.deepEqual(calls.sort(), ['listNodes', 'listVms'])
 assert.equal(model.readOnly, true)
@@ -224,10 +301,18 @@ const sourcePath = new URL('../src/components/InstanceList.jsx', import.meta.url
 const instanceListSource = readFileSync(sourcePath, 'utf8')
 assert.match(instanceListSource, /apiV1Client/)
 assert.match(instanceListSource, /loadInfraExplorerModel/)
+assert.match(instanceListSource, /loadDrsPolicyCoverage/)
+assert.match(instanceListSource, /submitDrsPolicyUpdate/)
+assert.match(instanceListSource, /DrsPolicyReviewModal/)
 assert.match(instanceListSource, /useNavigate/)
 assert.match(instanceListSource, /apiV1Client\.startVm/)
 assert.match(instanceListSource, /canStartVms/)
+assert.match(instanceListSource, /canManageDrsPolicies/)
+assert.match(instanceListSource, /expectedObservation:\s*item\.expectedObservationPayload/)
+assert.match(instanceListSource, /vmIdentityId/)
+assert.match(instanceListSource, /DRS policy context is unavailable\. VM inventory remains available\./)
 assert.doesNotMatch(instanceListSource, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'InstanceList must not import the legacy /api client')
+assert.doesNotMatch(instanceListSource, /actor:|updated_by:|operator_id|source:/, 'InstanceList DRS policy writes must not send a browser actor/source/operator')
 assert.match(
   instanceListSource,
   /<table className="[^"]*table-fixed[^"]*"/,
@@ -235,7 +320,7 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /<colgroup>[\s\S]*?<col className="w-\[17%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[15%\] min-w-\[11rem\]" \/>[\s\S]*?<col className="w-\[6%\] min-w-\[4rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[5rem\]" \/>[\s\S]*?<col className="w-\[28%\] min-w-\[22rem\]" \/>[\s\S]*?<col className="w-\[11%\] min-w-\[8rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[6rem\]" \/>[\s\S]*?<\/colgroup>/,
+  /<colgroup>[\s\S]*?<col className="w-\[15%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[13%\] min-w-\[10rem\]" \/>[\s\S]*?<col className="w-\[6%\] min-w-\[4rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[5rem\]" \/>[\s\S]*?<col className="w-\[24%\] min-w-\[21rem\]" \/>[\s\S]*?<col className="w-\[9%\] min-w-\[8rem\]" \/>[\s\S]*?<col className="w-\[11%\] min-w-\[10rem\]" \/>[\s\S]*?<col className="w-\[8%\] min-w-\[7rem\]" \/>[\s\S]*?<\/colgroup>/,
   'InstanceList VM table must define stable column widths with a colgroup'
 )
 assert.match(
@@ -313,6 +398,16 @@ assert.match(
   /<td className="px-4 py-2 text-slate-600">[\s\S]*?<SignalStack vm=\{vm\} \/>/,
   'InstanceList Signals cell must show guest-agent and storage evidence'
 )
+assert.match(
+  instanceListSource,
+  /<td className="px-4 py-2 text-slate-600">[\s\S]*?<DrsPolicyStatus item=\{policyItem\} coverageUnavailable=\{Boolean\(policyCoverageWarning\)\} \/>/,
+  'InstanceList DRS Policy cell must show joined policy coverage'
+)
+assert.match(
+  instanceListSource,
+  /aria-label=\{`Review DRS policy for \$\{vm\.name\}`\}/,
+  'InstanceList must render a row Review action for DRS policy'
+)
 
 const compiled = transformSync(compileInstanceListSource(instanceListSource), {
   loader: 'jsx',
@@ -329,6 +424,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
     AlertTriangle: icon('AlertTriangle'),
     ChevronDown: icon('ChevronDown'),
     ChevronRight: icon('ChevronRight'),
+    ClipboardCheck: icon('ClipboardCheck'),
     Loader2: icon('Loader2'),
     Play: icon('Play'),
     RefreshCw: icon('RefreshCw'),
@@ -337,6 +433,37 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
   api: { apiV1Client: fakeClient },
   auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
   loader: { loadInfraExplorerModel: async () => model },
+  drs: {
+    formatDrsBlocker: (code) => String(code).replaceAll('_', ' '),
+    loadDrsPolicyCoverage: async () => {
+      policyLoadCalls.push('loadDrsPolicyCoverage')
+      return policyCoverage
+    },
+    submitDrsPolicyUpdate: async (client, vmIdentityId, payload) => {
+      policyUpdateCalls.push({ client, vmIdentityId, payload })
+      return {
+        vmIdentityId,
+        auditEventId: 'audit-141',
+        newPolicy: { value: payload.policy },
+      }
+    },
+  },
+  drsPolicyModal: ({ item, onSubmit }) => jsxs('div', {
+    'data-testid': 'drs-policy-modal',
+    children: [
+      `DRS policy modal for ${item.currentLocator.name}`,
+      jsx('button', {
+        type: 'button',
+        'data-testid': 'confirm-drs-policy',
+        onClick: () => onSubmit(item, {
+          policy: 'blocked',
+          reason: 'operator reviewed from inventory',
+          acknowledged: true,
+        }),
+        children: 'Save policy',
+      }),
+    ],
+  }),
 }
 
 const compiledModule = loadCommonJsModule(compiled, String(sourcePath))
@@ -382,10 +509,66 @@ assert.match(html, /boot/)
 assert.match(html, /raw/)
 assert.match(html, /discard/)
 assert.match(html, /local-lvm/)
+assert.match(html, /DRS policy review is visible/)
+assert.match(html, /allowed/)
+assert.match(html, /identity high/)
+assert.match(html, /restricted/)
+assert.match(html, /identity uncertain/)
+assert.match(html, /write blocked: vm identity uncertain/)
+assert.ok(policyLoadCalls.length >= 1, 'InstanceList must load supplemental DRS policy coverage')
 
-for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals', 'Actions']) {
+for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals', 'DRS Policy', 'Actions']) {
   assert.match(html, new RegExp(`>${heading}<`), `InstanceList must show ${heading} in the grouped inventory table`)
 }
+
+const viewerReviewButton = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['aria-label'] === 'Review DRS policy for app-01'
+)
+assert.ok(viewerReviewButton, 'Expected a DRS policy review control for each VM row')
+assert.equal(viewerReviewButton.props.disabled, true, 'Viewer role must not be able to update DRS policy from inventory')
+
+hookHarness.beginRender()
+tree = InstanceList({ canManageDrsPolicies: true })
+html = renderToStaticMarkup(tree)
+const writableReviewButton = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['aria-label'] === 'Review DRS policy for app-01'
+)
+assert.ok(writableReviewButton, 'Expected an enabled DRS policy review control for writable policy identities')
+assert.equal(writableReviewButton.props.disabled, false)
+const blockedReviewButton = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['aria-label'] === 'Review DRS policy for stopped-app'
+)
+assert.ok(blockedReviewButton, 'Expected a disabled DRS policy review control for blocked policy identities')
+assert.equal(blockedReviewButton.props.disabled, true)
+assert.match(blockedReviewButton.props.title, /vm identity uncertain/)
+writableReviewButton.props.onClick()
+
+hookHarness.beginRender()
+tree = InstanceList({ canManageDrsPolicies: true })
+html = renderToStaticMarkup(tree)
+assert.match(html, /DRS policy modal for app-01/)
+const policyModal = findElement(
+  tree,
+  (element) => element.props?.item?.vmIdentityId === 'identity-141' && typeof element.props?.onSubmit === 'function'
+)
+assert.ok(policyModal, 'Expected policy review modal submit props')
+await policyModal.props.onSubmit(policyModal.props.item, {
+  policy: 'blocked',
+  reason: 'operator reviewed from inventory',
+  acknowledged: true,
+})
+assert.equal(policyUpdateCalls.length, 1)
+assert.equal(policyUpdateCalls[0].vmIdentityId, 'identity-141')
+assert.deepEqual(policyUpdateCalls[0].payload, {
+  policy: 'blocked',
+  reason: 'operator reviewed from inventory',
+  policyChangeAcknowledged: true,
+  expectedObservation: policyCoverage.items[0].expectedObservationPayload,
+})
+assert.doesNotMatch(JSON.stringify(policyUpdateCalls[0].payload), /app-01|currentLocator|nodeId|actor|source|operator_id|updated_by/)
 
 const startButton = findElement(
   tree,
@@ -460,6 +643,50 @@ for (const blocked of [
 ]) {
   assert.ok(!html.toLowerCase().includes(blocked.toLowerCase()), `InstanceList read-only slice must not expose ${blocked}`)
 }
+
+const failureHarness = createHookHarness()
+globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
+  reactHooks: failureHarness.hooks,
+  router: { useNavigate: () => (path) => navigateCalls.push(path) },
+  icons: {
+    AlertTriangle: icon('AlertTriangle'),
+    ChevronDown: icon('ChevronDown'),
+    ChevronRight: icon('ChevronRight'),
+    ClipboardCheck: icon('ClipboardCheck'),
+    Loader2: icon('Loader2'),
+    Play: icon('Play'),
+    RefreshCw: icon('RefreshCw'),
+    Server: icon('Server'),
+  },
+  api: { apiV1Client: fakeClient },
+  auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
+  loader: { loadInfraExplorerModel: async () => model },
+  drs: {
+    formatDrsBlocker: (code) => String(code).replaceAll('_', ' '),
+    loadDrsPolicyCoverage: async () => {
+      throw new Error('DRS policies unavailable')
+    },
+    submitDrsPolicyUpdate: async () => {
+      throw new Error('policy update should not run without policy context')
+    },
+  },
+  drsPolicyModal: () => jsx('div', { children: 'unexpected policy modal' }),
+}
+const FailureInstanceList = loadCommonJsModule(compiled, `${String(sourcePath)}?drs-policy-failure`).default
+failureHarness.beginRender()
+FailureInstanceList({ canManageDrsPolicies: true })
+await failureHarness.flushEffects()
+failureHarness.beginRender()
+tree = FailureInstanceList({ canManageDrsPolicies: true })
+html = renderToStaticMarkup(tree)
+assert.match(html, /DRS policy context is unavailable\. VM inventory remains available\. DRS policies unavailable/)
+assert.match(html, /app-01/, 'Inventory must still render when DRS policy context fails')
+const unavailableReviewButton = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['aria-label'] === 'Review DRS policy for app-01'
+)
+assert.ok(unavailableReviewButton, 'Expected disabled policy review control when supplemental policy context fails')
+assert.equal(unavailableReviewButton.props.disabled, true)
 
 delete globalThis.__INSTANCE_LIST_TEST_MOCKS__
 

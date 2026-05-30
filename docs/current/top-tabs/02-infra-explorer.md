@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Infra Explorer는 VM/node inventory와 VM detail evidence 화면이며, stopped non-template VM에 한해 gated Start action을 제공한다. DRS identity/policy context나 migration action flow는 없다.
+현재 Infra Explorer는 VM/node inventory와 VM detail evidence 화면이며, stopped non-template VM에 한해 gated Start action을 제공한다. VM list는 `/drs/policies` 보조 조회로 현재 locator `(node_id, vmid)`에 매칭되는 DRS migration policy 상태를 표시하고, operator/admin은 같은 deliberate review modal로 Gjallar-local policy만 변경할 수 있다. DRS migration action flow는 없다.
 
 ## 구현 API/endpoints
 
@@ -14,6 +14,7 @@
 - `GET /api/v1/vms`
 - `GET /api/v1/vms/{vmid}`
 - `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`
+- DRS policy 보조 조회/수정: `GET /api/v1/drs/policies`, `PUT /api/v1/drs/policies/{vm_identity_id}`
 - 보조 조회: `GET /api/v1/storage`, `GET /api/v1/networks`
 
 ## 관련 파일
@@ -26,6 +27,8 @@
 
 VM과 node inventory를 read-only로 보여주고, VMID 기반 detail을 조회한다. VM/node 상태, node 배치, IP/guest-agent 일부 evidence, storage/network 관찰값을 운영자가 확인할 수 있다.
 
+DRS policy column은 `/drs/policies` coverage를 VM row의 current locator로 join해 표시한다. 보조 조회가 실패해도 inventory table은 계속 렌더링하고 compact warning을 표시한다. Policy write는 policy item의 `vm_identity_id`와 `expected_observation` guard만 사용하며, browser가 actor/source/operator를 보내지 않는다. `allowed`는 migration approval이 아니라 후속 DRS review의 prerequisite일 뿐이고, policy 변경은 migration start/approval 또는 Proxmox tag write를 수행하지 않는다.
+
 Start action은 Create VM과 분리되어 있다. UI는 VM name, node, VMID, current status를 확인시키고 acknowledgement checkbox를 요구한 뒤 `/jobs?job=<job_id>`로 이동한다. Backend는 fresh inventory에서 `(node_id, vmid)` exact match를 확인하고 missing/moved/template/non-stopped VM을 차단한다.
 
 성공/실패 모두 `vm_start` job status를 기록한다. 성공은 Proxmox start UPID, task poll `exitstatus=OK`, observed-after `running`, `vm_start_observed_after.json` artifact가 있어야 completed가 된다.
@@ -34,7 +37,7 @@ legacy destructive lifecycle control은 active surface가 아니다. stop/reset/
 
 ## DRS Advisor 기준 gaps
 
-[DRS Advisor data/identity 목표](../../product/drs-advisor/03_DATA_DB_AND_IDENTITY.md) 대비 VM owner, profile, metadata completeness, migration policy, sensitivity, identity assertion, fingerprint match/mismatch 상태가 없다.
+[DRS Advisor data/identity 목표](../../product/drs-advisor/03_DATA_DB_AND_IDENTITY.md) 대비 VM owner, profile, metadata completeness, sensitivity, identity assertion, fingerprint match/mismatch 상세 상태는 아직 Infra Explorer row에서 모두 표시하지 않는다. Migration policy는 current locator에 매칭되는 DRS policy coverage가 있을 때 compact 상태와 guarded review action만 표시한다.
 
 최근 DRS jobs, operation lock, active Proxmox task, HA 상태, route feasibility, final pre-check 결과와 연결되지 않는다. VM detail에서 Approve & Migrate나 Check Now 흐름도 없다.
 
