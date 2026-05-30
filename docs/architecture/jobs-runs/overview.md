@@ -36,7 +36,7 @@ metadata are stored in `job_artifacts`; artifact references use
 | Field | Current meaning |
 |---|---|
 | `job_id` | Operator/UI/API supplied job id. |
-| `job_type` | Current Create VM jobs use `vm_create`; Infra Explorer start jobs use `vm_start`. |
+| `job_type` | Current Create VM jobs use `vm_create`; Infra Explorer start jobs use `vm_start`; DRS migration jobs use `drs_migration`. |
 | `status` | `in_progress`, `pending`, `running`, `completed`, `blocked`, `failed`, etc. |
 | `target_id` | Current target label, usually `<node>:<vm_name>`. |
 | `risk_level` | Risk level from preflight/plan or `unknown`. |
@@ -74,6 +74,20 @@ Earlier stages are marked completed when a later stage is recorded.
 | `task_poll` | Proxmox task check | UPID polling and exitstatus validation. |
 | `post_check` | Post-start check | `/status/current` observed-after running check. |
 
+`drs_migration` jobs use DRS-specific stages:
+
+| Stage | Label | Current DRS use |
+|---|---|---|
+| `recommendation` | Recommendation | Recommendation evidence context. |
+| `final_precheck` | Final pre-check | Fresh current-state reread before execution. |
+| `approval` | Approval | Stored approval packet validation or blocker. |
+| `job_intent` | Job intent | Local pending migration job intent. |
+| `operation_lock` | Operation lock | VM identity, Proxmox locator, and route lock acquisition. |
+| `migration` | Migration request | Dedicated DRS Proxmox migrate request and UPID capture. |
+| `task_poll` | Proxmox task check | UPID polling and terminal/ambiguous task evidence. |
+| `post_check` | DRS post-check | Direct target-node status/config/fingerprint verification. |
+| `reconciliation` | Reconciliation | `needs_reconciliation` state and read-only preview evidence. |
+
 ## Artifacts
 
 Current Create VM jobs can publish:
@@ -88,6 +102,11 @@ Current Create VM jobs can publish:
 | `proxmox_create_preview` | `build_proxmox_create_preview()` |
 | `observed_after` | `run_proxmox_create()` |
 | `vm_start_observed_after` | `run_vm_start()` |
+| `drs_recommendation_evidence` | `create_approval_packet_and_job_intent()` |
+| `drs_final_precheck` | `create_approval_packet_and_job_intent()` |
+| `drs_approval_packet` | `create_approval_packet_and_job_intent()` |
+| `drs_job_intent` | `create_approval_packet_and_job_intent()` |
+| `drs_migration_execution` | `execute_drs_migration_job()` |
 | `job_status` | `record_job_run()` |
 
 Artifact APIs return metadata such as id, type, checksum, storage backend, size, and creation time. They do not stream artifact contents or expose local filesystem paths in the UI.
@@ -119,6 +138,17 @@ Artifact APIs return metadata such as id, type, checksum, storage backend, size,
 | Post-check not running | `failed`, stage `post_check`, artifact written. |
 | Task OK and observed running | `completed`, stage `post_check`, artifact written. |
 
+## DRS Migration Job Updates
+
+| DRS event | Job status/stage |
+|---|---|
+| Approval packet created | `pending`, stage `job_intent`; local-only, no Proxmox mutation. |
+| Approval binding/fresh gate/live evidence/lock blocked | `blocked`, relevant gate stage; no Proxmox mutation before lock acquisition. |
+| Proxmox migrate request accepted | `accepted` then task polling; UPID is stored immediately. |
+| Task still running | `running`, stage `task_poll`; operation locks remain active. |
+| Task failed, timed out, ambiguous, missing UPID, request uncertainty, or post-check mismatch | `needs_reconciliation`, stage `reconciliation` or `post_check`; locks become `reconciliation_required`. |
+| Task OK plus verified target-node post-check | `completed`, stage `post_check`; locks are released. |
+
 ## UI Behavior
 
 | UI area | Current behavior |
@@ -129,11 +159,9 @@ Artifact APIs return metadata such as id, type, checksum, storage backend, size,
 | Selected panel | Current message, fields, progress steps, artifact metadata. |
 | Auto-refresh | Polls every 2.5 seconds while selected job is live. |
 
-## Target DRS Jobs
+## DRS Job Gaps
 
-Future DRS should add first-class job types such as `drs_recommendation`, `drs_final_precheck`, `drs_migration`, and `drs_reconciliation`.
-
-Those jobs should include:
+Current DRS jobs include:
 
 - recommendation evidence artifact
 - approval artifact
@@ -142,4 +170,4 @@ Those jobs should include:
 - post-check artifact
 - reconciliation artifact when needed
 
-No current DRS migration job model exists.
+Remaining gaps are broad UI lifecycle polish, corrective reconciliation mutation/action, background reconciliation automation, and live DRS smoke evidence. Jobs/Runs itself remains read-only and exposes no retry, cancel, reconcile, or mutation controls.

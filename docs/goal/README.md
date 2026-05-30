@@ -20,6 +20,8 @@ exactly one detailed document, listed below.
   document per Goal 1 through Goal 9.
 - `docs/goal/goal-check-01-06-implementation-quality.md`: non-numbered gate
   that verifies Goal 1 through Goal 6 implementation quality before Goal 7.
+- `docs/goal/goal-check-01-06-summary-ko.md`: Korean operator-readable summary
+  of the completed Goal 1-6 implementation quality audit.
 
 ## Canonical Goal Map
 
@@ -31,15 +33,15 @@ exactly one detailed document, listed below.
 | Goal 4: DRS Approval And Migration Job Substrate | Completed | `docs/goal/goal-04-drs-approval-migration-job-substrate.md` | Local approval/job substrate only; no Proxmox mutation. |
 | Goal 5: DRS Live Migration Execution And UPID Tracking | Completed | `docs/goal/goal-05-drs-live-migration-upid-tracking.md` | Narrow backend execution path; no live DRS smoke run. |
 | Goal 6: DRS Post-Check And Reconciliation | Completed | `docs/goal/goal-06-drs-post-check-reconciliation.md` | Verified post-check and read-only Reconcile preview; no live DRS smoke run. |
-| Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Next | `docs/goal/goal-check-01-06-implementation-quality.md` | Non-numbered gate; verify Goal 1-6 are production-quality before Goal 7. |
-| Goal 7: DRS UI And Operations Polish | Pending after Goal Check | `docs/goal/goal-07-drs-ui-operations-polish.md` | Expose lifecycle and blockers without weakening backend gates. |
+| Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Completed | `docs/goal/goal-check-01-06-implementation-quality.md` / `docs/goal/goal-check-01-06-summary-ko.md` | Result: pass-with-risk; Goal 7 is unblocked. No live DRS smoke was run. |
+| Goal 7: DRS UI And Operations Polish | Next | `docs/goal/goal-07-drs-ui-operations-polish.md` | Expose lifecycle and blockers without weakening backend gates. |
 | Goal 8: SSH/Ansible/App Bootstrap Readiness | Deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` | Optional post-create confidence work, only after explicit direction. |
 | Goal 9: Account/Session Operations Polish | Deferred | `docs/goal/goal-09-account-session-operations-polish.md` | Operational convenience around accounts/sessions. |
 
-When a future session says "next goal", start with the non-numbered Goal Check
-unless the user explicitly chooses optional live DRS smoke, Goal 8, Goal 9, or
-another task. Goal 7 remains Goal 7, but it must not start until the Goal Check
-is complete.
+When a future session says "next goal", start with Goal 7 unless the user
+explicitly chooses optional live DRS smoke, Goal 8, Goal 9, or another task.
+The Goal 1-6 implementation quality audit is complete with result
+`pass-with-risk`; no live DRS smoke was run.
 
 ## DRS Safety Constraints
 
@@ -72,9 +74,11 @@ Use this prompt to continue DRS work in a new session:
 
 ```text
 Use docs/goal/README.md as the canonical goal entrypoint.
-Start the non-numbered Goal Check using docs/goal/goal-check-01-06-implementation-quality.md.
-This is not Goal 7; Goal 7 remains DRS UI And Operations Polish and must not
-start until the Goal Check is complete. Treat 192.168.2.140-150/24 as candidate
-selection guard only, not execution authority, and do not run live Proxmox
-mutation/smoke without explicit active-session user approval.
+Goal Check 01-06 is complete with result pass-with-risk; read
+docs/goal/goal-check-01-06-summary-ko.md for the audit summary.
+Start Goal 7: DRS UI And Operations Polish using
+docs/goal/goal-07-drs-ui-operations-polish.md unless the user explicitly chooses
+another task. Treat 192.168.2.140-150/24 as candidate selection guard only, not
+execution authority, and do not run live Proxmox mutation/smoke without explicit
+active-session user approval.
 ```

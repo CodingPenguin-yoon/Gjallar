@@ -40,6 +40,6 @@ Infra Explorer still has no buttons for stop, reboot, reset, delete, snapshot, r
 
 ## Target Identity Panel
 
-Target DRS Advisor requires an identity/fingerprint layer that does not exist yet. Future Infra Explorer may show Gjallar VM identity, identity confidence, last observed fingerprint, classification completeness, DRS eligibility/blockers, and last migration operation.
+DRS now has a compact identity/fingerprint substrate for recommendation/check/execution gates. Infra Explorer does not yet expose a full identity panel, classification completeness, DRS eligibility/blockers, or last migration operation UI.
 
-Until those exist, Infra Explorer remains primarily a Proxmox inventory browser plus the explicit stopped-VM start action.
+Until those UI surfaces exist, Infra Explorer remains primarily a Proxmox inventory browser plus the explicit stopped-VM start action.

@@ -16,4 +16,4 @@
 
 현재 active UI route는 `/`, `/infra`, `/networks`, `/create`, `/drs`, `/jobs`, `/risks`입니다. Active backend prefix는 `/api/v1`입니다.
 
-Current `/drs`는 backend-owned read-only DRS Advisor Phase 1 seed이고, target DRS Advisor는 approval-gated migration으로 확장해야 합니다.
+Current `/drs`는 backend-owned DRS Advisor read/check UI입니다. Backend에는 local approval/job substrate, narrow operator-only migration execution route, UPID/task tracking, verified post-check, read-only reconcile preview가 있지만, broad approval/execute/reconcile UI는 아직 없습니다.

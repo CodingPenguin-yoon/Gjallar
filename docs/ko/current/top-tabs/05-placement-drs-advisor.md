@@ -4,7 +4,7 @@
 
 기준 문서: [영어 Placement snapshot](../../../current/top-tabs/05-placement-drs-advisor.md), [영어 Placement/DRS architecture](../../../architecture/placement-drs-advisor/overview.md), [Target DRS API](../../../architecture/api/target-drs-api.md), [DRS product docs](../../../product/drs-advisor/README.md).
 
-현재 `/drs`는 read-only DRS Advisor Phase 1 screen입니다. Backend DRS recommendation read model은 있지만 migration execution은 없습니다.
+현재 `/drs`는 DRS Advisor read/check screen입니다. Frontend는 approval/execute/UPID/reconcile controls를 제공하지 않습니다. Backend에는 compact identity/fingerprint와 policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다.
 
 ## 사용하는 API와 호출 위치
 
@@ -16,6 +16,9 @@
 | `GET /api/v1/drs/recommendations` | backend-owned read-only recommendation list |
 | `GET /api/v1/drs/recommendations/{recommendation_id}` | detail evidence |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | reference-only recalculation |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | operator-only local approval/job/artifact write; migration 시작 안 함 |
+| `POST /api/v1/drs/migration-jobs/{job_id}/execute` | operator-only narrow backend execution after fresh gates |
+| `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | read-only reconciliation preview |
 
 ## 구현 방식
 
@@ -25,12 +28,12 @@ Backend는 current CPU/Memory usage로 node pressure와 imbalance를 계산합�
 
 ## 현재 없는 것
 
-- migration mutation routes.
-- DB identity/fingerprint/metadata/policy.
-- final pre-check, approval persistence.
-- operation lock, Proxmox live migration, UPID tracking.
-- post-check, reconciliation.
+- broad frontend approval/execute/reconcile controls.
+- policy editor와 full metadata/classification UI.
+- recommendation-level approve/migrate/live-migrate alias routes.
+- corrective reconciliation mutation, background automation, automatic DRS.
+- live DRS smoke evidence.
 
 ## Target gap
 
-DRS Advisor target은 backend-owned recommendation, final pre-check, Allowed VM만 Approve & Migrate, Jobs/Runs `drs_migration`, Risks/Alerts DRS blockers입니다. Current Phase 1 candidate를 실행 허가로 해석하면 안 됩니다.
+DRS recommendation/check result는 실행 허가가 아닙니다. Live migration은 stored approval/job, fresh final pre-check, live Proxmox evidence, operation locks를 통과한 dedicated execute route에서만 가능합니다. Risks/Alerts DRS blocker taxonomy 통합과 broad UI는 future work입니다.

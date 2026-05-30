@@ -17,7 +17,7 @@
 | Profiles/readiness | `profiles`, `vm-create/readiness` | Create VM option/readiness source. |
 | Network readiness | `GET /nodes`, `/vms`, `/networks` | Frontend-composed read-only migration pre-check evidence. Proxmox bridge mutation, API write path, YAML persistence 없음. |
 | Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | DB-backed job status와 job-derived risks. |
-| DRS Advisor | `drs/summary`, `drs/recommendations`, `drs/recommendations/{recommendation_id}`, `drs/recommendations/{recommendation_id}/check` | Read-only Phase 1 recommendation/read model. Migration execution 없음. |
+| DRS Advisor | `drs/summary`, `drs/recommendations`, detail, `check`, `approval-packets`, `migration-jobs/{job_id}/execute`, `migration-jobs/{job_id}/reconcile-preview` | Frontend는 read/check only입니다. Backend에는 local approval/job substrate, narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. |
 | Create VM | `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, native create까지. |
 
 ## Create VM에서 가장 헷갈리는 endpoint
@@ -27,6 +27,6 @@
 
 ## 현재 없는 API
 
-DRS Phase 1 read-only API는 구현되어 있습니다. 아직 없는 것은 DRS final pre-check, approve/migrate, DRS job/lock/reconcile mutation API입니다.
+DRS recommendation/check API와 backend execution substrate는 구현되어 있습니다. 아직 없는 것은 broad execution UI, policy editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate alias입니다.
 
 자세한 target 후보는 [architecture/api/target-drs-api.md](architecture/api/target-drs-api.md)를 봅니다.

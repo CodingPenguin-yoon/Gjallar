@@ -6,7 +6,7 @@ React + Vite operator UI for Gjallar.
 
 Current MVP product source of truth is `docs/product/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
 
-The target direction is DRS Advisor. The current frontend exposes a read-only `/drs` DRS Advisor Phase 1 screen and a Create VM wizard as supporting capability. It does not yet provide identity/fingerprint status, final pre-check, Approve & Migrate, UPID tracking, or Reconcile Now UI.
+The target direction is DRS Advisor. The current frontend exposes a `/drs` read/check screen and a Create VM wizard as supporting capability. DRS shows backend identity, policy, and final-check evidence when returned, but it has no approval, execute, UPID tracking, or reconcile controls.
 
 DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
 

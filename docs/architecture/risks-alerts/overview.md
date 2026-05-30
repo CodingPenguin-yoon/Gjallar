@@ -81,21 +81,17 @@ Current Risks/Alerts does not:
 
 It is a read-only projection of current job risk arrays.
 
-## Target DRS Blockers
+## DRS Blocker Integration Gap
 
-Target DRS Advisor should extend risk coverage with blocker taxonomy such as:
+DRS advisor/execution code now emits blockers and reconciliation evidence in DRS responses, jobs, artifacts, locks, and reconciliation events. Risks/Alerts still reads only `risks` arrays from job status records and does not yet integrate the DRS blocker taxonomy.
 
-| Target blocker | Current status |
+| DRS blocker/evidence area | Risks/Alerts current status |
 |---|---|
-| `identity_mismatch` | Not implemented. |
-| `unclassified_vm` | Not implemented. |
-| `metadata_incomplete` | Not implemented. |
-| `policy_restricted` / `policy_blocked` | Not implemented. |
-| `route_unknown` / `route_blocked` | Not implemented. |
-| `storage_constraint_unverified` | Only frontend Placement read model uses a similar advisory; no backend DRS risk. |
-| `network_bridge_evidence_missing` / `target_bridge_not_found` | Only frontend Placement read model uses similar blockers; no backend DRS risk. |
-| `stale_lock` | Not implemented. |
-| `migration_timeout` | Not implemented. |
-| `needs_reconciliation` | Create VM can record this status; no DRS reconciliation backend exists. |
+| Identity/fingerprint blockers | Present in DRS advisor/execution evidence; not projected as standalone Risks rows. |
+| Policy blockers | Present in DRS advisor/execution evidence; not projected as standalone Risks rows. |
+| Route/storage/network blockers | Present in DRS advisor/check evidence; not projected as standalone Risks rows. |
+| Operation lock blockers | Present in DRS check/execution evidence; not projected as standalone Risks rows. |
+| Migration task failure/timeout/ambiguous evidence | Present in `drs_migration` job/artifact/reconciliation evidence; not projected as standalone Risks rows. |
+| `needs_reconciliation` | Present in DRS job/lock/reconciliation evidence; Risks/Alerts has no dedicated DRS reconciliation queue. |
 
-DRS blockers should identify source, blocked action, VM identity, evidence artifact, and required operator resolution. That is future work.
+Future Risks/Alerts work should project DRS blockers with source, blocked action, VM identity, evidence artifact, and required operator resolution without adding corrective mutation.

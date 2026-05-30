@@ -1,38 +1,38 @@
-# Flow: Target DRS Approve, Migrate, Reconcile
+# Flow: DRS Approve, Execute, Reconcile Preview
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
-기준 문서: [영어 target DRS flow](../../../architecture/flows/drs-approve-migrate-reconcile.md), [Target DRS API](../../../architecture/api/target-drs-api.md), [DRS recommendation/execution product doc](../../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md).
+기준 문서: [영어 DRS flow](../../../architecture/flows/drs-approve-migrate-reconcile.md), [Target DRS API](../../../architecture/api/target-drs-api.md), [DRS recommendation/execution product doc](../../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md).
 
-이 문서는 Phase 1 이후 target DRS execution flow입니다. 현재 read-only Phase 1 구현은 migration을 실행하지 않습니다.
+이 문서는 Goal 1-6 이후 현재 backend DRS execution boundary입니다.
 
-## Current non-implementation
+## Current boundary
 
-Current `/drs`는 `/api/v1/drs/*` read-only endpoint를 호출하지만 recommendation approval, VM migration, UPID tracking, reconciliation을 수행하지 않습니다.
+Current `/drs` frontend는 read/check only입니다. Backend는 local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview를 제공합니다. Broad UI, corrective mutation, background automation, automatic DRS는 없습니다.
 
-## Target flow summary
+## Current flow summary
 
-| Step | Target frontend | Target backend/API | Persisted state |
+| Step | Current frontend/API surface | Current backend/API | Persisted state |
 |---:|---|---|---|
-| 1 | DRS Advisor load | `GET /api/v1/drs/summary`, `GET /api/v1/drs/recommendations` | recommendation snapshot/cache |
+| 1 | DRS Advisor load | `GET /api/v1/drs/summary`, `GET /api/v1/drs/recommendations` | local identity evidence may be observed |
 | 2 | Open recommendation | `GET /api/v1/drs/recommendations/{recommendation_id}` | evidence version |
-| 3 | Optional Check | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | reference result, not authorization |
-| 4 | Review blockers/warnings | backend blocker taxonomy | none |
-| 5 | Request final pre-check | `POST /precheck` | final precheck artifact |
-| 6 | Backend rereads Proxmox | identity/fingerprint/status/source/target/storage/network/policy/locks | final evidence |
-| 7 | Blocked/Unknown | no migration job | precheck artifact only |
-| 8 | Confirm pass/warning | `POST /approve-migrate` | approval, locks, `drs_migration` job |
-| 9 | Start migration | Proxmox live migration returns UPID | operation lock and UPID |
-| 10 | Poll/read job | `GET /api/v1/drs/jobs/{job_id}` | task status |
-| 11 | Post-check | target node/running/fingerprint | completed/failed/needs_reconciliation |
-| 12 | Reconcile if needed | `POST /api/v1/drs/jobs/{job_id}/reconcile` | reconciliation artifact and lock update |
+| 3 | Optional Check | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | reference result; `executable=false` 유지 |
+| 4 | Create approval packet | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | local approval/job/artifact only; migration 시작 안 함 |
+| 5 | Execute stored job | `POST /api/v1/drs/migration-jobs/{job_id}/execute` | validates approval/job binding and checksums |
+| 6 | Backend rereads gates | identity/fingerprint/status/source/target/storage/network/policy/locks | blocked evidence or execution evidence |
+| 7 | Live DRS evidence | active tasks, HA, quorum, migration preconditions | blocks before mutation if unsafe |
+| 8 | Acquire locks | VM identity, locator, route locks | active locks |
+| 9 | Start migration | Dedicated DRS Proxmox client returns UPID | operation locks and UPID/task evidence |
+| 10 | Poll task | Proxmox task terminal/running/ambiguous result | task status/log excerpt |
+| 11 | Post-check | target node/status/config/fingerprint/active tasks | completed or needs_reconciliation |
+| 12 | Reconcile preview | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | read-only preview only |
 
 ## Final pre-check requirements
 
 Final pre-check must verify recommendation evidence version, VM still at source locator, identity/fingerprint match, no conflicting task, source/target online, target storage/network compatibility, policy allowed, locks acquired, and no red blocker.
 
-Blocked or Unknown must not create a migration job.
+Blocked or Unknown gates must not call Proxmox migration.
 
 ## Reconciliation
 
-Reconciliation is required when success/failure cannot be safely decided: timeout, unreadable Proxmox task, VM not found, fingerprint mismatch, stale lock, backend crash after UPID, unreadable post-check evidence. The reconciler rereads Proxmox actual state and compares it to Gjallar operation records.
+Reconciliation is required when success/failure cannot be safely decided: timeout, unreadable Proxmox task, VM not found, fingerprint mismatch, stale lock, backend crash after UPID, unreadable post-check evidence. Current reconcile preview rereads Proxmox actual state and compares it to Gjallar operation records, but it does not run corrective mutation.

@@ -42,7 +42,7 @@ function normalizeExecution(source = {}) {
   return {
     available: source.available === true,
     allowedActions: asArray(source.allowed_actions ?? source.allowedActions),
-    reason: asText(source.reason, 'DRS Phase 1 is advisory only'),
+    reason: asText(source.reason, 'Frontend DRS recommendation/check output is read-only; backend execution is a separate approval/job route.'),
   }
 }
 

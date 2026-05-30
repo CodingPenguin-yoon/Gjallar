@@ -645,7 +645,7 @@ def create_approval_packet_and_job_intent(
         risk_level=_as_text(recommendation.get("risk_level"), "unknown"),
         stage="job_intent",
         step_status="pending",
-        message="Local DRS migration intent recorded; live migration remains disabled.",
+        message="Local DRS approval packet/job intent recorded; approval packet creation does not start migration; use the dedicated execute route after fresh gates.",
         artifacts=[
             _artifact_dict(recommendation_artifact),
             _artifact_dict(final_precheck_artifact),

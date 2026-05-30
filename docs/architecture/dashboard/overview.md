@@ -60,12 +60,12 @@ Target DRS Advisor dashboard work is not current.
 |---|---|
 | 15-minute average/peak load | Not implemented. Current inventory shows point-in-time or adapter-provided usage only. |
 | Top DRS recommendation card | Not implemented on Dashboard. Current `/drs` shows backend read-only candidates. |
-| DRS blocker summary | Implemented inside DRS Phase 1 recommendation responses; not yet integrated into Dashboard/Risks. |
-| Recent DRS migration health | Not implemented. No DRS migration jobs exist. |
+| DRS blocker summary | Implemented inside DRS recommendation/check responses; not yet integrated into Dashboard/Risks. |
+| Recent DRS migration health | Not implemented on Dashboard. Backend `drs_migration` job evidence exists in Jobs/Runs after execution. |
 
 ## Non-Goals
 
 - No Dashboard `/api/v1/drs/*` calls.
-- No migration approval or execution.
+- No Dashboard migration approval or execution controls.
 - No VM start/stop/delete/snapshot controls.
 - No standalone alert engine.

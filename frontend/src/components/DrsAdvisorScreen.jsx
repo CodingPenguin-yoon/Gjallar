@@ -180,7 +180,7 @@ function BalanceOverviewPanel({ summary, thresholds, execution }) {
             <ShieldCheck className="mt-0.5 h-4 w-4" />
             <div>
               <div className="font-semibold">Read-only execution boundary</div>
-              <div className="mt-1">{execution?.reason || 'DRS migration execution is unavailable.'}</div>
+              <div className="mt-1">{execution?.reason || 'DRS read/check UI has no execution controls; backend execution is a separate approval/job route.'}</div>
               <div className="mt-3 rounded-lg border border-blue-200 bg-white/60 px-3 py-2 text-xs font-semibold text-blue-900">allowed actions: none</div>
             </div>
           </div>

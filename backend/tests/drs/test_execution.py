@@ -127,6 +127,8 @@ class FakeDrsMigrationClient:
         active_tasks=None,
         raise_status=False,
         raise_config=False,
+        raise_active_tasks=False,
+        migrate_error=None,
     ):
         self.live_precheck = live_precheck or _passing_live_precheck()
         self.task_result = task_result
@@ -142,6 +144,8 @@ class FakeDrsMigrationClient:
         self.active_tasks = active_tasks if active_tasks is not None else []
         self.raise_status = raise_status
         self.raise_config = raise_config
+        self.raise_active_tasks = raise_active_tasks
+        self.migrate_error = migrate_error
         self.migrate_calls = []
         self.preview_mutation_calls = []
 
@@ -150,6 +154,13 @@ class FakeDrsMigrationClient:
 
     def migrate_vm(self, *, source_node, target_node, vmid):
         self.migrate_calls.append({"source_node": source_node, "target_node": target_node, "vmid": vmid})
+        if self.migrate_error:
+            from app.proxmox.drs_migration import DrsProxmoxMigrationError
+
+            raise DrsProxmoxMigrationError(
+                self.migrate_error,
+                details={"source_node": source_node, "target_node": target_node, "vmid": vmid},
+            )
         return self.upid
 
     def poll_task_status(self, *, node, upid):
@@ -194,6 +205,10 @@ class FakeDrsMigrationClient:
         return dict(self.vm_config)
 
     def list_active_tasks(self, *, node, vmid):
+        if self.raise_active_tasks:
+            from app.proxmox.drs_migration import DrsProxmoxMigrationError
+
+            raise DrsProxmoxMigrationError("active task evidence unavailable", details={"node": node, "vmid": vmid})
         return list(self.active_tasks)
 
 
@@ -255,6 +270,71 @@ def _approved_job(adapter):
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
     )
     return result["job_intent"]["job_id"], recommendation
+
+
+def _mutate_approval_binding(job_id, case):
+    from app.db.models import DrsApprovalPacketRecord, DrsMigrationJobRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        packet = session.get(DrsApprovalPacketRecord, job.approval_packet_id)
+        if case == "packet_not_approved":
+            packet.packet_status = "blocked"
+        elif case == "job_cancelled":
+            job.status = "cancelled"
+        elif case == "job_not_pending":
+            job.status = "running"
+        elif case == "job_already_has_upid":
+            job.proxmox_upid = "UPID:node-a:already:migrate"
+            job.proxmox_task_node = "node-a"
+        elif case == "checksum_artifact_mismatch":
+            packet.final_precheck_checksum = "sha256:does-not-match"
+        else:
+            raise AssertionError(f"unknown approval binding case: {case}")
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_blocker"),
+    [
+        ("packet_not_approved", "approval_packet_not_approved"),
+        ("job_cancelled", "job_cancelled"),
+        ("job_not_pending", "job_not_pending"),
+        ("job_already_has_upid", "job_already_has_upid"),
+        ("checksum_artifact_mismatch", "final_precheck_checksum_artifact_mismatch"),
+    ],
+)
+def test_approval_binding_blockers_stop_before_client_factory(case, expected_blocker):
+    from app.db.models import OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import DrsMigrationExecutionError, execute_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    _mutate_approval_binding(job_id, case)
+    called = False
+
+    def fail_factory():
+        nonlocal called
+        called = True
+        raise AssertionError("client factory must not be called when approval binding blocks")
+
+    with pytest.raises(DrsMigrationExecutionError) as raised:
+        execute_drs_migration_job(
+            job_id,
+            actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+            inventory_adapter=adapter,
+            risks=[],
+            client_factory=fail_factory,
+        )
+
+    assert raised.value.code == "DRS_EXECUTION_APPROVAL_BLOCKED"
+    assert expected_blocker in raised.value.detail["blockers"]
+    assert raised.value.detail["side_effects"] == []
+    assert called is False
+    with session_scope() as session:
+        locks = session.query(OperationLockRecord).all()
+        assert locks == []
 
 
 def test_final_precheck_policy_regression_blocks_before_client_factory():
@@ -425,6 +505,8 @@ def test_task_ok_with_matching_postcheck_completes_and_releases_locks():
         ),
         ({"active_tasks": [{"upid": "UPID:node-b:9999:task", "status": "running", "type": "qmigrate"}]}, "post_check_active_task_conflict"),
         ({"raise_status": True}, "post_check_vm_missing"),
+        ({"raise_config": True}, "post_check_config_unavailable"),
+        ({"raise_active_tasks": True}, "post_check_active_task_evidence_unavailable"),
     ],
 )
 def test_task_ok_postcheck_mismatch_needs_reconciliation_locks_and_event(client_kwargs, expected_reason):
@@ -458,6 +540,55 @@ def test_task_ok_postcheck_mismatch_needs_reconciliation_locks_and_event(client_
         events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
         assert len(events) == 1
         assert events[0].reason == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("task_result", "expected_reason"),
+    [
+        ("failed", "task_failed"),
+        ("timeout", "task_timeout"),
+        ("ambiguous", "task_ambiguous"),
+    ],
+)
+def test_terminal_task_uncertainty_needs_reconciliation_locks_and_event(task_result, expected_reason):
+    from app.db.models import DrsMigrationJobRecord, DrsReconciliationEventRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import execute_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    client = FakeDrsMigrationClient(task_result=task_result)
+
+    result = execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        risks=[],
+        client_factory=lambda: client,
+    )
+
+    assert result["status"] == "needs_reconciliation"
+    assert result["needs_reconciliation"] is True
+    assert result["reconciliation_reason"] == expected_reason
+    assert result["task_result"] == task_result
+    assert result["proxmox_upid"] == "UPID:node-a:0001:migrate"
+    assert result["post_check_status"] is None
+    assert "proxmox_task_polled" in result["side_effects"]
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "needs_reconciliation"
+        assert job.proxmox_upid == "UPID:node-a:0001:migrate"
+        assert job.task_result == task_result
+        assert job.reconciliation_reason == expected_reason
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert len(locks) == 3
+        assert {lock.status for lock in locks} == {"reconciliation_required"}
+        assert not any(lock.status == "released" for lock in locks)
+        events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
+        assert len(events) == 1
+        assert events[0].reason == expected_reason
+        assert events[0].evidence["upid"] == "UPID:node-a:0001:migrate"
+        assert events[0].evidence["task_result"] == task_result
 
 
 def test_running_task_keeps_active_locks_and_running_job():
@@ -546,3 +677,42 @@ def test_missing_upid_becomes_needs_reconciliation_and_marks_locks():
         events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
         assert len(events) == 1
         assert events[0].event_type == "ambiguous_evidence"
+
+
+def test_migration_request_failure_after_locks_needs_reconciliation_without_release():
+    from app.db.models import DrsMigrationJobRecord, DrsReconciliationEventRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import execute_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    client = FakeDrsMigrationClient(migrate_error="migration request failed")
+
+    result = execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        risks=[],
+        client_factory=lambda: client,
+    )
+
+    assert result["status"] == "needs_reconciliation"
+    assert result["reconciliation_reason"] == "migration_request_failed"
+    assert result["job"]["task_result"] == "mutation_failed"
+    assert result["job"]["proxmox_upid"] is None
+    assert "proxmox_migrate_request_failed" in result["side_effects"]
+    assert client.migrate_calls == [{"source_node": "node-a", "target_node": "node-b", "vmid": 101}]
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "needs_reconciliation"
+        assert job.proxmox_upid is None
+        assert job.task_result == "mutation_failed"
+        assert job.reconciliation_reason == "migration_request_failed"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert len(locks) == 3
+        assert {lock.status for lock in locks} == {"reconciliation_required"}
+        assert not any(lock.status == "released" for lock in locks)
+        events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
+        assert len(events) == 1
+        assert events[0].reason == "migration_request_failed"
+        assert events[0].evidence["task_result"] == "mutation_failed"

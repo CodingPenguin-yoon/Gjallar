@@ -29,14 +29,18 @@ Do not copy old PRD statements blindly. Several early PRD slices describe single
 
 | Term | Meaning |
 |---|---|
-| Current | Implemented in the active app as of 2026-05-14 and reachable through current routes or API handlers. |
+| Current | Implemented in the active app as of 2026-05-30 and reachable through current routes or API handlers. |
 | Target | Product or architecture direction that is not implemented yet. |
 | Legacy/deprecated | Historical or compatibility behavior that may be documented for context; do not assume it exists in current code. |
 | Deferred | Known follow-up work with no current implementation. |
 
 Important boundaries:
 
-- Current `/drs` is a backend-owned read-only DRS Advisor Phase 1 read model, not DRS execution.
+- Current `/drs` UI remains read/check oriented. Backend DRS now includes identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only execute route, UPID/task tracking, verified post-check, and read-only reconciliation preview.
+- DRS recommendation/detail/check output is Proxmox-read-only and remains `read_only=true`, `executable=false`, `allowed_actions=[]`.
+- DRS approval packet creation writes local approval/job/artifact state only; it does not start migration.
+- DRS live migration execution exists only through `POST /api/v1/drs/migration-jobs/{job_id}/execute` after stored approval binding, fresh gates, live Proxmox evidence, and operation locks. No recommendation-level approve/migrate/live-migrate aliases exist.
+- DRS reconcile preview is read-only. Corrective mutation, background reconciliation automation, automatic DRS, and broad execution UI remain deferred.
 - Current Create VM live mutation is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
 - Legacy `POST /api/v1/vm-create/{draft_id}/execute` has been removed; current live VM creation is `proxmox-create`.
 - Current Create VM networking uses selected target-node active live bridge plus explicit `bridge_id`, `static_ip`, `prefix`, and `gateway`.
@@ -49,7 +53,7 @@ Important boundaries:
 |---|---|
 | System overview | [`system/overview.md`](system/overview.md) |
 | Current `/api/v1` contract | [`api/current-api-v1.md`](api/current-api-v1.md) |
-| Target DRS API candidates | [`api/target-drs-api.md`](api/target-drs-api.md) |
+| DRS API boundary and future candidates | [`api/target-drs-api.md`](api/target-drs-api.md) |
 | Dashboard | [`dashboard/overview.md`](dashboard/overview.md) |
 | Infra Explorer | [`infra-explorer/overview.md`](infra-explorer/overview.md) |
 | Networks | [`network/overview.md`](network/overview.md) |
@@ -57,12 +61,12 @@ Important boundaries:
 | Native Create VM flow | [`create-vm/native-create-flow.md`](create-vm/native-create-flow.md) |
 | Create VM profile/template/network model | [`create-vm/profile-template-network.md`](create-vm/profile-template-network.md) |
 | Placement and target DRS Advisor | [`placement-drs-advisor/overview.md`](placement-drs-advisor/overview.md) |
-| Target DRS recommendation/execution | [`placement-drs-advisor/recommendation-and-execution.md`](placement-drs-advisor/recommendation-and-execution.md) |
+| DRS recommendation/execution boundary | [`placement-drs-advisor/recommendation-and-execution.md`](placement-drs-advisor/recommendation-and-execution.md) |
 | Data identity | [`data-identity/overview.md`](data-identity/overview.md) |
 | Jobs/Runs | [`jobs-runs/overview.md`](jobs-runs/overview.md) |
 | Risks/Alerts | [`risks-alerts/overview.md`](risks-alerts/overview.md) |
 | Create VM review-to-create flow | [`flows/create-vm-review-to-create.md`](flows/create-vm-review-to-create.md) |
-| Target DRS approve/migrate/reconcile flow | [`flows/drs-approve-migrate-reconcile.md`](flows/drs-approve-migrate-reconcile.md) |
+| DRS approve/execute/reconcile-preview flow | [`flows/drs-approve-migrate-reconcile.md`](flows/drs-approve-migrate-reconcile.md) |
 | Stale and superseded statements | [`appendices/stale-and-superseded.md`](appendices/stale-and-superseded.md) |
 
 ## Existing Architecture Notes

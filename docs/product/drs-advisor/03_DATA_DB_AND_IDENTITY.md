@@ -42,18 +42,22 @@ Gjallar DB가 저장할 값:
 
 ## 2. 현재 구현된 데이터 기반
 
-현재 코드에는 DB migration 기반 DRS table이 없다.
-대신 다음 substrate가 있다.
+현재 코드에는 Goals 2-6을 위한 DB migration 기반 DRS substrate가 있다.
+현재 구현된 substrate는 다음과 같다.
 
 - `backend/app/proxmox/models.py`: read-only inventory dataclasses
 - `backend/app/proxmox/inventory.py`: fake/live read-only adapter
 - `backend/app/jobs/runs.py`: DB-backed job status metadata
 - `backend/app/jobs/artifacts.py`: DB-backed artifact writer
+- `backend/app/drs/identity.py`: compact DRS identity/fingerprint observation evidence
+- `backend/app/drs/operation_locks.py`: DRS operation lock lookup/acquisition/release
+- `backend/app/drs/approval.py`: local approval packet and pending migration job intent substrate
+- `backend/app/drs/execution.py`: narrow operator-only execution, UPID/task tracking, verified post-check, reconciliation state, read-only reconcile preview
 - `backend/app/vm_create/*`: Create VM draft/preflight/plan/approval/native Proxmox flow
 - `/api/v1/jobs` and `/api/v1/risks`: read-only job/risk views
 
-현재 inventory model은 disk volume id, storage id, tags, IP/guest-agent evidence를 일부 제공한다.
-DRS identity를 위해 SMBIOS UUID, vmgenid, MAC address list, normalized disk volume id list를 명시적으로 추가 수집해야 한다.
+현재 inventory model은 disk volume id, storage id, tags, IP/guest-agent evidence와 DRS fingerprint용 SMBIOS UUID, vmgenid, MAC address list, normalized disk volume id list를 제공한다.
+Recommendation/check output은 Proxmox-read-only이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Approval packet creation은 local approval/job/artifact만 쓰고 migration을 시작하지 않는다. Live migration은 stored approval/job, fresh gates, live Proxmox evidence, operation locks를 통과한 dedicated execute route에서만 가능하다.
 
 ## 3. VMID는 identity가 아니다
 
@@ -328,7 +332,7 @@ Code/validation usage:
 - final pre-check의 no operation lock 검증에 사용한다.
 - active lock이 있으면 Approve & Migrate disabled다.
 - timeout/worker crash 후 stale 또는 reconciliation_required로 남긴다.
-- Reconcile Now가 current Proxmox state를 확인한 뒤 release 여부를 결정한다.
+- 현재 구현은 read-only reconcile preview로 current Proxmox state를 확인한다. Corrective Reconcile Now/release action은 future work다.
 
 ### 7.8 jobs
 
@@ -444,7 +448,7 @@ Fields:
 
 Code/validation usage:
 
-- Reconcile Now 결과를 저장한다.
+- 현재 구현은 read-only reconcile preview와 reconciliation event evidence를 저장/조회한다. Corrective Reconcile Now decision 저장은 future work다.
 - target node running + fingerprint match가 확인되어야 success 전환 가능하다.
 - 확인이 불충분하면 needs_reconciliation과 lock reconciliation_required를 유지한다.
 

@@ -8,11 +8,13 @@
 
 부하가 높은 node와 여유 있는 node를 찾는 것만으로는 migration을 시작할 수 없습니다. 실제 운영에서는 identity confirmed, policy allowed, no lock, route feasible, target safe, current Proxmox state still matching, post-check/reconciliation이 필요합니다.
 
-## Current DRS Advisor Phase 1 baseline
+## Current DRS Advisor status
 
 현재 [frontend/src/utils/drsAdvisor.js](../../../../frontend/src/utils/drsAdvisor.js)는 backend DRS read-only endpoint를 소비합니다. Node pressure는 CPU/Memory current usage의 max이고, source pressure와 imbalance delta로 candidate를 만듭니다. Red-risk VM은 제외하고 bridge/storage/passthrough/target pressure evidence를 보지만 execution은 `available: false`입니다.
 
-이 로직은 Phase 1 recommendation read model이지만 execution authority가 아닙니다. 화면 구현은 [DrsAdvisorScreen.jsx](../../../../frontend/src/components/DrsAdvisorScreen.jsx), 테스트는 [drsAdvisor.test.mjs](../../../../frontend/tests/drsAdvisor.test.mjs)를 봅니다.
+Goal Check 01-06 기준 backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Recommendation/check output은 계속 execution-closed이고 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Frontend broad approval/execute/reconcile controls는 아직 deferred입니다.
+
+이 로직은 recommendation/check read model이며 execution authority가 아닙니다. 화면 구현은 [DrsAdvisorScreen.jsx](../../../../frontend/src/components/DrsAdvisorScreen.jsx), 테스트는 [drsAdvisor.test.mjs](../../../../frontend/tests/drsAdvisor.test.mjs)를 봅니다.
 
 ## Target recommendation rules
 

@@ -367,6 +367,43 @@ def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_wor
         record_job_run.assert_not_called()
 
 
+def test_drs_execute_and_reconcile_preview_routes_require_operator_before_work(monkeypatch):
+    _create_user(monkeypatch, username="drs-exec-viewer", role="viewer")
+    client = _client()
+    execute_path = "/api/v1/drs/migration-jobs/authz-job/execute"
+    reconcile_path = "/api/v1/drs/migration-jobs/authz-job/reconcile-preview"
+
+    with patch("app.api.v1.router.execute_drs_migration_job") as execute_drs, patch(
+        "app.api.v1.router.build_drs_migration_reconciliation_preview"
+    ) as preview_reconcile, patch(
+        "app.api.v1.router.get_default_drs_proxmox_migration_client"
+    ) as drs_client_factory, patch(
+        "app.api.v1.router.get_default_proxmox_mutation_client"
+    ) as create_vm_client_factory, patch(
+        "app.api.v1.router.run_proxmox_create"
+    ) as create_mutation:
+        execute_unauthenticated = client.post(execute_path, json={})
+        reconcile_unauthenticated = client.post(reconcile_path, json={})
+        assert execute_unauthenticated.status_code == 401
+        assert reconcile_unauthenticated.status_code == 401
+        assert execute_unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+        assert reconcile_unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+        _login(client, username="drs-exec-viewer")
+        execute_viewer = client.post(execute_path, json={})
+        reconcile_viewer = client.post(reconcile_path, json={})
+        assert execute_viewer.status_code == 403
+        assert reconcile_viewer.status_code == 403
+        assert execute_viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+        assert reconcile_viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+
+        execute_drs.assert_not_called()
+        preview_reconcile.assert_not_called()
+        drs_client_factory.assert_not_called()
+        create_vm_client_factory.assert_not_called()
+        create_mutation.assert_not_called()
+
+
 def test_viewer_cannot_write_create_vm_workflow_state(monkeypatch):
     _create_user(monkeypatch, username="workflow-viewer", role="viewer")
     client = _client()

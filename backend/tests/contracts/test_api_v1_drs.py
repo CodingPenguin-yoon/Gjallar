@@ -1,4 +1,4 @@
-"""Contract tests for the read-only /api/v1 DRS Advisor surface."""
+"""Contract tests for DRS read/check routes and narrow DRS execution routes."""
 
 import contextlib
 import io
@@ -18,7 +18,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
             from app.main import app
         cls.paths = {getattr(route, "path", "") for route in app.routes}
 
-    def test_drs_routes_exist_under_api_v1_without_mutation_routes(self):
+    def test_drs_routes_exist_under_api_v1_without_unsafe_recommendation_aliases(self):
         expected = {
             "/api/v1/drs/summary",
             "/api/v1/drs/recommendations",

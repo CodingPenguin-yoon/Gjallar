@@ -1,6 +1,6 @@
 # DRS Recommendation and Execution
 
-## 1. 현재 DRS Phase 1 recommendation baseline
+## 1. 현재 DRS recommendation/check status
 
 현재 `backend/app/drs/advisor.py`는 backend-owned read-only recommendation을 만들고 `frontend/src/utils/drsAdvisor.js`는 이 endpoint를 소비한다.
 
@@ -19,8 +19,9 @@
 - execution.available은 false
 - read_only true, executable false, allowed_actions 빈 배열
 
-이 구현은 DRS Advisor의 첫 계산/화면 seed다.
-하지만 MVP 목표는 backend-backed, identity/policy aware, final pre-check gated, approval-executable recommendation이다.
+Goal Check 01-06 기준 구현 상태: backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Frontend broad approval/execute/reconcile controls는 아직 deferred다.
+
+이 문서의 나머지 target guidance는 backend-backed, identity/policy aware, final pre-check gated, approval-gated execution model을 설명한다. Recommendation/check result 자체를 execution authority로 해석하면 안 된다.
 
 ## 2. Target DRS model
 

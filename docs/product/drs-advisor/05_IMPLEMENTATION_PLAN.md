@@ -1,5 +1,7 @@
 # DRS Advisor Implementation Plan
 
+Status note as of 2026-05-30 / Goal Check 01-06: this is a historical phased plan. Goals 2-6 backend DRS substrate is now implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Recommendation/check output remains execution-closed; broad frontend approval/execute/reconcile controls, policy editor, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
+
 ## 1. Current code inventory
 
 현재 구현을 기반으로 DRS Advisor를 붙인다.
@@ -7,8 +9,8 @@
 Frontend:
 
 - `frontend/src/App.jsx`: route/nav, Dashboard aggregation
-- `frontend/src/components/DrsAdvisorScreen.jsx`: read-only DRS Advisor Phase 1 screen
-- `frontend/src/utils/drsAdvisor.js`: read-only DRS recommendation view model
+- `frontend/src/components/DrsAdvisorScreen.jsx`: DRS Advisor read/check screen without broad execution controls
+- `frontend/src/utils/drsAdvisor.js`: DRS recommendation/check view model
 - `frontend/src/components/TaskBoard.jsx`: Jobs/Runs read-only UI
 - `frontend/src/utils/jobsScreen.js`: job/artifact view model
 - `frontend/src/components/OperationalRiskDashboard.jsx`: Risks/Alerts UI
@@ -19,7 +21,9 @@ Frontend:
 Backend:
 
 - `backend/app/api/v1/router.py`: inventory, jobs, risks, VM create endpoints
-- `backend/app/drs/advisor.py`: read-only DRS Phase 1 recommendation calculator
+- `backend/app/drs/advisor.py`: execution-closed DRS recommendation/check calculator
+- `backend/app/drs/identity.py`, `backend/app/drs/operation_locks.py`, `backend/app/drs/approval.py`, `backend/app/drs/execution.py`: identity/policy evidence, operation locks, local approval/job substrate, narrow execution, post-check, and read-only reconcile preview
+- `backend/app/proxmox/drs_migration.py`: dedicated DRS Proxmox migration client
 - `backend/app/proxmox/inventory.py`: fake/live read-only Proxmox inventory adapter
 - `backend/app/proxmox/models.py`: inventory dataclasses
 - `backend/app/jobs/runs.py`: DB-backed job run status
@@ -60,7 +64,7 @@ Reuse:
 Do not reuse as-is:
 
 - frontend-only recommendation as execution source
-- read-only Phase 1 DRS contract as final executable product
+- recommendation/check contract as final executable product
 - Create VM preflight as DRS final pre-check
 - VMID as identity
 - DB observed snapshot as execution source of truth
@@ -92,7 +96,7 @@ Implementation details:
 Tests:
 
 - DRS Advisor tests should keep passing.
-- Backend contract tests should assert no migration execution endpoint in Phase 1.
+- Backend contract tests should assert unsafe recommendation-level approve/migrate/live-migrate aliases and broad shortcuts are absent. They must not assert absence of the stored `/api/v1/drs/migration-jobs/{job_id}/execute` route.
 - DRS recommendations should exclude red-risk VMs and offline targets.
 
 ## 4. Phase 2 - Metrics, identity, and metadata

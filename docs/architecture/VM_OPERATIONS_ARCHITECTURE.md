@@ -140,7 +140,7 @@ Networks has no API write path. Create VM execution writes DB-backed artifacts
 and request/VM records after the relevant approval gates pass.
 `terraform-plan` and `terraform-apply` have been removed from the active API; the active UI uses `proxmox-preview` and `proxmox-create`.
 
-Target DRS Advisor API candidates are documented in [`../product/drs-advisor/05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) and [`../product/legacy-prd/12_UI_API_CONTRACT.md`](../product/legacy-prd/12_UI_API_CONTRACT.md). They are not current implementation.
+DRS Advisor API boundaries are documented in [`api/target-drs-api.md`](api/target-drs-api.md). Current backend DRS includes read/check routes, local approval/job substrate, narrow operator-only execution, and read-only reconcile preview; broad UI, policy editing, corrective mutation, background automation, and automatic DRS remain deferred.
 
 ## Create VM Target Selection Model
 

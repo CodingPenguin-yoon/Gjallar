@@ -1,12 +1,14 @@
-# Target DRS Recommendation And Execution
+# DRS Recommendation And Execution
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-This document describes target execution beyond the current read-only Phase 1 recommendation path.
+This document describes DRS recommendation and execution boundaries after Goals 1-6.
 
 ## Current Baseline
 
-Current `/drs` reads backend `/api/v1/drs/*` read-only endpoints; exposes no approval buttons; exposes no migration execution; and stores no DRS operation state.
+Current `/drs` UI reads backend DRS summary/recommendation/detail/check endpoints and exposes no approval or migration execution controls. Backend DRS now stores identity/policy evidence, operation locks, approval packets, migration job state, UPID/task/post-check evidence, and reconciliation events behind operator-only API routes.
+
+Recommendation/detail/check output is Proxmox-read-only and remains `read_only=true`, `executable=false`, and `allowed_actions=[]`. It may persist Gjallar-local identity observation evidence.
 
 ## Target Recommendation Model
 
@@ -20,34 +22,31 @@ A target DRS recommendation should be a backend-owned record or read model.
 | Evidence | CPU/memory/load windows, storage compatibility, bridge/network compatibility, HA/lock/current task state. |
 | Policy | Allowed target groups, exclusions, anti-affinity, maintenance windows, operator restrictions. |
 | Blockers | Normalized red/yellow blockers with machine-readable codes. |
-| Execution availability | False until red blockers are absent, approval exists, and final pre-check passes. |
+| Execution availability | Recommendation/check output always returns false. Narrow execution availability exists only through a stored approval/job execution route after fresh gates. |
 
-## Target Approval And Final Pre-Check
+## Approval And Final Pre-Check
 
-Approval should record the exact recommendation evidence version. It should not start migration directly.
+Approval records the exact recommendation and final-precheck evidence version in local approval/job/artifact rows. Approval packet creation does not start migration.
 
-Immediately before migration, backend must reread current state and verify VM locator, Gjallar identity/fingerprint, task conflicts, power/status compatibility, source/target health, storage/network compatibility, policy permission, locks, and absence of red blockers.
+Immediately before migration, the execute route rereads current state and verifies VM locator, Gjallar identity/fingerprint, task conflicts, power/status compatibility, source/target health, storage/network compatibility, policy permission, locks, and absence of red blockers.
 
 If final pre-check fails, migration must not start.
 
-## Target Migration Execution
+## Migration Execution
 
-The target execution path should create a DRS operation record, take locks, start Proxmox migration, record UPID, poll task state, post-check VM location/status/fingerprint, and then record completed, failed, or `needs_reconciliation`.
+The implemented execution path validates stored approval/job bindings and checksums, creates operation locks, starts Proxmox migration through the dedicated DRS client, records UPID, polls task state, post-checks VM location/status/fingerprint plus active-task evidence, and then records `completed` or `needs_reconciliation`.
 
-Locks should cover VM identity, Proxmox locator, source node, target node, and relevant storage/network resources when needed. Stale locks must block or require reconciliation.
+Locks cover VM identity, Proxmox locator, and source-to-target route. `active`, `stale`, and `reconciliation_required` locks block or require reconciliation. Locks release only after verified post-check success; otherwise they become `reconciliation_required`.
 
 ## Target Jobs/Risks Integration
 
-DRS execution should appear in Jobs/Runs as a first-class job type such as `drs_migration`. Risks/Alerts should include DRS blockers with source, blocked action, VM identity, evidence artifact, and required operator resolution.
+DRS execution appears in Jobs/Runs as `drs_migration` job evidence. Risks/Alerts still use job-derived risk summaries and do not yet have a full DRS blocker taxonomy.
 
-## Explicitly Not Implemented
+## Remaining Gaps
 
-- Backend recommendation service.
-- Target API routes.
-- DB identity/fingerprint/policy/lock tables.
-- Approval records for DRS recommendations.
-- Final pre-check route.
-- Migration mutation client.
-- UPID tracking for DRS.
-- DRS operation artifacts.
-- Reconcile Now backend.
+- Broad DRS execution UI controls.
+- Policy editor and richer DRS policy rules.
+- Corrective reconciliation mutation or Reconcile Now execution.
+- Background reconciliation automation or automatic DRS.
+- Live DRS migration smoke evidence.
+- Recommendation-level approve/migrate/live-migrate aliases remain intentionally absent.

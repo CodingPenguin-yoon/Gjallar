@@ -1,7 +1,9 @@
-"""Read-only DRS Advisor calculations.
+"""Execution-closed DRS Advisor recommendation and check calculations.
 
-Phase 1 deliberately produces advisory candidates only. It may record compact
-identity observations, but it never writes jobs, artifacts, or Proxmox mutations.
+Recommendation/check output is Proxmox-read-only and keeps
+``executable=false`` with no allowed actions. It may persist compact
+Gjallar-local identity observation evidence; narrow live migration execution is
+separate and only exists through stored approval/job execution gates.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ THRESHOLDS = {
 READ_ONLY_EXECUTION = {
     "available": False,
     "allowed_actions": [],
-    "reason": "DRS Phase 1 is advisory only; live migration execution is not exposed.",
+    "reason": "Recommendation/check output is execution-closed and Proxmox-read-only; use the stored approval/job execute route after fresh gates for narrow execution.",
 }
 BASE_BLOCKERS = (
     "final_precheck_not_run",
@@ -306,7 +308,7 @@ def _passthrough_evidence(vm: dict[str, Any]) -> dict[str, Any]:
         "blocked": bool(matched),
         "matched_tags": _unique(matched),
         "method": "tags_only",
-        "limitation": "Phase 1 passthrough detection uses VM tags only; Proxmox device config parsing is not yet included.",
+        "limitation": "Current passthrough detection uses VM tags only; Proxmox device config parsing is not yet included.",
     }
 
 
@@ -1013,7 +1015,7 @@ def build_drs_check_result(
             "blockers": blockers,
             "checks": checks,
             "checked_at": checked_at,
-            "reason": "Read-only final pre-check completed; live migration execution remains unavailable.",
+            "reason": "Read-only final pre-check completed; recommendation/check output remains execution-closed.",
             "observed_at": model["evidence"]["observed_at"],
         },
         "recommendation": recommendation or {

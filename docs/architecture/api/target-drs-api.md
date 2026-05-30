@@ -1,48 +1,49 @@
-# Target DRS API
+# DRS API Boundary And Future Candidates
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-This document lists DRS Advisor APIs and separates current Phase 1 read-only implementation from future execution work.
+This document lists DRS Advisor APIs and separates the current Goals 1-6 backend boundary from future UI/policy/automation work.
 
-Current `/drs` is a read-only DRS Advisor Phase 1 screen backed by `/api/v1/drs/*` summary/recommendation/detail/check endpoints. It has no approval persistence, migration execution, locks, UPID tracking, or reconciliation backend.
+Current `/drs` UI remains read/check only. Backend `/api/v1/drs/*` includes Proxmox-read-only recommendation/check routes, a local approval packet/job substrate, a narrow operator-only migration-job execute route, and a read-only reconcile preview route. Broad execution UI, policy editor, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
 
 ## Candidate Endpoints
 
 | Candidate endpoint | Target purpose | Current status |
 |---|---|---|
-| `GET /api/v1/drs/summary` | DRS dashboard summary: blockers, candidates, policy gaps. | Phase 1 read-only implemented. |
-| `GET /api/v1/drs/recommendations` | Backend-owned recommendation list from current Proxmox inventory and risk evidence. | Phase 1 read-only implemented. |
-| `GET /api/v1/drs/recommendations/{recommendation_id}` | Detailed evidence bundle for one recommendation. | Phase 1 read-only implemented. |
-| `POST /api/v1/drs/recommendations/{recommendation_id}/check` | Reference-only recalculation. This does not authorize migration. | Phase 1 read-only implemented. |
-| `POST /api/v1/drs/recommendations/{recommendation_id}/precheck` | Final pre-check immediately before migration: reread Proxmox, verify identity/fingerprint/policy/locks/target. | Not implemented. |
-| `POST /api/v1/drs/recommendations/{recommendation_id}/approve-migrate` | Persist warning acknowledgement, acquire locks, create a `drs_migration` job, and start migration only after final pre-check allows it. | Not implemented. |
-| `GET /api/v1/drs/jobs/{job_id}` | Read DRS migration job state, UPID, task polling, and post-check status. | Not implemented. |
-| `POST /api/v1/drs/jobs/{job_id}/reconcile` | Reconcile uncertain job state against Proxmox actual state. | Not implemented. |
-| `GET /api/v1/drs/policies` | Read DRS policy coverage and blockers. | Not implemented. |
+| `GET /api/v1/drs/summary` | DRS dashboard summary: blockers, candidates, policy gaps. | Implemented. Proxmox-read-only; may persist Gjallar-local identity observation evidence. |
+| `GET /api/v1/drs/recommendations` | Backend-owned recommendation list from current Proxmox inventory and risk evidence. | Implemented. Proxmox-read-only; recommendations are `executable=false`, `allowed_actions=[]`. |
+| `GET /api/v1/drs/recommendations/{recommendation_id}` | Detailed evidence bundle for one recommendation. | Implemented. Proxmox-read-only; 404 for unknown ids. |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/check` | Reference final pre-check calculation. | Implemented. Computes `would_be_executable`, but response remains `executable=false`, `allowed_actions=[]`, and does not authorize migration. |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | Persist exact recommendation/final-precheck approval packet and pending job intent. | Implemented. Operator-only; writes local approval/job/artifact rows and does not start migration. |
+| `POST /api/v1/drs/migration-jobs/{job_id}/execute` | Execute one stored approved DRS migration job after fresh gates. | Implemented. Operator-only; validates stored bindings/checksums, reruns fresh precheck, collects live Proxmox evidence, acquires operation locks, calls the dedicated DRS migration client, stores UPID/task/post-check evidence, and releases locks only after verified success. |
+| `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | Read-only reconciliation evidence preview. | Implemented. Operator-only; no corrective mutation. |
+| `GET /api/v1/drs/policies` | Read broader DRS policy coverage and blockers. | Not implemented as a public API. |
 | `PUT /api/v1/drs/policies/{policy_id}` | Update DRS policy under future policy/audit rules. | Not implemented. |
-| `GET /api/v1/drs/locks` | Inspect active/stale operation locks. | Not implemented. |
+| `GET /api/v1/drs/locks` | Inspect active/stale operation locks. | Not implemented as a public API. |
 
 ## Target Execution Rules
 
-Target DRS execution must not be "approve means migrate". The minimum target sequence is:
+Current DRS execution is not "approve means migrate". The implemented sequence is:
 
 1. Backend computes a recommendation and evidence version.
-2. Operator may run Check Now for reference; this does not authorize execution.
-3. Backend performs final pre-check against current Proxmox and Gjallar identity/policy state.
-4. Operator acknowledges warnings and requests approve-migrate for the exact evidence version.
-5. Backend takes operation locks for VM, source node, and target node.
-6. Backend starts Proxmox migration and records UPID.
-7. Backend polls the Proxmox task to terminal state.
-8. Backend post-checks VM location, status, fingerprint, network, and storage evidence.
-9. Backend records completed, failed, or `needs_reconciliation`.
-10. Jobs/Runs and Risks/Alerts expose the operation and blockers.
+2. Operator may run `/check` for reference; this does not authorize execution.
+3. Operator-only approval packet creation stores exact local approval/job/artifact evidence and does not start migration.
+4. Operator-only `/migration-jobs/{job_id}/execute` validates approved job bindings/checksums.
+5. Backend reruns a fresh final pre-check against current Proxmox and Gjallar identity/policy/lock state.
+6. Backend collects live Proxmox DRS evidence for active tasks, HA, quorum, and migration preconditions.
+7. Backend takes operation locks for VM identity, Proxmox locator, and route.
+8. Backend starts Proxmox migration through the dedicated DRS migration client and records UPID.
+9. Backend polls the Proxmox task to terminal or ambiguous state.
+10. Backend post-checks VM target location, power state, fingerprint, and active task evidence.
+11. Backend records `completed` only after verified post-check; otherwise it records `needs_reconciliation` and marks locks `reconciliation_required`.
+12. Read-only reconcile preview can reread evidence. No corrective mutation or background automation exists.
 
 ## Explicit Non-Current Items
 
-- DRS mutation route surface.
-- DRS DB identity, fingerprint, metadata, policy, approval, lock, operation, or reconciliation tables.
-- Migration execution client in a DRS path.
-- UPID tracking for DRS migration.
-- DRS final pre-check backend.
-- DRS reconciliation worker or job reconciliation route.
+- Recommendation-level approve/migrate/live-migrate route aliases.
+- Broad DRS execution UI controls.
+- DRS policy editor or richer policy rule API.
+- Corrective reconciliation mutation.
+- Background reconciliation automation or automatic DRS.
+- Live DRS smoke/mutation evidence.
 - DRS blocker taxonomy integrated into `/api/v1/risks`.

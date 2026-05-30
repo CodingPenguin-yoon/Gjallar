@@ -278,7 +278,7 @@ class VmMigrationPolicyRecord(Base):
 
 
 class OperationLockRecord(Base):
-    """Local DRS operation lock state for future migration execution gates."""
+    """Local DRS operation lock state for recommendation checks and execution gates."""
 
     __tablename__ = "operation_locks"
     __table_args__ = (

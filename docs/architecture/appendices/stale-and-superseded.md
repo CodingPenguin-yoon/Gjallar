@@ -30,12 +30,13 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 
 | Stale/superseded statement | Current correction |
 |---|---|
-| DRS Advisor backend can execute migrations. | Current `/api/v1/drs/*` backend is read-only Phase 1 only. |
-| Current `/drs` can approve and execute migration. | Current `/drs` is read-only and all recommendations are `executable=false`. |
-| DRS recommendations are backend-owned operation records. | Current recommendations are backend-generated read models, not persisted operation records. |
-| Migration execution, UPID tracking, locks, and reconciliation exist. | These are target-only. |
-| DRS identity/fingerprint/policy DB exists. | Not implemented. Current Create VM fingerprint is an artifact, not a DB identity layer. |
-| Old placement APIs are active. | Current DRS Advisor uses `/api/v1/drs/*` read-only routes; placement APIs are not active. |
+| DRS recommendations/checks can directly execute migrations. | Current recommendation/detail/check output is Proxmox-read-only and always returns `executable=false`, `allowed_actions=[]`. |
+| Current `/drs` UI can approve and execute migration. | Current `/drs` UI is read/check only. Broad approval/execute/reconcile UI remains deferred. |
+| DRS approval packet creation starts migration. | Approval packet creation writes local approval/job/artifact state only. Migration starts only through `POST /api/v1/drs/migration-jobs/{job_id}/execute` after fresh gates. |
+| DRS recommendations are backend-owned operation records. | Current recommendations are backend-generated read models, not persisted operation records. Local operation state begins at approval packet/job creation. |
+| Migration execution, UPID tracking, locks, and reconciliation are target-only. | Narrow backend execution, UPID/task tracking, operation locks, verified post-check, and read-only reconcile preview are implemented. Corrective mutation/background automation/live smoke remain target/deferred. |
+| DRS identity/fingerprint/policy DB is absent. | Compact DRS identity observations, stable fingerprint evidence, and migration policy records exist. Rich metadata/policy editor work remains deferred. |
+| Old placement APIs are active. | Current DRS Advisor uses `/api/v1/drs/*`; old placement APIs are not active. Recommendation-level migrate/live-migrate aliases are intentionally absent. |
 
 ## Jobs/Risks
 

@@ -272,8 +272,8 @@ flow but still has selection-model gaps outside the DB seed source:
 
 ## Remaining Risk
 
-- There is no DRS DB identity/fingerprint table yet; Create VM fingerprint is artifact evidence, not a reusable DRS identity substrate.
+- DRS now has its own compact identity/fingerprint substrate. Create VM fingerprint remains artifact evidence and does not authorize DRS execution by itself.
 - Restart reconciliation for native create is not implemented as a background service.
 - SSH smoke and Ansible verification are deferred. First power-on, cloud-init readiness, and guest-agent/IP discovery are covered only by request-level `boot_and_verify`.
 - Terraform-named state metadata is removed from active code/API/artifact contracts.
-- DRS Advisor migration will need its own final pre-check, operation lock, migration UPID tracking, and reconciliation flow; Create VM native runner is not a DRS migration executor.
+- DRS migration uses its own final pre-check, operation locks, dedicated DRS Proxmox migration client, UPID/task tracking, verified post-check, and read-only reconciliation preview; Create VM native runner is not a DRS migration executor. Broad DRS UI, corrective reconciliation mutation, background automation, and live DRS smoke remain out of this Create VM architecture.
