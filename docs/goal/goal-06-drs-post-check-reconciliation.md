@@ -15,24 +15,24 @@ Goal 5 added the first narrow backend path for approved DRS live migration
 execution and Proxmox UPID/task tracking. The Goal 5 validation was automated
 fake/mock validation. It did not run an actual live Proxmox migration smoke.
 
-Goal 6 now makes the outcome trustworthy after task completion, timeout,
-restart, or ambiguous evidence. DRS migration completion requires Proxmox task
-`OK` plus direct target-node status/config post-check, expected power-state
-evidence, matching DRS fingerprint, and no conflicting active task. Ambiguous
-outcomes stay `needs_reconciliation`; locks release only after verified
-post-check. A read-only Reconcile preview exists.
+Goal 6 makes the outcome trustworthy after task completion, timeout, restart,
+or ambiguous evidence. DRS migration completion requires Proxmox task `OK` plus
+direct target-node status/config post-check, expected power-state evidence,
+matching DRS fingerprint, and no conflicting active task. Ambiguous outcomes
+stay `needs_reconciliation`; locks release only after verified post-check. A
+read-only Reconcile preview exists.
 
 Use the current checkout as authoritative. If Goal 5 work is already present,
-inspect it, verify it against `docs/goal/drs-goal-5-live-migration-upid.md`,
-and continue from the actual current state instead of restarting.
+inspect it, verify it against
+`docs/goal/goal-05-drs-live-migration-upid-tracking.md`, and continue from the
+actual current state instead of restarting.
 
 ## Controlling References
 
 Read these first:
 
 - `docs/goal/README.md`
-- `docs/goal/drs-execution-goal-slices.md`
-- `docs/goal/drs-goal-5-live-migration-upid.md`
+- `docs/goal/goal-05-drs-live-migration-upid-tracking.md`
 - `docs/current/top-tabs/05-placement-drs-advisor.md`
 - `docs/operations/create-vm-live-smoke-2026-05-28.md`
 - `backend/app/drs/execution.py`
@@ -60,8 +60,8 @@ The known test VM IP range from prior approved Create VM smoke is:
 - Gateway `192.168.2.1`
 - Bridge `vmbr0`
 - Recorded smoke VMs included VMIDs `137`, `138`, and `139` on
-  `yoonserver3`, with final status `stopped` at the time of the
-  2026-05-28 smoke.
+  `yoonserver3`, with final status `stopped` at the time of the 2026-05-28
+  smoke.
 
 For Goal 6, this range is only a candidate-selection guard for a future live
 migration smoke. It must not be used as the authority to execute migration.
@@ -77,13 +77,13 @@ Before any live migration smoke:
 6. Confirm migration policy is `allowed` and final pre-check passes.
 7. Confirm approval packet and operation lock are current.
 
-IP range, VMID, name, node, tag, or Create VM history alone is not enough.
+- `192.168.2.140-150/24` is a candidate-selection guard only.
+- VMID/IP/name/node/tag/Create VM history alone is not stable identity.
 
 ## Hard Constraints
 
-- Do not run live Proxmox mutation or smoke without explicit user approval in
-  the active session.
-- Proxmox task `OK` alone is not Gjallar success.
+- no live Proxmox mutation/smoke without explicit active-session user approval
+- Proxmox task OK alone is not Gjallar success
 - Release operation locks as completed only after a safe post-check terminal
   state.
 - Preserve `needs_reconciliation` for timeout, missing UPID, missing task,
@@ -149,7 +149,8 @@ node --test frontend/tests/drsAdvisor.test.mjs
 git diff --check
 ```
 
-Before any future approved live smoke, also run the relevant full backend suite:
+Before any future approved live smoke, also run the relevant full backend
+suite:
 
 ```bash
 PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests

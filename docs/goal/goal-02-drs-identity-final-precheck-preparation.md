@@ -1,25 +1,16 @@
-# Goal 2: DRS Safe Execution Readiness Foundation
+# Goal 2: DRS Identity And Final Pre-Check Preparation
 
 Status: completed on 2026-05-28.
 
-Follow-on DRS slices are tracked in
-`docs/goal/drs-execution-goal-slices.md`.
-For the current next-session entry point, start with `docs/goal/README.md`.
-Sections below describe the original foundation goal scope as of its
-implementation session.
-
 ## Purpose
 
-This goal prepares DRS Advisor for safe future execution without adding live
-migration yet.
-
-The goal is intentionally larger than only "VM identity" and intentionally
-smaller than "DRS migration execution". It builds the foundation DRS needs
-before any migration mutation can be trusted:
+Prepare DRS Advisor for safe future execution without adding live migration.
+This goal builds the read-only safety substrate DRS needs before any migration
+mutation can be trusted:
 
 - stable VM identity and fingerprinting
 - operator migration policy memory
-- identity/policy blockers in DRS recommendations
+- identity and policy blockers in DRS recommendations
 - read-only final pre-check
 - tests and docs that keep the safety contract explicit
 
@@ -33,12 +24,13 @@ before any migration mutation can be trusted:
 - Migration policy means the operator's remembered decision about whether this
   VM is allowed to be moved by DRS later.
 - Final pre-check means the last read-only safety check before a future
-  migration execution path. This goal does not execute migration.
+  migration execution path. Goal 2 does not execute migration.
 
 ## Objective
 
 Build the DB-backed identity, fingerprint, migration policy, and read-only final
-pre-check foundation required before DRS migration execution can be safely added.
+pre-check foundation required before DRS migration execution can be safely
+added.
 
 Gjallar must recognize the same Proxmox VM across node moves, inventory
 refreshes, and service restarts. Unknown, uncertain, or policy-blocked VMs must
@@ -46,52 +38,32 @@ remain execution-ineligible.
 
 ## Non-Negotiables
 
+- no live Proxmox mutation/smoke without explicit active-session user approval
 - Do not implement live migration execution.
 - Do not call Proxmox mutation APIs.
 - Keep DRS Advisor read-only.
 - Default migration policy is `unknown` and execution-blocking.
 - Low-confidence VM identity is execution-blocking.
+- VMID/IP/name/node/tag/Create VM history alone is not stable identity
 - Keep DB schema small and normalized.
 - Do not store large raw Proxmox inventory blobs unless explicitly justified.
 - Do not add a broad policy UI in this goal.
 - Do not add a complex rule engine in this goal.
-- Do not make Create VM the DRS success line.
-- Prefer targeted implementation over broad refactors.
-
-## Why This Scope
-
-Too small:
-
-- If the goal only creates identity tables, DRS still cannot explain why a
-  recommendation is unsafe or prove that a future execution target is still the
-  same VM.
-
-Too large:
-
-- If the goal includes live migration execution, operation locks, full
-  reconciliation, bulk policy UI, and rule evaluation, the data model and safety
-  contract will be harder to review and easier to get wrong.
-
-Correct slice:
-
-- Build the read-only safety substrate first. DRS can recommend and explain,
-  but cannot mutate Proxmox.
+- Keep Create VM as supporting evidence, not the DRS success line.
 
 ## Starting Point
 
-This section describes the original Goal 2 starting point. The current
-worktree later added approval/job substrate, operation lock acquisition/release,
-live migration execution, UPID/task tracking, and Goal 6 post-check/
-reconciliation.
+This section describes the original Goal 2 starting point. Later goals added
+approval/job substrate, operation lock acquisition/release, live migration
+execution, UPID/task tracking, and post-check/reconciliation.
 
 - Create VM live smoke completed on 2026-05-28.
 - Create VM stores `observed_after` fingerprint evidence for newly created VMs.
-- DRS Advisor is currently read-only.
+- DRS Advisor was read-only.
 - DRS final pre-check, identity/fingerprint policy, DB-backed operation lock
-  lookup, and config-lock evidence are implemented as read-only foundations.
-- At this original starting point, live migration, approval/job substrate,
-  operation lock acquisition/release, UPID tracking, and reconciliation were
-  not implemented yet.
+  lookup, and config-lock evidence were implemented as read-only foundations.
+- Live migration, approval/job substrate, operation lock acquisition/release,
+  UPID tracking, and reconciliation were not part of Goal 2.
 - Proxmox remains the source of truth for actual VM, node, task, HA, storage,
   and network state.
 
@@ -205,8 +177,8 @@ Suggested values:
 Execution eligibility:
 
 - `high`: can proceed to policy and final pre-check
-- `medium`: read-only recommendation can be shown, but execution remains blocked
-  unless a later goal explicitly defines a manual confirmation path
+- `medium`: read-only recommendation can be shown, but execution remains
+  blocked unless a later goal explicitly defines a manual confirmation path
 - `low`: blocked
 - `unknown`: blocked
 
@@ -221,8 +193,8 @@ Add these blockers to recommendation or final pre-check output:
 - `migration_policy_blocked`
 - `drs_final_precheck_failed`
 
-Existing DRS blockers should continue to work. This goal should not replace the
-current read-only DRS recommendation logic; it should enrich it.
+Existing DRS blockers should continue to work. This goal should enrich the
+current read-only DRS recommendation logic, not replace it.
 
 ## Read-Only Final Pre-Check
 
@@ -249,7 +221,8 @@ Minimum checks:
 Output should include:
 
 - `executable`: always false until a later live migration goal enables mutation
-- `would_be_executable`: true only when identity, policy, and read-only checks pass
+- `would_be_executable`: true only when identity, policy, and read-only checks
+  pass
 - `blockers`
 - `identity_evidence`
 - `policy_evidence`
@@ -290,20 +263,6 @@ Future goals can add:
 
 Do not build those future workflows in this goal unless they are the smallest
 possible support needed by the read-only blocker model.
-
-## Implementation Order
-
-1. Read current DRS, inventory, DB, and Create VM fingerprint code paths.
-2. Write a short local design note or implementation summary before editing.
-3. Add Alembic migration for the minimal tables.
-4. Add SQLAlchemy models and DB helpers.
-5. Implement fingerprint extraction from current inventory.
-6. Implement read-only identity resolver.
-7. Add migration policy default handling.
-8. Feed identity and policy blockers into DRS recommendation output.
-9. Add read-only final pre-check model or endpoint.
-10. Add focused tests.
-11. Update current docs and handoff docs.
 
 ## Required Tests
 
@@ -372,42 +331,3 @@ git diff --check
 - No live migration or Proxmox mutation path is added.
 - Relevant tests pass.
 - Docs describe the model, matching rules, blockers, and next steps.
-
-## Goal Prompt
-
-Use this prompt to start the next goal:
-
-```text
-Goal resume.
-
-Use docs/goal/drs-safe-execution-readiness-foundation.md as the controlling
-goal document.
-
-Objective: implement the DRS Safe Execution Readiness Foundation. Build the
-minimal DB-backed VM identity/fingerprint, migration policy, DRS blocker, and
-read-only final pre-check foundation needed before live migration execution can
-be added.
-
-Hard constraints:
-- Do not implement live migration execution.
-- Do not call Proxmox mutation APIs.
-- Keep DRS Advisor read-only.
-- Default migration policy is unknown and execution-blocking.
-- Low-confidence VM identity is execution-blocking.
-- Keep schema small and normalized.
-- Do not store large raw Proxmox inventory blobs unless explicitly justified.
-- Do not add a broad policy UI or complex rule engine.
-- Preserve Create VM as a supporting capability, not the DRS success line.
-
-Expected result:
-- DB migration and models for VM identity, observations, and migration policy.
-- Read-only identity resolver using current Proxmox inventory evidence.
-- DRS recommendation blockers for identity and policy state.
-- Read-only final pre-check output that explains executable/non-executable
-  status without performing mutation.
-- Focused backend tests, frontend tests only if the UI changes, and updated docs.
-
-Before editing, inspect the current DRS, inventory, DB model, migration, and
-Create VM fingerprint/evidence paths. Keep implementation targeted and avoid
-unrelated refactors.
-```

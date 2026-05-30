@@ -13,7 +13,7 @@ under `docs/product/drs-advisor/`, and current implemented state remains
 under `docs/current/README.md`.
 
 For the current cross-feature implementation sequence, use
-`docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`. This file preserves the
+`docs/goal/README.md`. This file preserves the
 living checklist for the completed Create VM cleanup/native-create workstream and
 the repo-local workflow context.
 
@@ -301,11 +301,6 @@ Non-goals:
 
 ## Next Slice Candidate
 
-Current implementation order is tracked in
-`docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`.
-
-Recommended next major slice:
-
-1. Implement DRS identity/fingerprint DB and read-only resolver.
-2. Feed resolver output into DRS recommendation blockers before any migration
-   execution work.
+Current goal sequencing is tracked in `docs/goal/README.md`. The next active
+goal is Goal 7:
+`docs/goal/goal-07-drs-ui-operations-polish.md`.

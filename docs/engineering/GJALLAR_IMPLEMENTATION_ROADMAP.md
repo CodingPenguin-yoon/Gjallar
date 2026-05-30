@@ -263,26 +263,16 @@ Core rule:
 Metadata and policy may reattach only by current fingerprint match. Same VMID
 with different fingerprint must become Identity Mismatch and block work.
 
-## Current Next Slice
+## Current Goal Sequence
 
-Recommended next slice before DRS Phase 2:
+This roadmap is historical planning context. Current goal sequencing is tracked
+in [`docs/goal/README.md`](../goal/README.md).
 
-1. Implement Create VM stabilization from
-   [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md):
-   login, sessions, roles, protected mutation APIs, frontend login, and live
-   smoke documentation.
-2. Keep Create VM scope closed: no SSH smoke, Ansible, app bootstrap, profile
-   management UI, or DRS identity registration in this stabilization slice.
-3. After stabilization, start DRS Phase 2 identity/fingerprint work.
-
-Recommended first DRS slice after stabilization:
-
-1. Add the roadmap and status docs cleanup.
-2. Extend inventory models/adapters with fingerprint evidence fields.
-3. Add Alembic/SQLAlchemy tables for DRS identity and metadata.
-4. Add a read-only identity resolver with contract tests.
-5. Feed resolver output into DRS recommendations while keeping all execution
-   unavailable.
+Completed later work includes Create VM stabilization, DRS identity/fingerprint
+foundation, operation locks, approval/job substrate, narrow live migration
+execution with UPID tracking, and post-check/reconciliation. The next active
+goal is Goal 7:
+[`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
 
 Suggested first implementation boundary:
 

@@ -11,10 +11,12 @@
 - Next MVP success line은 DRS Advisor입니다.
 - Create VM은 supporting capability입니다.
 - Active Create VM mutation path는 Proxmox native API입니다.
-- 다음 즉시 작업은 token guard가 아니라 Gjallar login/session/role 기반
-  Create VM 안정화입니다.
+- 현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를
+  기준으로 하며, 다음 active goal은 Goal 7 DRS UI/operations polish입니다.
 - Current Create VM profile/template/network target design은 부분 구현되어 있습니다.
-- Current `/drs`는 backend-owned read-only DRS Phase 1 seed이고 backend DRS execution은 아직 없습니다.
+- Current `/drs`는 backend-owned DRS seed에서 narrow approval-gated live
+  migration execution, backend post-check/reconciliation까지 진행되어
+  있습니다. Broad UI와 live smoke evidence는 아직 없습니다.
 
 ## Workstream 요약
 
@@ -30,4 +32,4 @@
 
 ## Next slice candidates
 
-추천 다음 slice는 [Create VM stabilization plan](../../engineering/CREATE_VM_STABILIZATION_PLAN.md)에 따라 Gjallar login/session/role을 추가하고, Create VM live mutation과 VM Start를 `operator` 이상으로 보호하는 것입니다. 이 안정화가 끝난 뒤 DRS identity/fingerprint DB와 read-only resolver로 넘어갑니다.
+현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 active goal은 [Goal 7: DRS UI And Operations Polish](../../goal/goal-07-drs-ui-operations-polish.md)입니다.

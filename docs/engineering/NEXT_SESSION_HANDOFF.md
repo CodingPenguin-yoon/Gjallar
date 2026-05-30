@@ -2,6 +2,12 @@
 
 Last updated: 2026-05-28
 
+> Historical/stale handoff note: this file preserves the 2026-05-28 Create VM
+> smoke and session context, but it is no longer the source of current goal
+> sequencing. Use [`docs/goal/README.md`](../goal/README.md) for the active
+> sequence; the next active goal is
+> [`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
+
 ## Current State
 
 - Base commit before auth stabilization: `b753b06 feat: add drs advisor readiness surface`.
@@ -34,8 +40,9 @@ Last updated: 2026-05-28
   [`../operations/create-vm-live-smoke-2026-05-28.md`](../operations/create-vm-live-smoke-2026-05-28.md).
   Future live smoke or cleanup mutations still require explicit active-session
   approval.
-- Next immediate implementation work is DRS Advisor identity/fingerprint and
-  final pre-check prep.
+- Current goal sequencing has moved to
+  [`docs/goal/README.md`](../goal/README.md). The next active goal is Goal 7:
+  [`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
 
 ## Validation Baseline
 
@@ -82,49 +89,12 @@ Keep out of scope for this smoke:
 - SSH smoke, Ansible, app bootstrap, full reconciliation worker, or DRS identity
   registration.
 
-## Next Work 1: DRS Advisor Identity And Execution Prep
+## Current Goal Pointer
 
-Goal: extend the implemented read-only DRS Phase 1 without adding migration mutation yet.
-
-Start by reading:
-
-- `docs/engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`
-- `docs/product/drs-advisor/README.md`
-- `docs/product/drs-advisor/05_IMPLEMENTATION_PLAN.md`
-- `frontend/src/components/DrsAdvisorScreen.jsx`
-- `frontend/src/utils/drsAdvisor.js`
-- `backend/app/drs/advisor.py`
-- `backend/app/api/v1/router.py`
-- `backend/app/proxmox/inventory.py`
-
-## Next Work 2: Docs And Risk Follow-Up
-
-Goal: close documentation drift and explicitly capture remaining auth/Create VM
-risks before DRS Phase 2.
-
-Targets:
-
-- Update `docs/current/README.md` and any top-tab status docs that still imply
-  Create VM is unauthenticated.
-- Keep password reset email flows, OAuth/SSO/2FA, API tokens, and live smoke
-  clearly separated from the completed auth/admin foundation.
-- Keep DRS execution authority separate from Create VM mutation authority.
-
-Implemented backend endpoints are read-only:
-
-```http
-GET /api/v1/drs/summary
-GET /api/v1/drs/recommendations
-GET /api/v1/drs/recommendations/{recommendation_id}
-POST /api/v1/drs/recommendations/{recommendation_id}/check
-```
-
-Phase 1 rules:
-
-- No live migration endpoint yet.
-- No Proxmox mutation yet.
-- Recommendations are non-executable until identity, metadata, final pre-check, locks, and reconciliation exist.
-- Reuse Create VM's approval/artifact/job lessons, but do not reuse Create VM success criteria as DRS migration criteria.
+The "next work" sections previously in this handoff are historical and stale.
+Use [`docs/goal/README.md`](../goal/README.md) for current sequencing. The next
+active implementation goal is Goal 7:
+[`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
 
 ## First Commands In A New Session
 

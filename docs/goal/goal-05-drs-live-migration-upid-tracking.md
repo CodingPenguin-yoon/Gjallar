@@ -1,9 +1,8 @@
 # Goal 5: DRS Live Migration Execution And UPID Tracking
 
-Status: completed on 2026-05-30. This file is retained as the Goal 5
-implementation brief and review reference. Goal 6 post-check and
-reconciliation was implemented later in
-`docs/goal/drs-goal-6-post-check-reconciliation.md`.
+Status: completed on 2026-05-30. This file is the Goal 5 implementation brief
+and review reference. Goal 6 post-check and reconciliation was implemented
+later in `docs/goal/goal-06-drs-post-check-reconciliation.md`.
 
 ## Session Prompt Source
 
@@ -15,9 +14,10 @@ missing from the current checkout.
 
 Read these first:
 
-- `docs/goal/drs-execution-goal-slices.md`
-- `docs/goal/drs-goal-4-approval-job-substrate.md`
-- `docs/goal/drs-safe-execution-readiness-foundation.md`
+- `docs/goal/README.md`
+- `docs/goal/goal-02-drs-identity-final-precheck-preparation.md`
+- `docs/goal/goal-03-drs-final-precheck-operation-lock-foundation.md`
+- `docs/goal/goal-04-drs-approval-migration-job-substrate.md`
 - `docs/current/top-tabs/05-placement-drs-advisor.md`
 - `backend/app/drs/advisor.py`
 - `backend/app/drs/approval.py`
@@ -40,6 +40,7 @@ final pre-check, approval, operation locks, and job state are in place.
 
 ## Hard Constraints
 
+- no live Proxmox mutation/smoke without explicit active-session user approval
 - Add a dedicated DRS Proxmox migration mutation path separate from read-only
   inventory and separate from Create VM mutation authority.
 - Do not reuse Create VM mutation clients, permissions, endpoints, or job
@@ -52,12 +53,13 @@ final pre-check, approval, operation locks, and job state are in place.
   - acquired active operation lock
 - Preserve Goal 2, Goal 3, and Goal 4 blockers. Unknown, stale, conflicting,
   missing, or not-collected evidence must remain blocking.
+- VMID/IP/name/node/tag/Create VM history alone is not stable identity
 - Store Proxmox UPID and task metadata once the mutation is accepted.
 - Poll task status/log only enough to classify the immediate result.
-- Mark failure, timeout, missing UPID, or ambiguity as `needs_reconciliation`;
-  do not represent it as success.
-- Do not add automatic DRS, bulk migration, rollback, remediation automation, or
-  broad UI.
+- Mark failure, timeout, missing UPID, or ambiguity as
+  `needs_reconciliation`; do not represent it as success.
+- Do not add automatic DRS, bulk migration, rollback, remediation automation,
+  or broad UI.
 - Do not store large raw Proxmox inventory/config/task blobs.
 
 ## Expected Result

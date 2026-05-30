@@ -1,8 +1,7 @@
 # Goal 4: DRS Approval And Migration Job Substrate
 
-Status: completed. This file is retained as the Goal 4 implementation brief
-and review reference. The next active DRS goal is tracked from
-`docs/goal/README.md`.
+Status: completed. This file is the Goal 4 implementation brief and review
+reference. The next active DRS goal is tracked from `docs/goal/README.md`.
 
 ## Session Prompt Source
 
@@ -14,8 +13,9 @@ missing from the current checkout.
 
 Read these first:
 
-- `docs/goal/drs-execution-goal-slices.md`
-- `docs/goal/drs-safe-execution-readiness-foundation.md`
+- `docs/goal/README.md`
+- `docs/goal/goal-02-drs-identity-final-precheck-preparation.md`
+- `docs/goal/goal-03-drs-final-precheck-operation-lock-foundation.md`
 - `docs/current/top-tabs/05-placement-drs-advisor.md`
 - `backend/app/drs/advisor.py`
 - `backend/app/drs/identity.py`
@@ -40,6 +40,7 @@ This goal must still avoid live migration execution.
 
 ## Hard Constraints
 
+- no live Proxmox mutation/smoke without explicit active-session user approval
 - Do not implement live migration execution.
 - Do not call Proxmox migration mutation APIs.
 - Keep DRS execution authority separate from Create VM mutation authority.
@@ -51,6 +52,7 @@ This goal must still avoid live migration execution.
     `reconciliation_required`
   - unsupported Proxmox conflict evidence stays explicit and is not treated as
     healthy
+- VMID/IP/name/node/tag/Create VM history alone is not stable identity
 - Do not add UPID tracking, task polling, post-check, reconciliation worker, or
   live migration UI.
 - Do not store large raw Proxmox inventory/config blobs.

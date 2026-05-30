@@ -70,4 +70,4 @@ Confirm modal, broad UI execution controls, corrective reconciliation workflow�
 
 ## 다음 구현 slice
 
-다음 slice는 Goal 7 UI/operations polish와, 별도 승인 시 live smoke evidence 기록이다. Goal 6 backend post-check/reconciliation은 현재 worktree에 구현되어 있으며 task OK만으로 success 처리하지 않는다. 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고, identity/fingerprint, current locator, policy, final pre-check, approval, operation lock, verified post-check contract를 별도로 통과해야 한다.
+다음 slice는 Goal 7 UI/operations polish([`docs/goal/goal-07-drs-ui-operations-polish.md`](../../goal/goal-07-drs-ui-operations-polish.md))와, 별도 승인 시 live smoke evidence 기록이다. Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다. 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고, identity/fingerprint, current locator, policy, final pre-check, approval, operation lock, verified post-check contract를 별도로 통과해야 한다.

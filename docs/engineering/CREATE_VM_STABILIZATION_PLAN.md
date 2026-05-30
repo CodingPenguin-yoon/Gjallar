@@ -266,12 +266,11 @@ Create VM stabilization is complete when:
 
 ## Next After This Plan
 
-After Create VM is stabilized, move to DRS Phase 2:
+This plan is historical. Current goal sequencing is tracked in
+[`docs/goal/README.md`](../goal/README.md).
 
-- inventory fingerprint evidence
-- DRS identity/fingerprint DB
-- metadata and migration policy
-- read-only resolver output in DRS recommendations
-
-Do not start DRS migration execution before identity, policy, final pre-check,
-locks, UPID tracking, and reconciliation contracts exist.
+Create VM stabilization, DRS identity/fingerprint, operation locks,
+approval/job substrate, narrow DRS live migration execution with UPID tracking,
+and post-check/reconciliation were completed later. The next active goal is
+Goal 7:
+[`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
