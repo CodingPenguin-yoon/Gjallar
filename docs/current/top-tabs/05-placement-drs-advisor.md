@@ -68,6 +68,6 @@ Confirm modal, broad UI execution controls, corrective reconciliation workflow�
 
 현재 DRS recommendation은 seed일 뿐 execution 판단이 아니다. `/check`는 read-only final pre-check model이며, operation lock과 config-lock conflict evidence를 조회하지만 `executable=false`, `allowed_actions=[]`를 유지한다. 실제 mutation 판단은 stored approval/job, fresh final pre-check, live Proxmox evidence, and acquired locks가 모두 통과한 `/migration-jobs/{job_id}/execute`에서만 한다.
 
-## 다음 구현 slice
+## 다음 구현 gate
 
-다음 slice는 Goal 7 UI/operations polish([`docs/goal/goal-07-drs-ui-operations-polish.md`](../../goal/goal-07-drs-ui-operations-polish.md))와, 별도 승인 시 live smoke evidence 기록이다. Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다. 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고, identity/fingerprint, current locator, policy, final pre-check, approval, operation lock, verified post-check contract를 별도로 통과해야 한다.
+다음 gate는 비번호 Goal Check([`docs/goal/goal-check-01-06-implementation-quality.md`](../../goal/goal-check-01-06-implementation-quality.md))다. 이 check가 Goal 1-6 구현 품질을 검증하기 전에는 Goal 7 UI/operations polish([`docs/goal/goal-07-drs-ui-operations-polish.md`](../../goal/goal-07-drs-ui-operations-polish.md))를 시작하지 않는다. Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다. 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고, identity/fingerprint, current locator, policy, final pre-check, approval, operation lock, verified post-check contract를 별도로 통과해야 한다.

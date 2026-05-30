@@ -1,11 +1,11 @@
 # Gjallar VM Operations Architecture
 
-Last reviewed against code: 2026-05-13
+Last reviewed against code: 2026-05-30
 
 Current MVP product source of truth is [`docs/product/drs-advisor/`](../product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. It presents live
-read-only inventory, guided VM creation, read-only DRS Advisor evidence, job history, and
+read-only inventory, guided VM creation, DRS Advisor evidence, job history, and
 risk summaries. It is not a CI/CD system, source deployment tool, GitLab
 environment controller, or LLM assistant product.
 
@@ -25,9 +25,11 @@ React operator UI
     -> read-only Proxmox inventory adapter
     -> read-only network readiness and migration pre-check evidence
     -> Create VM draft/preflight/plan/approval helpers
+    -> DRS identity/policy/final-precheck/approval/job helpers
     -> DB-backed Jobs/Runs and risk summaries
     -> gated Proxmox native clone/resize/config/post-check helpers
     -> gated existing-VM start helper
+    -> narrow approval-gated DRS migration execution helper
 ```
 
 The safe baseline is read-only. Any live Create VM side effect is behind
@@ -46,30 +48,42 @@ Active routes:
 | `/infra` | `InstanceList` | Grouped VM inventory, detail evidence, and Start action for stopped non-template VMs. |
 | `/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
 | `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Proxmox native preview/create gates. |
-| `/drs` | `DrsAdvisorScreen` | Read-only DRS Advisor Phase 1 recommendations and reference checks. |
+| `/drs` | `DrsAdvisorScreen` | DRS Advisor recommendations, identity/policy evidence, final pre-check, approval/job substrate, and reconciliation state; broad execution UI polish remains pending. |
 | `/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
 | `/risks` | `OperationalRiskDashboard` | Read-only risk summaries derived from job records. |
 
 Legacy frontend paths and components for `/api/provision`, app deployment,
 destructive VM actions, and LLM chat are intentionally absent from active `src`.
 
-## DRS Advisor Target Gap
+## DRS Advisor Current Baseline And Gaps
 
-Current `/drs` is a read-only DRS Advisor Phase 1 screen. It uses backend `/api/v1/drs/*` read models and does not authorize or execute migration.
+Current `/drs` uses backend `/api/v1/drs/*` read models plus local approval,
+job, execution, post-check, and read-only reconciliation routes. Backend gates
+are authoritative; the UI still has limited broad execution polish.
 
-Target direction:
+Implemented baseline:
 
-- Keep backend-owned `/api/v1/drs/*` recommendation read model advisory-only until execution prerequisites exist.
-- Add VM identity/fingerprint/metadata/policy state before any migration execution.
-- Add DRS final pre-check that rereads current Proxmox state immediately before execution.
-- Add approval-gated Proxmox live migration, UPID tracking, post-check, operation locks, and reconciliation.
-- Show `drs_migration` jobs in Jobs/Runs and DRS blockers/warnings in Risks/Alerts.
+- DB-backed VM identity/fingerprint observations and migration policy memory.
+- Identity and policy blockers in recommendation output.
+- Read-only final pre-check on
+  `POST /api/v1/drs/recommendations/{recommendation_id}/check`.
+- DB-backed operation lock lookup/acquisition/release for DRS migration.
+- Local approval packet and `drs_migration` job substrate.
+- Narrow approval-gated live migration execution route with dedicated DRS
+  Proxmox migration client and UPID/task metadata.
+- Verified post-check and conservative `needs_reconciliation` handling.
+- Read-only Reconcile preview before any corrective mutation.
+- `drs_migration` jobs and artifacts in Jobs/Runs.
 
 Current gap:
 
-- No DB-backed DRS identity/fingerprint/policy/lock/reconciliation tables.
-- No Proxmox migration mutation client in the active DRS path.
-- No UPID tracking or Reconcile Now flow.
+- Goal Check must verify Goal 1-6 implementation quality before Goal 7 starts.
+- No live DRS migration smoke evidence has been run.
+- Broad DRS execution UI polish remains pending.
+- Corrective reconciliation mutation, background reconciliation automation, and
+  automatic DRS remain deferred.
+- 15-minute average/peak metrics and deeper read-only advisor task/HA/quorum
+  collection remain future work.
 
 ## Backend
 

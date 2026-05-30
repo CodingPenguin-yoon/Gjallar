@@ -144,7 +144,8 @@ Development smoke and test results recorded for this refresh:
 
 ## Practical reading
 
-- Use [`../engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md`](../engineering/GJALLAR_IMPLEMENTATION_ROADMAP.md) for the current implementation order and next slice.
+- Use [`../goal/README.md`](../goal/README.md) for the current implementation
+  order. It places a non-numbered Goal Check gate before Goal 7.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

@@ -1,30 +1,32 @@
 # Gjallar Implementation Roadmap
 
-Last updated: 2026-05-27
+Last updated: 2026-05-30
 
 ## Purpose
 
-This is the implementation roadmap to read before starting a new Gjallar slice.
-It connects the implemented-state docs, DRS product target, architecture notes,
+This is historical implementation roadmap context for Gjallar slices. It
+connects the implemented-state docs, DRS product target, architecture notes,
 and validation commands into one execution-oriented view.
 
 This document does not replace detailed requirements. It tells the next engineer
-what is implemented, what remains, what should be built next, and which source
-documents to read for the detailed contract.
+what is implemented, what remains, and which source documents to read for the
+detailed contract. For current implementation order and the next gate, use
+[`docs/goal/README.md`](../goal/README.md).
 
 ## Source Of Truth
 
 Use this order when documents disagree:
 
 1. Active code and tests.
-2. Current implemented state: [`docs/current/README.md`](../current/README.md).
-3. Top-tab snapshots: [`docs/current/top-tabs/`](../current/top-tabs/README.md).
-4. Current and target architecture: [`docs/architecture/`](../architecture/README.md).
-5. DRS product target: [`docs/product/drs-advisor/`](../product/drs-advisor/README.md).
-6. Legacy PRDs and archive docs only as historical context.
+2. Goal sequencing and next gate: [`docs/goal/README.md`](../goal/README.md).
+3. Current implemented state: [`docs/current/README.md`](../current/README.md).
+4. Top-tab snapshots: [`docs/current/top-tabs/`](../current/top-tabs/README.md).
+5. Current and target architecture: [`docs/architecture/`](../architecture/README.md).
+6. DRS product target: [`docs/product/drs-advisor/`](../product/drs-advisor/README.md).
+7. Legacy PRDs and archive docs only as historical context.
 
-For implementation order, read this file first, then open the specific product
-or architecture document linked from the relevant phase.
+For implementation order, read `docs/goal/README.md` first, then use this file
+as phase background when it is still relevant.
 
 ## Current Baseline
 
@@ -37,8 +39,8 @@ surfaces:
 | Infra Explorer | VM/node inventory, VM detail, gated stopped-VM Start action. | Implemented; no DRS identity panel yet. |
 | Networks | Selected-source read-only network readiness and migration pre-check visualization. | Implemented; no mutation or DRS authority. |
 | Create VM | DB profile seed, draft/preflight/plan/approval, native Proxmox create, jobs/artifacts, request/VM records. | Implemented supporting capability. |
-| DRS Advisor | `/drs` UI with backend-owned read-only recommendations/check. | Phase 1 implemented; all recommendations `executable=false`. |
-| Jobs/Runs | DB-backed latest job state and artifact metadata. | Implemented for Create VM and VM start. |
+| DRS Advisor | `/drs` UI with identity/policy evidence, read-only final pre-check, approval/job substrate, narrow execution route, UPID tracking, verified post-check, and read-only Reconcile preview. | Backend Goal 1-6 slices implemented; Goal Check gate is next before Goal 7 UI polish. |
+| Jobs/Runs | DB-backed latest job state and artifact metadata. | Implemented for Create VM, VM start, and DRS migration jobs. |
 | Risks/Alerts | Job-derived risk summaries. | Implemented; not yet a DRS blocker engine. |
 | Auth/Admin | Local login, server-side sessions, RBAC, and admin local-user management. | Implemented; no public signup/OAuth/API tokens. |
 
@@ -49,48 +51,57 @@ Implemented DB tables:
 - `job_artifacts`
 - `vm_create_requests`
 - `vm_instances`
+- `vm_identities`
+- `vm_identity_observations`
+- `vm_migration_policies`
+- `operation_locks`
+- `drs_approval_packets`
+- `drs_migration_jobs`
+- `drs_reconciliation_events`
 - `users`
 - `sessions`
 
-Not implemented yet:
+Remaining or deferred:
 
-- generalized DRS VM identity/fingerprint DB
-- DRS metadata/policy DB
 - DRS observed VM/node history
-- final pre-check
-- operation locks
-- DRS approval/migration job execution
-- Proxmox migration UPID tracking
-- reconciliation/restart safety worker
+- 15-minute average/peak metric substrate
+- broader DRS execution UI and operations polish
+- live DRS migration smoke evidence
+- corrective reconciliation mutation
+- background reconciliation automation
+- automatic DRS
 
 ## Current Product Direction
 
 DRS Advisor is the next MVP success line. Create VM is a strong supporting
 capability, but it must not define DRS execution semantics.
 
-Before DRS Phase 2 implementation, keep the Create VM supporting capability
-closed under login/session/role-based authorization and admin-managed local
-accounts. The agreed stabilization plan is
+Keep the Create VM supporting capability closed under login/session/role-based
+authorization and admin-managed local accounts. The stabilization plan is
 [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md).
 
-DRS execution must not open until VM identity, fingerprint, metadata, policy,
-final pre-check, operation locks, UPID tracking, post-check, and reconciliation
-contracts are in place.
+DRS execution authority remains gated by VM identity, fingerprint, policy,
+final pre-check, operation locks, approval, UPID tracking, post-check, and
+reconciliation contracts. Goal 7 UI polish must wait for the non-numbered Goal
+Check.
 
 ## Feature Matrix
 
 | Feature | Implemented | Remaining | Next action | Key docs |
 |---|---|---|---|---|
-| `/drs` read-only Advisor | Backend endpoints and UI route exist. | Add real identity/policy evidence and richer table fields. | Close Phase 1 docs/tests, then start identity DB. | [`05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) |
-| Create VM auth/session hardening | Login/session/RBAC, actor evidence, admin local-user management, and approved 2026-05-28 live smoke are implemented. | Future live smoke or cleanup still needs explicit approval. | Proceed to DRS identity. | [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md) |
-| Recommendation calculation | Uses current CPU/memory pressure, imbalance, bridge/storage evidence, red-risk exclusion. | 15m average/peak metrics, HA/quorum/task/lock evidence. | Add identity/fingerprint first; metrics can follow in same Phase 2 track. | [`04_DRS_RECOMMENDATION_AND_EXECUTION.md`](../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) |
-| VM identity/fingerprint | Create VM stores `observed_after` fingerprint evidence in artifacts and `vm_instances`. | No generalized identity for all Proxmox VMs. | Implement DRS identity/fingerprint DB and resolver. | [`03_DATA_DB_AND_IDENTITY.md`](../product/drs-advisor/03_DATA_DB_AND_IDENTITY.md), [`data-identity/overview.md`](../architecture/data-identity/overview.md) |
-| Metadata/policy | Not implemented for DRS. | owner/environment/sensitivity/migration_policy, allowed/restricted/blocked. | Add read-only metadata/policy model after identity table shape. | [`03_DATA_DB_AND_IDENTITY.md`](../product/drs-advisor/03_DATA_DB_AND_IDENTITY.md) |
-| Final pre-check | Not implemented. Current `/check` is reference-only. | Authoritative live reread before migration. | Implement only after identity/policy resolver exists. | [`target-drs-api.md`](../architecture/api/target-drs-api.md) |
-| Migration execution | Not implemented. | Approval, locks, mutation client, UPID, post-check. | Keep blocked until Phase 4/5. | [`drs-approve-migrate-reconcile.md`](../architecture/flows/drs-approve-migrate-reconcile.md) |
-| Reconciliation/restart safety | Not implemented for DRS. | Reattach by UPID/current state/fingerprint, Reconcile Now. | Implement after migration job model and locks. | [`05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) |
+| `/drs` Advisor | Backend endpoints and UI route exist with compact identity/policy evidence. | Broad execution UI polish and live DRS smoke evidence. | Run the Goal Check gate before Goal 7. | [`docs/goal/README.md`](../goal/README.md) |
+| Create VM auth/session hardening | Login/session/RBAC, actor evidence, admin local-user management, and approved 2026-05-28 live smoke are implemented. | Future live smoke or cleanup still needs explicit approval. | Keep as supporting capability. | [`CREATE_VM_STABILIZATION_PLAN.md`](CREATE_VM_STABILIZATION_PLAN.md) |
+| Recommendation calculation | Uses current CPU/memory pressure, imbalance, bridge/storage evidence, red-risk exclusion, identity/policy blockers, operation-lock evidence, config-lock evidence, and final pre-check readiness. | 15m average/peak metrics and deeper read-only HA/quorum/task collection. | Audit Goal 1-6 quality before UI polish. | [`04_DRS_RECOMMENDATION_AND_EXECUTION.md`](../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) |
+| VM identity/fingerprint | DB-backed DRS identities, observations, curated fingerprints, confidence, and migration policy memory exist. | Quality audit and future operations polish. | Verify in Goal Check. | [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md) |
+| Metadata/policy | Migration policy memory exists with default `unknown` blocking execution. | Broad policy editor remains out of scope. | Verify in Goal Check. | [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md) |
+| Final pre-check | Read-only final pre-check exists with identity, policy, operation-lock, and config-lock blockers. | Advisor adapter still marks some task/HA/quorum evidence as explicit `not_collected`; execution collects live pre-mutation evidence separately. | Verify in Goal Check. | [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md) |
+| Migration execution | Narrow approval-gated backend execution route exists with dedicated DRS migration client, operation locks, and UPID tracking. | Broad UI polish and live DRS smoke evidence. | Verify in Goal Check before Goal 7. | [`drs-approve-migrate-reconcile.md`](../architecture/flows/drs-approve-migrate-reconcile.md) |
+| Reconciliation/restart safety | Verified post-check, `needs_reconciliation`, reconciliation events, and read-only Reconcile preview exist. | Corrective mutation and background reconciliation automation remain deferred. | Verify in Goal Check before Goal 7. | [`05_IMPLEMENTATION_PLAN.md`](../product/drs-advisor/05_IMPLEMENTATION_PLAN.md) |
 
 ## DRS Implementation Phases
+
+The phase sections below preserve the original roadmap shape. Current goal
+status and sequencing are superseded by [`docs/goal/README.md`](../goal/README.md).
 
 ### Phase 1: Read-Only DRS Advisor
 
@@ -271,7 +282,9 @@ in [`docs/goal/README.md`](../goal/README.md).
 Completed later work includes Create VM stabilization, DRS identity/fingerprint
 foundation, operation locks, approval/job substrate, narrow live migration
 execution with UPID tracking, and post-check/reconciliation. The next active
-goal is Goal 7:
+gate is the non-numbered Goal Check:
+[`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
+Goal 7 remains DRS UI And Operations Polish, pending after that check:
 [`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
 
 Suggested first implementation boundary:

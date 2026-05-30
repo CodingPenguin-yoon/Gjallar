@@ -123,9 +123,9 @@ Create VM의 approval/artifact/native acknowledgement/observed_after 패턴은 �
 
 Legacy `execute/archive` manifest commit APIs are removed from the active route surface. 실제 Proxmox mutation은 `proxmox-create`에서만 gate 뒤에 일어난다.
 
-## 다음 구현 slice
+## 다음 구현 gate
 
-Create VM live smoke까지 완료됐으므로, 다음 slice는 DRS identity/fingerprint
-및 final pre-check 설계/구현이다. DRS 작업에서는 Create VM의 approval
-checksum, artifact publication, job status 기록 패턴만 참고하고, 별도
-`/api/v1/drs/*` read model과 final pre-check 계약을 먼저 만든다.
+Create VM live smoke와 Goal 2-6 DRS backend slices가 완료됐으므로, 다음
+gate는 비번호 Goal Check([`docs/goal/goal-check-01-06-implementation-quality.md`](../../goal/goal-check-01-06-implementation-quality.md))다.
+이 check가 Goal 1-6 구현 품질을 검증하기 전에는 Goal 7 DRS UI/operations
+polish를 시작하지 않는다.

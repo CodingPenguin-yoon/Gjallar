@@ -5,8 +5,9 @@ Last updated: 2026-05-28
 > Historical/stale handoff note: this file preserves the 2026-05-28 Create VM
 > smoke and session context, but it is no longer the source of current goal
 > sequencing. Use [`docs/goal/README.md`](../goal/README.md) for the active
-> sequence; the next active goal is
-> [`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
+> sequence; the next active gate is
+> [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
+> Goal 7 remains DRS UI And Operations Polish and is pending after that check.
 
 ## Current State
 
@@ -41,8 +42,10 @@ Last updated: 2026-05-28
   Future live smoke or cleanup mutations still require explicit active-session
   approval.
 - Current goal sequencing has moved to
-  [`docs/goal/README.md`](../goal/README.md). The next active goal is Goal 7:
-  [`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
+  [`docs/goal/README.md`](../goal/README.md). The next active gate is the
+  non-numbered Goal Check:
+  [`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
+  Goal 7 remains DRS UI And Operations Polish and is pending after that check.
 
 ## Validation Baseline
 
@@ -93,7 +96,9 @@ Keep out of scope for this smoke:
 
 The "next work" sections previously in this handoff are historical and stale.
 Use [`docs/goal/README.md`](../goal/README.md) for current sequencing. The next
-active implementation goal is Goal 7:
+active gate is the non-numbered Goal Check:
+[`docs/goal/goal-check-01-06-implementation-quality.md`](../goal/goal-check-01-06-implementation-quality.md).
+Goal 7 remains DRS UI And Operations Polish and is pending after that check:
 [`docs/goal/goal-07-drs-ui-operations-polish.md`](../goal/goal-07-drs-ui-operations-polish.md).
 
 ## First Commands In A New Session

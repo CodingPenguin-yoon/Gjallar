@@ -45,11 +45,19 @@ Goal 9 documents linked below.
 
 ## Recommended Order
 
-1. Goal 7 DRS UI and operations polish.
-2. Optional approved live DRS migration smoke evidence recording.
-3. Goal 8 SSH/Ansible/app bootstrap readiness, if still desired after DRS
+1. Goal Check: verify Goal 1-6 implementation quality.
+2. Goal 7 DRS UI and operations polish after the Goal Check passes.
+3. Optional approved live DRS migration smoke evidence recording.
+4. Goal 8 SSH/Ansible/app bootstrap readiness, if still desired after DRS
    safety work.
-4. Goal 9 account/session operations polish.
+5. Goal 9 account/session operations polish.
+
+## Non-Goal Gate
+
+Goal 7 remains Goal 7, but it is gated by a non-numbered Goal Check. The check
+must verify that Goal 1 through Goal 6 are genuinely implemented,
+production-quality, and not test-shaped or docs-only before UI/operations
+polish starts.
 
 ## Goal Table
 
@@ -61,7 +69,8 @@ Goal 9 documents linked below.
 | Goal 4: DRS Approval And Migration Job Substrate | Completed | `docs/goal/goal-04-drs-approval-migration-job-substrate.md` |
 | Goal 5: DRS Live Migration Execution And UPID Tracking | Completed | `docs/goal/goal-05-drs-live-migration-upid-tracking.md` |
 | Goal 6: DRS Post-Check And Reconciliation | Completed | `docs/goal/goal-06-drs-post-check-reconciliation.md` |
-| Goal 7: DRS UI And Operations Polish | Next | `docs/goal/goal-07-drs-ui-operations-polish.md` |
+| Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Next | `docs/goal/goal-check-01-06-implementation-quality.md` |
+| Goal 7: DRS UI And Operations Polish | Pending after Goal Check | `docs/goal/goal-07-drs-ui-operations-polish.md` |
 | Goal 8: SSH/Ansible/App Bootstrap Readiness | Deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` |
 | Goal 9: Account/Session Operations Polish | Deferred | `docs/goal/goal-09-account-session-operations-polish.md` |
 

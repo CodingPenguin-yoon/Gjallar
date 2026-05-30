@@ -12,7 +12,8 @@
 - Create VM은 supporting capability입니다.
 - Active Create VM mutation path는 Proxmox native API입니다.
 - 현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를
-  기준으로 하며, 다음 active goal은 Goal 7 DRS UI/operations polish입니다.
+  기준으로 하며, 다음 active gate는 Goal 1-6 구현 품질을 검증하는 비번호
+  Goal Check입니다.
 - Current Create VM profile/template/network target design은 부분 구현되어 있습니다.
 - Current `/drs`는 backend-owned DRS seed에서 narrow approval-gated live
   migration execution, backend post-check/reconciliation까지 진행되어
@@ -32,4 +33,4 @@
 
 ## Next slice candidates
 
-현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 active goal은 [Goal 7: DRS UI And Operations Polish](../../goal/goal-07-drs-ui-operations-polish.md)입니다.
+현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 active gate는 [Goal Check: Goal 1-6 Implementation Verification And Quality Audit](../../goal/goal-check-01-06-implementation-quality.md)입니다. [Goal 7: DRS UI And Operations Polish](../../goal/goal-07-drs-ui-operations-polish.md)는 이 check 이후 pending 상태입니다.

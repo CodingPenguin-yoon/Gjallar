@@ -1,6 +1,11 @@
 # Goal 7: DRS UI And Operations Polish
 
-Status: next.
+Status: pending after Goal Check.
+
+Prerequisite: complete the non-numbered Goal Check in
+`docs/goal/goal-check-01-06-implementation-quality.md`. Goal 7 must not start
+until that check verifies Goal 1 through Goal 6 are genuinely implemented,
+production-quality, and not test-shaped or docs-only.
 
 ## Objective
 
