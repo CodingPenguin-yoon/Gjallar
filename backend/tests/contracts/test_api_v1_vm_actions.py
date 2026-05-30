@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.proxmox.models import VmInventory
+from app.proxmox.models import GuestAgentInventory, IpEvidenceInventory, VmInventory
 
 
 class StubInventoryAdapter:
@@ -72,6 +72,29 @@ def stopped_vm(*, vmid=306, node_id="node-a", name="stopped-app", status="stoppe
     )
 
 
+def running_vm_with_guest_ip(*, vmid=306, node_id="node-a", name="running-app", ip_address="192.168.2.141"):
+    return VmInventory(
+        vmid=vmid,
+        name=name,
+        node_id=node_id,
+        status="running",
+        template=False,
+        cpu=2,
+        memory_mb=4096,
+        disk_gb=40,
+        ip_addresses=(ip_address,),
+        ip_evidence=(
+            IpEvidenceInventory(
+                ip_address=ip_address,
+                source="guest_agent",
+                interface_name="eth0",
+                primary_candidate=True,
+            ),
+        ),
+        guest_agent=GuestAgentInventory(available=True, ip_addresses=(ip_address,)),
+    )
+
+
 class ApiV1VmActionsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -102,8 +125,27 @@ class ApiV1VmActionsTests(unittest.TestCase):
                     )
                 )
 
+    def _run_bootstrap(self, *, adapter=None, payload=None, node_id="node-a", vmid=306):
+        adapter = adapter or StubInventoryAdapter(vms=[running_vm_with_guest_ip(vmid=vmid, node_id=node_id)])
+        with patch.object(self.api_v1_router, "_inventory_adapter", return_value=adapter):
+            return asyncio.run(
+                self.api_v1_router.bootstrap_readiness_intent_action(
+                    node_id,
+                    vmid,
+                    payload
+                    or {
+                        "bootstrap_readiness_acknowledged": True,
+                        "idempotency_key": "idem-bootstrap-1",
+                        "expected_name": "running-app",
+                        "expected_status": "running",
+                        "expected_ip": "192.168.2.141",
+                    },
+                )
+            )
+
     def test_start_route_exists_without_legacy_instance_action_routes(self):
         self.assertIn("/api/v1/nodes/{node_id}/vms/{vmid}/actions/start", self.paths)
+        self.assertIn("/api/v1/nodes/{node_id}/vms/{vmid}/bootstrap-readiness-intents", self.paths)
         self.assertNotIn("/api/instances/action", self.paths)
         self.assertNotIn("/api/v1/instances/action", self.paths)
 
@@ -122,6 +164,172 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertEqual(409, raised.exception.status_code)
         self.assertEqual("VM_START_IDEMPOTENCY_KEY_REQUIRED", raised.exception.detail["code"])
         self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
+
+    def test_bootstrap_readiness_blocks_without_acknowledgement_or_idempotency_key(self):
+        with self.assertRaises(HTTPException) as missing_ack:
+            self._run_bootstrap(payload={"idempotency_key": "idem-bootstrap-no-ack"})
+
+        self.assertEqual(409, missing_ack.exception.status_code)
+        self.assertEqual("BOOTSTRAP_READINESS_ACK_REQUIRED", missing_ack.exception.detail["code"])
+        self.assertFalse(missing_ack.exception.detail["proxmox_mutation_enabled"])
+        self.assertFalse(missing_ack.exception.detail["ssh_login_ran"])
+        self.assertFalse(missing_ack.exception.detail["ansible_ran"])
+
+        with self.assertRaises(HTTPException) as missing_idempotency:
+            self._run_bootstrap(payload={"bootstrap_readiness_acknowledged": True})
+
+        self.assertEqual(409, missing_idempotency.exception.status_code)
+        self.assertEqual("BOOTSTRAP_READINESS_IDEMPOTENCY_KEY_REQUIRED", missing_idempotency.exception.detail["code"])
+        self.assertFalse(missing_idempotency.exception.detail["app_bootstrap_ran"])
+        self.assertEqual([], missing_idempotency.exception.detail["side_effects"])
+
+    def test_bootstrap_readiness_rejects_forbidden_payload_without_secret_leakage(self):
+        from app.jobs.artifacts import read_artifact_text
+        from app.jobs.runs import get_job_run
+
+        raw_private_key = "-----BEGIN OPENSSH PRIVATE KEY-----SECRET-PRIVATE-KEY-----END OPENSSH PRIVATE KEY-----"
+        raw_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAISECRET public@test"
+        payload = {
+            "bootstrap_readiness_acknowledged": True,
+            "idempotency_key": "idem-bootstrap-forbidden",
+            "expected_name": "running-app",
+            "private_key": raw_private_key,
+            "ssh_public_key": raw_public_key,
+            "command": "curl http://example.invalid/bootstrap.sh",
+            "env": {"BOOTSTRAP_TOKEN": "raw-token-value"},
+        }
+
+        with self.assertRaises(HTTPException) as raised:
+            self._run_bootstrap(payload=payload)
+
+        detail = raised.exception.detail
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("BOOTSTRAP_READINESS_FORBIDDEN_PAYLOAD", detail["code"])
+        self.assertFalse(detail["ssh_login_ran"])
+        self.assertFalse(detail["ansible_ran"])
+        self.assertFalse(detail["app_bootstrap_ran"])
+        self.assertEqual([], detail["side_effects"])
+        self.assertIn("private_key", detail["forbidden_payload_keys"])
+        self.assertIn("ssh_public_key", detail["forbidden_payload_keys"])
+        self.assertIn("command", detail["forbidden_payload_keys"])
+        self.assertIn("env", detail["forbidden_payload_keys"])
+
+        job = get_job_run(detail["job_id"])
+        self.assertEqual("bootstrap_readiness", job["job_type"])
+        serialized = json.dumps({"detail": detail, "job": job}, sort_keys=True)
+        self.assertNotIn(raw_private_key, serialized)
+        self.assertNotIn(raw_public_key, serialized)
+        self.assertNotIn("raw-token-value", serialized)
+        self.assertNotIn("curl http://example.invalid/bootstrap.sh", serialized)
+
+        for artifact in job["artifacts"]:
+            artifact_text = read_artifact_text(artifact)
+            self.assertNotIn(raw_private_key, artifact_text)
+            self.assertNotIn(raw_public_key, artifact_text)
+            self.assertNotIn("raw-token-value", artifact_text)
+            self.assertNotIn("curl http://example.invalid/bootstrap.sh", artifact_text)
+
+    def test_bootstrap_readiness_blocks_stopped_vm_without_side_effects(self):
+        from app.jobs.runs import get_job_run
+
+        with self.assertRaises(HTTPException) as raised:
+            self._run_bootstrap(
+                adapter=StubInventoryAdapter(vms=[stopped_vm(name="ready-app")]),
+                payload={
+                    "bootstrap_readiness_acknowledged": True,
+                    "idempotency_key": "idem-bootstrap-stopped",
+                    "expected_name": "ready-app",
+                },
+            )
+
+        detail = raised.exception.detail
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("BOOTSTRAP_READINESS_NON_RUNNING_BLOCKED", detail["code"])
+        self.assertEqual("stopped", detail["observed_inventory"]["status"])
+        self.assertFalse(detail["proxmox_mutation_enabled"])
+        self.assertFalse(detail["ssh_login_ran"])
+        self.assertFalse(detail["ansible_ran"])
+        self.assertFalse(detail["app_bootstrap_ran"])
+        self.assertEqual([], detail["side_effects"])
+        self.assertTrue(detail["bootstrap_readiness_intent_artifact"]["path"].startswith("db://job-artifacts/"))
+        job = get_job_run(detail["job_id"])
+        self.assertEqual("bootstrap_readiness", job["job_type"])
+        self.assertEqual("blocked", job["status"])
+        self.assertEqual("target_precheck", job["current_stage"])
+
+    def test_bootstrap_readiness_success_writes_no_live_intent_artifact(self):
+        from app.jobs.artifacts import read_artifact_text
+        from app.jobs.runs import get_job_run
+
+        response = self._run_bootstrap(
+            payload={
+                "bootstrap_readiness_acknowledged": True,
+                "idempotency_key": "idem-bootstrap-success",
+                "expected_name": "running-app",
+                "expected_status": "running",
+                "expected_ip": "192.168.2.141",
+            }
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("bootstrap_readiness_intent_no_live_ssh", response["meta"]["mode"])
+        result = response["data"]
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["idempotent_replay"])
+        self.assertFalse(result["proxmox_mutation_enabled"])
+        self.assertFalse(result["ssh_login_ran"])
+        self.assertFalse(result["ansible_ran"])
+        self.assertFalse(result["app_bootstrap_ran"])
+        self.assertEqual([], result["side_effects"])
+        self.assertEqual(["192.168.2.141"], result["guest_agent_ip_addresses"])
+        self.assertTrue(result["bootstrap_readiness_intent_artifact"]["path"].startswith("db://job-artifacts/"))
+
+        artifact_payload = json.loads(read_artifact_text(result["bootstrap_readiness_intent_artifact"]))
+        self.assertEqual("bootstrap_readiness_intent", artifact_payload["operation"])
+        self.assertEqual("no_live_ssh_no_ansible", artifact_payload["mode"])
+        self.assertFalse(artifact_payload["ssh_login_ran"])
+        self.assertFalse(artifact_payload["ansible_ran"])
+        self.assertFalse(artifact_payload["app_bootstrap_ran"])
+        self.assertFalse(artifact_payload["proxmox_mutation_enabled"])
+        self.assertEqual([], artifact_payload["side_effects"])
+        self.assertEqual("running", artifact_payload["observed_inventory"]["status"])
+        self.assertEqual(["192.168.2.141"], artifact_payload["observed_inventory"]["guest_agent"]["ip_addresses"])
+
+        job = get_job_run(result["job_id"])
+        self.assertEqual("bootstrap_readiness", job["job_type"])
+        self.assertEqual("completed", job["status"])
+        self.assertTrue(any(artifact["type"] == "bootstrap_readiness_intent" for artifact in job["artifacts"]))
+
+    def test_bootstrap_readiness_duplicate_idempotency_returns_existing_evidence(self):
+        first = self._run_bootstrap(
+            payload={
+                "bootstrap_readiness_acknowledged": True,
+                "idempotency_key": "idem-bootstrap-duplicate",
+                "expected_name": "running-app",
+                "expected_status": "running",
+                "expected_ip": "192.168.2.141",
+            }
+        )
+        second = self._run_bootstrap(
+            adapter=StubInventoryAdapter(vms=[running_vm_with_guest_ip(name="changed-app", ip_address="192.168.2.199")]),
+            payload={
+                "bootstrap_readiness_acknowledged": True,
+                "idempotency_key": "idem-bootstrap-duplicate",
+                "expected_name": "changed-app",
+                "expected_status": "running",
+                "expected_ip": "192.168.2.199",
+            },
+        )
+
+        self.assertEqual(first["data"]["job_id"], second["data"]["job_id"])
+        self.assertFalse(first["data"]["idempotent_replay"])
+        self.assertTrue(second["data"]["idempotent_replay"])
+        self.assertEqual("running-app", second["data"]["observed_inventory"]["name"])
+        self.assertEqual(["192.168.2.141"], second["data"]["guest_agent_ip_addresses"])
+        self.assertEqual(
+            first["data"]["bootstrap_readiness_intent_artifact"]["checksum"],
+            second["data"]["bootstrap_readiness_intent_artifact"]["checksum"],
+        )
 
     def test_start_precheck_blocks_missing_moved_template_and_non_stopped_vms(self):
         cases = [

@@ -2,7 +2,7 @@
 
 Status source: [current product status](../../current/README.md). Top-tab status index: [top tabs](../../current/top-tabs/README.md).
 
-Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, read-only network readiness evidence, DRS Advisor recommendation/check evidence, a narrow approval-gated DRS migration backend, DB-backed job history, and job-derived risk summaries.
+Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, read-only network readiness evidence, DRS Advisor recommendation/check evidence, a narrow approval-gated DRS migration backend, backend-only no-live bootstrap readiness intent evidence, DB-backed job history, and job-derived risk summaries.
 
 It is not currently automatic DRS, a broad migration control plane, an app deployment system, a GitLab environment controller, a CI/CD orchestrator, or an LLM assistant product.
 
@@ -41,7 +41,7 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 | Proxmox mutation | `backend/app/proxmox/client.py` | Separate native mutation client used by gated mutation paths only. |
 | DRS migration client | `backend/app/proxmox/drs_migration.py` | Dedicated DRS Proxmox migration client used only by the DRS execution path. |
 | Create VM | `backend/app/vm_create/*` | Draft, preflight, plan, approval, manifest evidence, and native create. |
-| VM actions | `backend/app/vm_actions/*` | Existing-VM action helpers kept separate from Create VM and read-only inventory. |
+| VM actions | `backend/app/vm_actions/*` | Existing-VM action helpers and no-live bootstrap readiness intent helpers kept separate from Create VM and read-only inventory. |
 | Jobs/artifacts | `backend/app/jobs/*` | DB-backed job status, artifacts, approval records. |
 | Database | `backend/app/db/*` | SQLAlchemy/Alembic connection, Create VM profile repository, and manual seed command. |
 | Manifests | `backend/app/manifests/*` | Initial Create VM profile seed-definition data and manifest helpers. |
@@ -54,7 +54,7 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 | Profiles | `create_vm_profiles` DB table through `GJALLAR_DATABASE_URL`; initial rows are manual `db_seed` presets and disabled/archived rows are hidden. |
 | Create VM artifacts | Generated per job into the `job_artifacts` table. |
 | Create VM records | `vm_create_requests` and `vm_instances` tables. |
-| Jobs/Runs | `job_runs` rows plus `job_artifacts`, including `vm_create` and `vm_start` jobs. |
+| Jobs/Runs | `job_runs` rows plus `job_artifacts`, including `vm_create`, `vm_start`, `drs_migration`, and `bootstrap_readiness` jobs. |
 | Risks/Alerts | Derived from `risks` arrays in job status records. |
 | DRS Advisor recommendations/checks | Backend read-only calculator from inventory, job-derived risks, identity/policy evidence, and operation-lock evidence. |
 | DRS execution state | `drs_approval_packets`, `drs_migration_jobs`, `operation_locks`, `drs_reconciliation_events`, `job_runs`, and `job_artifacts`. |
@@ -66,6 +66,6 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 - No recommendation-level approve/migrate/live-migrate aliases.
 - No generalized DRS metadata editor or policy editor.
 - No direct VM stop/reset/delete/snapshot controls. Existing-VM start is the only current power action and is gated to stopped non-template VMs.
-- No SSH smoke, Ansible verification, or app bootstrap after Create VM. First boot, guest-agent IP discovery, and cloud-init completion exist only when the request uses `boot_and_verify`.
+- No live SSH smoke, Ansible verification, or app bootstrap after Create VM. A backend-only bootstrap readiness intent route records sanitized read-only evidence without SSH login, Ansible, app execution, or Proxmox mutation. First boot, guest-agent IP discovery, and cloud-init completion exist only when the request uses `boot_and_verify`.
 - No Proxmox bridge creation/deletion/update from Gjallar.
 - No Terraform plan/apply route surface.

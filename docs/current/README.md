@@ -28,6 +28,7 @@ This file is the docs source of truth for implemented behavior after active code
   source.
 - Current Create VM create policy is explicit per request: the default `stopped` policy performs native Proxmox clone, boot disk resize when needed, config, and stopped post-check; the optional `boot_and_verify` policy starts the new VM, waits for guest-agent IP discovery, and verifies `cloud-init status --wait`. SSH login, Ansible, app bootstrap, and DRS identity registration remain deferred.
 - Existing VM start is a separate Infra Explorer action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Jobs/Runs evidence.
+- Bootstrap readiness intent is a separate post-create backend/API action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/bootstrap-readiness-intents`. It is operator-only, read-only inventory based, records `bootstrap_readiness` Jobs/Runs evidence, and always reports no Proxmox mutation, no SSH login, no Ansible, no app bootstrap, and `side_effects=[]`.
 - Admin local-user management is available at `/admin/users` for users with the
   `admin` role. The backend endpoints are `GET/POST /api/v1/admin/users`,
   `PATCH /api/v1/admin/users/{username}/role`,
@@ -57,6 +58,7 @@ This file is the docs source of truth for implemented behavior after active code
   be disabled or demoted, and disabled admin rows do not count toward that
   protection.
 - VM start writes a `vm_start_observed_after` DB artifact with observed-before inventory, Proxmox UPID/task evidence, observed-after status, target locator, idempotency key, and redacted connection context.
+- Bootstrap readiness intent writes a `bootstrap_readiness_intent` DB artifact with sanitized target, expected context, observed read-only inventory, guest-agent IP evidence, trusted actor fields, and no-live execution flags. It rejects credential/execution payload keys and does not affect Create VM request or VM instance success state.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
 - Task failure, unknown cloned disk size, resize failure, VM missing, stopped-policy powered-on mismatch, or boot-and-verify guest-agent/cloud-init failure records failed/`needs_reconciliation` and does not mark the manifest applied.
@@ -119,8 +121,9 @@ Remaining Create VM gaps:
 - Networks readiness is not a red-gate source for Create VM static range
   membership.
 - `boot_and_verify` now covers first boot, guest-agent IP discovery, and
-  cloud-init completion for the new VM. SSH/Ansible/app bootstrap smoke remains
-  deferred.
+  cloud-init completion for the new VM. A separate no-live bootstrap readiness
+  intent can record post-create evidence, but SSH/Ansible/app bootstrap smoke
+  remains deferred and is not part of Create VM success.
 - Create VM shows the authenticated session user as the request actor instead
   of exposing an editable `operator_id` field. Backend job/request evidence
   continues to use trusted session actor fields.

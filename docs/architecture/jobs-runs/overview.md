@@ -36,7 +36,7 @@ metadata are stored in `job_artifacts`; artifact references use
 | Field | Current meaning |
 |---|---|
 | `job_id` | Operator/UI/API supplied job id. |
-| `job_type` | Current Create VM jobs use `vm_create`; Infra Explorer start jobs use `vm_start`; DRS migration jobs use `drs_migration`. |
+| `job_type` | Current Create VM jobs use `vm_create`; Infra Explorer start jobs use `vm_start`; DRS migration jobs use `drs_migration`; bootstrap readiness intent jobs use `bootstrap_readiness`. |
 | `status` | `in_progress`, `pending`, `running`, `completed`, `blocked`, `failed`, etc. |
 | `target_id` | Current target label, usually `<node>:<vm_name>`. |
 | `risk_level` | Risk level from preflight/plan or `unknown`. |
@@ -74,6 +74,14 @@ Earlier stages are marked completed when a later stage is recorded.
 | `task_poll` | Proxmox task check | UPID polling and exitstatus validation. |
 | `post_check` | Post-start check | `/status/current` observed-after running check. |
 
+`bootstrap_readiness` jobs use no-live intent stages:
+
+| Stage | Label | Current bootstrap readiness use |
+|---|---|---|
+| `target_precheck` | Bootstrap target precheck | Acknowledged intent, idempotency, forbidden payload key rejection, and fresh `node_id` + `vmid` inventory binding. |
+| `inventory_evidence` | Bootstrap inventory evidence | Guest-agent/IP evidence gate before any future SSH possibility. |
+| `intent_recorded` | Bootstrap intent recorded | Sanitized local intent artifact written with no Proxmox mutation, SSH login, Ansible, guest exec, VM start, or app bootstrap. |
+
 `drs_migration` jobs use DRS-specific stages:
 
 | Stage | Label | Current DRS use |
@@ -102,6 +110,7 @@ Current Create VM jobs can publish:
 | `proxmox_create_preview` | `build_proxmox_create_preview()` |
 | `observed_after` | `run_proxmox_create()` |
 | `vm_start_observed_after` | `run_vm_start()` |
+| `bootstrap_readiness_intent` | `run_bootstrap_readiness_intent()` |
 | `drs_recommendation_evidence` | `create_approval_packet_and_job_intent()` |
 | `drs_final_precheck` | `create_approval_packet_and_job_intent()` |
 | `drs_approval_packet` | `create_approval_packet_and_job_intent()` |
@@ -137,6 +146,16 @@ Artifact APIs return metadata such as id, type, checksum, storage backend, size,
 | Task exitstatus not OK | `failed`, stage `task_poll`, artifact written. |
 | Post-check not running | `failed`, stage `post_check`, artifact written. |
 | Task OK and observed running | `completed`, stage `post_check`, artifact written. |
+
+## Bootstrap Readiness Job Updates
+
+| Bootstrap readiness event | Job status/stage |
+|---|---|
+| Missing acknowledgement or idempotency key | Request is rejected before job creation. |
+| Forbidden credential/execution payload keys | `blocked`, stage `target_precheck`, sanitized artifact written without raw values. |
+| Missing/moved/template target, context mismatch, or non-running VM | `blocked`, stage `target_precheck`, no live side effects. |
+| Missing guest-agent/IP evidence | `blocked`, stage `inventory_evidence`, no live side effects. |
+| Running VM with guest-agent IP evidence | `completed`, stage `intent_recorded`, `bootstrap_readiness_intent` artifact written. |
 
 ## DRS Migration Job Updates
 

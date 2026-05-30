@@ -319,27 +319,41 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
 
     create_payload = {"proxmox_mutation_acknowledged": True}
     start_payload = {"vm_start_acknowledged": True, "idempotency_key": "authz"}
+    readiness_payload = {"bootstrap_readiness_acknowledged": True, "idempotency_key": "authz-readiness"}
 
     with patch("app.api.v1.router.get_default_proxmox_mutation_client") as client_factory, patch(
         "app.api.v1.router.run_proxmox_create"
     ) as create_mutation, patch("app.api.v1.router.record_vm_create_request") as create_record, patch(
         "app.api.v1.router.run_vm_start"
-    ) as start_mutation:
+    ) as start_mutation, patch(
+        "app.api.v1.router.run_bootstrap_readiness_intent"
+    ) as readiness_intent:
         create_unauth = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        readiness_unauth = client.post(
+            "/api/v1/nodes/node-a/vms/306/bootstrap-readiness-intents",
+            json=readiness_payload,
+        )
         assert create_unauth.status_code == 401
         assert start_unauth.status_code == 401
+        assert readiness_unauth.status_code == 401
 
         _login(client, username="viewer-only")
         create_viewer = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_viewer = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        readiness_viewer = client.post(
+            "/api/v1/nodes/node-a/vms/306/bootstrap-readiness-intents",
+            json=readiness_payload,
+        )
         assert create_viewer.status_code == 403
         assert start_viewer.status_code == 403
+        assert readiness_viewer.status_code == 403
 
         client_factory.assert_not_called()
         create_mutation.assert_not_called()
         create_record.assert_not_called()
         start_mutation.assert_not_called()
+        readiness_intent.assert_not_called()
 
 
 def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_work(monkeypatch):
@@ -478,6 +492,36 @@ def test_vm_start_route_passes_authenticated_actor_from_session(monkeypatch):
     assert response.status_code == 200, response.text
     assert captured["actor"]["username"] == "starter"
     assert captured["actor"]["role"] == "operator"
+
+
+def test_bootstrap_readiness_route_passes_authenticated_actor_from_session(monkeypatch):
+    _create_user(monkeypatch, username="bootstrapper", role="operator")
+    client = _client()
+    _login(client, username="bootstrapper")
+    captured = {}
+
+    def fake_readiness(**kwargs):
+        captured.update(kwargs)
+        return {
+            "job_id": "bootstrap-readiness-auth-actor",
+            "status": "completed",
+            "proxmox_mutation_enabled": False,
+            "ssh_login_ran": False,
+            "ansible_ran": False,
+            "app_bootstrap_ran": False,
+            "side_effects": [],
+        }
+
+    with patch("app.api.v1.router.run_bootstrap_readiness_intent", side_effect=fake_readiness):
+        response = client.post(
+            "/api/v1/nodes/node-a/vms/306/bootstrap-readiness-intents",
+            json={"bootstrap_readiness_acknowledged": True, "idempotency_key": "actor-readiness"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert captured["actor"]["username"] == "bootstrapper"
+    assert captured["actor"]["role"] == "operator"
+    assert "inventory_adapter" in captured
 
 
 def _assert_job_status_actor(job_id: str, *, username: str, role: str, forbidden_username: str = "") -> None:

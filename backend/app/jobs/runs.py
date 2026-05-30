@@ -31,6 +31,12 @@ VM_START_STEP_LABELS = {
     "task_poll": "Proxmox 작업 확인",
     "post_check": "시작 후 확인",
 }
+BOOTSTRAP_READINESS_STEP_ORDER = ["target_precheck", "inventory_evidence", "intent_recorded"]
+BOOTSTRAP_READINESS_STEP_LABELS = {
+    "target_precheck": "Bootstrap target precheck",
+    "inventory_evidence": "Bootstrap inventory evidence",
+    "intent_recorded": "Bootstrap intent recorded",
+}
 DRS_MIGRATION_STEP_ORDER = [
     "recommendation",
     "final_precheck",
@@ -59,6 +65,8 @@ TERMINAL_STATUSES = {"completed", "failed", "blocked", "timed_out", "ambiguous",
 def _step_order(job_type: str) -> list[str]:
     if job_type == "vm_start":
         return VM_START_STEP_ORDER
+    if job_type == "bootstrap_readiness":
+        return BOOTSTRAP_READINESS_STEP_ORDER
     if job_type == "drs_migration":
         return DRS_MIGRATION_STEP_ORDER
     return VM_CREATE_STEP_ORDER
@@ -67,6 +75,8 @@ def _step_order(job_type: str) -> list[str]:
 def _step_labels(job_type: str) -> dict[str, str]:
     if job_type == "vm_start":
         return VM_START_STEP_LABELS
+    if job_type == "bootstrap_readiness":
+        return BOOTSTRAP_READINESS_STEP_LABELS
     if job_type == "drs_migration":
         return DRS_MIGRATION_STEP_LABELS
     return VM_CREATE_STEP_LABELS

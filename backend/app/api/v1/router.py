@@ -26,6 +26,7 @@ from app.vm_create.iac_readiness import run_iac_readiness
 from app.vm_create.planner import build_vm_create_plan
 from app.vm_create.preflight import run_preflight
 from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
+from app.vm_actions.bootstrap_readiness import BootstrapReadinessError, run_bootstrap_readiness_intent
 from app.vm_actions.start import VmStartError, run_vm_start
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_viewer)])
@@ -605,6 +606,37 @@ async def start_vm_action_route(
     actor: AuthenticatedUser = Depends(require_operator),
 ) -> dict:
     return await start_vm_action(node_id, vmid, payload, actor=actor)
+
+
+async def bootstrap_readiness_intent_action(
+    node_id: str,
+    vmid: int,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
+    """Record a no-live-SSH/Ansible bootstrap readiness intent."""
+    try:
+        result = await run_in_threadpool(
+            run_bootstrap_readiness_intent,
+            node_id=node_id,
+            vmid=vmid,
+            payload=payload or {},
+            actor=actor_evidence(actor) if actor is not None else None,
+            inventory_adapter=_inventory_adapter(),
+        )
+    except BootstrapReadinessError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_detail()) from exc
+    return success_response(result, meta={"mode": "bootstrap_readiness_intent_no_live_ssh"})
+
+
+@router.post("/nodes/{node_id}/vms/{vmid}/bootstrap-readiness-intents")
+async def bootstrap_readiness_intent_route(
+    node_id: str,
+    vmid: int,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await bootstrap_readiness_intent_action(node_id, vmid, payload, actor=actor)
 
 
 async def create_vm_draft(payload: dict | None = None, actor: AuthenticatedUser | dict | None = None) -> dict:

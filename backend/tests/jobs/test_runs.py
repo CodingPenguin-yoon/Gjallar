@@ -98,6 +98,34 @@ class JobRunsTests(unittest.TestCase):
         self.assertNotIn("create", [step["id"] for step in run["steps"]])
         self.assertIn("post_check", [step["id"] for step in run["steps"]])
 
+    def test_bootstrap_readiness_steps_are_intent_specific_and_not_vm_create_labels(self):
+        from app.jobs import runs as runs_module
+
+        run = runs_module.record_job_run(
+            job_id="job-bootstrap-readiness-steps",
+            job_type="bootstrap_readiness",
+            status="completed",
+            target_id="node-a:306:running-app",
+            risk_level="unknown",
+            stage="intent_recorded",
+            step_status="completed",
+            message="bootstrap readiness intent recorded",
+        )
+
+        self.assertEqual(
+            ["target_precheck", "inventory_evidence", "intent_recorded"],
+            [step["id"] for step in run["steps"]],
+        )
+        self.assertEqual(
+            ["Bootstrap target precheck", "Bootstrap inventory evidence", "Bootstrap intent recorded"],
+            [step["label"] for step in run["steps"]],
+        )
+        self.assertEqual(["completed", "completed", "completed"], [step["status"] for step in run["steps"]])
+        self.assertNotIn("draft", [step["id"] for step in run["steps"]])
+        self.assertNotIn("preflight", [step["id"] for step in run["steps"]])
+        self.assertNotIn("plan", [step["id"] for step in run["steps"]])
+        self.assertNotIn("create", [step["id"] for step in run["steps"]])
+
 
 if __name__ == "__main__":
     unittest.main()

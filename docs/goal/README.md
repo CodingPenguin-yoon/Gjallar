@@ -37,14 +37,15 @@ exactly one detailed document, listed below.
 | Goal Check: Goal 1-6 Implementation Verification And Quality Audit | Completed | `docs/goal/goal-check-01-06-implementation-quality.md` / `docs/goal/goal-check-01-06-summary-ko.md` | Result: pass-with-risk; Goal 7 is unblocked. No live DRS smoke was run. |
 | Goal 7: DRS UI And Operations Polish | Completed | `docs/goal/goal-07-drs-ui-operations-polish.md` | Minimal safe UI slice exposes lifecycle and blockers without weakening backend gates. |
 | Goal 7.5: DRS VM Policy Configuration | Completed | `docs/goal/goal-07-5-drs-vm-policy-management.md` | Manual VM policy API/UI/audit slice is implemented. No live DRS smoke was run. |
-| Goal 8: SSH/Ansible/App Bootstrap Readiness | Deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` | Optional post-create confidence work, only after explicit direction. |
+| Goal 8: SSH/Ansible/App Bootstrap Readiness | Safe no-live slice implemented; live execution deferred | `docs/goal/goal-08-ssh-ansible-app-bootstrap-readiness.md` | Operator-only bootstrap readiness intent records sanitized read-only evidence with no SSH/Ansible/app execution and no Proxmox mutation. |
 | Goal 9: Account/Session Operations Polish | Deferred | `docs/goal/goal-09-account-session-operations-polish.md` | Operational convenience around accounts/sessions. |
 
 When a future session says "next goal", do not restart Goal 7.5. Start only
-the user-selected next task: optional approved live DRS smoke evidence, Goal 8,
-Goal 9, or another explicitly requested task. The Goal 1-6 implementation
-quality audit is complete with result `pass-with-risk`; Goal 7 and Goal 7.5
-are complete; no live DRS smoke was run.
+the user-selected next task: optional approved live DRS smoke evidence, any
+further Goal 8 live SSH/Ansible/app bootstrap work, Goal 9, or another
+explicitly requested task. The Goal 1-6 implementation quality audit is
+complete with result `pass-with-risk`; Goal 7 and Goal 7.5 are complete; no
+live DRS smoke was run.
 
 ## DRS Safety Constraints
 
