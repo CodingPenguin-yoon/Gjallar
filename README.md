@@ -16,11 +16,11 @@ The active repo-local documentation lives under [`docs/`](docs/README.md). Start
 
 - The active frontend contract remains `/api/v1`.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
-- The current UI provides Dashboard, Infra Explorer, Networks, Create VM, read-only DRS Advisor, Jobs/Runs, and Risks/Alerts.
+- The current UI provides Dashboard, Infra Explorer, Networks, Create VM, DRS Advisor recommendation/check with manual per-VM migration policy configuration and local approval packet creation, Jobs/Runs, and Risks/Alerts.
 - Current code has DRS identity/fingerprint policy, read-only final pre-check,
   local approval/job substrate, narrow approval-gated migration execution, UPID
-  tracking, verified post-check, and read-only reconciliation preview. Broad
-  DRS execution UI and live DRS migration smoke evidence remain pending.
+  tracking, verified post-check, and read-only reconciliation preview. Live
+  execute/corrective reconcile UI and live DRS migration smoke evidence remain pending.
 - Create VM mutations are approval-gated Proxmox API native. The legacy Terraform executor route surface and helper code have been removed.
 - Native Create VM creates/configures a VM, polls the Proxmox clone UPID, records request/VM DB rows, and requires post-check `observed_after` evidence before marking the create applied. The default policy leaves the VM stopped; the optional `boot_and_verify` policy starts it and verifies guest-agent IP plus cloud-init completion.
 - Infra Explorer exposes only a gated Start action for stopped non-template VMs; stop/reset/shutdown/reboot/delete/terminate controls are absent.

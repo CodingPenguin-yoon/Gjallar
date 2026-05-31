@@ -44,4 +44,4 @@ Current Create VM은 selected target node, active live bridge, explicit `bridge_
 
 ## DRS boundary
 
-DRS route feasibility는 future read-only backend model과 final pre-check가 필요합니다. Networks readiness만으로 source/target route를 authorize할 수 없습니다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아닙니다. `준비됨`도 visible target row에 차단/검토 evidence 없는 CIDR-verified exact active bridge mapping이 있다는 뜻일 뿐 실행 권한이 아닙니다.
+DRS route authorization은 current DRS recommendation/check evidence, final pre-check, policy, approval/job, live Proxmox evidence, and operation locks를 별도로 요구합니다. Networks readiness만으로 source/target route를 authorize할 수 없습니다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아닙니다. `준비됨`도 visible target row에 차단/검토 evidence 없는 CIDR-verified exact active bridge mapping이 있다는 뜻일 뿐 실행 권한이 아닙니다.

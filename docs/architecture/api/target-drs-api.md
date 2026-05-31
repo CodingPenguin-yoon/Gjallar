@@ -4,7 +4,7 @@ Status source: [current product status](../../current/README.md). Relevant top-t
 
 This document lists DRS Advisor APIs and separates the current implemented boundary from future execution/automation work.
 
-Current `/drs` UI includes read/check recommendations and manual VM policy configuration. Backend `/api/v1/drs/*` includes Proxmox-read-only recommendation/check routes, `vm_identity_id`-scoped manual policy management with local audit events, a local approval packet/job substrate, a narrow operator-only migration-job execute route, and a read-only reconcile preview route. Broad execution UI, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
+Current `/drs` UI includes read/check recommendations, manual VM policy configuration, and local approval packet/job intent creation. Backend `/api/v1/drs/*` includes Proxmox-read-only recommendation/check routes, `vm_identity_id`-scoped manual policy management with local audit events, a local approval packet/job substrate, a narrow operator-only migration-job execute route, and a read-only reconcile preview route. Live execute UI, corrective reconcile UI, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
 
 ## Candidate Endpoints
 
@@ -42,7 +42,7 @@ Current DRS execution is not "approve means migrate". The implemented sequence i
 ## Explicit Non-Current Items
 
 - Recommendation-level approve/migrate/live-migrate route aliases.
-- Broad DRS execution UI controls.
+- Live execute UI, corrective reconcile UI, and broad approval-to-execute controls.
 - Richer policy rule API beyond manual per-VM identity classification.
 - Corrective reconciliation mutation.
 - Background reconciliation automation or automatic DRS.

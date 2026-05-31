@@ -6,7 +6,7 @@ This document describes DRS recommendation and execution boundaries after Goals 
 
 ## Current Baseline
 
-Current `/drs` UI reads backend DRS summary/recommendation/detail/check endpoints and exposes no approval or migration execution controls. Backend DRS now stores identity/policy evidence, operation locks, approval packets, migration job state, UPID/task/post-check evidence, and reconciliation events behind operator-only API routes.
+Current `/drs` UI reads backend DRS summary/recommendation/detail/check endpoints, uses manual per-VM migration policy endpoints, and creates local approval packet/job intents. It exposes no live migration execution controls. Backend DRS now stores identity/policy evidence, operation locks, approval packets, migration job state, UPID/task/post-check evidence, and reconciliation events behind operator-only API routes.
 
 Recommendation/detail/check output is Proxmox-read-only and remains `read_only=true`, `executable=false`, and `allowed_actions=[]`. It may persist Gjallar-local identity observation evidence.
 
@@ -44,8 +44,8 @@ DRS execution appears in Jobs/Runs as `drs_migration` job evidence. Risks/Alerts
 
 ## Remaining Gaps
 
-- Broad DRS execution UI controls.
-- Policy editor and richer DRS policy rules.
+- Live execute UI, corrective reconcile UI, and broad approval-to-execute controls.
+- Richer policy rule/full metadata editor beyond current per-VM migration policy configuration.
 - Corrective reconciliation mutation or Reconcile Now execution.
 - Background reconciliation automation or automatic DRS.
 - Live DRS migration smoke evidence.

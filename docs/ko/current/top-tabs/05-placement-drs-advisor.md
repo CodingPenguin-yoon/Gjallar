@@ -4,7 +4,7 @@
 
 기준 문서: [영어 Placement snapshot](../../../current/top-tabs/05-placement-drs-advisor.md), [영어 Placement/DRS architecture](../../../architecture/placement-drs-advisor/overview.md), [Target DRS API](../../../architecture/api/target-drs-api.md), [DRS product docs](../../../product/drs-advisor/README.md).
 
-현재 `/drs`는 DRS Advisor read/check screen입니다. Frontend는 approval/execute/UPID/reconcile controls를 제공하지 않습니다. Backend에는 compact identity/fingerprint와 policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다.
+현재 `/drs`는 DRS Advisor recommendation/check, manual VM policy configuration, local approval packet/job intent creation screen입니다. Frontend에는 live execute/corrective reconcile controls가 없습니다. Backend에는 compact identity/fingerprint와 policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다.
 
 ## 사용하는 API와 호출 위치
 
@@ -16,6 +16,9 @@
 | `GET /api/v1/drs/recommendations` | backend-owned read-only recommendation list |
 | `GET /api/v1/drs/recommendations/{recommendation_id}` | detail evidence |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | reference-only recalculation |
+| `GET /api/v1/drs/policies` | current VM policy coverage와 blocker impact |
+| `GET /api/v1/drs/policies/{vm_identity_id}` | one VM policy item |
+| `PUT /api/v1/drs/policies/{vm_identity_id}` | operator-only local policy update와 audit evidence |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | operator-only local approval/job/artifact write; migration 시작 안 함 |
 | `POST /api/v1/drs/migration-jobs/{job_id}/execute` | operator-only narrow backend execution after fresh gates |
 | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | read-only reconciliation preview |
@@ -28,8 +31,8 @@ Backend는 current CPU/Memory usage로 node pressure와 imbalance를 계산합�
 
 ## 현재 없는 것
 
-- broad frontend approval/execute/reconcile controls.
-- policy editor와 full metadata/classification UI.
+- live execute/corrective reconcile controls and broad approval-to-execute UI.
+- richer policy/rule controls와 full metadata/classification UI.
 - recommendation-level approve/migrate/live-migrate alias routes.
 - corrective reconciliation mutation, background automation, automatic DRS.
 - live DRS smoke evidence.

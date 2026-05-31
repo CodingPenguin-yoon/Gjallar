@@ -5,4 +5,4 @@
 ## 문서
 
 - [Create VM review to create](create-vm-review-to-create.md): current implemented flow.
-- [DRS approve/migrate/reconcile](drs-approve-migrate-reconcile.md): target-only flow.
+- [DRS approve/migrate/reconcile](drs-approve-migrate-reconcile.md): current backend boundary plus deferred live execute/corrective reconcile UI gaps.

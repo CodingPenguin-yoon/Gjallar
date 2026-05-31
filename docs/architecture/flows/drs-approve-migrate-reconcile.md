@@ -2,9 +2,9 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-This is the current backend DRS execution boundary after Goals 1-6.
+This is the current DRS execution boundary.
 
-Current `/drs` UI calls read/check endpoints and does not expose approval, execute, or reconcile controls. Backend `/api/v1/drs/*` has local approval packet creation, a narrow operator-only migration-job execute route, UPID/task/post-check tracking, and read-only reconcile preview.
+Current `/drs` UI calls read/check and policy endpoints and exposes local approval packet/job intent creation. It does not expose live execute or corrective reconcile controls. Backend `/api/v1/drs/*` has local approval packet creation, a narrow operator-only migration-job execute route, UPID/task/post-check tracking, and read-only reconcile preview.
 
 ## Current Flow Summary
 
@@ -70,9 +70,9 @@ Risks/Alerts remain job-derived and do not yet have a full DRS blocker taxonomy.
 
 ## Explicit Current Non-Implementation
 
-- Broad frontend approval/execute/reconcile controls.
+- Live execute UI, corrective reconcile UI, and broad approval-to-execute controls.
 - Corrective reconciliation mutation.
 - Background reconciliation automation or automatic DRS.
 - Recommendation-level approve/migrate/live-migrate aliases.
-- DRS policy editor.
+- Richer policy rule/full metadata editor beyond current per-VM policy configuration.
 - Live DRS smoke evidence.

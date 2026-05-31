@@ -61,7 +61,7 @@ evidence, and update docs without expanding product scope.
 ## Out Of Scope
 
 - DRS migration execution.
-- SSH/Ansible/app bootstrap.
+- Post-create readiness evidence beyond the approved Create VM smoke matrix.
 - Background reconciliation worker.
 - Automatic cleanup or delete unless separately approved.
 

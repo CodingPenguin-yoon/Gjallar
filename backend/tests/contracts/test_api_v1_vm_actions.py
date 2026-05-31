@@ -107,6 +107,13 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertNotIn("/api/instances/action", self.paths)
         self.assertNotIn("/api/v1/instances/action", self.paths)
 
+    def test_post_create_readiness_evidence_route_exists_without_bootstrap_aliases(self):
+        self.assertIn("/api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence", self.paths)
+        self.assertNotIn("/api/v1/nodes/{node_id}/vms/{vmid}/actions/bootstrap", self.paths)
+        self.assertNotIn("/api/v1/nodes/{node_id}/vms/{vmid}/actions/ssh", self.paths)
+        self.assertNotIn("/api/v1/nodes/{node_id}/vms/{vmid}/actions/ansible", self.paths)
+        self.assertNotIn("/api/v1/nodes/{node_id}/vms/{vmid}/post-create-bootstrap", self.paths)
+
     def test_start_blocks_without_acknowledgement(self):
         with self.assertRaises(HTTPException) as raised:
             self._run_start(payload={"idempotency_key": "idem-no-ack"})

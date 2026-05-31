@@ -1,6 +1,6 @@
 # DRS Advisor Implementation Plan
 
-Status note as of 2026-05-30 / Goal Check 01-06: this is a historical phased plan. Goals 2-6 backend DRS substrate is now implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Recommendation/check output remains execution-closed; broad frontend approval/execute/reconcile controls, policy editor, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
+Status note as of 2026-06-01: this is a historical phased plan. Goals 2-6 backend DRS substrate is implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Goal 7 and Goal 7.5 added the minimal safe DRS UI slice plus manual VM migration policy UI/API. Recommendation/check output remains execution-closed; live migration execute UI, corrective reconcile UI, richer policy rule/full metadata editing, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
 
 ## 1. Current code inventory
 
@@ -9,7 +9,7 @@ Status note as of 2026-05-30 / Goal Check 01-06: this is a historical phased pla
 Frontend:
 
 - `frontend/src/App.jsx`: route/nav, Dashboard aggregation
-- `frontend/src/components/DrsAdvisorScreen.jsx`: DRS Advisor read/check screen without broad execution controls
+- `frontend/src/components/DrsAdvisorScreen.jsx`: DRS Advisor recommendation/check screen with manual policy configuration and local approval packet/job intent creation, but without live execute or corrective reconcile controls
 - `frontend/src/utils/drsAdvisor.js`: DRS recommendation/check view model
 - `frontend/src/components/TaskBoard.jsx`: Jobs/Runs read-only UI
 - `frontend/src/utils/jobsScreen.js`: job/artifact view model
@@ -22,7 +22,7 @@ Backend:
 
 - `backend/app/api/v1/router.py`: inventory, jobs, risks, VM create endpoints
 - `backend/app/drs/advisor.py`: execution-closed DRS recommendation/check calculator
-- `backend/app/drs/identity.py`, `backend/app/drs/operation_locks.py`, `backend/app/drs/approval.py`, `backend/app/drs/execution.py`: identity/policy evidence, operation locks, local approval/job substrate, narrow execution, post-check, and read-only reconcile preview
+- `backend/app/drs/identity.py`, `backend/app/drs/policies.py`, `backend/app/drs/operation_locks.py`, `backend/app/drs/approval.py`, `backend/app/drs/execution.py`: identity/policy evidence, manual policy API service, operation locks, local approval/job substrate, narrow execution, post-check, and read-only reconcile preview
 - `backend/app/proxmox/drs_migration.py`: dedicated DRS Proxmox migration client
 - `backend/app/proxmox/inventory.py`: fake/live read-only Proxmox inventory adapter
 - `backend/app/proxmox/models.py`: inventory dataclasses
@@ -38,9 +38,11 @@ Backend:
 Tests that lock useful current behavior:
 
 - `frontend/tests/drsAdvisor.test.mjs`
+- `frontend/tests/apiV1Client.test.mjs`
 - `frontend/tests/jobsScreen.test.mjs`
 - `frontend/tests/risksScreen.test.mjs`
 - `backend/tests/proxmox/test_inventory_adapter.py`
+- `backend/tests/drs`
 - `backend/tests/contracts/test_jobs_risks_contract.py`
 - `backend/tests/contracts/test_api_v1_vm_create*.py`
 - `backend/tests/contracts/test_forbidden_mvp_endpoints.py`

@@ -21,7 +21,7 @@ Goal 7: DRS UI And Operations Polish는 이 감사 이후 시작할 수 있습�
 - live DRS migration smoke는 실행하지 않았습니다.
 - live Proxmox mutation/smoke는 active-session user approval 없이는 실행하지
   않는다는 원칙을 지켰습니다.
-- broad DRS execution UI, policy editor, corrective reconciliation mutation,
+- broad DRS execution UI, richer policy/rule editor, corrective reconciliation mutation,
   background automation, automatic DRS는 여전히 deferred입니다.
 
 ## 왜 이 작업이 필요했나
@@ -91,7 +91,7 @@ AGENTS.md 운영 방식에 따라 메인 세션은 coordinator 역할을 했습�
 
 정확한 현재 상태는 다음입니다.
 
-- frontend `/drs` UI는 read/check only입니다.
+- frontend `/drs` UI는 recommendation/check 화면 only입니다.
 - recommendation/check output은 `read_only=true`, `executable=false`,
   `allowed_actions=[]`입니다.
 - approval packet creation은 local approval/job/artifact state만 쓰고
@@ -208,7 +208,7 @@ frontend 기능은 추가하지 않았습니다.
 
 변경한 의미는 다음입니다.
 
-- frontend DRS 화면은 read/check only입니다.
+- frontend DRS 화면은 recommendation/check 화면 only입니다.
 - backend에는 별도 approval/job execution route가 있습니다.
 - UI에는 approval/execute/UPID/reconcile controls가 아직 없습니다.
 
@@ -377,7 +377,7 @@ product docs, Korean mirror, frontend/backend code에서 검색했습니다.
 - live Proxmox cleanup/mutation 실행 안 함
 - Goal 7 UI 구현 시작 안 함
 - DRS approval/execute/reconcile UI controls 추가 안 함
-- policy editor 추가 안 함
+- richer policy/rule editor 추가 안 함
 - corrective reconciliation mutation 추가 안 함
 - background reconciliation automation 추가 안 함
 - automatic DRS 추가 안 함

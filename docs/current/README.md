@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-05-30
+Last refreshed: 2026-06-01
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -9,8 +9,8 @@ This file is the docs source of truth for implemented behavior after active code
 ## Product direction vs implemented state
 
 - Product target: DRS Advisor is the next MVP success line.
-- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, DRS Advisor identity/policy readiness foundation, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval/job substrate, narrow approval-gated DRS live migration execution with UPID/task metadata, verified DRS post-check/reconciliation state, read-only Reconcile preview, Jobs/Runs, Risks/Alerts, Create VM supporting capability, and admin local-user management.
-- Current gap: broad DRS execution UI, live DRS migration smoke evidence, 15-minute average/peak metric substrate, and deeper read-only advisor task/HA/quorum collection. Corrective reconciliation mutation and background reconciliation automation remain deferred.
+- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, DRS Advisor identity/policy readiness foundation, manual VM migration policy UI/API, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval packet/job intent creation, narrow approval-gated DRS live migration execution with UPID/task metadata, verified DRS post-check/reconciliation state, read-only Reconcile preview, Jobs/Runs, Risks/Alerts, Create VM supporting capability, minimal local-only post-create readiness evidence recording, and admin local account operations.
+- Current gap: broad live DRS execution UI, corrective reconcile UI, live DRS migration smoke evidence, 15-minute average/peak metric substrate, richer policy rule/full metadata editor, and deeper read-only advisor task/HA/quorum collection. Corrective reconciliation mutation and background reconciliation automation remain deferred.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
@@ -28,6 +28,7 @@ This file is the docs source of truth for implemented behavior after active code
   source.
 - Current Create VM create policy is explicit per request: the default `stopped` policy performs native Proxmox clone, boot disk resize when needed, config, and stopped post-check; the optional `boot_and_verify` policy starts the new VM, waits for guest-agent IP discovery, and verifies `cloud-init status --wait`. SSH login, Ansible, app bootstrap, and DRS identity registration remain deferred.
 - Existing VM start is a separate Infra Explorer action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Jobs/Runs evidence.
+- Post-create readiness evidence is local-only and opt-in at `POST /api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence`. It records sanitized operator-supplied evidence for already-created VMs and does not call inventory, Proxmox, DRS, SSH, Ansible, guest-agent, shell, or network checks.
 - Admin local-user management is available at `/admin/users` for users with the
   `admin` role. The backend endpoints are `GET/POST /api/v1/admin/users`,
   `PATCH /api/v1/admin/users/{username}/role`,
@@ -35,7 +36,8 @@ This file is the docs source of truth for implemented behavior after active code
   `POST /api/v1/admin/users/{username}/reset-password`.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
-- `/drs` is a DRS Advisor screen with DB-backed VM identity/policy evidence, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval/job substrate, the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute`, and the read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`. UI execution polish is still limited; backend gates remain authoritative.
+- `/drs` is a DRS Advisor screen with recommendation/check evidence, manual VM migration policy configuration, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. The screen does not provide live migration execute controls or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remain backend-gated.
+- Manual VM migration policy configuration is implemented through `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. It supports the current per-VM `unknown`/`allowed`/`restricted`/`blocked` policy workflow and local audit evidence; richer policy rule/full metadata editing remains deferred.
 
 ## Implemented behavior
 
@@ -57,6 +59,7 @@ This file is the docs source of truth for implemented behavior after active code
   be disabled or demoted, and disabled admin rows do not count toward that
   protection.
 - VM start writes a `vm_start_observed_after` DB artifact with observed-before inventory, Proxmox UPID/task evidence, observed-after status, target locator, idempotency key, and redacted connection context.
+- Post-create readiness writes a `post_create_readiness` job and `post_create_readiness_evidence` DB artifact only after explicit acknowledgement, a stable evidence identity, narrow-schema validation, and secret/live-command rejection.
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
 - Task failure, unknown cloned disk size, resize failure, VM missing, stopped-policy powered-on mismatch, or boot-and-verify guest-agent/cloud-init failure records failed/`needs_reconciliation` and does not mark the manifest applied.
@@ -145,8 +148,9 @@ Development smoke and test results recorded for this refresh:
 ## Practical reading
 
 - Use [`../goal/README.md`](../goal/README.md) for the current implementation
-  order. Goal Check 01-06, Goal 7, and Goal 7.5 are complete; no live DRS
-  smoke was run.
+  order. Goal Check 01-06, Goal 7, Goal 7.5, and the minimal local-only Goal 8
+  recorder are complete; Goal 9 polish remains deferred although admin local
+  account operations exist. No live DRS smoke was run.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

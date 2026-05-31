@@ -4,7 +4,7 @@
 
 기준 문서: [영어 System overview](../../../architecture/system/overview.md), [Current implemented state](../../../current/README.md), [Architecture index](../../../architecture/README.md).
 
-Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 operational visibility, gated stopped-VM start action, guided VM creation with stopped/boot-and-verify policies, read-only network readiness/migration pre-check, DRS Advisor read/check UI와 narrow backend execution substrate, DB-backed job history, job-derived risk summaries를 제공합니다.
+Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 operational visibility, gated stopped-VM start action, guided VM creation with stopped/boot-and-verify policies, read-only network readiness/migration pre-check, DRS Advisor recommendation/check, manual policy configuration, local approval packet creation, narrow backend execution substrate, DB-backed job history, job-derived risk summaries를 제공합니다.
 
 ## Product identity
 
@@ -14,7 +14,7 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 opera
 | Actual infrastructure source | Proxmox actual VM/node/task/storage/network state |
 | Gjallar-owned data | Create VM request/VM records, DRS identity/policy/lock/job/reconciliation records, approval evidence, job records, artifacts |
 | Safety posture | read-only by default; live mutation limited to approval-gated Create VM native create/power-policy verification, acknowledgement-gated start for stopped non-template VMs, and narrow operator-only DRS migration-job execute route |
-| DRS Advisor | frontend read/check only; backend has identity/policy evidence, operation locks, local approval/job substrate, narrow execute route, UPID/task tracking, verified post-check, read-only reconcile preview |
+| DRS Advisor | frontend recommendation/check plus manual policy configuration and local approval packet creation; backend has identity/policy evidence, operation locks, local approval/job substrate, narrow execute route, UPID/task tracking, verified post-check, read-only reconcile preview |
 
 ## Active routes and domains
 
@@ -24,7 +24,7 @@ Gjallar는 human-facing Proxmox Operations Console입니다. 현재 앱은 opera
 | `/infra` | Infra Explorer | Proxmox가 실제로 보고하는 VM/node evidence 확인과 stopped VM start |
 | `/networks` | Networks | read-only bridge readiness와 migration pre-check evidence 확인 |
 | `/create` | Create VM | audited VM creation; default stopped or optional boot-and-verify |
-| `/drs` | DRS Advisor | backend-owned read/check UI; broad execution controls 없음 |
+| `/drs` | DRS Advisor | recommendation/check, manual policy configuration, local approval packet creation UI; live execute/corrective reconcile controls 없음 |
 | `/jobs` | Jobs/Runs | 작업 진행과 artifact metadata 확인 |
 | `/risks` | Risks/Alerts | job-derived risk를 모아 확인 |
 
@@ -34,4 +34,4 @@ Nodes, VMs, templates, storage, networks는 Proxmox inventory adapter가 제공�
 
 ## Current non-goals
 
-Current implementation에는 broad DRS execution UI, policy editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate aliases, direct destructive VM controls, SSH/Ansible/app smoke, Proxmox bridge mutation이 없습니다. Existing VM start는 stopped non-template VM에 대한 별도 gated action이고, 새 VM first boot/IP/cloud-init 검증은 Create VM `boot_and_verify`에서만 수행됩니다.
+Current implementation에는 live DRS execute UI, corrective reconcile UI, richer policy/rule editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate aliases, direct destructive VM controls, SSH/Ansible/app smoke, Proxmox bridge mutation이 없습니다. Existing VM start는 stopped non-template VM에 대한 별도 gated action이고, 새 VM first boot/IP/cloud-init 검증은 Create VM `boot_and_verify`에서만 수행됩니다.

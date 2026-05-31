@@ -98,6 +98,26 @@ class JobRunsTests(unittest.TestCase):
         self.assertNotIn("create", [step["id"] for step in run["steps"]])
         self.assertIn("post_check", [step["id"] for step in run["steps"]])
 
+    def test_post_create_readiness_steps_are_local_evidence_specific(self):
+        from app.jobs import runs as runs_module
+
+        run = runs_module.record_job_run(
+            job_id="job-post-create-readiness-steps",
+            job_type="post_create_readiness",
+            status="completed",
+            target_id="node-a:306",
+            risk_level="unknown",
+            stage="evidence_record",
+            step_status="completed",
+            message="local readiness evidence recorded",
+        )
+
+        self.assertEqual(["request", "validation", "evidence_record"], [step["id"] for step in run["steps"]])
+        self.assertEqual(["증거 요청", "입력 검증", "증거 기록"], [step["label"] for step in run["steps"]])
+        self.assertEqual(["completed", "completed", "completed"], [step["status"] for step in run["steps"]])
+        self.assertNotIn("draft", [step["id"] for step in run["steps"]])
+        self.assertNotIn("create", [step["id"] for step in run["steps"]])
+
 
 if __name__ == "__main__":
     unittest.main()

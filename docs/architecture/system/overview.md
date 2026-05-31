@@ -2,7 +2,7 @@
 
 Status source: [current product status](../../current/README.md). Top-tab status index: [top tabs](../../current/top-tabs/README.md).
 
-Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, read-only network readiness evidence, DRS Advisor recommendation/check evidence, a narrow approval-gated DRS migration backend, DB-backed job history, and job-derived risk summaries.
+Gjallar is a human-facing Proxmox Operations Console. The current app provides operational visibility, a gated stopped-VM start action, guided VM creation with stopped or boot-and-verify policies, read-only network readiness evidence, DRS Advisor recommendation/check evidence, manual per-VM migration policy configuration, local approval packet/job intent creation, a narrow approval-gated DRS migration backend, DB-backed job history, and job-derived risk summaries.
 
 It is not currently automatic DRS, a broad migration control plane, an app deployment system, a GitLab environment controller, a CI/CD orchestrator, or an LLM assistant product.
 
@@ -14,7 +14,7 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 | Source of truth for actual infrastructure | Proxmox actual VM/node/task/storage/network state. |
 | Gjallar-owned operational data | Create VM requests/VM records, DRS identity/policy/lock/job/reconciliation records, approval evidence, job records, and artifacts. |
 | Safety posture | Read-only by default. Live mutation is limited to approval-gated Create VM native clone/config/power-policy post-check, acknowledgement-gated start for stopped non-template VMs, and the narrow operator-only DRS migration-job execute route. |
-| DRS Advisor | Recommendation/detail/check output is Proxmox-read-only and execution-closed. Narrow backend execution is separate and requires stored approval/job binding, fresh gates, live Proxmox evidence, operation locks, task polling, and verified post-check. |
+| DRS Advisor | Recommendation/detail/check output is Proxmox-read-only and execution-closed. The current UI includes manual per-VM policy configuration and local approval packet/job intent creation. Narrow backend execution is separate and requires stored approval/job binding, fresh gates, live Proxmox evidence, operation locks, task polling, and verified post-check. |
 
 ## Active Routes
 
@@ -24,7 +24,7 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 | `/infra` | `InstanceList` | VM inventory grouped by node, plus gated Start for stopped non-template VMs. |
 | `/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
 | `/create` | `CreateInstanceWizard` | Guided Create VM review, approval, native create. |
-| `/drs` | `DrsAdvisorScreen` | Backend-owned DRS Advisor read/check UI. Broad execution controls remain deferred. |
+| `/drs` | `DrsAdvisorScreen` | DRS Advisor read/check UI with manual per-VM policy configuration and local approval packet/job intent creation. Live execute and corrective reconcile controls remain deferred. |
 | `/jobs` | `TaskBoard` | Read-only job/run and artifact inspection. |
 | `/risks` | `OperationalRiskDashboard` | Read-only risk list derived from jobs. |
 
@@ -64,7 +64,7 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 - No Networks API write path, YAML persistence, DB migration, or Proxmox network mutation.
 - No automatic DRS, corrective reconciliation mutation, background reconciliation automation, broad DRS execution UI, or live DRS smoke evidence.
 - No recommendation-level approve/migrate/live-migrate aliases.
-- No generalized DRS metadata editor or policy editor.
+- No richer DRS policy rule/full metadata editor beyond current manual per-VM policy configuration.
 - No direct VM stop/reset/delete/snapshot controls. Existing-VM start is the only current power action and is gated to stopped non-template VMs.
 - No SSH smoke, Ansible verification, or app bootstrap after Create VM. First boot, guest-agent IP discovery, and cloud-init completion exist only when the request uses `boot_and_verify`.
 - No Proxmox bridge creation/deletion/update from Gjallar.

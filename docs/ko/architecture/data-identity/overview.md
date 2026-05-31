@@ -36,4 +36,4 @@ VMID alone is not a durable Gjallar identity. DRS execution combines VMID with c
 
 ## Current DRS DB/identity boundary
 
-DRS now has compact identity/fingerprint, migration policy, approval/job, operation lock, UPID/task, post-check, and reconciliation event substrate. It is not a full metadata/catalog system yet: full classification UI, policy editor, background reconciliation automation, corrective mutation, and automatic DRS remain future work.
+DRS now has compact identity/fingerprint, migration policy, approval/job, operation lock, UPID/task, post-check, and reconciliation event substrate. It is not a full metadata/catalog system yet: full classification UI, richer policy/rule editor, background reconciliation automation, corrective mutation, and automatic DRS remain future work.

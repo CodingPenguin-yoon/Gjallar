@@ -217,6 +217,7 @@ assert.match(source, /useSearchParams/)
 assert.doesNotMatch(source, /artifact\.path/, 'Jobs screen must not render internal artifact storage paths')
 assert.doesNotMatch(source, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'TaskBoard must not import the legacy /api client')
 assert.doesNotMatch(source, /executeDrsMigrationJob|reconcilePreviewDrsMigrationJob|createDrsApprovalPacket/, 'Jobs screen must not expose DRS mutation controls')
+assert.doesNotMatch(source, /recordPostCreateReadinessEvidence|postCreateReadinessEvidence|post-create-readiness-evidence/, 'Jobs screen must not expose post-create readiness mutation controls')
 
 const forbidden = (...parts) => parts.join('')
 for (const blocked of [

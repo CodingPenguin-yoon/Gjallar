@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Jobs/Runs는 read-only DB-backed job/artifact inspection 화면이다. Create VM progress/artifacts, Infra Explorer `vm_start` job evidence, and DRS `drs_migration` job evidence가 구현되어 있다.
+현재 Jobs/Runs는 read-only DB-backed job/artifact inspection 화면이다. Create VM progress/artifacts, Infra Explorer `vm_start` job evidence, DRS `drs_migration` job evidence, and local-only `post_create_readiness` evidence jobs가 구현되어 있다.
 
 ## 구현 API/endpoints
 
@@ -25,6 +25,8 @@
 backend는 `job_runs`와 `job_artifacts` 테이블에 job status와 artifacts를 저장하고, summary와 artifact metadata를 read-only로 반환한다. Artifact reference는 `db://job-artifacts/<artifact_id>` 형태이며 UI는 로컬 파일 경로를 노출하지 않는다. Create VM draft/preflight/plan/approval/create 단계, Infra Explorer VM start `precheck/start/task_poll/post_check` 단계, and DRS migration `recommendation/final_precheck/approval/job_intent/operation_lock/migration/task_poll/post_check/reconciliation` 단계가 job progress로 기록된다.
 
 `vm_start` jobs는 `vm_start_observed_after.json` artifact를 남긴다. Artifact에는 observed-before inventory, target node/VMID/name, idempotency key, Proxmox start UPID/task poll result, observed-after status, redacted connection context가 포함된다.
+
+`post_create_readiness` jobs는 operator-supplied sanitized evidence만 기록한다. Artifact type은 `post_create_readiness_evidence`이며 endpoint result는 `side_effects=[]`, `proxmox_mutation_enabled=false`, `live_checks_performed_by_gjallar=false`, and `allowed_actions=[]`를 유지한다. Jobs/Runs UI에는 이 job을 실행하거나 재실행하는 control이 없다.
 
 frontend는 job list, selected job detail, progress steps, artifact metadata를 보여준다. retry, cancel, live-run, VM mutation control은 없다.
 

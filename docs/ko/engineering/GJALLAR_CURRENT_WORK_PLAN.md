@@ -12,9 +12,15 @@
 - Create VM은 supporting capability입니다.
 - Active Create VM mutation path는 Proxmox native API입니다.
 - 현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를
-  기준으로 하며, 다음 active gate는 Goal 1-6 구현 품질을 검증하는 비번호
-  Goal Check입니다.
-- Current Create VM profile/template/network target design은 부분 구현되어 있습니다.
+  기준으로 합니다. Goal Check 01-06, Goal 7, Goal 7.5, minimal local-only
+  Goal 8 recorder는 완료됐고, 다음 후보는 optional approved live DRS
+  smoke evidence 또는 remaining Goal 9 polish입니다.
+- Goal 9 admin local account operations list/create/role/disable/reset-password는
+  구현됐습니다. 남은 것은 session inventory/revocation UI, self password
+  change, audit metadata 확장입니다.
+- Current Create VM profile/template/network target design은 DB-backed profiles,
+  live template, live bridge, static fields, access/SSH evidence까지 구현되어
+  있습니다.
 - Current `/drs`는 backend-owned DRS seed에서 narrow approval-gated live
   migration execution, backend post-check/reconciliation까지 진행되어
   있습니다. Broad UI와 live smoke evidence는 아직 없습니다.
@@ -24,7 +30,7 @@
 | Workstream | 상태와 의미 |
 |---|---|
 | A: Principles/context | Repo-local workflow principles와 work plan 유지. |
-| B: Create VM profile/template/network | 세 static-seed profiles, live template, live bridge, static fields, access/SSH evidence는 구현. DB seed는 future. |
+| B: Create VM profile/template/network | DB-backed profiles, live template, live bridge, static fields, access/SSH evidence는 구현. |
 | C: Native Proxmox Create quality | exact approval, manifest verification, acknowledgement, stopped success policy를 유지해야 함. |
 | D: Legacy cleanup | Old executor routes/helper/state metadata는 active contract에서 제거됨. |
 | E: Documentation/status hygiene | current-vs-target language를 유지하고 stale docs를 current truth로 쓰지 않음. |
@@ -33,4 +39,4 @@
 
 ## Next slice candidates
 
-현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 active gate는 [Goal Check: Goal 1-6 Implementation Verification And Quality Audit](../../goal/goal-check-01-06-implementation-quality.md)입니다. [Goal 7: DRS UI And Operations Polish](../../goal/goal-07-drs-ui-operations-polish.md)는 이 check 이후 pending 상태입니다.
+현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 후보는 optional approved live DRS smoke evidence 또는 remaining Goal 9 polish입니다.

@@ -35,7 +35,7 @@ state instead of restarting.
 
 ## Objective
 
-Open the first narrow live migration execution path after identity, policy,
+Open the first narrow live migration execution route after identity, policy,
 final pre-check, approval, operation locks, and job state are in place.
 
 ## Hard Constraints

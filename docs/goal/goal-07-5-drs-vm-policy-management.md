@@ -34,9 +34,9 @@ DRS execution currently requires migration policy `allowed`, but the default
 policy is `unknown` and execution-blocking. Operators need an explicit place to
 configure which VMs are eligible, restricted, blocked, or still unclassified.
 
-Goal 8 covers SSH/Ansible/app bootstrap confidence. Goal 9 covers account and
-session operations. Neither goal owns VM-level DRS policy configuration, so this
-work is inserted as Goal 7.5.
+Goal 8 covers opt-in sanitized post-create readiness evidence for
+already-created VMs. Goal 9 covers account and session operations. Neither goal
+owns VM-level DRS policy configuration, so this work is inserted as Goal 7.5.
 
 ## Standing Non-Negotiables
 

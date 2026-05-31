@@ -31,11 +31,11 @@ Use this appendix when reading old PRDs, historical notes, or older architecture
 | Stale/superseded statement | Current correction |
 |---|---|
 | DRS recommendations/checks can directly execute migrations. | Current recommendation/detail/check output is Proxmox-read-only and always returns `executable=false`, `allowed_actions=[]`. |
-| Current `/drs` UI can approve and execute migration. | Current `/drs` UI is read/check only. Broad approval/execute/reconcile UI remains deferred. |
+| Current `/drs` UI can approve and execute migration. | Current `/drs` UI provides recommendation/check, manual per-VM policy configuration, and local approval packet/job intent creation. Live execute/corrective reconcile UI remains deferred. |
 | DRS approval packet creation starts migration. | Approval packet creation writes local approval/job/artifact state only. Migration starts only through `POST /api/v1/drs/migration-jobs/{job_id}/execute` after fresh gates. |
 | DRS recommendations are backend-owned operation records. | Current recommendations are backend-generated read models, not persisted operation records. Local operation state begins at approval packet/job creation. |
 | Migration execution, UPID tracking, locks, and reconciliation are target-only. | Narrow backend execution, UPID/task tracking, operation locks, verified post-check, and read-only reconcile preview are implemented. Corrective mutation/background automation/live smoke remain target/deferred. |
-| DRS identity/fingerprint/policy DB is absent. | Compact DRS identity observations, stable fingerprint evidence, and migration policy records exist. Rich metadata/policy editor work remains deferred. |
+| DRS identity/fingerprint/policy DB is absent. | Compact DRS identity observations, stable fingerprint evidence, and migration policy records exist. Richer policy rules and full metadata controls remain deferred. |
 | Old placement APIs are active. | Current DRS Advisor uses `/api/v1/drs/*`; old placement APIs are not active. Recommendation-level migrate/live-migrate aliases are intentionally absent. |
 
 ## Jobs/Risks

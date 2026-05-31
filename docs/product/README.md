@@ -24,9 +24,9 @@ This product tree is focused on product direction. Current implemented status, o
 
 - The active contract is `/api/v1`.
 - Old `/api/instances`, `/api/provision`, deploy/task/log/LLM surfaces are not active.
-- Current `/drs` UI remains read/check only. Backend DRS includes compact identity/fingerprint evidence, migration policy memory, final pre-check, operation locks, local approval/job substrate, narrow operator-only live migration execution, UPID/task tracking, verified post-check, and read-only reconcile preview.
+- Current `/drs` UI includes recommendation/detail/check, manual per-VM migration policy configuration, and local approval packet/job intent creation. Backend DRS includes compact identity/fingerprint evidence, migration policy memory, final pre-check, operation locks, local approval/job substrate, narrow operator-only live migration execution, UPID/task tracking, verified post-check, and read-only reconcile preview.
 - DRS recommendation/detail/check output is Proxmox-read-only and remains `read_only=true`, `executable=false`, `allowed_actions=[]`. Approval packet creation does not start migration; live migration only starts through the dedicated migration-job execute route after fresh gates.
-- There is no broad DRS execution UI, policy editor, corrective reconciliation mutation, background automation, automatic DRS, recommendation-level migrate/live-migrate alias, or live DRS smoke evidence yet.
+- There is no live DRS execution UI, corrective reconcile UI, richer policy rule/full metadata editor, corrective reconciliation mutation, background automation, automatic DRS, recommendation-level migrate/live-migrate alias, or live DRS smoke evidence yet.
 - The active Create VM path is native Proxmox preview/create.
 - The legacy Terraform Create VM executor route surface and helper code are removed.
 - Create VM default success is powered-off/stopped after Proxmox post-check and

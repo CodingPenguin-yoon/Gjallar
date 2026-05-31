@@ -24,7 +24,7 @@ mutation can be trusted:
 - Migration policy means the operator's remembered decision about whether this
   VM is allowed to be moved by DRS later.
 - Final pre-check means the last read-only safety check before a future
-  migration execution path. Goal 2 does not execute migration.
+  migration execution route. Goal 2 does not execute migration.
 
 ## Objective
 
@@ -315,7 +315,7 @@ git diff --check
 - Bulk policy UI.
 - Full owner/team/environment metadata system.
 - Complex rule engine.
-- SSH, Ansible, app bootstrap, or guest workload validation.
+- Post-create readiness evidence or guest workload validation.
 - Automatic deletion or cleanup of any VM.
 
 ## Definition Of Done

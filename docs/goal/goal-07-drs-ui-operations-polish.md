@@ -114,7 +114,7 @@ active-session user approval.
 
 - UI-only execution enablement.
 - Client-side bypass of backend gates.
-- Broad policy editor unless explicitly scoped.
+- Broad richer policy/rule editor unless explicitly scoped.
 - Corrective reconciliation mutation.
 - Background reconciliation automation.
 - Automatic DRS.

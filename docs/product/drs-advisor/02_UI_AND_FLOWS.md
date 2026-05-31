@@ -12,7 +12,7 @@
 - Jobs/Runs: `/jobs`
 - Risks/Alerts: `/risks`
 
-DRS Advisor Phase 1은 `/drs` route에서 read-only recommendation table/detail/check flow를 제공한다.
+현재 `/drs` route는 recommendation/detail/check, manual VM policy configuration, and local approval packet/job intent creation을 제공한다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`다.
 
 ## 2. Dashboard
 
@@ -62,12 +62,13 @@ Top recommendation summary:
 
 현재 구현:
 
-- `DrsAdvisorScreen`은 read-only DRS Phase 1 safety notice를 보여준다.
-- `loadDrsAdvisorModel`은 `/api/v1/drs/summary`와 `/api/v1/drs/recommendations`를 읽는다.
+- `DrsAdvisorScreen`은 recommendation/check result가 execution authority가 아니라는 safety notice를 보여준다.
+- `loadDrsAdvisorModel`은 `/api/v1/drs/summary`, `/api/v1/drs/recommendations`, detail/check, `GET/PUT /api/v1/drs/policies*`, and `/approval-packets`를 사용한다.
 - CPU/Memory current usage와 imbalance로 Balanced/Watch/Imbalanced를 계산한다.
 - source pressure >= 70, source-target delta >= 25이면 recommendation 후보를 만든다.
 - bridge/storage evidence를 검토한다.
-- execution은 `available: false`, `executable: false`이고 action list는 비어 있다.
+- recommendation/check execution은 `available: false`, `read_only: true`, `executable: false`이고 action list는 비어 있다.
+- manual per-VM migration policy configuration과 local approval packet/job intent creation은 current UI에 있다. Live migration execute UI와 corrective reconcile UI는 없다.
 
 목표:
 

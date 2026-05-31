@@ -81,7 +81,7 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 - restricted 예외 승인
 - node drain
 - maintenance mode 자동화
-- affinity/anti-affinity policy editor
+- affinity/anti-affinity richer policy/rule editor
 - policy exception workflow
 - automatic rollback
 - backup orchestration

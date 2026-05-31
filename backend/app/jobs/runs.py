@@ -53,6 +53,12 @@ DRS_MIGRATION_STEP_LABELS = {
     "post_check": "마이그레이션 후 확인",
     "reconciliation": "조정 필요",
 }
+POST_CREATE_READINESS_STEP_ORDER = ["request", "validation", "evidence_record"]
+POST_CREATE_READINESS_STEP_LABELS = {
+    "request": "증거 요청",
+    "validation": "입력 검증",
+    "evidence_record": "증거 기록",
+}
 TERMINAL_STATUSES = {"completed", "failed", "blocked", "timed_out", "ambiguous", "needs_reconciliation"}
 
 
@@ -61,6 +67,8 @@ def _step_order(job_type: str) -> list[str]:
         return VM_START_STEP_ORDER
     if job_type == "drs_migration":
         return DRS_MIGRATION_STEP_ORDER
+    if job_type == "post_create_readiness":
+        return POST_CREATE_READINESS_STEP_ORDER
     return VM_CREATE_STEP_ORDER
 
 
@@ -69,6 +77,8 @@ def _step_labels(job_type: str) -> dict[str, str]:
         return VM_START_STEP_LABELS
     if job_type == "drs_migration":
         return DRS_MIGRATION_STEP_LABELS
+    if job_type == "post_create_readiness":
+        return POST_CREATE_READINESS_STEP_LABELS
     return VM_CREATE_STEP_LABELS
 
 

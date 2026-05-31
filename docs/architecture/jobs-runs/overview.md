@@ -36,7 +36,7 @@ metadata are stored in `job_artifacts`; artifact references use
 | Field | Current meaning |
 |---|---|
 | `job_id` | Operator/UI/API supplied job id. |
-| `job_type` | Current Create VM jobs use `vm_create`; Infra Explorer start jobs use `vm_start`; DRS migration jobs use `drs_migration`. |
+| `job_type` | Current Create VM jobs use `vm_create`; Infra Explorer start jobs use `vm_start`; DRS migration jobs use `drs_migration`; local post-create readiness evidence jobs use `post_create_readiness`. |
 | `status` | `in_progress`, `pending`, `running`, `completed`, `blocked`, `failed`, etc. |
 | `target_id` | Current target label, usually `<node>:<vm_name>`. |
 | `risk_level` | Risk level from preflight/plan or `unknown`. |
@@ -88,6 +88,14 @@ Earlier stages are marked completed when a later stage is recorded.
 | `post_check` | DRS post-check | Direct target-node status/config/fingerprint verification. |
 | `reconciliation` | Reconciliation | `needs_reconciliation` state and read-only preview evidence. |
 
+`post_create_readiness` jobs use local evidence-only stages:
+
+| Stage | Label | Current post-create readiness use |
+|---|---|---|
+| `request` | Evidence request | Operator supplied an acknowledged local evidence request. |
+| `validation` | Input validation | Narrow schema and secret/live-command rejection completed before persistence. |
+| `evidence_record` | Evidence record | Sanitized evidence artifact was recorded locally. |
+
 ## Artifacts
 
 Current Create VM jobs can publish:
@@ -102,6 +110,7 @@ Current Create VM jobs can publish:
 | `proxmox_create_preview` | `build_proxmox_create_preview()` |
 | `observed_after` | `run_proxmox_create()` |
 | `vm_start_observed_after` | `run_vm_start()` |
+| `post_create_readiness_evidence` | `record_post_create_readiness_evidence()` |
 | `drs_recommendation_evidence` | `create_approval_packet_and_job_intent()` |
 | `drs_final_precheck` | `create_approval_packet_and_job_intent()` |
 | `drs_approval_packet` | `create_approval_packet_and_job_intent()` |
@@ -137,6 +146,15 @@ Artifact APIs return metadata such as id, type, checksum, storage backend, size,
 | Task exitstatus not OK | `failed`, stage `task_poll`, artifact written. |
 | Post-check not running | `failed`, stage `post_check`, artifact written. |
 | Task OK and observed running | `completed`, stage `post_check`, artifact written. |
+
+## Post-Create Readiness Job Updates
+
+| Post-create readiness event | Job status/stage |
+|---|---|
+| Missing acknowledgement or evidence identity | Request is rejected before job creation. |
+| Unsupported live-check, command, endpoint, raw payload, log, credential field, or secret-looking value | Request is rejected before job creation. |
+| Accepted operator evidence | `completed`, stage `evidence_record`, `post_create_readiness_evidence` artifact written. |
+| Duplicate evidence identity | Existing job/result is returned without writing a second evidence artifact. |
 
 ## DRS Migration Job Updates
 

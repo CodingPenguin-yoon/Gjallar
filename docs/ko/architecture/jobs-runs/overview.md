@@ -27,6 +27,6 @@ Jobs/Runs는 `/jobs` route의 read-only UI입니다. DB-backed job status와 art
 
 Create VM current stages are `draft`, `preflight`, `plan`, `approval`, `create`.
 
-## Target DRS jobs
+## Current DRS jobs
 
-Future DRS should add `drs_recommendation`, `drs_final_precheck`, `drs_migration`, `drs_reconciliation` job types, with recommendation, approval, final-precheck, UPID/task polling, post-check, reconciliation artifacts.
+Current DRS backend records `drs_migration` job state with recommendation evidence, approval packet/job intent, final-precheck, operation-lock, migration, UPID/task polling, post-check, and read-only reconciliation evidence. Jobs/Runs UI remains read-only and still lacks retry/cancel/live execute/corrective reconcile controls.

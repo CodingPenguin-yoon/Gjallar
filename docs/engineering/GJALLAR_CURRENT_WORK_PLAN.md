@@ -1,6 +1,6 @@
 # Gjallar Current Work Plan
 
-Last updated: 2026-05-27
+Last updated: 2026-06-01
 
 ## Purpose
 
@@ -59,6 +59,10 @@ Use `AGENTS.md` for execution mode:
   `admin`.
 - Admin-only local user management is implemented at `/admin/users` and
   `/api/v1/admin/users*`; CLI and API share last-enabled-admin protection.
+- Admin local account operations include list/create/role/disable/reset-password.
+  Disable and reset-password revoke target sessions; role changes do not revoke
+  sessions. Remaining Goal 9 polish covers session inventory/revocation UI,
+  self password change, and audit metadata expansion.
 - Inventory is read-only Proxmox live inventory with fake fallback.
 - Create VM currently supports draft, preflight, plan, approval, manifest
   commit, Proxmox native preview/create, Jobs/Runs progress, and artifacts.
@@ -66,6 +70,9 @@ Use `AGENTS.md` for execution mode:
   `stopped` requires target-node stopped post-check and `observed_after`;
   `boot_and_verify` starts the new VM, records guest-agent IP evidence, verifies
   cloud-init completion, and writes `observed_after`.
+- Minimal local-only post-create readiness evidence recording is implemented for
+  already-created VMs. Live readiness checks, SSH, Ansible, and app bootstrap
+  remain deferred.
 - Profile/template/network target design is partially implemented:
   - `GET /api/v1/profiles` exposes active read-only DB-backed `db_seed`
     profiles through `GJALLAR_DATABASE_URL`; the initial manual seed creates
@@ -302,4 +309,6 @@ Non-goals:
 ## Next Slice Candidate
 
 Current goal sequencing is tracked in `docs/goal/README.md`. Goal Check 01-06,
-Goal 7, and Goal 7.5 are complete. No live DRS smoke was run.
+Goal 7, Goal 7.5, and the minimal local-only Goal 8 recorder are complete.
+Remaining candidates are optional approved live DRS smoke evidence and Goal 9
+polish. No live DRS smoke was run.

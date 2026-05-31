@@ -37,7 +37,7 @@ React operator UI
 | Jobs/artifacts | Create VM과 VM start 단계가 `job_runs`/`job_artifacts`에 상태와 artifact를 기록합니다. |
 | Manifest commit | `execute`는 desired-state manifest만 commit합니다. |
 | Native create | `proxmox-create`만 현재 active live VM creation path입니다. |
-| DRS | Frontend `/drs`는 read/check only입니다. Backend DRS에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Broad UI/policy editor/corrective mutation/background automation/automatic DRS/live smoke/recommendation-level migrate aliases는 없습니다. |
+| DRS | Frontend `/drs`는 recommendation/check, manual policy configuration, local approval packet creation을 제공합니다. Backend DRS에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Live execute UI/corrective reconcile UI/richer policy/rule editor/corrective mutation/background automation/automatic DRS/live smoke/recommendation-level migrate aliases는 없습니다. |
 
 ## 자세한 한국어 아키텍처 문서
 

@@ -55,7 +55,7 @@ DRS Advisor now has a persistent identity, policy, approval/job, lock, and recon
 | Proxmox locator | Current/proven `(cluster_id, node_id, vmid)` locator and last observed evidence. | Implemented inside identity evidence and DRS recommendation/check artifacts. |
 | Fingerprint | Stable hash from SMBIOS UUID, VM generation ID, MAC addresses, and disk volume ids. | Implemented for DRS identity evidence and direct post-check comparison. |
 | Classification metadata | Owner, role, environment, criticality, richer DRS eligibility metadata. | Still limited; no metadata editor. |
-| Placement policy | Allowed/restricted/blocked migration policy. | Implemented as `vm_migration_policies`; richer policy editor/rules remain deferred. |
+| Placement policy | Allowed/restricted/blocked migration policy. | Implemented as `vm_migration_policies`; richer policy rules/full metadata editor remain deferred. |
 | Approval record | Exact recommendation/final-precheck evidence approved by operator. | Implemented as checksummed `drs_approval_packets` plus artifacts. Approval creation does not start migration. |
 | Operation lock | Active/released/stale/reconciliation-required locks for VM identity, locator, and route. | Implemented for DRS check and execution gates. |
 | Operation/reconciliation | Migration UPID, task result, post-check, terminal/uncertain state, reconciliation event. | Implemented through `drs_migration_jobs`, `drs_reconciliation_events`, and read-only reconcile preview. No corrective mutation/background automation. |
@@ -86,7 +86,7 @@ A stale VMID locator blocks migration execution until refreshed and matched to a
 
 - DRS identity is compact and gate-oriented, not a full metadata/catalog system for all Proxmox VMs.
 - No background inventory reconciler exists.
-- No DRS policy editor or richer policy rule engine exists.
+- No richer DRS policy rule engine or full metadata editor exists beyond current per-VM policy configuration.
 - No stale-lock cleanup service or corrective reconciliation mutation exists.
 - Create VM DB records can help future identity work but do not close the DRS identity gap by themselves.
 - Jobs/Risks currently store latest job status, not an immutable audit log.

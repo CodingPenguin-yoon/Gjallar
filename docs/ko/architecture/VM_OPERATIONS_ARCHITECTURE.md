@@ -4,7 +4,7 @@
 
 기준 문서: [영어 VM operations architecture](../../architecture/VM_OPERATIONS_ARCHITECTURE.md), [Current implemented state](../../current/README.md), [DRS Advisor product docs](../../product/drs-advisor/README.md).
 
-Gjallar는 Proxmox 운영자를 위한 Operations & Risk Console입니다. 현재 구현은 live/read-only inventory, stopped VM start action, guided VM creation, DRS Advisor read/check UI와 narrow backend execution substrate, job history, risk summary를 제공합니다. CI/CD 시스템, source deployment tool, GitLab environment controller, LLM assistant product가 아닙니다.
+Gjallar는 Proxmox 운영자를 위한 Operations & Risk Console입니다. 현재 구현은 live/read-only inventory, stopped VM start action, guided VM creation, DRS Advisor recommendation/check, manual policy configuration, local approval packet creation과 narrow backend execution substrate, job history, risk summary를 제공합니다. CI/CD 시스템, source deployment tool, GitLab environment controller, LLM assistant product가 아닙니다.
 
 ## Active system shape
 
@@ -30,7 +30,7 @@ React operator UI
 | `/infra` | [InstanceList.jsx](../../../frontend/src/components/InstanceList.jsx) | VM inventory, detail evidence, stopped VM Start action. |
 | `/networks` | [NetworkReadinessScreen.jsx](../../../frontend/src/components/NetworkReadinessScreen.jsx) | read-only Network Readiness / migration pre-check visualization. |
 | `/create` | [CreateInstanceWizard.jsx](../../../frontend/src/components/CreateInstanceWizard.jsx) | guided Create VM flow. |
-| `/drs` | [DrsAdvisorScreen.jsx](../../../frontend/src/components/DrsAdvisorScreen.jsx) | DRS Advisor read/check UI. Broad approval/execute/reconcile controls는 아직 없습니다. |
+| `/drs` | [DrsAdvisorScreen.jsx](../../../frontend/src/components/DrsAdvisorScreen.jsx) | DRS Advisor recommendation/check, manual policy configuration, local approval packet creation UI. Live execute/corrective reconcile controls는 아직 없습니다. |
 | `/jobs` | [TaskBoard.jsx](../../../frontend/src/components/TaskBoard.jsx) | job/run progress와 artifact metadata. |
 | `/risks` | [OperationalRiskDashboard.jsx](../../../frontend/src/components/OperationalRiskDashboard.jsx) | job-derived risk summaries. |
 
@@ -50,7 +50,9 @@ React operator UI
 
 ## Current API surface
 
-Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks`, `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks`, `drs/summary`, `drs/recommendations`, `drs/recommendations/{recommendation_id}`, `drs/recommendations/{recommendation_id}/check`, `drs/recommendations/{recommendation_id}/approval-packets`, `drs/migration-jobs/{job_id}/execute`, `drs/migration-jobs/{job_id}/reconcile-preview`, `nodes/{node_id}/vms/{vmid}/actions/start`.
+Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks`, `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks`, `drs/summary`, `drs/recommendations`, `drs/recommendations/{recommendation_id}`, `drs/recommendations/{recommendation_id}/check`, `drs/policies`, `drs/policies/{vm_identity_id}`, `drs/recommendations/{recommendation_id}/approval-packets`, `drs/migration-jobs/{job_id}/execute`, `drs/migration-jobs/{job_id}/reconcile-preview`, `nodes/{node_id}/vms/{vmid}/actions/start`.
+
+Local DRS writes: `PUT drs/policies/{vm_identity_id}` updates manual VM migration policy/audit evidence and `POST drs/recommendations/{recommendation_id}/approval-packets` creates local approval/job intent state without Proxmox mutation.
 
 Create VM: `profiles`, `vm-create/readiness`, `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create`.
 
@@ -60,9 +62,9 @@ Networks는 live bridge readiness와 migration pre-check evidence를 read-only�
 
 ## DRS Advisor current boundary
 
-현재 `/drs` frontend는 read/check only입니다. Recommendation/check output은 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Backend는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview를 제공합니다.
+현재 `/drs` frontend는 recommendation/check, manual policy configuration, local approval packet creation을 제공합니다. Recommendation/check output은 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Backend는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview를 제공합니다.
 
-남은 target gap은 broad execution UI, policy editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate aliases입니다.
+남은 target gap은 live execute UI, corrective reconcile UI, richer policy/rule editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate aliases입니다.
 
 ## 주요 data flow
 

@@ -20,6 +20,19 @@
 
 Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)의 `createApiV1Client()`입니다. 이 client는 `unwrapApiV1Envelope()`로 성공 envelope를 풀고, HTTP error에서는 FastAPI `detail` object와 error body를 모두 처리합니다.
 
+## Auth/admin APIs
+
+| Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
+|---|---|---|---|---|
+| `POST /api/v1/auth/login` | auth router | Local user credential을 검증하고 server-side session을 생성합니다. | `login()`; `/login` | Public login endpoint. |
+| `POST /api/v1/auth/logout` | auth router | Current session을 종료합니다. | `logout()` | Current session만 종료. |
+| `GET /api/v1/auth/me` | auth router | Current session actor를 반환합니다. | `me()`; app bootstrap | Read-only. |
+| `GET /api/v1/admin/users` | `admin_list_users()` | Local users list를 반환합니다. | `listAdminUsers()`; `/admin/users` | Admin-only. Password/session token material 반환 없음. |
+| `POST /api/v1/admin/users` | `admin_create_user()` | Local user를 생성합니다. | `createAdminUser()` | Admin-only. Public signup 아님. |
+| `PATCH /api/v1/admin/users/{username}/role` | `admin_set_user_role()` | Role을 변경합니다. | `setAdminUserRole()` | Admin-only. Last enabled admin demotion은 차단. Role change는 target sessions를 revoke하지 않음. |
+| `POST /api/v1/admin/users/{username}/disable` | `admin_disable_user()` | User를 disable합니다. | `disableAdminUser()` | Admin-only. Target sessions를 revoke. Last enabled admin disable은 차단. |
+| `POST /api/v1/admin/users/{username}/reset-password` | `admin_reset_password()` | Password를 reset합니다. | `resetAdminUserPassword()` | Admin-only. Target sessions를 revoke. Raw password/hash 반환 없음. |
+
 ## Root와 health
 
 | Route | Backend 함수 | 하는 일 | Frontend 사용 |
@@ -69,15 +82,19 @@ Networks는 별도 backend readiness endpoint 없이 `GET /api/v1/nodes`, `/vms`
 | `GET /api/v1/drs/recommendations` | `list_drs_recommendations()` | Running non-template VM 중 red-risk VM을 제외하고 current CPU/Memory threshold와 blocker evidence를 계산합니다. | `listDrsRecommendations()`; `loadDrsAdvisorModel()` | 모든 recommendation은 `executable=false`, `allowed_actions=[]`입니다. |
 | `GET /api/v1/drs/recommendations/{recommendation_id}` | `get_drs_recommendation()` | 같은 model을 재계산해 id를 찾습니다. 없으면 404입니다. | `getDrsRecommendation()`; `loadDrsRecommendationDetail()` | Proxmox-read-only. |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | `check_drs_recommendation()` | Reference final-check 결과와 `would_be_executable`를 반환합니다. | `checkDrsRecommendation()` | Execution authorization이 아니며 `executable=false` 유지. |
-| `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | `create_drs_approval_packet()` | Exact recommendation/final-check evidence를 local approval/job/artifact로 저장합니다. | Frontend helper 없음 | Operator-only. Proxmox mutation 없음, migration 시작 안 함. |
-| `POST /api/v1/drs/migration-jobs/{job_id}/execute` | `execute_drs_migration_job_route()` | Stored approval/job binding, fresh gates, live Proxmox evidence, operation locks 뒤 dedicated DRS migration client를 호출합니다. | Frontend helper 없음 | Operator-only narrow execution. Broad UI는 아직 없음. |
-| `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | `preview_drs_migration_reconciliation_route()` | Stored job/UPID를 읽고 task/post-check evidence를 read-only로 다시 봅니다. | Frontend helper 없음 | Operator-only read-only preview. Corrective mutation 없음. |
+| `GET /api/v1/drs/policies` | `list_drs_policies()` | Current VM identity/policy coverage와 blocker impact를 반환합니다. | `drsPolicies()`; `/drs` policy section | Read-only. |
+| `GET /api/v1/drs/policies/{vm_identity_id}` | `get_drs_policy()` | One VM policy item을 반환합니다. | `drsPolicy()` | Read-only. |
+| `PUT /api/v1/drs/policies/{vm_identity_id}` | `put_drs_policy()` | Manual local VM migration policy를 update하고 audit evidence를 기록합니다. | `updateDrsPolicy()`; `/drs` review modal | Operator-only. Proxmox mutation 없음. Policy `allowed`는 migration approval이 아님. |
+| `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | `create_drs_approval_packet()` | Exact recommendation/final-check evidence를 local approval/job/artifact로 저장합니다. | `createDrsApprovalPacket()`; `/drs` detail panel | Operator-only. Proxmox mutation 없음, migration 시작 안 함. |
+| `POST /api/v1/drs/migration-jobs/{job_id}/execute` | `execute_drs_migration_job_route()` | Stored approval/job binding, fresh gates, live Proxmox evidence, operation locks 뒤 dedicated DRS migration client를 호출합니다. | Frontend live execute UI/helper 없음 | Operator-only narrow execution. Broad UI는 아직 없음. |
+| `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | `preview_drs_migration_reconciliation_route()` | Stored job/UPID를 읽고 task/post-check evidence를 read-only로 다시 봅니다. | `reconcilePreviewDrsMigrationJob()` helper; broad UI 없음 | Operator-only read-only preview. Corrective mutation 없음. |
 
 ## VM action API
 
 | Endpoint | Backend handler와 주요 함수 | Frontend caller | 현재 의미 |
 |---|---|---|---|
 | `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start` | `start_vm_action()` -> `run_vm_start()` -> fresh inventory precheck -> `ProxmoxMutationClient.start_vm()` -> task poll/post-check | `startVm()`; `InstanceList` | Stopped non-template VM만 start합니다. `vm_start_acknowledged=true`, non-empty `idempotency_key`, expected name/status context, observed-after `running`, `vm_start` job/artifact evidence가 필요합니다. Stop/reset/delete 같은 destructive action은 없습니다. |
+| `POST /api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence` | `post_create_readiness_evidence_route()` -> `record_post_create_readiness_evidence()` | `recordPostCreateReadinessEvidence()` | Already-created VM에 대해 local-only operator-supplied readiness evidence를 기록합니다. Inventory, Proxmox, DRS, SSH, Ansible, guest-agent, shell, network checks를 호출하지 않습니다. |
 
 ## Create VM mutation-adjacent APIs
 
@@ -94,8 +111,8 @@ Networks는 별도 backend readiness endpoint 없이 `GET /api/v1/nodes`, `/vms`
 
 ## Frontend API client coverage
 
-[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 inventory, VM start, network readiness, jobs, risks, DRS Advisor read/check, Create VM readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. DRS approval/execute/reconcile helper는 아직 없습니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
+[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 auth/admin users, inventory, VM start, post-create readiness evidence, network readiness, jobs, risks, DRS Advisor recommendation/check, DRS policy read/update, DRS local approval packet creation, DRS reconcile-preview helper, Create VM readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. DRS live execute helper/UI는 아직 없습니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
 
 ## 현재 없는 DRS API/UI
 
-Recommendation-level approve/migrate/live-migrate alias route, DRS policy editor API, corrective reconciliation mutation, background automation, automatic DRS, broad frontend execution controls는 없습니다. Current boundary와 future 후보는 [target-drs-api.md](target-drs-api.md)에 정리되어 있습니다.
+Recommendation-level approve/migrate/live-migrate alias route, richer policy rule/full metadata editor, corrective reconciliation mutation, background automation, automatic DRS, live execute UI, corrective reconcile UI는 없습니다. Current boundary와 future 후보는 [target-drs-api.md](target-drs-api.md)에 정리되어 있습니다.

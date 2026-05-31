@@ -5,7 +5,8 @@ Last reviewed against code: 2026-05-30
 Current MVP product source of truth is [`docs/product/drs-advisor/`](../product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. It presents live
-read-only inventory, guided VM creation, DRS Advisor evidence, job history, and
+read-only inventory, guided VM creation, DRS Advisor recommendation/check,
+manual VM migration policy and local approval evidence, job history, and
 risk summaries. It is not a CI/CD system, source deployment tool, GitLab
 environment controller, or LLM assistant product.
 
@@ -57,9 +58,10 @@ destructive VM actions, and LLM chat are intentionally absent from active `src`.
 
 ## DRS Advisor Current Baseline And Gaps
 
-Current `/drs` uses backend `/api/v1/drs/*` read models plus local approval,
-job, execution, post-check, and read-only reconciliation routes. Backend gates
-are authoritative; the UI still has limited broad execution polish.
+Current `/drs` uses backend `/api/v1/drs/*` read models, manual policy routes,
+and local approval packet/job intent creation plus backend execution,
+post-check, and read-only reconciliation routes. Backend gates are
+authoritative; live execute and corrective reconcile UI remain absent.
 
 Implemented baseline:
 
@@ -140,7 +142,7 @@ Networks has no API write path. Create VM execution writes DB-backed artifacts
 and request/VM records after the relevant approval gates pass.
 `terraform-plan` and `terraform-apply` have been removed from the active API; the active UI uses `proxmox-preview` and `proxmox-create`.
 
-DRS Advisor API boundaries are documented in [`api/target-drs-api.md`](api/target-drs-api.md). Current backend DRS includes read/check routes, local approval/job substrate, narrow operator-only execution, and read-only reconcile preview; broad UI, policy editing, corrective mutation, background automation, and automatic DRS remain deferred.
+DRS Advisor API boundaries are documented in [`api/target-drs-api.md`](api/target-drs-api.md). Current DRS includes read/check routes, manual per-VM migration policy API/UI, local approval/job substrate, narrow operator-only execution, and read-only reconcile preview; live execute UI, corrective reconcile UI, richer policy rule/full metadata editing, corrective mutation, background automation, and automatic DRS remain deferred.
 
 ## Create VM Target Selection Model
 

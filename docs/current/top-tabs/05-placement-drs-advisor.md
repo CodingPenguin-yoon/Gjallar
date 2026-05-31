@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 `/drs`는 read-only DRS Advisor recommendation seed, manual VM policy configuration, safe execution readiness foundation, first narrow approval-gated live migration execution slice, and backend post-check/reconciliation slice다. Backend DRS read model, DB-backed VM identity/fingerprint observation, manual migration policy memory/audit events, operation lock lookup/acquisition/release, read-only final pre-check contract, local approval packet/job intent substrate, dedicated DRS Proxmox migration client, UPID/task metadata persistence, verified post-check completion, reconciliation events, and read-only Reconcile preview가 구현되어 있다. Automatic DRS, bulk migration, corrective reconciliation mutation, background reconciliation automation, live DRS smoke evidence, and broad execution UI는 구현하지 않았다.
+현재 `/drs`는 DRS Advisor recommendation/check, manual VM policy configuration, local approval packet/job intent creation, safe execution readiness foundation, first narrow approval-gated live migration execution slice, and backend post-check/reconciliation slice다. Backend DRS read model, DB-backed VM identity/fingerprint observation, manual migration policy memory/audit events, operation lock lookup/acquisition/release, read-only final pre-check contract, local approval packet/job intent substrate, dedicated DRS Proxmox migration client, UPID/task metadata persistence, verified post-check completion, reconciliation events, and read-only Reconcile preview가 구현되어 있다. Automatic DRS, bulk migration, corrective reconciliation mutation, background reconciliation automation, live DRS smoke evidence, and live execute/corrective reconcile UI는 구현하지 않았다.
 
 ## 구현 API/endpoints
 
@@ -69,7 +69,7 @@ Live migration uses only the dedicated DRS Proxmox client and calls `POST /nodes
 
 [DRS recommendation/execution 목표](../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) 대비 남은 gap은 15분 average/peak metric substrate, corrective reconciliation mutation, background reconciliation workflow, broad execution UI, and live DRS smoke evidence다.
 
-Confirm modal, broad UI execution controls, corrective reconciliation workflow가 없다. 현재 reconciliation surface는 backend read-only preview와 Jobs/Runs/operation-lock evidence에 한정된다.
+Live execute confirm modal, broad UI execution controls, corrective reconciliation workflow가 없다. 현재 reconciliation surface는 backend read-only preview와 Jobs/Runs/operation-lock evidence에 한정된다.
 
 ## 리스크/메모
 

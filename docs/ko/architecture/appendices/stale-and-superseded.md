@@ -29,10 +29,10 @@
 | 오래된 주장 | 현재 correction |
 |---|---|
 | DRS recommendation/check가 직접 migration을 실행한다. | Current recommendation/check output은 Proxmox-read-only이고 `executable=false`, `allowed_actions=[]`입니다. |
-| Current `/drs` UI can approve/migrate. | Current `/drs` UI는 read/check only입니다. Broad approval/execute/reconcile controls는 아직 없습니다. |
+| Current `/drs` UI can approve/migrate. | Current `/drs` UI는 recommendation/check, manual policy configuration, local approval packet creation을 제공합니다. Live execute/corrective reconcile controls는 아직 없습니다. |
 | Approval packet creation이 migration을 시작한다. | Approval packet creation은 local approval/job/artifact만 씁니다. Migration은 stored job execute route에서 fresh gates 후에만 시작됩니다. |
 | Migration UPID tracking/locks/reconciliation are target-only. | Narrow backend execution, UPID/task tracking, operation locks, verified post-check, read-only reconcile preview는 구현되어 있습니다. Corrective mutation/background automation/live smoke는 deferred입니다. |
-| DRS identity/fingerprint/policy DB is absent. | Compact DRS identity/fingerprint evidence와 migration policy records가 있습니다. Full metadata/policy editor는 deferred입니다. |
+| DRS identity/fingerprint/policy DB is absent. | Compact DRS identity/fingerprint evidence와 migration policy records가 있습니다. Full metadata/richer policy controls는 deferred입니다. |
 
 ## Jobs/Risks
 

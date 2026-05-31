@@ -36,11 +36,11 @@ Do not copy old PRD statements blindly. Several early PRD slices describe single
 
 Important boundaries:
 
-- Current `/drs` UI remains read/check oriented. Backend DRS now includes identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only execute route, UPID/task tracking, verified post-check, and read-only reconciliation preview.
+- Current `/drs` UI includes read/check recommendations, manual per-VM migration policy configuration, and local approval packet/job intent creation. Backend DRS now includes identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only execute route, UPID/task tracking, verified post-check, and read-only reconciliation preview.
 - DRS recommendation/detail/check output is Proxmox-read-only and remains `read_only=true`, `executable=false`, `allowed_actions=[]`.
 - DRS approval packet creation writes local approval/job/artifact state only; it does not start migration.
 - DRS live migration execution exists only through `POST /api/v1/drs/migration-jobs/{job_id}/execute` after stored approval binding, fresh gates, live Proxmox evidence, and operation locks. No recommendation-level approve/migrate/live-migrate aliases exist.
-- DRS reconcile preview is read-only. Corrective mutation, background reconciliation automation, automatic DRS, and broad execution UI remain deferred.
+- DRS reconcile preview is read-only. Corrective mutation, background reconciliation automation, automatic DRS, live execute UI, and corrective reconcile UI remain deferred.
 - Current Create VM live mutation is `POST /api/v1/vm-create/{draft_id}/proxmox-create`.
 - Legacy `POST /api/v1/vm-create/{draft_id}/execute` has been removed; current live VM creation is `proxmox-create`.
 - Current Create VM networking uses selected target-node active live bridge plus explicit `bridge_id`, `static_ip`, `prefix`, and `gateway`.

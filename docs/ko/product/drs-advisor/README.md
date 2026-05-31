@@ -2,7 +2,7 @@
 
 이 폴더는 한국어 DRS Advisor product target 설명입니다. 기준 우선순위는 active code/tests, [영어 DRS Advisor PRD source](../../../product/drs-advisor/README.md), [current state](../../../current/README.md), [target DRS architecture](../../../architecture/placement-drs-advisor/recommendation-and-execution.md)입니다.
 
-현재 frontend `/drs`는 DRS Advisor read/check only입니다. Backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Broad execution UI, policy editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate aliases는 아직 없습니다.
+현재 frontend `/drs`는 DRS Advisor recommendation/check에 더해 manual VM policy configuration과 local approval packet/job intent creation을 제공합니다. Recommendation/check result는 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Live execute UI, corrective reconcile UI, richer policy rule/full metadata editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate aliases는 아직 없습니다.
 
 ## 읽는 순서
 

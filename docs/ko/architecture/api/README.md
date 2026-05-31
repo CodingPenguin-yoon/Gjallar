@@ -5,4 +5,4 @@
 ## 문서
 
 - [Current API V1](current-api-v1.md): 현재 `/api/v1` route, 구현 함수, frontend 호출, side effect.
-- [Target DRS API](target-drs-api.md): future-only DRS API 후보. 현재 구현으로 읽으면 안 됩니다.
+- [Target DRS API](target-drs-api.md): 현재 DRS API boundary와 future candidates를 함께 설명합니다. Current route truth는 [Current API V1](current-api-v1.md)을 우선합니다.

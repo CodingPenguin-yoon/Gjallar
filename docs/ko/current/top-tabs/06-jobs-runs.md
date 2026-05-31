@@ -28,4 +28,4 @@ Jobs/Runs UI에는 retry, cancel, resume, approve, live-run, VM mutation control
 
 ## Target gap
 
-DRS Advisor에는 `drs_migration`, `drs_final_precheck`, `drs_reconciliation` 같은 first-class job type, recommendation id, VM locator, source/target node, UPID, lock status, timeout, post-check, reconciliation artifact가 필요합니다.
+Current backend에는 DRS local approval/job intent, `drs_migration` execution evidence, UPID/post-check/reconciliation preview evidence, 그리고 Goal 8 `post_create_readiness` job/artifact evidence가 있습니다. 남은 gap은 broad DRS UI, corrective/background reconciliation, live DRS smoke evidence, 그리고 Jobs/Runs에서의 더 풍부한 DRS 운영 표시입니다.

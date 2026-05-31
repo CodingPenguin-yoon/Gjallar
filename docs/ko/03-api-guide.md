@@ -17,8 +17,10 @@
 | Profiles/readiness | `profiles`, `vm-create/readiness` | Create VM option/readiness source. |
 | Network readiness | `GET /nodes`, `/vms`, `/networks` | Frontend-composed read-only migration pre-check evidence. Proxmox bridge mutation, API write path, YAML persistence 없음. |
 | Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | DB-backed job status와 job-derived risks. |
-| DRS Advisor | `drs/summary`, `drs/recommendations`, detail, `check`, `approval-packets`, `migration-jobs/{job_id}/execute`, `migration-jobs/{job_id}/reconcile-preview` | Frontend는 read/check only입니다. Backend에는 local approval/job substrate, narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. |
+| DRS Advisor | `drs/summary`, `drs/recommendations`, detail, `check`, `approval-packets`, `drs/policies*`, `migration-jobs/{job_id}/execute`, `migration-jobs/{job_id}/reconcile-preview` | Recommendation/check result는 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Frontend에는 manual policy configuration과 local approval packet/job intent creation이 있고, live execute/corrective reconcile UI는 없습니다. Backend에는 narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. |
 | Create VM | `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, native create까지. |
+| VM actions/readiness evidence | `nodes/{node_id}/vms/{vmid}/actions/start`, `nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence` | Existing VM start는 gated live action입니다. Post-create readiness evidence는 local-only operator-supplied evidence recorder이며 live checks를 수행하지 않습니다. |
+| Admin users | `auth/login`, `auth/logout`, `auth/me`, `admin/users*` | Local account operations list/create/role/disable/reset-password가 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않습니다. |
 
 ## Create VM에서 가장 헷갈리는 endpoint
 
@@ -27,6 +29,6 @@
 
 ## 현재 없는 API
 
-DRS recommendation/check API와 backend execution substrate는 구현되어 있습니다. 아직 없는 것은 broad execution UI, policy editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate alias입니다.
+DRS recommendation/check API, manual VM migration policy UI/API, local approval/job substrate, backend execution substrate는 구현되어 있습니다. 아직 없는 것은 live execute UI, corrective reconcile UI, richer policy rule/full metadata editor, corrective mutation, background automation, automatic DRS, live DRS smoke, recommendation-level migrate alias입니다.
 
 자세한 target 후보는 [architecture/api/target-drs-api.md](architecture/api/target-drs-api.md)를 봅니다.

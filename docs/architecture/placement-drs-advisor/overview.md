@@ -2,10 +2,12 @@
 
 Status source: [current product status](../../current/README.md). Relevant top-tab status: [Placement / DRS Advisor](../../current/top-tabs/05-placement-drs-advisor.md).
 
-The current `/drs` route is a DRS Advisor screen backed by identity/policy
-evidence, read-only final pre-check, local approval/job substrate, narrow
-approval-gated migration execution, UPID tracking, verified post-check, and
-read-only reconciliation preview. Broad execution UI polish remains pending.
+The current `/drs` route is a DRS Advisor screen with recommendation/check,
+manual per-VM migration policy configuration, and local approval packet/job
+intent creation. Backend DRS is backed by identity/policy evidence, read-only
+final pre-check, local approval/job substrate, narrow approval-gated migration
+execution, UPID tracking, verified post-check, and read-only reconciliation
+preview. Live execute and corrective reconcile UI remain pending.
 
 ## Current Route And Component
 
@@ -14,13 +16,13 @@ read-only reconciliation preview. Broad execution UI polish remains pending.
 | Route | `/drs` |
 | Component | `frontend/src/components/DrsAdvisorScreen.jsx` |
 | View model | `frontend/src/utils/drsAdvisor.js` |
-| Backend DRS routes | `GET /api/v1/drs/summary`, `GET /api/v1/drs/recommendations`, detail, `POST /check`, `POST /approval-packets`, `POST /migration-jobs/{job_id}/execute`, `POST /migration-jobs/{job_id}/reconcile-preview` |
-| Mutation controls | Narrow backend execution route only after identity, policy, final pre-check, approval, lock, and live evidence gates; broad UI controls pending |
+| Backend DRS routes | `GET /api/v1/drs/summary`, `GET /api/v1/drs/recommendations`, detail, `POST /check`, `GET/PUT /drs/policies*`, `POST /approval-packets`, `POST /migration-jobs/{job_id}/execute`, `POST /migration-jobs/{job_id}/reconcile-preview` |
+| Mutation controls | Current UI writes only local VM policy and local approval packet/job intent state. Live migration remains the narrow backend execute route after identity, policy, final pre-check, approval, lock, and live evidence gates; no live execute or corrective reconcile UI. |
 
 ## APIs Used Now
 
-`loadDrsAdvisorModel()` currently calls backend DRS read APIs and surfaces local
-readiness evidence:
+`loadDrsAdvisorModel()` currently calls backend DRS read, policy, and local
+approval APIs and surfaces local readiness evidence:
 
 | API | Used for |
 |---|---|
@@ -28,6 +30,9 @@ readiness evidence:
 | `GET /api/v1/drs/recommendations` | Recommendation list with stable blockers and evidence. |
 | `GET /api/v1/drs/recommendations/{recommendation_id}` | Detail evidence for one recommendation. |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | Reference-only recalculation. |
+| `GET /api/v1/drs/policies` | Current VM policy coverage and blocker impact. |
+| `GET /api/v1/drs/policies/{vm_identity_id}` | Detail evidence for one VM policy item. |
+| `PUT /api/v1/drs/policies/{vm_identity_id}` | Operator-only local VM policy update with audit evidence. |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | Local approval packet and pending job intent creation after backend gates pass. |
 | `POST /api/v1/drs/migration-jobs/{job_id}/execute` | Narrow operator-only live migration execution after stored approval, fresh final pre-check, live Proxmox evidence, and lock acquisition. |
 | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | Read-only reconciliation preview with no corrective mutation authority. |
@@ -54,9 +59,9 @@ narrow execution endpoint.
 | UPID tracking | Implemented for accepted migration tasks. |
 | Reconciliation | Verified post-check, `needs_reconciliation`, reconciliation events, and read-only Reconcile preview implemented. |
 
-The screen shows a safety notice and compact identity/policy evidence. Broad
-migration execution UI polish remains pending; backend gates remain
-authoritative.
+The screen shows a safety notice, compact identity/policy evidence, manual
+policy configuration, and local approval packet/job intent creation. Live
+migration execution UI remains pending; backend gates remain authoritative.
 
 ## Target DRS Advisor Direction
 

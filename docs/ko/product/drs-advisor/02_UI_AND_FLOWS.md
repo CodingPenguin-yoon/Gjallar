@@ -8,7 +8,7 @@
 
 Current routes are Dashboard `/`, Infra Explorer `/infra`, Networks `/networks`, Create VM `/create`, DRS Advisor `/drs`, Jobs/Runs `/jobs`, Risks/Alerts `/risks`.
 
-DRS Advisor Phase 1은 `/drs` route에서 read-only recommendation table/detail/check flow를 제공합니다.
+현재 `/drs` route는 recommendation/detail/check, manual VM policy configuration, local approval packet/job intent creation을 제공합니다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다.
 
 ## 왜 각 화면이 필요한가
 
@@ -52,4 +52,4 @@ Confirm modal은 VM identity, fingerprint assertion, source/target, policy, sens
 
 ## Current gap
 
-현재 `/drs`에는 migration button이 없습니다. Final pre-check, lock, UPID tracking, DRS Jobs/Risks integration은 future입니다.
+현재 `/drs`에는 live migration execute button이나 corrective reconcile UI가 없습니다. Manual policy configuration과 local approval packet/job intent creation은 current UI에 있고, backend에는 final pre-check, operation locks, UPID/task tracking, DRS job/artifact evidence, verified post-check, read-only reconcile preview가 있습니다. Live execute UI, corrective reconcile UI, richer policy rule/full metadata editor, live DRS smoke evidence는 남은 gap입니다.

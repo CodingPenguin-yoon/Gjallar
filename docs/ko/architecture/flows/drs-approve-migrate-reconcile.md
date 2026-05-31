@@ -8,7 +8,7 @@
 
 ## Current boundary
 
-Current `/drs` frontend는 read/check only입니다. Backend는 local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview를 제공합니다. Broad UI, corrective mutation, background automation, automatic DRS는 없습니다.
+Current `/drs` frontend는 recommendation/check, manual policy configuration, local approval packet creation을 제공합니다. Backend는 local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview를 제공합니다. Live execute UI, corrective reconcile UI, background automation, automatic DRS는 없습니다.
 
 ## Current flow summary
 
