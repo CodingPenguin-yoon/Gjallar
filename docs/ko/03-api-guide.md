@@ -20,7 +20,7 @@
 | DRS Advisor | `drs/summary`, `drs/recommendations`, detail, `check`, `approval-packets`, `drs/policies*`, `migration-jobs/{job_id}/execute`, `migration-jobs/{job_id}/reconcile-preview` | Recommendation/check result는 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Frontend에는 manual policy configuration과 local approval packet/job intent creation이 있고, live execute/corrective reconcile UI는 없습니다. Backend에는 narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. |
 | Create VM | `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create` | Draft부터 approval, native create까지. |
 | VM actions/readiness evidence | `nodes/{node_id}/vms/{vmid}/actions/start`, `nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence` | Existing VM start는 gated live action입니다. Post-create readiness evidence는 local-only operator-supplied evidence recorder이며 live checks를 수행하지 않습니다. |
-| Admin users | `auth/login`, `auth/logout`, `auth/me`, `admin/users*` | Local account operations list/create/role/disable/reset-password가 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않습니다. |
+| Admin/account | `auth/login`, `auth/logout`, `auth/me`, `auth/change-password`, `admin/users*`, `admin/sessions*` | Local account/session operations list/create/role/disable/reset-password, session inventory/revocation, self password change, sanitized audit metadata가 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않습니다. |
 
 ## Create VM에서 가장 헷갈리는 endpoint
 

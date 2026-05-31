@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -27,6 +28,27 @@ def _login(client, *, username: str, password: str = "correct horse battery stap
     response = client.post("/api/v1/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return response
+
+
+def _assert_no_secret_material(payload: Any, forbidden_values: set[str] | None = None) -> None:
+    forbidden_values = forbidden_values or set()
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            lowered = str(key).lower()
+            assert "password_hash" not in lowered
+            assert "session_token_hash" not in lowered
+            assert "token_hash" not in lowered
+            assert "secret" not in lowered
+            assert "user_agent" not in lowered
+            assert lowered not in {"ip", "ip_hash", "remote_ip", "client_ip"}
+            _assert_no_secret_material(value, forbidden_values)
+        return
+    if isinstance(payload, list):
+        for item in payload:
+            _assert_no_secret_material(item, forbidden_values)
+        return
+    if isinstance(payload, str):
+        assert payload not in forbidden_values
 
 
 def test_user_cli_can_create_non_admin_user(monkeypatch, capsys):
@@ -248,6 +270,74 @@ def test_login_rejects_bad_password_and_disabled_user(monkeypatch):
     disabled = client.post("/api/v1/auth/login", json={"username": "disabled", "password": "correct horse battery staple"})
     assert disabled.status_code == 401
     assert disabled.json()["detail"]["code"] == "LOGIN_FAILED"
+
+
+def test_change_password_requires_current_password_and_preserves_current_session(monkeypatch):
+    _create_user(monkeypatch, username="self-change", password="old-password", role="operator")
+    client = _client()
+    other_client = _client()
+    _login(client, username="self-change", password="old-password")
+    _login(other_client, username="self-change", password="old-password")
+
+    missing_auth = _client().post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "old-password", "new_password": "new-password"},
+    )
+    assert missing_auth.status_code == 401
+    assert missing_auth.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+    rejected = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "wrong-password", "new_password": "new-password"},
+    )
+    assert rejected.status_code == 403
+    assert rejected.json()["detail"]["code"] == "CURRENT_PASSWORD_INVALID"
+    assert "wrong-password" not in rejected.text
+
+    changed = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "old-password", "new_password": "new-password"},
+    )
+    assert changed.status_code == 200, changed.text
+    data = changed.json()["data"]
+    assert data["authenticated"] is True
+    assert data["user"]["username"] == "self-change"
+    assert data["revoked_sessions"] == 1
+    assert data["current_session_preserved"] is True
+    assert data["audit_event_id"].startswith("acctevt-")
+    assert data["audit_event"]["operation"] == "auth.change_password"
+    assert data["audit_event"]["actor"]["username"] == "self-change"
+    assert data["audit_event"]["target"]["username"] == "self-change"
+    assert data["audit_event"]["details"] == {
+        "revoked_sessions": 1,
+        "current_session_preserved": True,
+    }
+    _assert_no_secret_material(changed.json(), {"old-password", "new-password", "wrong-password"})
+
+    assert client.get("/api/v1/auth/me").json()["data"]["authenticated"] is True
+    assert other_client.get("/api/v1/auth/me").json()["data"]["authenticated"] is False
+    assert _client().post(
+        "/api/v1/auth/login",
+        json={"username": "self-change", "password": "old-password"},
+    ).status_code == 401
+
+    from app.db.models import AccountAuditEventRecord, SessionRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        event = session.get(AccountAuditEventRecord, data["audit_event_id"])
+        assert event is not None
+        assert event.actor_username == "self-change"
+        assert event.target_username == "self-change"
+        assert event.details == {"revoked_sessions": 1, "current_session_preserved": True}
+        rows = session.scalars(select(SessionRecord)).all()
+        assert len(rows) == 2
+        assert sum(row.revoked_at is None for row in rows) == 1
+
+    assert _client().post(
+        "/api/v1/auth/login",
+        json={"username": "self-change", "password": "new-password"},
+    ).status_code == 200
 
 
 def test_session_expiry_returns_anonymous_me_and_401_for_protected_routes(monkeypatch):

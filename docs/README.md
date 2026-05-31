@@ -103,8 +103,9 @@ Operations:
   requests create/configure a powered-off VM after Proxmox
   post-check/`observed_after`; optional `boot_and_verify` starts the new VM and
   verifies guest-agent IP plus cloud-init completion.
-- Admin-only local user management is available at `/admin/users` and
-  `/api/v1/admin/users*`; there is still no public signup.
+- Admin-only local user/session management is available at `/admin/users`,
+  `/api/v1/admin/users*`, and `/api/v1/admin/sessions*`; authenticated self
+  password change is available at `/account`. There is still no public signup.
 - Target Create VM profile/template/network design uses DB-seeded profiles, Proxmox live templates, and selected target-node live bridges; current code still has known implementation gaps documented in status.
 - DRS Advisor has identity/fingerprint policy, read-only final pre-check, local
   approval/job substrate, narrow approval-gated migration execution, UPID

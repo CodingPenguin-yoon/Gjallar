@@ -57,12 +57,13 @@ Use `AGENTS.md` for execution mode:
 - Read-only `/api/v1` surfaces require `viewer` or above, while Create VM
   workflow writes, Create VM live create, and VM Start require `operator` or
   `admin`.
-- Admin-only local user management is implemented at `/admin/users` and
-  `/api/v1/admin/users*`; CLI and API share last-enabled-admin protection.
-- Admin local account operations include list/create/role/disable/reset-password.
-  Disable and reset-password revoke target sessions; role changes do not revoke
-  sessions. Remaining Goal 9 polish covers session inventory/revocation UI,
-  self password change, and audit metadata expansion.
+- Admin-only local user/session management is implemented at `/admin/users`,
+  `/api/v1/admin/users*`, and `/api/v1/admin/sessions*`; CLI and API share
+  last-enabled-admin protection.
+- Admin local account operations include list/create/role/disable/reset-password,
+  admin session inventory/revocation, self password change, and sanitized
+  account/session audit metadata. Disable and reset-password revoke target
+  sessions; role changes do not revoke sessions.
 - Inventory is read-only Proxmox live inventory with fake fallback.
 - Create VM currently supports draft, preflight, plan, approval, manifest
   commit, Proxmox native preview/create, Jobs/Runs progress, and artifacts.
@@ -309,6 +310,7 @@ Non-goals:
 ## Next Slice Candidate
 
 Current goal sequencing is tracked in `docs/goal/README.md`. Goal Check 01-06,
-Goal 7, Goal 7.5, and the minimal local-only Goal 8 recorder are complete.
-Remaining candidates are optional approved live DRS smoke evidence and Goal 9
-polish. No live DRS smoke was run.
+Goal 7, Goal 7.5, the minimal local-only Goal 8 recorder, and Goal 9 local
+account/session polish are complete. Remaining candidates are optional approved
+live DRS smoke evidence or another explicitly requested task. No live DRS smoke
+was run.

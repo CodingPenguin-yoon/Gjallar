@@ -1,6 +1,6 @@
 # Goal 9: Account/Session Operations Polish
 
-Status: polish deferred; admin local account operations are already implemented.
+Status: completed for the local account/session polish slice.
 
 ## Objective
 
@@ -23,11 +23,11 @@ Current local user management includes:
 - Last enabled admin cannot be disabled or demoted; disabled admin rows do not
   count toward that protection.
 
-Not yet implemented:
+Implemented in the Goal 9 polish slice:
 
 - Admin-visible session inventory and session revocation UI.
-- Self password change.
-- Expanded sanitized audit metadata beyond the current operation responses.
+- Self password change under the authenticated local session model.
+- Expanded sanitized audit metadata for account/session mutations.
 
 ## Scope
 
@@ -80,3 +80,54 @@ Not yet implemented:
 - Any new account/session audit metadata is sanitized and operator-readable.
 - UI affordances reflect backend permissions and safety blockers instead of
   relying on frontend-only enforcement.
+
+## Implemented Behavior
+
+- `GET /api/v1/admin/sessions` lists local sessions for admins with safe
+  metadata only: session id, user id/username, role, enabled state, created,
+  expiry, revoked timestamp, derived `active`/`expired`/`revoked` status, and
+  `is_current_session`.
+- `POST /api/v1/admin/sessions/{session_id}/revoke` is admin-only and
+  idempotent for already revoked or expired sessions. Revoking the current
+  admin session clears the browser cookie in the response and returns
+  `current_session_revoked=true` so the frontend refreshes auth state.
+- `POST /api/v1/auth/change-password` requires an authenticated session,
+  verifies `current_password`, validates and stores the new password using the
+  existing local password hashing path, revokes other active sessions for that
+  user, and preserves the current session.
+- Admin create, role change, disable, reset-password, session revoke, and self
+  password change now record a compact `account_audit_events` row and return
+  `audit_event_id` plus operator-readable `audit_event` metadata in mutation
+  responses.
+- Audit details intentionally omit password values, password hashes, session
+  tokens, session token hashes, user-agent/IP hashes, raw user-agent/IP, and raw
+  secrets. The audit response includes trusted actor fields, target account or
+  session identifiers, changed fields, status transitions, and revoked session
+  counts where relevant.
+- Invalid admin role errors now use a generic invalid-role response and do not
+  echo the supplied role text.
+
+## Validation
+
+- Focused backend auth/admin contracts:
+  `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/contracts/test_api_v1_auth.py backend/tests/contracts/test_api_v1_admin_users.py`
+  passed with `34 passed`.
+- Focused frontend account/session contracts:
+  `node --test frontend/tests/apiV1Client.test.mjs frontend/tests/authFlow.test.mjs frontend/tests/adminUsersScreen.test.mjs`
+  passed with `3 passed`.
+- Broad backend validation:
+  `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests`
+  passed with `281 passed, 47 warnings, 29 subtests passed`.
+- Broad frontend validation:
+  `node --test frontend/tests/*.mjs` passed with `13 passed`;
+  `pnpm --dir frontend lint` passed; `pnpm --dir frontend build` passed.
+- Final whitespace validation: `git diff --check` passed.
+
+## Remaining Gaps And Risks
+
+- There is no audit event browsing UI/API yet; audit metadata is recorded and
+  returned on the relevant mutation responses.
+- No public signup, public reset, OAuth/SSO/2FA, API token, external IdP, or
+  auth redesign work was added.
+- No live Proxmox, DRS, readiness, SSH, Ansible, guest-agent, shell, or network
+  smoke was run for this local-only auth/session slice.

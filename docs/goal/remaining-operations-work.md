@@ -18,9 +18,11 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
   `create-user`, `list-users`, `set-role`, `disable-user`, and
   `reset-password`; UI route `/admin/users`; and API surface
   `/api/v1/admin/users*`.
-- Admin local account operations support list/create/role/disable/reset-password.
-  Disable and reset-password revoke the target user's sessions; role changes do
-  not revoke sessions.
+- Admin local account/session operations support
+  list/create/role/disable/reset-password, admin session inventory/revocation,
+  self password change, and sanitized account/session audit metadata. Disable
+  and reset-password revoke the target user's sessions; role changes do not
+  revoke sessions.
 - Create VM supports default `stopped` creation and optional
   `boot_and_verify`. Approved live Proxmox smoke completed on 2026-05-28 and
   is recorded in `docs/operations/create-vm-live-smoke-2026-05-28.md`.
@@ -36,9 +38,7 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
   recorder for opt-in sanitized evidence on already-created VMs. Create VM
   success is unchanged; future live readiness checks remain deferred and require
   explicit active-session approval.
-- Goal 9 account/session polish is not fully complete. Remaining items include
-  session inventory/revocation UI, self password change, and expanded sanitized
-  audit metadata.
+- Goal 9 account/session polish is complete for the local auth/session model.
 - Goal 5 and Goal 6 validation used automated fake/mock validation. No live
   Proxmox DRS migration smoke has been run.
 
@@ -58,11 +58,9 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
 
 ## Recommended Order
 
-1. Goal Check: Current Implementation Validation Before Goal 9.
-2. Optional approved live DRS migration smoke evidence recording after at least
+1. Optional approved live DRS migration smoke evidence recording after at least
    one VM is deliberately classified.
-3. Remaining Goal 9 polish: session inventory/revocation UI, self password
-   change, and expanded sanitized audit metadata.
+2. Another explicitly requested task from `docs/goal/README.md`.
 
 ## Completed Non-Goal Gate
 
@@ -84,8 +82,8 @@ UI/operations polish started. Goal 7 is now complete as a minimal safe UI slice.
 | Goal 7: DRS UI And Operations Polish | Completed | `docs/goal/goal-07-drs-ui-operations-polish.md` |
 | Goal 7.5: DRS VM Policy Configuration | Completed | `docs/goal/goal-07-5-drs-vm-policy-management.md` |
 | Goal 8: Post-Create Readiness Evidence | Completed: minimal local-only recorder slice | `docs/goal/goal-08-post-create-readiness-evidence.md` |
-| Goal Check: Current Implementation Validation Before Goal 9 | Planned | `docs/goal/goal-check-current-implementation-validation.md` |
-| Goal 9: Account/Session Operations Polish | Polish deferred; core account operations implemented | `docs/goal/goal-09-account-session-operations-polish.md` |
+| Goal Check: Current Implementation Validation Before Goal 9 | Completed: pass-with-risk | `docs/goal/goal-check-current-implementation-validation.md` |
+| Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` |
 
 ## Standard Validation
 
@@ -119,6 +117,5 @@ For docs-only restructuring, run the requested document checks and
   live pre-mutation checks separately.
 - Future live post-create readiness checks remain deferred, approval-gated, and
   separate from Create VM success.
-- Goal 9 polish still lacks session inventory/revocation UI, self password
-  change, and expanded sanitized audit metadata beyond the implemented admin
-  account operation responses.
+- Account/session audit browsing UI/API remains deferred; Goal 9 records and
+  returns sanitized audit metadata on the implemented mutation responses.

@@ -23,9 +23,9 @@ exactly one detailed document, listed below.
   that verifies Goal 1 through Goal 6 implementation quality before Goal 7.
 - `docs/goal/goal-check-01-06-summary-ko.md`: Korean operator-readable summary
   of the completed Goal 1-6 implementation quality audit.
-- `docs/goal/goal-check-current-implementation-validation.md`: planned
-  non-numbered validation gate to establish the current code/docs/test baseline
-  before remaining Goal 9 polish or optional live DRS smoke evidence.
+- `docs/goal/goal-check-current-implementation-validation.md`: completed
+  non-numbered validation gate that established the code/docs/test baseline
+  before Goal 9 polish.
 
 ## Canonical Goal Map
 
@@ -41,19 +41,19 @@ exactly one detailed document, listed below.
 | Goal 7: DRS UI And Operations Polish | Completed | `docs/goal/goal-07-drs-ui-operations-polish.md` | Minimal safe UI slice exposes lifecycle and blockers without weakening backend gates. |
 | Goal 7.5: DRS VM Policy Configuration | Completed | `docs/goal/goal-07-5-drs-vm-policy-management.md` | Manual VM policy API/UI/audit slice is implemented. No live DRS smoke was run. |
 | Goal 8: Post-Create Readiness Evidence | Completed | `docs/goal/goal-08-post-create-readiness-evidence.md` | Minimal local-only opt-in recorder is implemented for already-created VMs; Create VM success is unchanged; future live readiness checks remain deferred and require explicit active-session approval. |
-| Goal Check: Current Implementation Validation Before Goal 9 | Planned | `docs/goal/goal-check-current-implementation-validation.md` | Non-numbered validation gate for current code/docs/tests before remaining Goal 9 polish or optional live DRS smoke evidence. |
-| Goal 9: Account/Session Operations Polish | Polish deferred; core account operations implemented | `docs/goal/goal-09-account-session-operations-polish.md` | Admin local account list/create/role/disable/reset-password exists. Remaining polish is session inventory/revocation UI, self password change, and expanded sanitized audit metadata. |
+| Goal Check: Current Implementation Validation Before Goal 9 | Completed | `docs/goal/goal-check-current-implementation-validation.md` | Result: pass-with-risk; no live DRS smoke was run. |
+| Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` | Admin local account operations, admin session inventory/revocation UI, self password change, and sanitized account/session audit metadata are implemented. |
 
-When a future session says "next goal", do not restart Goal 7.5 or the minimal
-Goal 8 recorder. Start only the user-selected next task: optional approved live
-DRS smoke evidence, the current implementation validation gate, remaining Goal
-9 polish, or another explicitly requested task.
+When a future session says "next goal", do not restart Goal 7.5, the minimal
+Goal 8 recorder, or Goal 9 polish. Start only the user-selected next task:
+optional approved live DRS smoke evidence or another explicitly requested task.
 The Goal 1-6 implementation quality audit is complete with result
 `pass-with-risk`; Goal 7, Goal 7.5, and the minimal local-only Goal 8 slice
 are complete; no live DRS smoke was run.
-Goal 9 is not a blank slate: admin local account operations are already
-implemented, and disable/reset-password revoke target sessions while role
-changes do not.
+Goal 9 local account/session polish is complete: admin local account
+operations, admin session inventory/revocation UI, self password change, and
+sanitized account/session audit metadata are implemented. Disable and
+reset-password revoke target sessions while role changes do not.
 
 ## DRS Safety Constraints
 
@@ -88,15 +88,17 @@ Use this prompt to continue DRS work in a new session:
 Use docs/goal/README.md as the canonical goal entrypoint.
 Goal Check 01-06 is complete with result pass-with-risk; read
 docs/goal/goal-check-01-06-summary-ko.md for the audit summary.
-Goal 7, Goal 7.5, and the minimal local-only Goal 8 recorder are complete; no
-live DRS smoke was run. Goal 9 admin local account operations already include
-list/create/role/disable/reset-password; disable/reset-password revoke target
-sessions and role change does not. The planned non-numbered current
-implementation validation gate lives at
+Goal 7, Goal 7.5, the minimal local-only Goal 8 recorder, and Goal 9 local
+account/session polish are complete; no live DRS smoke was run. Goal 9 includes
+admin list/create/role/disable/reset-password, admin session inventory and
+revocation UI, self password change, and sanitized account/session audit
+metadata; disable/reset-password revoke target sessions and role change does
+not. The non-numbered current implementation validation gate completed with
+result pass-with-risk in
 docs/goal/goal-check-current-implementation-validation.md. Use
-docs/goal/README.md to choose the next user-requested task, such as that
-validation gate, optional approved live DRS smoke evidence, or remaining Goal 9
-polish. Treat 192.168.2.140-150/24 as candidate selection guard only, not
+docs/goal/README.md to choose the next user-requested task, such as optional
+approved live DRS smoke evidence or another explicit task. Treat
+192.168.2.140-150/24 as candidate selection guard only, not
 execution authority, and do not run live Proxmox mutation/smoke or live
 readiness checks without explicit active-session user approval. Preserve all
 DRS backend gates: policy `allowed` is only one prerequisite, not migration

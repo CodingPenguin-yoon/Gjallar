@@ -18,7 +18,7 @@
 | Reconciliation | Corrective reconciliation mutation과 background reconciliation automation. |
 | Jobs/Risks | DRS blocker taxonomy의 `/api/v1/risks` 통합과 live DRS smoke evidence. |
 | Goal 8 readiness | Minimal local-only post-create readiness evidence recorder는 구현됨. Live readiness checks, SSH, Ansible, app bootstrap은 deferred. |
-| Goal 9 account/session polish | Admin local account list/create/role/disable/reset-password는 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않음. 남은 일은 session inventory/revocation UI, self password change, audit metadata 확장. |
+| Goal 9 account/session polish | Admin local account list/create/role/disable/reset-password, session inventory/revocation UI, self password change, sanitized audit metadata는 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않음. |
 
 ## 문서 관리 원칙
 

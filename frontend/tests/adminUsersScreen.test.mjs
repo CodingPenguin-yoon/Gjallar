@@ -78,6 +78,7 @@ function compileAdminUsersSource(source) {
       /import\s+\{\s*([\s\S]*?)\s*\}\s+from\s+'lucide-react'/,
       `const {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   KeyRound,
   Loader2,
@@ -124,13 +125,15 @@ const sourcePath = new URL('../src/components/AdminUsersScreen.jsx', import.meta
 const source = readFileSync(sourcePath, 'utf8')
 
 assert.match(source, /apiV1Client\.listAdminUsers\(\)/)
+assert.match(source, /apiV1Client\.listAdminSessions\(\)/)
 assert.match(source, /apiV1Client\.createAdminUser\(createForm\)/)
 assert.match(source, /apiV1Client\.setAdminUserRole\(username, role\)/)
 assert.match(source, /apiV1Client\.disableAdminUser\(username\)/)
 assert.match(source, /apiV1Client\.resetAdminUserPassword\(username, password\)/)
+assert.match(source, /apiV1Client\.revokeAdminSession\(session\.session_id\)/)
 assert.match(source, /authFailureMessage\(err/)
 assert.match(source, /onCurrentUserChanged/)
-assert.doesNotMatch(source, /password_hash|session_token_hash|token_hash/)
+assert.doesNotMatch(source, /password_hash|session_token_hash|token_hash|user_agent_hash|ip_hash/)
 
 const users = [
   {
@@ -150,6 +153,56 @@ const users = [
     last_login_at: null,
   },
 ]
+const sessions = [
+  {
+    session_id: 'sess-current',
+    user_id: 'user-admin',
+    username: 'admin',
+    role: 'admin',
+    enabled: true,
+    status: 'active',
+    is_current_session: true,
+    created_at: '2026-05-27T03:00:00+00:00',
+    expires_at: '2026-05-28T03:00:00+00:00',
+    revoked_at: null,
+  },
+  {
+    session_id: 'sess-active',
+    user_id: 'user-viewer',
+    username: 'api-viewer',
+    role: 'viewer',
+    enabled: true,
+    status: 'active',
+    is_current_session: false,
+    created_at: '2026-05-27T02:00:00+00:00',
+    expires_at: '2026-05-28T02:00:00+00:00',
+    revoked_at: null,
+  },
+  {
+    session_id: 'sess-expired',
+    user_id: 'user-viewer',
+    username: 'api-viewer',
+    role: 'viewer',
+    enabled: true,
+    status: 'expired',
+    is_current_session: false,
+    created_at: '2026-05-26T02:00:00+00:00',
+    expires_at: '2026-05-26T03:00:00+00:00',
+    revoked_at: null,
+  },
+  {
+    session_id: 'sess-revoked',
+    user_id: 'user-viewer',
+    username: 'api-viewer',
+    role: 'viewer',
+    enabled: true,
+    status: 'revoked',
+    is_current_session: false,
+    created_at: '2026-05-25T02:00:00+00:00',
+    expires_at: '2026-05-26T02:00:00+00:00',
+    revoked_at: '2026-05-25T03:00:00+00:00',
+  },
+]
 const calls = []
 let currentRefreshes = 0
 
@@ -157,6 +210,10 @@ const fakeClient = {
   async listAdminUsers() {
     calls.push(['listAdminUsers'])
     return users.map((user) => ({ ...user }))
+  },
+  async listAdminSessions() {
+    calls.push(['listAdminSessions'])
+    return sessions.map((session) => ({ ...session }))
   },
   async createAdminUser(payload) {
     calls.push(['createAdminUser', { ...payload }])
@@ -186,6 +243,19 @@ const fakeClient = {
     calls.push(['resetAdminUserPassword', username, password])
     return { user: users.find((item) => item.username === username), revoked_sessions: 1 }
   },
+  async revokeAdminSession(sessionId) {
+    calls.push(['revokeAdminSession', sessionId])
+    const session = sessions.find((item) => item.session_id === sessionId)
+    const wasActive = session.status === 'active'
+    session.status = 'revoked'
+    session.revoked_at = '2026-05-27T04:00:00+00:00'
+    return {
+      session,
+      revoked: wasActive,
+      idempotent: !wasActive,
+      current_session_revoked: session.is_current_session,
+    }
+  },
 }
 
 const compiled = transformSync(compileAdminUsersSource(source), {
@@ -199,6 +269,7 @@ globalThis.__ADMIN_USERS_TEST_MOCKS__ = {
   reactHooks: hookHarness.hooks,
   icons: {
     AlertTriangle: icon('AlertTriangle'),
+    Ban: icon('Ban'),
     CheckCircle2: icon('CheckCircle2'),
     KeyRound: icon('KeyRound'),
     Loader2: icon('Loader2'),
@@ -234,10 +305,16 @@ let html = renderToStaticMarkup(tree)
 assert.match(html, /User Management/)
 assert.match(html, /Create User/)
 assert.match(html, /Local Users/)
+assert.match(html, /Sessions/)
 assert.match(html, /api-viewer/)
 assert.match(html, /Current session/)
+assert.match(html, /sess-current/)
+assert.match(html, /sess-active/)
+assert.match(html, /Current active/i)
+assert.match(html, /expired/i)
+assert.match(html, /revoked/i)
 assert.match(html, /Enabled/)
-assert.doesNotMatch(html, /password_hash|session_token_hash|create-secret|reset-secret/)
+assert.doesNotMatch(html, /password_hash|session_token_hash|token_hash|user_agent_hash|ip_hash|create-secret|reset-secret/)
 
 findElement(tree, (element) => element.props?.['aria-label'] === 'Create username').props.onChange({ target: { value: 'new-operator' } })
 findElement(tree, (element) => element.props?.['aria-label'] === 'Create password').props.onChange({ target: { value: 'create-secret' } })
@@ -270,6 +347,19 @@ await findElement(tree, (element) => element.props?.['aria-label'] === 'Disable 
 assert.deepEqual(calls.find((call) => call[0] === 'setAdminUserRole'), ['setAdminUserRole', 'new-operator', 'admin'])
 assert.deepEqual(calls.find((call) => call[0] === 'disableAdminUser'), ['disableAdminUser', 'new-operator'])
 
+await findElement(tree, (element) => element.props?.['aria-label'] === 'Revoke session sess-active').props.onClick()
+assert.deepEqual(calls.find((call) => call[0] === 'revokeAdminSession'), ['revokeAdminSession', 'sess-active'])
+
+hookHarness.beginRender()
+tree = AdminUsersScreen({
+  currentUser: { username: 'admin', role: 'admin' },
+  onCurrentUserChanged: async () => {
+    currentRefreshes += 1
+  },
+})
+await findElement(tree, (element) => element.props?.['aria-label'] === 'Revoke session sess-current').props.onClick()
+assert.equal(currentRefreshes, 1, 'Revoking the current session must refresh current auth state')
+
 hookHarness.beginRender()
 tree = AdminUsersScreen({
   currentUser: { username: 'admin', role: 'admin' },
@@ -300,6 +390,6 @@ html = renderToStaticMarkup(tree)
 assert.doesNotMatch(html, /reset-secret/)
 
 await findElement(tree, (element) => element.props?.['aria-label'] === 'Change role for admin').props.onChange({ target: { value: 'operator' } })
-assert.equal(currentRefreshes, 1, 'Changing the current admin must refresh current auth state')
+assert.equal(currentRefreshes, 2, 'Changing the current admin must refresh current auth state')
 
 console.log('adminUsersScreen RED contract exercised')

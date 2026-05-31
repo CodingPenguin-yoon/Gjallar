@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import threading
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -29,6 +30,17 @@ def _login(client: TestClient, *, username: str, password: str = "correct horse 
     return response
 
 
+def _session_id_for_client(client: TestClient) -> str:
+    from app.auth.config import session_cookie_name
+    from app.auth.sessions import session_id_for_token
+
+    token = client.cookies.get(session_cookie_name())
+    assert token
+    session_id = session_id_for_token(token)
+    assert session_id
+    return session_id
+
+
 def _assert_no_secret_material(payload: Any, forbidden_values: set[str] | None = None) -> None:
     forbidden_values = forbidden_values or set()
     if isinstance(payload, dict):
@@ -38,6 +50,8 @@ def _assert_no_secret_material(payload: Any, forbidden_values: set[str] | None =
             assert "session_token_hash" not in lowered
             assert "token_hash" not in lowered
             assert "secret" not in lowered
+            assert "user_agent" not in lowered
+            assert lowered not in {"ip", "ip_hash", "remote_ip", "client_ip"}
             _assert_no_secret_material(value, forbidden_values)
         return
     if isinstance(payload, list):
@@ -96,6 +110,8 @@ def test_admin_user_api_rejects_viewer_operator_and_unauthenticated_clients(monk
     assert unauthenticated.patch("/api/v1/admin/users/admin/role", json={"role": "viewer"}).status_code == 401
     assert unauthenticated.post("/api/v1/admin/users/admin/disable").status_code == 401
     assert unauthenticated.post("/api/v1/admin/users/admin/reset-password", json={"password": "p"}).status_code == 401
+    assert unauthenticated.get("/api/v1/admin/sessions").status_code == 401
+    assert unauthenticated.post("/api/v1/admin/sessions/sess_missing/revoke").status_code == 401
 
     for username in ("viewer", "operator"):
         client = _client()
@@ -105,6 +121,8 @@ def test_admin_user_api_rejects_viewer_operator_and_unauthenticated_clients(monk
         assert client.patch("/api/v1/admin/users/admin/role", json={"role": "viewer"}).status_code == 403
         assert client.post("/api/v1/admin/users/admin/disable").status_code == 403
         assert client.post("/api/v1/admin/users/admin/reset-password", json={"password": "p"}).status_code == 403
+        assert client.get("/api/v1/admin/sessions").status_code == 403
+        assert client.post("/api/v1/admin/sessions/sess_missing/revoke").status_code == 403
 
 
 def test_admin_user_api_maps_operator_errors_to_structured_details(monkeypatch):
@@ -123,12 +141,15 @@ def test_admin_user_api_maps_operator_errors_to_structured_details(monkeypatch):
     assert missing.status_code == 404
     assert missing.json()["detail"]["code"] == "USER_NOT_FOUND"
 
+    invalid_role_text = "owner-secret-role"
     invalid_role = client.post(
         "/api/v1/admin/users",
-        json={"username": "bad-role", "password": "password", "role": "owner"},
+        json={"username": "bad-role", "password": "password", "role": invalid_role_text},
     )
     assert invalid_role.status_code == 400
-    assert invalid_role.json()["detail"]["code"] == "INVALID_ADMIN_USER_REQUEST"
+    assert invalid_role.json()["detail"]["code"] == "INVALID_ADMIN_ROLE"
+    assert invalid_role.json()["detail"]["message"] == "Role must be viewer, operator, or admin"
+    assert invalid_role_text not in invalid_role.text
 
     missing_password = client.post("/api/v1/admin/users", json={"username": "no-password", "role": "viewer"})
     assert missing_password.status_code == 400
@@ -294,6 +315,105 @@ def test_admin_set_role_does_not_revoke_existing_session(monkeypatch):
         rows = session.scalars(select(SessionRecord)).all()
         assert rows
         assert all(row.revoked_at is None for row in rows)
+
+
+def test_admin_session_inventory_exposes_safe_statuses_and_current_flag(monkeypatch):
+    _create_user(monkeypatch, username="admin", role="admin")
+    _create_user(monkeypatch, username="session-target", role="viewer")
+
+    admin_client = _client()
+    active_client = _client()
+    expired_client = _client()
+    revoked_client = _client()
+    _login(admin_client, username="admin")
+    _login(active_client, username="session-target")
+    _login(expired_client, username="session-target")
+    _login(revoked_client, username="session-target")
+
+    admin_session_id = _session_id_for_client(admin_client)
+    active_session_id = _session_id_for_client(active_client)
+    expired_session_id = _session_id_for_client(expired_client)
+    revoked_session_id = _session_id_for_client(revoked_client)
+    assert revoked_client.post("/api/v1/auth/logout").status_code == 200
+
+    from app.db.models import SessionRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        expired = session.get(SessionRecord, expired_session_id)
+        expired.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    response = admin_client.get("/api/v1/admin/sessions")
+    assert response.status_code == 200, response.text
+    rows = {row["session_id"]: row for row in response.json()["data"]}
+    assert rows[admin_session_id]["status"] == "active"
+    assert rows[admin_session_id]["is_current_session"] is True
+    assert rows[active_session_id]["status"] == "active"
+    assert rows[active_session_id]["is_current_session"] is False
+    assert rows[expired_session_id]["status"] == "expired"
+    assert rows[expired_session_id]["revoked_at"] is None
+    assert rows[revoked_session_id]["status"] == "revoked"
+    assert rows[revoked_session_id]["revoked_at"] is not None
+    assert rows[active_session_id]["username"] == "session-target"
+    assert rows[active_session_id]["role"] == "viewer"
+    assert rows[active_session_id]["enabled"] is True
+    _assert_no_secret_material(response.json())
+
+
+def test_admin_revoke_session_is_idempotent_audited_and_handles_current_session(monkeypatch):
+    _create_user(monkeypatch, username="admin", role="admin")
+    _create_user(monkeypatch, username="session-target", role="viewer")
+
+    admin_client = _client()
+    target_client = _client()
+    _login(admin_client, username="admin")
+    _login(target_client, username="session-target")
+    admin_session_id = _session_id_for_client(admin_client)
+    target_session_id = _session_id_for_client(target_client)
+
+    revoked = admin_client.post(f"/api/v1/admin/sessions/{target_session_id}/revoke")
+    assert revoked.status_code == 200, revoked.text
+    revoked_data = revoked.json()["data"]
+    assert revoked_data["revoked"] is True
+    assert revoked_data["idempotent"] is False
+    assert revoked_data["current_session_revoked"] is False
+    assert revoked_data["session"]["session_id"] == target_session_id
+    assert revoked_data["session"]["status"] == "revoked"
+    assert revoked_data["audit_event"]["operation"] == "admin.revoke_session"
+    assert revoked_data["audit_event"]["actor"]["username"] == "admin"
+    assert revoked_data["audit_event"]["target"]["username"] == "session-target"
+    assert revoked_data["audit_event"]["target"]["session_id"] == target_session_id
+    assert revoked_data["audit_event"]["details"]["previous_status"] == "active"
+    assert revoked_data["audit_event"]["details"]["new_status"] == "revoked"
+    _assert_no_secret_material(revoked.json())
+
+    assert target_client.get("/api/v1/auth/me").json()["data"]["authenticated"] is False
+
+    repeated = admin_client.post(f"/api/v1/admin/sessions/{target_session_id}/revoke")
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["data"]["revoked"] is False
+    assert repeated.json()["data"]["idempotent"] is True
+    assert repeated.json()["data"]["audit_event"]["details"]["previous_status"] == "revoked"
+
+    from app.db.models import AccountAuditEventRecord
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        event = session.get(AccountAuditEventRecord, revoked_data["audit_event_id"])
+        assert event is not None
+        assert event.actor_username == "admin"
+        assert event.target_username == "session-target"
+        assert event.target_session_id == target_session_id
+        assert event.details["previous_status"] == "active"
+        assert event.details["new_status"] == "revoked"
+
+    current = admin_client.post(f"/api/v1/admin/sessions/{admin_session_id}/revoke")
+    assert current.status_code == 200, current.text
+    assert current.json()["data"]["revoked"] is True
+    assert current.json()["data"]["current_session_revoked"] is True
+    assert current.json()["data"]["session"]["is_current_session"] is True
+    assert "Max-Age=0" in current.headers.get("set-cookie", "")
+    assert admin_client.get("/api/v1/auth/me").json()["data"]["authenticated"] is False
 
 
 def test_reset_password_for_last_enabled_admin_is_not_blocked_but_revokes_session(monkeypatch):

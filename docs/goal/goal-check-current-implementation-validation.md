@@ -4,8 +4,8 @@ Status: completed 2026-06-01 04:59 KST. Result: `pass-with-risk`.
 
 ## Objective
 
-Establish a trustworthy current implementation baseline before remaining Goal 9
-polish, optional live DRS smoke evidence, or any other new goal-sized work.
+Establish a trustworthy current implementation baseline before Goal 9 polish,
+optional live DRS smoke evidence, or any other new goal-sized work.
 
 This is a non-numbered validation gate, not a product feature goal. It should
 verify that the current checkout, tests, and refreshed documents agree about
@@ -20,8 +20,8 @@ Current goal sequencing is tracked in `docs/goal/README.md`.
 - Goal 7.5 manual VM migration policy configuration is complete.
 - Goal 8 minimal local-only post-create readiness evidence recorder is
   complete.
-- Goal 9 polish remains for session inventory/revocation UI, self password
-  change, and expanded sanitized audit metadata.
+- Goal 9 polish has since completed admin session inventory/revocation UI,
+  self password change, and expanded sanitized audit metadata.
 - No live DRS migration smoke has been run.
 
 Admin local account operations already include list/create/role/disable/reset
@@ -307,8 +307,8 @@ Remaining risks and next actions:
   non-blocking risk unless the user gives explicit active-session approval for
   a separate live-smoke task.
 
-Next explicit task: remaining Goal 9 polish, optional approved live DRS smoke
-evidence, or another user-selected task from `docs/goal/README.md`.
+Next explicit task: optional approved live DRS smoke evidence or another
+user-selected task from `docs/goal/README.md`.
 
 ## Completion Criteria
 
@@ -318,5 +318,5 @@ evidence, or another user-selected task from `docs/goal/README.md`.
   DRS approval, and live execution boundaries.
 - No live Proxmox mutation was performed unless separately approved and
   documented.
-- The next task is explicit: remaining Goal 9 polish, optional approved live DRS
-  smoke evidence, or another user-selected task.
+- The next task is explicit: optional approved live DRS smoke evidence or
+  another user-selected task.

@@ -5,9 +5,8 @@ Last updated: 2026-05-31
 > Historical/stale handoff note: this file preserves the 2026-05-28 Create VM
 > smoke and session context, but it is no longer the source of current goal
 > sequencing. Use [`docs/goal/README.md`](../goal/README.md) for the active
-> sequence. Goal Check 01-06, Goal 7, Goal 7.5, and the minimal local-only
-> Goal 8 recorder are complete. Goal 9 polish remains for session
-> inventory/revocation UI, self password change, and audit metadata expansion.
+> sequence. Goal Check 01-06, Goal 7, Goal 7.5, the minimal local-only
+> Goal 8 recorder, and Goal 9 local account/session polish are complete.
 > No live DRS smoke was run; future live smoke still requires explicit
 > active-session approval.
 
@@ -22,8 +21,9 @@ Last updated: 2026-05-31
   `viewer`, `operator`, and `admin`.
 - Read APIs require `viewer` or above. Create VM workflow writes, Create VM
   live create, and VM Start require `operator` or `admin`.
-- Admin-only local user management is implemented at `/admin/users` and
-  `/api/v1/admin/users*`.
+- Admin-only local user/session management is implemented at `/admin/users`,
+  `/api/v1/admin/users*`, and `/api/v1/admin/sessions*`; self password change
+  is implemented at `/account` and `POST /api/v1/auth/change-password`.
 - First admin is created with
   `cd backend && python -m app.auth.users create-admin --username yoon`.
 - Auth endpoints are active:
@@ -44,9 +44,9 @@ Last updated: 2026-05-31
   Future live smoke or cleanup mutations still require explicit active-session
   approval.
 - Current goal sequencing has moved to
-  [`docs/goal/README.md`](../goal/README.md). Goal 7.5 and the minimal local-only
-  Goal 8 recorder are complete; do not restart them as next work. Goal 9 polish
-  remains.
+  [`docs/goal/README.md`](../goal/README.md). Goal 7.5, the minimal local-only
+  Goal 8 recorder, and Goal 9 local account/session polish are complete; do not
+  restart them as next work.
 
 ## Validation Baseline
 
@@ -97,8 +97,8 @@ Keep out of scope for this smoke:
 
 The "next work" sections previously in this handoff are historical and stale.
 Use [`docs/goal/README.md`](../goal/README.md) for current sequencing. Goal 7.5
-DRS VM Policy Configuration and the minimal local-only Goal 8 recorder are
-complete; Goal 9 polish remains; no live DRS smoke was run.
+DRS VM Policy Configuration, the minimal local-only Goal 8 recorder, and Goal 9
+local account/session polish are complete; no live DRS smoke was run.
 
 ## First Commands In A New Session
 

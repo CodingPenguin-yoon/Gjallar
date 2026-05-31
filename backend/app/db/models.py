@@ -96,6 +96,29 @@ class SessionRecord(Base):
     ip_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
+class AccountAuditEventRecord(Base):
+    """Sanitized local audit evidence for account and session operations."""
+
+    __tablename__ = "account_audit_events"
+    __table_args__ = (
+        Index("ix_account_audit_events_actor_created", "actor_user_id", "created_at"),
+        Index("ix_account_audit_events_target_user_created", "target_user_id", "created_at"),
+        Index("ix_account_audit_events_target_session_created", "target_session_id", "created_at"),
+        Index("ix_account_audit_events_operation_created", "operation", "created_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(80), nullable=False)
+    actor_user_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actor_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    target_user_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    target_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    target_session_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class JobRunRecord(Base):
     """DB-backed latest state for operator-visible jobs."""
 

@@ -14,6 +14,10 @@ ROLE_ORDER: dict[str, int] = {
 VALID_ROLES = tuple(ROLE_ORDER)
 
 
+class InvalidRoleError(ValueError):
+    """Raised when untrusted input does not match a supported Gjallar role."""
+
+
 @dataclass(frozen=True)
 class AuthenticatedUser:
     """Authenticated user identity resolved from a server-side session."""
@@ -33,7 +37,7 @@ class AuthenticatedUser:
 def normalize_role(role: str) -> str:
     normalized = str(role or "").strip().lower()
     if normalized not in ROLE_ORDER:
-        raise ValueError(f"Unsupported Gjallar role: {role!r}")
+        raise InvalidRoleError("Unsupported Gjallar role")
     return normalized
 
 

@@ -23,6 +23,7 @@ USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{1,80}$")
 
 @dataclass(frozen=True)
 class UserSummary:
+    user_id: str
     username: str
     role: str
     enabled: bool
@@ -35,6 +36,7 @@ class UserSummary:
 class UserOperationResult:
     user: AuthenticatedUser
     revoked_sessions: int = 0
+    current_session_preserved: bool = False
 
 
 class UserNotFoundError(ValueError):
@@ -47,6 +49,10 @@ class DuplicateUserError(ValueError):
 
 class LastEnabledAdminError(ValueError):
     """Raised when an account operation would remove the last enabled admin."""
+
+
+class CurrentPasswordInvalidError(ValueError):
+    """Raised when a self-service password change fails current-password verification."""
 
 
 def _now() -> datetime:
@@ -77,6 +83,7 @@ def _validated_password(password: str) -> str:
 
 def _user_summary(row: UserRecord) -> UserSummary:
     return UserSummary(
+        user_id=str(row.user_id),
         username=str(row.username),
         role=normalize_role(row.role),
         enabled=bool(row.enabled),
@@ -132,8 +139,28 @@ def _revoke_active_sessions(session, *, user_id: str, revoked_at: datetime) -> i
         update(SessionRecord)
         .where(SessionRecord.user_id == user_id)
         .where(SessionRecord.revoked_at.is_(None))
+        .where(SessionRecord.expires_at > revoked_at)
         .values(revoked_at=revoked_at)
     )
+    return max(int(result.rowcount or 0), 0)
+
+
+def _revoke_other_active_sessions(
+    session,
+    *,
+    user_id: str,
+    revoked_at: datetime,
+    current_session_id: str | None,
+) -> int:
+    query = (
+        update(SessionRecord)
+        .where(SessionRecord.user_id == user_id)
+        .where(SessionRecord.revoked_at.is_(None))
+        .where(SessionRecord.expires_at > revoked_at)
+    )
+    if current_session_id:
+        query = query.where(SessionRecord.session_id != current_session_id)
+    result = session.execute(query.values(revoked_at=revoked_at))
     return max(int(result.rowcount or 0), 0)
 
 
@@ -213,6 +240,37 @@ def reset_password(*, username: str, password: str) -> UserOperationResult:
         revoked_sessions = _revoke_active_sessions(session, user_id=row.user_id, revoked_at=now)
         session.flush()
         return UserOperationResult(user=actor_from_user(row), revoked_sessions=revoked_sessions)
+
+
+def change_own_password(
+    *,
+    actor: AuthenticatedUser,
+    current_password: str,
+    new_password: str,
+    current_session_id: str | None,
+) -> UserOperationResult:
+    now = _now()
+    validated_new_password = _validated_password(new_password)
+    with session_scope() as session:
+        row = session.get(UserRecord, actor.user_id)
+        if row is None or row.enabled is not True:
+            raise UserNotFoundError("Unknown user")
+        if not verify_password(current_password, row.password_hash):
+            raise CurrentPasswordInvalidError("Current password is invalid")
+        row.password_hash = hash_password(validated_new_password)
+        row.updated_at = now
+        revoked_sessions = _revoke_other_active_sessions(
+            session,
+            user_id=row.user_id,
+            revoked_at=now,
+            current_session_id=current_session_id,
+        )
+        session.flush()
+        return UserOperationResult(
+            user=actor_from_user(row),
+            revoked_sessions=revoked_sessions,
+            current_session_preserved=bool(current_session_id),
+        )
 
 
 def authenticate_user(*, username: str, password: str) -> AuthenticatedUser | None:

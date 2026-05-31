@@ -18,9 +18,9 @@
 
 ## 전체 요약
 
-현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`, 그리고 admin 전용 `Admin Users`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이며, auth/admin route는 [backend/app/auth/](../../../backend/app/auth/)에서 같은 `/api/v1` contract로 등록된다.
+현재 active UI route는 [frontend/src/App.jsx](../../../frontend/src/App.jsx)의 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`, admin 전용 `Admin Users`, 그리고 authenticated `Account`다. active backend prefix는 [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py)의 `/api/v1`이며, auth/admin route는 [backend/app/auth/](../../../backend/app/auth/)에서 같은 `/api/v1` contract로 등록된다.
 
-구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, DRS Advisor identity/policy readiness plus manual policy configuration and narrow approval-gated execution/post-check/reconciliation backend, DB-backed Jobs/Runs, job-derived Risks/Alerts, Create VM supporting capability, Goal 8 local-only post-create readiness evidence recorder, 그리고 admin local account operations다. Goal 9 polish는 session inventory/revocation UI, self password change, and audit metadata expansion이 남아 있다.
+구현 baseline은 Proxmox inventory, Dashboard aggregation, Infra Explorer의 gated stopped-VM Start action, Networks selected-source network comparison view, DRS Advisor identity/policy readiness plus manual policy configuration and narrow approval-gated execution/post-check/reconciliation backend, DB-backed Jobs/Runs, job-derived Risks/Alerts, Create VM supporting capability, Goal 8 local-only post-create readiness evidence recorder, 그리고 Goal 9 local account/session polish다. Admin Users는 local account operations와 session inventory/revocation을 포함하고, Account는 self password change를 제공한다.
 
 DRS Advisor는 identity/fingerprint DB model, manual VM policy configuration,
 policy audit evidence, read-only final pre-check, DB-backed operation lock

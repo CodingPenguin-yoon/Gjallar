@@ -13,11 +13,12 @@
 - Active Create VM mutation path는 Proxmox native API입니다.
 - 현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를
   기준으로 합니다. Goal Check 01-06, Goal 7, Goal 7.5, minimal local-only
-  Goal 8 recorder는 완료됐고, 다음 후보는 optional approved live DRS
-  smoke evidence 또는 remaining Goal 9 polish입니다.
-- Goal 9 admin local account operations list/create/role/disable/reset-password는
-  구현됐습니다. 남은 것은 session inventory/revocation UI, self password
-  change, audit metadata 확장입니다.
+  Goal 8 recorder, Goal 9 local account/session polish는 완료됐고, 다음
+  후보는 optional approved live DRS smoke evidence 또는 명시적으로 요청된
+  다른 작업입니다.
+- Goal 9 admin local account operations list/create/role/disable/reset-password,
+  session inventory/revocation UI, self password change, sanitized audit
+  metadata는 구현됐습니다.
 - Current Create VM profile/template/network target design은 DB-backed profiles,
   live template, live bridge, static fields, access/SSH evidence까지 구현되어
   있습니다.
@@ -39,4 +40,4 @@
 
 ## Next slice candidates
 
-현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 후보는 optional approved live DRS smoke evidence 또는 remaining Goal 9 polish입니다.
+현재 goal sequencing은 [docs/goal/README.md](../../goal/README.md)를 기준으로 합니다. 다음 후보는 optional approved live DRS smoke evidence 또는 명시적으로 요청된 다른 작업입니다.
