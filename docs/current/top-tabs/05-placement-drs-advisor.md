@@ -67,7 +67,7 @@ Live migration uses only the dedicated DRS Proxmox client and calls `POST /nodes
 
 ## DRS Advisor 기준 gaps
 
-[DRS recommendation/execution 목표](../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) 대비 남은 gap은 15분 average/peak metric substrate, corrective reconciliation mutation, background reconciliation workflow, broad execution UI, and live DRS smoke evidence다.
+[DRS recommendation/execution 목표](../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) 대비 남은 gap은 15분 average/peak metric substrate, deeper read-only active task/HA/quorum collection, richer policy rule/full metadata editor, corrective reconciliation mutation, background reconciliation workflow, broad execution UI, and live DRS smoke evidence다.
 
 Live execute confirm modal, broad UI execution controls, corrective reconciliation workflow가 없다. 현재 reconciliation surface는 backend read-only preview와 Jobs/Runs/operation-lock evidence에 한정된다.
 
@@ -77,7 +77,8 @@ Live execute confirm modal, broad UI execution controls, corrective reconciliati
 
 ## 다음 구현
 
-Goal Check 01-06, Goal 7 UI/operations polish, and [`Goal 7.5 DRS VM Policy Configuration`](../../goal/goal-07-5-drs-vm-policy-management.md) are implemented in the current slice.
+Goal Check 01-06, Goal 7 UI/operations polish, [`Goal 7.5 DRS VM Policy Configuration`](../../goal/goal-07-5-drs-vm-policy-management.md), Goal 8, and Goal 9 are implemented.
+Goal 10-12는 candidate/not-started follow-on이다. Goal 10은 사용자가 명시적으로 선택할 때만 다음 planned candidate이며, execute acknowledgement/evidence hardening and optional approved live DRS smoke baseline을 다룬다.
 Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다.
 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고,
 identity/fingerprint, current locator, policy, final pre-check, approval, operation lock,

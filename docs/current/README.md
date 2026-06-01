@@ -10,7 +10,7 @@ This file is the docs source of truth for implemented behavior after active code
 
 - Product target: DRS Advisor is the next MVP success line.
 - Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, DRS Advisor identity/policy readiness foundation, manual VM migration policy UI/API, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval packet/job intent creation, narrow approval-gated DRS live migration execution with UPID/task metadata, verified DRS post-check/reconciliation state, read-only Reconcile preview, Jobs/Runs, Risks/Alerts, Create VM supporting capability, minimal local-only post-create readiness evidence recording, and local account/session operations polish.
-- Current gap: broad live DRS execution UI, corrective reconcile UI, live DRS migration smoke evidence, 15-minute average/peak metric substrate, richer policy rule/full metadata editor, and deeper read-only advisor task/HA/quorum collection. Corrective reconciliation mutation and background reconciliation automation remain deferred.
+- Current gap: broad live DRS execution UI, corrective reconcile UI, live DRS migration smoke evidence, 15-minute average/peak metric substrate, richer policy rule/full metadata editor, deeper read-only advisor task/HA/quorum collection, and account/session audit browsing API/UI. Corrective reconciliation mutation and background reconciliation automation remain deferred.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
@@ -166,8 +166,9 @@ Development smoke and test results recorded for this refresh:
 
 - Use [`../goal/README.md`](../goal/README.md) for the current implementation
   order. Goal Check 01-06, Goal 7, Goal 7.5, the minimal local-only Goal 8
-  recorder, and Goal 9 local account/session polish are complete. No live DRS
-  smoke was run.
+  recorder, and Goal 9 local account/session polish are complete. Goals 10-12
+  are candidate/not-started follow-on briefs; Goal 10 is the next planned
+  candidate only if the user explicitly selects it. No live DRS smoke was run.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

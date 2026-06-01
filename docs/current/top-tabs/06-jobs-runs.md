@@ -33,6 +33,7 @@ frontend는 job list, selected job detail, progress steps, artifact metadata를 
 ## DRS Advisor 기준 gaps
 
 [DRS UI/flow 목표](../../product/drs-advisor/02_UI_AND_FLOWS.md) 대비 backend는 `drs_migration` job_type, recommendation id, VM locator, identity id, source/target node, approver, UPID, lock id/status, timeout/post-check/reconciliation evidence를 저장한다. 남은 gap은 broad UI polish, corrective reconciliation mutation/action, background reconciliation automation, and live DRS smoke evidence다.
+Goal 11 candidate scope may add richer read-only DRS lifecycle panels here, but that work is not started.
 
 ## 리스크/메모
 
@@ -41,7 +42,7 @@ DRS migration success는 Proxmox task success만으로 결정하지 않는다. C
 ## 다음 구현
 
 Goal Check 01-06, Goal 7 DRS UI/operations polish, and Goal 7.5 DRS VM Policy
-Configuration은 완료됐다. 현재 순서는
-[`docs/goal/README.md`](../../goal/README.md)를 기준으로 본다. Backend
-read-only Reconcile preview exists, but corrective reconciliation mutation and
-broad UI action remain deferred.
+Configuration, Goal 8, and Goal 9 are complete. 현재 순서는
+[`docs/goal/README.md`](../../goal/README.md)를 기준으로 본다. Goal 10-12 are
+candidate/not-started follow-ons. Backend read-only Reconcile preview exists,
+but corrective reconciliation mutation and broad UI action remain deferred.

@@ -130,7 +130,7 @@ Exit criteria:
 
 ### Phase 2: Identity, Fingerprint, Metadata, And Policy
 
-Status: next major implementation phase.
+Status: completed in later goal slices; retained as historical phase reference.
 
 Goal:
 

@@ -19,6 +19,7 @@
 | Jobs/Risks | DRS blocker taxonomy의 `/api/v1/risks` 통합과 live DRS smoke evidence. |
 | Goal 8 readiness | Minimal local-only post-create readiness evidence recorder는 구현됨. Live readiness checks, SSH, Ansible, app bootstrap은 deferred. |
 | Goal 9 account/session polish | Admin local account list/create/role/disable/reset-password, session inventory/revocation UI, self password change, sanitized audit metadata는 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않음. |
+| Goal 10-12 planned grouping | Goal 10 DRS live migration safety/evidence, Goal 11 DRS operations productization, Goal 12 platform hardening/decision quality는 candidate/not started follow-on입니다. Goal 10은 사용자가 명시적으로 선택할 때만 다음 planned candidate입니다. |
 
 ## 문서 관리 원칙
 
@@ -26,3 +27,4 @@
 - archive, history, legacy PRD, old PRD를 current truth처럼 인용하지 않습니다.
 - endpoint/path/method/profile id/artifact type은 English 그대로 둡니다.
 - Current와 target을 분리해서 씁니다.
+- Live Proxmox mutation/smoke/readiness/cleanup/corrective action은 해당 run에 대한 explicit active-session approval 없이 실행하지 않습니다.

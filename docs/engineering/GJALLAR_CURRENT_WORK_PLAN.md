@@ -311,6 +311,9 @@ Non-goals:
 
 Current goal sequencing is tracked in `docs/goal/README.md`. Goal Check 01-06,
 Goal 7, Goal 7.5, the minimal local-only Goal 8 recorder, and Goal 9 local
-account/session polish are complete. Remaining candidates are optional approved
-live DRS smoke evidence or another explicitly requested task. No live DRS smoke
-was run.
+account/session polish are complete. Goals 10-12 are candidate/not-started
+follow-on briefs. Goal 10 DRS Live Migration Safety And Evidence is the next
+planned candidate only if the user explicitly selects it; Goal 11 DRS
+Operations Productization and Goal 12 Platform Hardening And Decision Quality
+are later candidate follow-ons unless separately selected. No live DRS smoke was
+run.

@@ -307,8 +307,9 @@ Remaining risks and next actions:
   non-blocking risk unless the user gives explicit active-session approval for
   a separate live-smoke task.
 
-Next explicit task: optional approved live DRS smoke evidence or another
-user-selected task from `docs/goal/README.md`.
+Next explicit task: Goal 10 is the next planned candidate only if the user
+explicitly selects it; otherwise use the user-selected task from
+`docs/goal/README.md`.
 
 ## Completion Criteria
 
@@ -318,5 +319,5 @@ user-selected task from `docs/goal/README.md`.
   DRS approval, and live execution boundaries.
 - No live Proxmox mutation was performed unless separately approved and
   documented.
-- The next task is explicit: optional approved live DRS smoke evidence or
-  another user-selected task.
+- The next task is explicit: Goal 10 only if the user selects it, otherwise the
+  user-selected task.

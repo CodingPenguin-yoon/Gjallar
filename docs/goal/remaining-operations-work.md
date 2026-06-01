@@ -5,7 +5,8 @@
 Use `docs/goal/README.md` as the canonical entrypoint before starting work.
 This file is only the concise overall operations backlog, status, validation,
 commit/push, and risk overview. Detailed goal scope lives in the Goal 1 through
-Goal 9 documents, plus inserted Goal 7.5, linked below.
+Goal 12 documents, plus inserted Goal 7.5, linked below. Goals 10-12 are
+candidate/not-started follow-on briefs.
 
 ## Starting Point
 
@@ -39,12 +40,20 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
   success is unchanged; future live readiness checks remain deferred and require
   explicit active-session approval.
 - Goal 9 account/session polish is complete for the local auth/session model.
+- Goal 10 DRS Live Migration Safety And Evidence is the next planned candidate
+  only if explicitly selected. It would harden execute acknowledgement/evidence
+  and may optionally include one approved live DRS smoke after run-specific
+  approval.
+- Goal 11 DRS Operations Productization and Goal 12 Platform Hardening And
+  Decision Quality are candidate follow-ons, not mandatory or started work.
 - Goal 5 and Goal 6 validation used automated fake/mock validation. No live
   Proxmox DRS migration smoke has been run.
 
 ## Non-Negotiables
 
-- no live Proxmox mutation/smoke without explicit active-session user approval
+- no live Proxmox mutation, smoke, live readiness check, cleanup, corrective
+  action, or reconciliation mutation without explicit active-session user
+  approval for that specific run
 - 192.168.2.140-150/24 is candidate selection guard only
 - VMID/IP/name/node/tag/Create VM history alone is not stable identity
 - Proxmox task OK alone is not Gjallar success
@@ -58,9 +67,13 @@ Goal 9 documents, plus inserted Goal 7.5, linked below.
 
 ## Recommended Order
 
-1. Optional approved live DRS migration smoke evidence recording after at least
-   one VM is deliberately classified.
-2. Another explicitly requested task from `docs/goal/README.md`.
+1. Goal 10: DRS Live Migration Safety And Evidence, only if the user explicitly
+   selects it for the active session.
+2. Goal 11: DRS Operations Productization, after Goal 10 safety baseline or an
+   explicit replacement decision.
+3. Goal 12: Platform Hardening And Decision Quality, when the user selects a
+   hardening/decision-quality slice.
+4. Any other explicitly requested task from `docs/goal/README.md`.
 
 ## Completed Non-Goal Gate
 
@@ -84,6 +97,9 @@ UI/operations polish started. Goal 7 is now complete as a minimal safe UI slice.
 | Goal 8: Post-Create Readiness Evidence | Completed: minimal local-only recorder slice | `docs/goal/goal-08-post-create-readiness-evidence.md` |
 | Goal Check: Current Implementation Validation Before Goal 9 | Completed: pass-with-risk | `docs/goal/goal-check-current-implementation-validation.md` |
 | Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` |
+| Goal 10: DRS Live Migration Safety And Evidence | Candidate / not started | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` |
+| Goal 11: DRS Operations Productization | Candidate / not started | `docs/goal/goal-11-drs-operations-productization.md` |
+| Goal 12: Platform Hardening And Decision Quality | Candidate / not started | `docs/goal/goal-12-platform-hardening-decision-quality.md` |
 
 ## Standard Validation
 
@@ -108,8 +124,9 @@ For docs-only restructuring, run the requested document checks and
 
 ## Remaining Risks
 
-- Any future live Create VM smoke, cleanup, or DRS migration smoke still needs
-  explicit active-session approval.
+- Any future live Create VM smoke, cleanup, DRS migration smoke, live readiness
+  check, corrective action, or reconciliation mutation still needs explicit
+  active-session approval for that specific run.
 - DRS live smoke evidence, background reconciliation automation, and corrective
   reconciliation mutation remain deferred.
 - The DRS advisor read-only final pre-check adapter still reports some active
@@ -119,3 +136,6 @@ For docs-only restructuring, run the requested document checks and
   separate from Create VM success.
 - Account/session audit browsing UI/API remains deferred; Goal 9 records and
   returns sanitized audit metadata on the implemented mutation responses.
+- Broad live DRS execute UI, corrective reconcile UI, richer policy rule/full
+  metadata editor, 15-minute metrics, and deeper read-only task/HA/quorum
+  collection remain gaps.
