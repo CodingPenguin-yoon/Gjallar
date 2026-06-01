@@ -4,7 +4,7 @@ Status source: [current product status](../../current/README.md). Relevant top-t
 
 This is the current DRS execution boundary.
 
-Current `/drs` UI calls read/check and policy endpoints and exposes local approval packet/job intent creation. It does not expose live execute or corrective reconcile controls. Backend `/api/v1/drs/*` has local approval packet creation, a narrow operator-only migration-job execute route, UPID/task/post-check tracking, and read-only reconcile preview.
+Current `/drs` UI calls read/check and policy endpoints and exposes local approval packet/job intent creation. It does not expose live execute or corrective reconcile controls. Backend `/api/v1/drs/*` has local approval packet creation, a narrow operator-only migration-job execute route with exact acknowledgement, UPID/task/post-check tracking, and read-only reconcile preview.
 
 ## Current Flow Summary
 
@@ -14,7 +14,7 @@ Current `/drs` UI calls read/check and policy endpoints and exposes local approv
 | 2 | Operator opens recommendation. | `GET /api/v1/drs/recommendations/{recommendation_id}` returns evidence bundle. | Same read-only/local-evidence boundary. |
 | 3 | Operator refreshes recommendation evidence for reference. | `POST /api/v1/drs/recommendations/{recommendation_id}/check`. | Check result remains `read_only=true`, `executable=false`, `allowed_actions=[]`; not execution authorization. |
 | 4 | Operator-only API creates approval packet/job intent. | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets`. | Local approval packet, final-precheck artifact, recommendation artifact, and pending `drs_migration` job intent. No Proxmox mutation. |
-| 5 | Operator-only API executes stored job. | `POST /api/v1/drs/migration-jobs/{job_id}/execute`. | Validates stored approval/job binding and artifact checksums before any client factory or mutation. |
+| 5 | Operator-only API executes stored job. | `POST /api/v1/drs/migration-jobs/{job_id}/execute` with exact `drs_live_migration_acknowledged=true`. | Ack failure is request validation only: no DRS service call, client factory, live pre-check, lock, migration call, or job-state mutation. After ack, stored approval/job binding and artifact checksums are validated before any client factory or mutation. |
 | 6 | Execute route reruns fresh gates. | Reread recommendation, identity/fingerprint, locator, policy, operation-lock, and config-lock evidence. | Blocked gate records blocked job evidence; no Proxmox mutation. |
 | 7 | Execute route collects live Proxmox DRS evidence. | Dedicated DRS client checks active tasks, HA, quorum, and migration preconditions. | Blocked live evidence records blocked job evidence; no migration request. |
 | 8 | Backend acquires operation locks. | VM identity, Proxmox locator, and route locks. | Active locks. If acquisition fails, no migration request. |
@@ -22,6 +22,17 @@ Current `/drs` UI calls read/check and policy endpoints and exposes local approv
 | 10 | Backend polls task. | Read Proxmox task until terminal, running, timeout, or ambiguous result. | Task result/status/log excerpt evidence. |
 | 11 | Backend post-checks terminal OK task. | Direct target-node status/config/fingerprint and active-task evidence. | `completed` only after verified success; otherwise `needs_reconciliation`. |
 | 12 | Operator-only API previews reconciliation. | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`. | Read-only preview only; no corrective mutation. |
+
+## Execute Request Gate
+
+`POST /api/v1/drs/migration-jobs/{job_id}/execute` must include exact
+`{"drs_live_migration_acknowledged": true}`. Missing payload, missing field,
+`false`, `null`, string `"true"`, number `1`, camelCase-only acknowledgement, or
+Create VM acknowledgement return `409` with code `DRS_EXECUTION_ACK_REQUIRED`,
+`required_acknowledgement="drs_live_migration_acknowledged"`,
+`proxmox_mutation_enabled=false`, and `side_effects=[]`. This gate runs before
+DRS execution service delegation, client factory selection, live pre-check,
+operation locks, or migration calls, and it does not mark a pending job blocked.
 
 ## Final Pre-Check Requirements
 

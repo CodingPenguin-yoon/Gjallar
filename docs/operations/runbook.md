@@ -230,6 +230,56 @@ Verification:
 - Stale, mismatched, retired, low-confidence, or conflict observations return
   `409` and must not change policy or audit rows.
 
+## Optional Live DRS Migration Smoke Readiness Checklist
+
+No live DRS migration smoke has been run. Do not run this section without
+explicit user approval in the current session. The live path performs Proxmox
+mutation through `POST /api/v1/drs/migration-jobs/{job_id}/execute`, and the
+request must include exact `drs_live_migration_acknowledged=true`.
+
+Do not create `docs/operations/drs-live-migration-smoke-YYYY-MM-DD.md` unless an
+actual approved live DRS smoke is performed. Cleanup, corrective action, retry,
+rollback, or reverse migration requires separate explicit approval for that
+specific operation.
+
+Run non-live validation first:
+
+```bash
+PYTHONPATH=backend backend/venv/bin/python -m pytest -q \
+  backend/tests/drs/test_execution.py \
+  backend/tests/contracts/test_api_v1_drs.py \
+  backend/tests/contracts/test_api_v1_auth.py::test_drs_execute_and_reconcile_preview_routes_require_operator_before_work
+git diff --check
+```
+
+Readiness checklist:
+
+1. Confirm the operator is logged in as `operator` or `admin`.
+2. Confirm the target cluster, source node, target node, VM identity, current
+   VMID/name, storage, network bridge, and expected power state.
+3. Confirm high-confidence DRS identity/fingerprint evidence, current locator,
+   migration policy `allowed`, no active operation lock, and passing final
+   pre-check evidence.
+4. Confirm approval packet id, job id, recommendation/final-precheck checksums,
+   actor fields, warning state, and intended lock scopes.
+5. Confirm the negative acknowledgement gate: missing/false/null/string/number,
+   camelCase-only, or Create VM acknowledgement returns
+   `DRS_EXECUTION_ACK_REQUIRED`, `proxmox_mutation_enabled=false`, and
+   `side_effects=[]` before DRS execution/client/lock/migration work.
+6. Immediately before any approved live call, confirm the execute payload is
+   exactly `{"drs_live_migration_acknowledged": true}`.
+7. After any approved live call, record UPID/task evidence, target-node
+   status/config post-check, expected power state, matching fingerprint, active
+   task evidence, lock state, and reconciliation classification.
+
+DRS smoke evidence matrix template:
+
+| Case | Timestamp | Code revision | Job id / approval packet | VM identity / VMID / name | Source -> target | Actor | Acknowledgement | Pre-mutation evidence | Endpoint / HTTP / code | Side effects / locks | UPID / task evidence | Post-check / reconciliation | Cleanup/corrective approval | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Ack negative gate | `<timestamp>` | `<commit>` | `<job-id> / <packet-id>` | `<identity> / <vmid> / <name>` | `<source> -> <target>` | `<username>/<role>` | `<missing-or-malformed>` | `<approval/final-precheck refs>` | `409 / DRS_EXECUTION_ACK_REQUIRED` | `side_effects=[]; locks=<none>` | `<none>` | `pending job unchanged` | `<not requested>` | `blocked before work` |
+| Readiness packet | `<timestamp>` | `<commit>` | `<job-id> / <packet-id>` | `<identity> / <vmid> / <name>` | `<source> -> <target>` | `<username>/<role>` | `not live` | `<identity; policy; locator; route; checksums; warnings; lock scopes>` | `<read/check/approval endpoints>` | `side_effects=[]` | `<none>` | `<not run>` | `<not requested>` | `ready or blocked` |
+| Approved live execute | `<timestamp>` | `<commit>` | `<job-id> / <packet-id>` | `<identity> / <vmid> / <name>` | `<source> -> <target>` | `<username>/<role>` | `drs_live_migration_acknowledged=true` | `<fresh gates and live evidence refs>` | `<http/status/code>` | `<side_effects>; <lock ids/status>` | `<upid; task result/log refs>` | `<completed or needs_reconciliation evidence>` | `<separate approval id or none>` | `<result>` |
+
 ## Live Create VM Smoke Checklist
 
 Do not run this section without explicit user approval in the current session.

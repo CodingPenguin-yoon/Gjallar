@@ -5,8 +5,8 @@
 Use `docs/goal/README.md` as the canonical entrypoint before starting work.
 This file is only the concise overall operations backlog, status, validation,
 commit/push, and risk overview. Detailed goal scope lives in the Goal 1 through
-Goal 12 documents, plus inserted Goal 7.5, linked below. Goals 10-12 are
-candidate/not-started follow-on briefs.
+Goal 12 documents, plus inserted Goal 7.5, linked below. Goal 10 safety
+baseline is complete; Goals 11-12 are candidate/not-started follow-on briefs.
 
 ## Starting Point
 
@@ -40,14 +40,13 @@ candidate/not-started follow-on briefs.
   success is unchanged; future live readiness checks remain deferred and require
   explicit active-session approval.
 - Goal 9 account/session polish is complete for the local auth/session model.
-- Goal 10 DRS Live Migration Safety And Evidence is the next planned candidate
-  only if explicitly selected. It would harden execute acknowledgement/evidence
-  and may optionally include one approved live DRS smoke after run-specific
-  approval.
+- Goal 10 DRS Live Migration Safety And Evidence safety baseline is complete:
+  the execute acknowledgement gate and optional live smoke readiness matrix are
+  implemented. Any future live DRS smoke requires separate run-specific approval.
 - Goal 11 DRS Operations Productization and Goal 12 Platform Hardening And
   Decision Quality are candidate follow-ons, not mandatory or started work.
-- Goal 5 and Goal 6 validation used automated fake/mock validation. No live
-  Proxmox DRS migration smoke has been run.
+- Goal 5, Goal 6, and the Goal 10 safety baseline used automated fake/mock
+  validation. No live Proxmox DRS migration smoke has been run.
 
 ## Non-Negotiables
 
@@ -67,8 +66,8 @@ candidate/not-started follow-on briefs.
 
 ## Recommended Order
 
-1. Goal 10: DRS Live Migration Safety And Evidence, only if the user explicitly
-   selects it for the active session.
+1. Remaining Goal 10 live evidence work, only if the user explicitly approves a
+   specific live DRS smoke run in the active session.
 2. Goal 11: DRS Operations Productization, after Goal 10 safety baseline or an
    explicit replacement decision.
 3. Goal 12: Platform Hardening And Decision Quality, when the user selects a
@@ -97,7 +96,7 @@ UI/operations polish started. Goal 7 is now complete as a minimal safe UI slice.
 | Goal 8: Post-Create Readiness Evidence | Completed: minimal local-only recorder slice | `docs/goal/goal-08-post-create-readiness-evidence.md` |
 | Goal Check: Current Implementation Validation Before Goal 9 | Completed: pass-with-risk | `docs/goal/goal-check-current-implementation-validation.md` |
 | Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` |
-| Goal 10: DRS Live Migration Safety And Evidence | Candidate / not started | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` |
+| Goal 10: DRS Live Migration Safety And Evidence | Safety baseline complete; no live smoke | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` |
 | Goal 11: DRS Operations Productization | Candidate / not started | `docs/goal/goal-11-drs-operations-productization.md` |
 | Goal 12: Platform Hardening And Decision Quality | Candidate / not started | `docs/goal/goal-12-platform-hardening-decision-quality.md` |
 

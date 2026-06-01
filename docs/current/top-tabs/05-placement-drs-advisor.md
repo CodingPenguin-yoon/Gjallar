@@ -29,7 +29,7 @@ DRS Advisor backend endpoint는 다음 `/api/v1` 조회, local evidence, and nar
 
 `/approval-packets`는 operator-only local evidence endpoint다. Passing final pre-check, high-confidence identity, allowed migration policy, no open operation lock, and warning acknowledgement gates are required before it writes a compact approval packet and pending `drs_migration` job intent. It does not call Proxmox mutation APIs; the job intent remains `runnable=false`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.
 
-`/migration-jobs/{job_id}/execute`는 operator-only execution endpoint다. It loads stored `DrsMigrationJobRecord` + `DrsApprovalPacketRecord`, rejects missing/stale/cancelled/already-executed bindings, reruns a fresh advisor final pre-check, collects live Proxmox evidence through the dedicated DRS client, transactionally acquires VM identity, Proxmox locator, and route operation locks, and only then POSTs Proxmox QEMU migrate. It does not expose recommendation aliases such as `/migrate` or `/live-migrate`.
+`/migration-jobs/{job_id}/execute`는 operator-only execution endpoint다. It first requires exact `{"drs_live_migration_acknowledged": true}`. Missing payload, false/null/string/number values, camelCase-only acknowledgement, or Create VM acknowledgement are rejected as `409` / `DRS_EXECUTION_ACK_REQUIRED` request validation with `proxmox_mutation_enabled=false` and `side_effects=[]` before DRS service delegation, client factory, live pre-check, locks, or migration call; this does not mark a pending job blocked. After that gate, it loads stored `DrsMigrationJobRecord` + `DrsApprovalPacketRecord`, rejects missing/stale/cancelled/already-executed bindings, reruns a fresh advisor final pre-check, collects live Proxmox evidence through the dedicated DRS client, transactionally acquires VM identity, Proxmox locator, and route operation locks, and only then POSTs Proxmox QEMU migrate. It does not expose recommendation aliases such as `/migrate` or `/live-migrate`.
 
 ## 관련 파일
 
@@ -55,7 +55,7 @@ DRS readiness output already surfaces reconciliation state through `approval_rea
 
 Read-only Proxmox conflict evidence는 현재 VM config의 curated `lock` 값만 지원한다. Config lock이 관찰되면 `vm_config_lock` blocker가 추가된다. Active task, HA state, cluster health/quorum evidence는 현재 adapter에서 수집하지 않으며 `not_collected`로 명시된다.
 
-DRS execution does not treat read-only `not_collected` Proxmox evidence as executable. Before mutation, the dedicated DRS client collects active task scan, cluster quorum, HA resource state, and Proxmox migration preconditions. Any unavailable, ambiguous, conflicting, missing, or failing live evidence blocks before mutation.
+DRS execution does not treat read-only `not_collected` Proxmox evidence as executable. Before mutation, the request acknowledgement gate must pass, then the dedicated DRS client collects active task scan, cluster quorum, HA resource state, and Proxmox migration preconditions. Any unavailable, ambiguous, conflicting, missing, or failing live evidence blocks before mutation.
 
 Local DRS approval packet substrate stores compact checksummed artifacts for exact recommendation evidence, final pre-check evidence, the approval packet, and a pending job intent. Warning acknowledgement fields are represented even though current checks emit no warnings. The `drs_migration` job shape now includes recommendation, final precheck, approval, job intent, operation lock, migration, task poll, and reconciliation stages.
 
@@ -78,7 +78,7 @@ Live execute confirm modal, broad UI execution controls, corrective reconciliati
 ## 다음 구현
 
 Goal Check 01-06, Goal 7 UI/operations polish, [`Goal 7.5 DRS VM Policy Configuration`](../../goal/goal-07-5-drs-vm-policy-management.md), Goal 8, and Goal 9 are implemented.
-Goal 10-12는 candidate/not-started follow-on이다. Goal 10은 사용자가 명시적으로 선택할 때만 다음 planned candidate이며, execute acknowledgement/evidence hardening and optional approved live DRS smoke baseline을 다룬다.
+Goal 10 safety baseline is complete; optional live DRS smoke remains not run. Goal 11-12는 candidate/not-started follow-on이다. Any future Goal 10 live smoke evidence requires explicit user approval for a specific live run.
 Goal 6 backend post-check/reconciliation은 현재 구현되어 있으며 task OK만으로 success 처리하지 않는다.
 향후 live smoke가 승인되면 `192.168.2.140-150/24`는 테스트 VM 후보 범위로만 사용하고,
 identity/fingerprint, current locator, policy, final pre-check, approval, operation lock,

@@ -42,7 +42,7 @@ This file is the docs source of truth for implemented behavior after active code
   other active sessions for the same user are revoked.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
-- `/drs` is a DRS Advisor screen with recommendation/check evidence, manual VM migration policy configuration, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. The screen does not provide live migration execute controls or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remain backend-gated.
+- `/drs` is a DRS Advisor screen with recommendation/check evidence, manual VM migration policy configuration, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. The screen does not provide live migration execute controls or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` requires exact `drs_live_migration_acknowledged=true` before any DRS execution work, and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remains backend-gated.
 - Manual VM migration policy configuration is implemented through `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. It supports the current per-VM `unknown`/`allowed`/`restricted`/`blocked` policy workflow and local audit evidence; richer policy rule/full metadata editing remains deferred.
 
 ## Implemented behavior
@@ -80,7 +80,7 @@ This file is the docs source of truth for implemented behavior after active code
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
 - Task failure, unknown cloned disk size, resize failure, VM missing, stopped-policy powered-on mismatch, or boot-and-verify guest-agent/cloud-init failure records failed/`needs_reconciliation` and does not mark the manifest applied.
-- DRS live migration execution is limited to the dedicated DRS Proxmox migration client. It stores UPID/task evidence and marks a migration completed only when Proxmox task `OK` is followed by direct target-node `/status/current` and `/config` post-check, expected power-state evidence, matching DRS fingerprint, and no conflicting active task. Missing UPID, failed/timed-out/ambiguous task evidence, task `OK` without verified post-check, wrong target, unexpected power state, fingerprint mismatch, or unknown active-task evidence stays `needs_reconciliation`. Operation locks release only after verified post-check; otherwise they become `reconciliation_required`. A read-only Reconcile preview exists; no live DRS migration smoke has been run.
+- DRS live migration execution is limited to the dedicated DRS Proxmox migration client. The execute route rejects missing or malformed `drs_live_migration_acknowledged=true` as `409` / `DRS_EXECUTION_ACK_REQUIRED` request validation before the DRS execution service, client factory, live pre-check, operation locks, or migration call; acknowledgement failures have `proxmox_mutation_enabled=false`, `side_effects=[]`, and do not mark pending jobs blocked. After that gate, execution stores UPID/task evidence and marks a migration completed only when Proxmox task `OK` is followed by direct target-node `/status/current` and `/config` post-check, expected power-state evidence, matching DRS fingerprint, and no conflicting active task. Missing UPID, failed/timed-out/ambiguous task evidence, task `OK` without verified post-check, wrong target, unexpected power state, fingerprint mismatch, or unknown active-task evidence stays `needs_reconciliation`. Operation locks release only after verified post-check; otherwise they become `reconciliation_required`. A read-only Reconcile preview exists; no live DRS migration smoke has been run.
 - Approved live Create VM smoke completed on 2026-05-28 against
   `yoonserver3` using template `yoonmanserver / 118 / ubuntu-templte`, storage
   `nas-server`, bridge `vmbr0`, and explicit static IPs. The matrix covered a
@@ -166,9 +166,9 @@ Development smoke and test results recorded for this refresh:
 
 - Use [`../goal/README.md`](../goal/README.md) for the current implementation
   order. Goal Check 01-06, Goal 7, Goal 7.5, the minimal local-only Goal 8
-  recorder, and Goal 9 local account/session polish are complete. Goals 10-12
-  are candidate/not-started follow-on briefs; Goal 10 is the next planned
-  candidate only if the user explicitly selects it. No live DRS smoke was run.
+  recorder, Goal 9 local account/session polish, and the Goal 10 safety baseline
+  are complete. Any future Goal 10 live smoke evidence requires explicit
+  approval for a specific live run. No live DRS smoke was run.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

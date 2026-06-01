@@ -1,7 +1,9 @@
 # Goal 10: DRS Live Migration Safety And Evidence
 
-Status: candidate follow-on goal; not started. Start only if the user
-explicitly selects this goal for the active session.
+Status: Goal 10 safety baseline complete. The execute acknowledgement gate and
+optional live smoke runbook/evidence matrix are implemented; no live DRS smoke
+has been run. Any future live DRS smoke requires separate explicit approval for
+that specific run.
 
 ## Objective
 
@@ -20,6 +22,9 @@ flow is considered.
 - Local approval packet/job intent creation is implemented.
 - A narrow operator-only backend execution route exists at
   `POST /api/v1/drs/migration-jobs/{job_id}/execute`.
+- The execute route requires exact `drs_live_migration_acknowledged=true` before
+  any DRS execution service, client factory, live pre-check, lock, or migration
+  work.
 - DRS execution stores UPID/task evidence and marks completion only after
   verified target-node status/config post-check, expected power-state evidence,
   matching DRS fingerprint, and no conflicting active task.
@@ -66,12 +71,14 @@ smallest correction needed.
 ## Scope
 
 1. Harden the execute acknowledgement gate.
-   - Require an explicit payload field such as
-     `drs_live_migration_acknowledged=true` before mutation.
-   - The payload must not be ignored; missing, false, malformed, or unexpected
-     acknowledgement input must block before any Proxmox mutation call.
+   - Require exact `drs_live_migration_acknowledged=true` before mutation.
+   - The payload must not be ignored; missing, false, null, string, number,
+     camelCase-only, or Create VM acknowledgement input must block before any
+     DRS execution service, client factory, live pre-check, lock, or migration
+     call.
    - Tests must prove blocked acknowledgement states do not call the DRS
-     migration client.
+     execution service, client factory, or migration client and do not mutate a
+     pending job to `blocked`.
 2. Define a runbook/checklist/evidence matrix for live DRS smoke readiness.
    - Cover candidate VM identity, policy, locator, source/target route,
      storage/network evidence, final pre-check, approval packet checksum,
@@ -127,7 +134,8 @@ The packet should be compact and operator-readable. At minimum it must include:
 
 Dry-run validation should prove:
 
-- missing/false acknowledgement blocks before mutation
+- missing/false/null/string/number/camelCase-only/Create VM acknowledgement
+  blocks before DRS execution work and before mutation
 - blocked identity, policy, final pre-check, approval, stale job, cancelled job,
   existing lock, stale locator, and live evidence failures block before mutation
 - successful fake execution stores UPID/task evidence and still requires
@@ -170,6 +178,25 @@ Evidence must be sanitized, compact, and durable enough for later review:
 - explicit statement of any cleanup or corrective action that was not approved
   and therefore not performed
 
+## Implemented Safety Evidence
+
+Implemented in the Goal 10 safety baseline:
+
+- `POST /api/v1/drs/migration-jobs/{job_id}/execute` requires exact
+  `drs_live_migration_acknowledged=true`.
+- Ack failures return structured `DRS_EXECUTION_ACK_REQUIRED` detail with
+  `job_id`, `required_acknowledgement`,
+  `proxmox_mutation_enabled=false`, and `side_effects=[]`.
+- Missing payload, missing field, false, null, string `"true"`, number `1`,
+  camelCase-only acknowledgement, and Create VM acknowledgement block before
+  `execute_drs_migration_job`, default DRS client factory wiring, live
+  pre-check, locks, or migration calls.
+- Ack failures are request validation failures; they do not mark pending DRS
+  jobs `blocked`.
+- `docs/operations/runbook.md` now contains the optional live DRS smoke
+  readiness checklist and evidence matrix. No live DRS smoke was run and no
+  `docs/operations/drs-live-migration-smoke-YYYY-MM-DD.md` file was created.
+
 ## Reconciliation And Failure Handling
 
 - Keep ambiguous outcomes conservative.
@@ -195,8 +222,8 @@ Evidence must be sanitized, compact, and durable enough for later review:
 
 ## Definition Of Done
 
-- Goal 10 is still documented as candidate/not started until selected and
-  implemented.
+- Goal 10 safety baseline is complete; future live smoke evidence remains
+  optional and requires explicit active-session approval for that specific run.
 - The execute route requires an explicit DRS live migration acknowledgement
   payload before mutation.
 - A runbook/checklist/evidence matrix exists for optional live DRS smoke.

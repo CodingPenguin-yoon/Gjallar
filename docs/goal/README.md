@@ -4,9 +4,10 @@
 
 This file is the canonical entrypoint for goal-sized Gjallar work. It is the
 source of truth for the Goal 1 through Goal 12 map, the inserted Goal 7.5,
-document roles, status, and next-session prompt. Goals 10-12 are candidate
-follow-on goals, not started work. Start one only if the user explicitly selects
-it.
+document roles, status, and next-session prompt. Goal 10 safety baseline is
+complete, with no live DRS smoke run. Goals 11-12 remain candidate follow-on
+goals. Start future live smoke or broader work only if the user explicitly
+selects it.
 
 Do not infer a second goal sequence from standalone files. Each goal has
 exactly one detailed document, listed below.
@@ -20,8 +21,8 @@ exactly one detailed document, listed below.
 - `docs/goal/goal-01-create-vm-live-smoke-matrix.md` through
   `docs/goal/goal-12-platform-hardening-decision-quality.md`, plus
   `docs/goal/goal-07-5-drs-vm-policy-management.md`: one detailed document per
-  goal, including the inserted Goal 7.5. Goals 10-12 are candidate/not-started
-  follow-on briefs.
+  goal, including the inserted Goal 7.5. Goal 10 safety baseline is complete;
+  Goals 11-12 are candidate/not-started follow-on briefs.
 - `docs/goal/goal-check-01-06-implementation-quality.md`: non-numbered gate
   that verifies Goal 1 through Goal 6 implementation quality before Goal 7.
 - `docs/goal/goal-check-01-06-summary-ko.md`: Korean operator-readable summary
@@ -46,14 +47,14 @@ exactly one detailed document, listed below.
 | Goal 8: Post-Create Readiness Evidence | Completed | `docs/goal/goal-08-post-create-readiness-evidence.md` | Minimal local-only opt-in recorder is implemented for already-created VMs; Create VM success is unchanged; future live readiness checks remain deferred and require explicit active-session approval. |
 | Goal Check: Current Implementation Validation Before Goal 9 | Completed | `docs/goal/goal-check-current-implementation-validation.md` | Result: pass-with-risk; no live DRS smoke was run. |
 | Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` | Admin local account operations, admin session inventory/revocation UI, self password change, and sanitized account/session audit metadata are implemented. |
-| Goal 10: DRS Live Migration Safety And Evidence | Candidate / not started | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` | Next planned candidate if the user selects it. Harden execute acknowledgement/evidence and optionally record an approved live DRS smoke only after explicit run approval. |
+| Goal 10: DRS Live Migration Safety And Evidence | Safety baseline complete; no live smoke | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` | Execute acknowledgement gate and optional live smoke runbook/evidence matrix are implemented. Any future live DRS smoke requires separate explicit run approval. |
 | Goal 11: DRS Operations Productization | Candidate / not started | `docs/goal/goal-11-drs-operations-productization.md` | Productize guarded DRS operations UI after Goal 10 safety baseline; no frontend inference of executability. |
 | Goal 12: Platform Hardening And Decision Quality | Candidate / not started | `docs/goal/goal-12-platform-hardening-decision-quality.md` | Metrics, read-only evidence depth, blocker taxonomy, audit browsing, error envelope, retention, and redaction hardening candidate. |
 
 When a future session says "next goal", do not restart Goal 7.5, the minimal
-Goal 8 recorder, or Goal 9 polish. Goal 10 is the next planned candidate only
-if the user explicitly selects it. Goal 11 and Goal 12 are later candidate
-follow-ons unless separately selected.
+Goal 8 recorder, Goal 9 polish, or the Goal 10 safety baseline. Any future Goal
+10 live smoke evidence requires explicit approval for a specific live run. Goal
+11 and Goal 12 are later candidate follow-ons unless separately selected.
 The Goal 1-6 implementation quality audit is complete with result
 `pass-with-risk`; Goal 7, Goal 7.5, and the minimal local-only Goal 8 slice
 are complete; no live DRS smoke was run.
@@ -61,6 +62,8 @@ Goal 9 local account/session polish is complete: admin local account
 operations, admin session inventory/revocation UI, self password change, and
 sanitized account/session audit metadata are implemented. Disable and
 reset-password revoke target sessions while role changes do not.
+Goal 10 now has exact execute acknowledgement validation and an optional live
+DRS smoke readiness matrix; no live DRS smoke was run.
 
 ## DRS Safety Constraints
 
@@ -73,8 +76,9 @@ reset-password revoke target sessions while role changes do not.
 - Keep DRS execution authority separate from Create VM mutation authority.
 - DRS migration requires high-confidence VM identity/fingerprint, current
   Proxmox locator, migration policy `allowed`, passing final pre-check, valid
-  approval, operation lock, verified post-check contract, and explicit
-  active-session user approval before any live Proxmox mutation.
+  approval, exact `drs_live_migration_acknowledged=true`, operation lock,
+  verified post-check contract, and explicit active-session user approval before
+  any live Proxmox mutation.
 
 ## Live Migration Test Target Guard
 
@@ -86,15 +90,16 @@ The approved Create VM smoke range remains the live-smoke candidate range:
 - Evidence source:
   `docs/operations/create-vm-live-smoke-2026-05-28.md`
 
-Goal 5 and Goal 6 validation used automated fake/mock validation. No live DRS
-migration smoke has been run.
+Goal 5, Goal 6, and the Goal 10 safety baseline used automated fake/mock
+validation. No live DRS migration smoke has been run.
 
 ## Current DRS Gap Summary
 
 - Narrow backend DRS execute exists.
 - Broad live execute UI remains a gap.
 - Corrective reconcile UI and corrective reconciliation mutation remain gaps.
-- Live DRS smoke evidence remains a gap.
+- Live DRS smoke evidence remains a gap; only the optional checklist/evidence
+  matrix exists.
 - Richer policy rule/full metadata editor remains a gap.
 - 15-minute average/peak metrics remain a gap.
 - Deeper read-only task/HA/quorum collection remains a gap.
@@ -107,23 +112,25 @@ Use this prompt to continue DRS work in a new session:
 Use docs/goal/README.md as the canonical goal entrypoint.
 Goal Check 01-06 is complete with result pass-with-risk; read
 docs/goal/goal-check-01-06-summary-ko.md for the audit summary.
-Goal 7, Goal 7.5, the minimal local-only Goal 8 recorder, and Goal 9 local
-account/session polish are complete; no live DRS smoke was run. Goal 9 includes
+Goal 7, Goal 7.5, the minimal local-only Goal 8 recorder, Goal 9 local
+account/session polish, and the Goal 10 safety baseline are complete; no live
+DRS smoke was run. Goal 9 includes
 admin list/create/role/disable/reset-password, admin session inventory and
 revocation UI, self password change, and sanitized account/session audit
 metadata; disable/reset-password revoke target sessions and role change does
 not. The non-numbered current implementation validation gate completed with
 result pass-with-risk in
-docs/goal/goal-check-current-implementation-validation.md. Goals 10-12 are
-candidate/not-started follow-on briefs. Goal 10 is the next planned candidate
-only if the user explicitly selects it; Goal 11 and Goal 12 are later candidate
-follow-ons unless separately selected. Treat 192.168.2.140-150/24 as candidate
+docs/goal/goal-check-current-implementation-validation.md. Remaining Goal 10
+live evidence work requires explicit approval for a specific live run; Goal 11
+and Goal 12 are later candidate follow-ons unless separately selected. Treat
+192.168.2.140-150/24 as candidate
 selection guard only, not execution authority. Do not run live Proxmox mutation,
 smoke, live readiness, cleanup, corrective action, or reconciliation mutation
 without explicit active-session approval for that specific run. Preserve all
 DRS backend gates: policy `allowed` is only one prerequisite, not migration
-approval. Current implemented state includes narrow backend DRS execute;
-broad live execute UI, corrective reconcile UI, live DRS smoke, richer policy
-editor, 15-minute metrics, and deeper read-only task/HA/quorum collection
-remain gaps.
+approval, and execute requires exact `drs_live_migration_acknowledged=true`
+before DRS service/client/lock/migration work. Current implemented state
+includes narrow backend DRS execute; broad live execute UI, corrective reconcile
+UI, live DRS smoke, richer policy editor, 15-minute metrics, and deeper
+read-only task/HA/quorum collection remain gaps.
 ```

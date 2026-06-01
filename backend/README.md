@@ -15,8 +15,9 @@ clone/config/post-check; the legacy Terraform executor route surface and helper
 code are removed. The backend also provides the first DRS live migration
 execution slice: DB-backed identity/fingerprint and migration policy evidence,
 approval packet/job intent records, DRS operation locks, a dedicated DRS
-Proxmox migration client, UPID/task evidence persistence, and conservative
-`needs_reconciliation` handling. DRS post-check/reconciliation is implemented
+Proxmox migration client, exact live migration acknowledgement, UPID/task
+evidence persistence, and conservative `needs_reconciliation` handling. DRS
+post-check/reconciliation is implemented
 for the narrow execution path: completion requires Proxmox task `OK` plus
 direct target-node status/config evidence, expected power state, matching DRS
 fingerprint, and no conflicting active task; locks release only after verified
@@ -40,7 +41,7 @@ DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or aut
 - Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
 - Infra Explorer VM start: acknowledgement/idempotency-gated QEMU start for stopped non-template VMs, with Proxmox task polling and `vm_start` job/artifact evidence
 - Create VM: draft, preflight, plan, approval, Proxmox native preview/create, optional boot-and-verify, and DB request/VM records
-- DRS Advisor: read-only recommendations/final pre-check, local approval packets, one narrow operator-only `POST /api/v1/drs/migration-jobs/{job_id}/execute` path for approved live migration jobs, and read-only `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`
+- DRS Advisor: read-only recommendations/final pre-check, local approval packets, one narrow operator-only `POST /api/v1/drs/migration-jobs/{job_id}/execute` path for approved live migration jobs with exact `drs_live_migration_acknowledged=true`, and read-only `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`
 - Legacy Terraform Create VM executor: removed; old plan/apply URLs naturally 404
 - Jobs/Runs and Risks: read-only MVP summaries
 
@@ -125,3 +126,4 @@ PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
   from the session, not payload `operator_id`.
 - Native creation and VM start reuse `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, and `PROXMOX_TLS_INSECURE`; the mutation client is separate from the read-only inventory adapter.
 - DRS live migration does not reuse the Create VM/VM Start mutation client. It requires `PROXMOX_DRS_API_URL`, `PROXMOX_DRS_API_TOKEN_ID`, `PROXMOX_DRS_API_TOKEN_SECRET`, and optional `PROXMOX_DRS_TLS_INSECURE`, `PROXMOX_DRS_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_DRS_TASK_TIMEOUT_SECONDS`.
+- DRS live migration execute rejects missing or malformed `drs_live_migration_acknowledged=true` before DRS service/client/lock/migration work; ack failures return `409` / `DRS_EXECUTION_ACK_REQUIRED`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.

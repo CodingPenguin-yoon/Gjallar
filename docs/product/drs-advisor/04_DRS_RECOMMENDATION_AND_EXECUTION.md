@@ -19,7 +19,7 @@
 - execution.available은 false
 - read_only true, executable false, allowed_actions 빈 배열
 
-현재 구현 상태: backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. `/drs` frontend에는 manual VM policy configuration과 local approval packet/job intent creation이 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Live migration execute UI와 corrective reconcile UI는 아직 deferred다.
+현재 구현 상태: backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, exact `drs_live_migration_acknowledged=true` request gate, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. `/drs` frontend에는 manual VM policy configuration과 local approval packet/job intent creation이 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Live migration execute UI와 corrective reconcile UI는 아직 deferred다.
 
 이 문서의 나머지 target guidance는 backend-backed, identity/policy aware, final pre-check gated, approval-gated execution model을 설명한다. Recommendation/check result 자체를 execution authority로 해석하면 안 된다.
 
@@ -89,6 +89,8 @@ min_pressure_delta = 20 percentage points
 - passthrough blocker
 - route blocked
 - route unknown
+- missing or malformed `drs_live_migration_acknowledged=true` on the execute
+  request
 
 ## 4. Route Status
 
@@ -196,8 +198,9 @@ poll Proxmox state
 -> create recommendation snapshot
 -> render Dashboard top 1-3 and DRS Advisor table
 -> Approve & Migrate
+-> confirm modal sends drs_live_migration_acknowledged=true
+-> POST stored job execute
 -> final pre-check
--> confirm modal
 -> acquire operation lock
 -> create drs_migration job
 -> call Proxmox live migration
@@ -220,6 +223,18 @@ Lock policy:
 - lock 획득 실패 시 Proxmox migration을 호출하지 않는다.
 - success/failure 후 release
 - timeout/worker crash는 stale 또는 reconciliation_required
+
+Execute acknowledgement:
+
+- The backend route requires exact `drs_live_migration_acknowledged=true` before
+  any DRS execution service, client factory, live pre-check, lock, or migration
+  call.
+- Missing payload, missing field, false/null/string/number values,
+  camelCase-only acknowledgement, and Create VM acknowledgement return
+  `DRS_EXECUTION_ACK_REQUIRED` with `proxmox_mutation_enabled=false` and
+  `side_effects=[]`.
+- This acknowledgement failure is request validation; it does not mark a pending
+  DRS migration job blocked.
 
 ## 9. Proxmox task and UPID tracking
 

@@ -20,6 +20,7 @@ from app.jobs.runs import record_job_run, run_dir
 from app.proxmox.drs_migration import DrsProxmoxMigrationError, get_default_drs_proxmox_migration_client
 
 DRS_MIGRATION_JOB_TYPE = "drs_migration"
+DRS_LIVE_MIGRATION_ACK_FIELD = "drs_live_migration_acknowledged"
 LIVE_SUPERSEDED_ADVISOR_CHECKS = {
     "proxmox_active_task",
     "proxmox_ha_state",
@@ -148,6 +149,23 @@ def _trusted_operator(actor: Any) -> dict[str, str]:
             detail={"side_effects": [], "proxmox_mutation_enabled": False},
         )
     return trusted
+
+
+def require_drs_live_migration_ack(job_id: str, payload: dict[str, Any] | None) -> None:
+    """Validate the execute request's only honored payload field before DRS work."""
+    request_payload = payload if isinstance(payload, dict) else {}
+    if request_payload.get(DRS_LIVE_MIGRATION_ACK_FIELD) is not True:
+        raise DrsMigrationExecutionError(
+            code="DRS_EXECUTION_ACK_REQUIRED",
+            message=f"{DRS_LIVE_MIGRATION_ACK_FIELD}=true is required before DRS live migration execution",
+            status_code=409,
+            detail={
+                "job_id": job_id,
+                "required_acknowledgement": DRS_LIVE_MIGRATION_ACK_FIELD,
+                "proxmox_mutation_enabled": False,
+                "side_effects": [],
+            },
+        )
 
 
 def _load_job_and_packet(job_id: str) -> tuple[DrsMigrationJobRecord, DrsApprovalPacketRecord]:
@@ -933,11 +951,13 @@ def execute_drs_migration_job(
     *,
     actor: Any,
     inventory_adapter: Any,
+    payload: dict[str, Any] | None = None,
     risks: list[Any] | None = None,
     client_factory: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """Execute one approved DRS migration job through the narrow live migration path."""
     trusted_actor = _trusted_operator(actor)
+    require_drs_live_migration_ack(job_id, payload)
     job, packet = _load_job_and_packet(job_id)
 
     approval_blockers = _approval_binding_blockers(job, packet)

@@ -3,6 +3,9 @@ from dataclasses import replace
 import pytest
 
 
+VALID_EXECUTE_PAYLOAD = {"drs_live_migration_acknowledged": True}
+
+
 class ExecutionDrsAdapter:
     source = "stub_read_only"
 
@@ -295,6 +298,64 @@ def _mutate_approval_binding(job_id, case):
 
 
 @pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {},
+        {"drs_live_migration_acknowledged": False},
+        {"drs_live_migration_acknowledged": None},
+        {"drs_live_migration_acknowledged": "true"},
+        {"drs_live_migration_acknowledged": 1},
+        {"drsLiveMigrationAcknowledged": True},
+        {"proxmox_mutation_acknowledged": True},
+    ],
+)
+def test_execute_ack_gate_blocks_before_client_factory_locks_and_job_mutation(payload):
+    from app.db.models import DrsMigrationJobRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import DrsMigrationExecutionError, execute_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    client = FakeDrsMigrationClient()
+    called = False
+
+    def fail_factory():
+        nonlocal called
+        called = True
+        return client
+
+    with pytest.raises(DrsMigrationExecutionError) as raised:
+        execute_drs_migration_job(
+            job_id,
+            actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+            inventory_adapter=adapter,
+            payload=payload,
+            risks=[],
+            client_factory=fail_factory,
+        )
+
+    assert raised.value.status_code == 409
+    assert raised.value.code == "DRS_EXECUTION_ACK_REQUIRED"
+    assert raised.value.detail == {
+        "job_id": job_id,
+        "required_acknowledgement": "drs_live_migration_acknowledged",
+        "proxmox_mutation_enabled": False,
+        "side_effects": [],
+    }
+    assert called is False
+    assert client.migrate_calls == []
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "pending"
+        assert job.side_effects == []
+        assert job.proxmox_upid is None
+        assert job.proxmox_task_node is None
+        assert job.operation_lock_ids == []
+        assert session.query(OperationLockRecord).all() == []
+
+
+@pytest.mark.parametrize(
     ("case", "expected_blocker"),
     [
         ("packet_not_approved", "approval_packet_not_approved"),
@@ -324,6 +385,7 @@ def test_approval_binding_blockers_stop_before_client_factory(case, expected_blo
             job_id,
             actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
             inventory_adapter=adapter,
+            payload=VALID_EXECUTE_PAYLOAD,
             risks=[],
             client_factory=fail_factory,
         )
@@ -352,6 +414,7 @@ def test_final_precheck_policy_regression_blocks_before_client_factory():
             job_id,
             actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
             inventory_adapter=adapter,
+            payload=VALID_EXECUTE_PAYLOAD,
             risks=[],
             client_factory=fail_factory,
         )
@@ -383,6 +446,7 @@ def test_live_precheck_block_does_not_call_migration_mutation():
             job_id,
             actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
             inventory_adapter=adapter,
+            payload=VALID_EXECUTE_PAYLOAD,
             risks=[],
             client_factory=lambda: client,
         )
@@ -435,6 +499,7 @@ def test_operation_lock_block_does_not_call_migration_mutation():
             job_id,
             actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
             inventory_adapter=adapter,
+            payload=VALID_EXECUTE_PAYLOAD,
             risks=[],
             client_factory=lambda: client,
         )
@@ -460,6 +525,7 @@ def test_task_ok_with_matching_postcheck_completes_and_releases_locks():
         job_id,
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
         inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
         risks=[],
         client_factory=lambda: client,
     )
@@ -522,6 +588,7 @@ def test_task_ok_postcheck_mismatch_needs_reconciliation_locks_and_event(client_
         job_id,
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
         inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
         risks=[],
         client_factory=lambda: client,
     )
@@ -563,6 +630,7 @@ def test_terminal_task_uncertainty_needs_reconciliation_locks_and_event(task_res
         job_id,
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
         inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
         risks=[],
         client_factory=lambda: client,
     )
@@ -604,6 +672,7 @@ def test_running_task_keeps_active_locks_and_running_job():
         job_id,
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
         inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
         risks=[],
         client_factory=lambda: client,
     )
@@ -660,6 +729,7 @@ def test_missing_upid_becomes_needs_reconciliation_and_marks_locks():
         job_id,
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
         inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
         risks=[],
         client_factory=lambda: client,
     )
@@ -692,6 +762,7 @@ def test_migration_request_failure_after_locks_needs_reconciliation_without_rele
         job_id,
         actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
         inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
         risks=[],
         client_factory=lambda: client,
     )

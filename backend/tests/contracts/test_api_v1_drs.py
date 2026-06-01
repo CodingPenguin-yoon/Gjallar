@@ -292,13 +292,123 @@ class ApiV1DrsContractTests(unittest.TestCase):
             v1_router,
             "get_default_proxmox_mutation_client",
         ) as create_vm_client:
-            response = asyncio.run(v1_router.execute_drs_migration_job_action("job-drs-1", {}, actor=actor))
+            response = asyncio.run(
+                v1_router.execute_drs_migration_job_action(
+                    "job-drs-1",
+                    {"drs_live_migration_acknowledged": True},
+                    actor=actor,
+                )
+            )
 
         self.assertTrue(response["ok"])
         self.assertEqual("drs_live_migration_execution", response["meta"]["mode"])
         self.assertEqual(expected, response["data"])
         execute.assert_called_once()
+        self.assertEqual({"drs_live_migration_acknowledged": True}, execute.call_args.kwargs["payload"])
         create_vm_client.assert_not_called()
+
+    def test_migration_job_execute_route_requires_exact_live_ack_before_drs_work(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        invalid_payloads = [
+            ("missing_payload", None),
+            ("missing_field", {}),
+            ("false", {"drs_live_migration_acknowledged": False}),
+            ("null", {"drs_live_migration_acknowledged": None}),
+            ("string_true", {"drs_live_migration_acknowledged": "true"}),
+            ("number_one", {"drs_live_migration_acknowledged": 1}),
+            ("camel_case_only", {"drsLiveMigrationAcknowledged": True}),
+            ("create_vm_ack_only", {"proxmox_mutation_acknowledged": True}),
+        ]
+
+        for label, payload in invalid_payloads:
+            with self.subTest(label=label), patch.object(v1_router, "_inventory_adapter") as inventory, patch.object(
+                v1_router,
+                "_drs_risks",
+            ) as risks, patch.object(v1_router, "execute_drs_migration_job") as execute, patch.object(
+                v1_router,
+                "get_default_drs_proxmox_migration_client",
+            ) as drs_client_factory, patch.object(
+                v1_router,
+                "run_in_threadpool",
+            ) as threadpool, patch.object(
+                v1_router,
+                "get_default_proxmox_mutation_client",
+            ) as create_vm_client:
+                with self.assertRaises(HTTPException) as raised:
+                    asyncio.run(v1_router.execute_drs_migration_job_action("job-drs-ack", payload, actor=actor))
+
+                detail = raised.exception.detail
+                self.assertEqual(409, raised.exception.status_code)
+                self.assertEqual("DRS_EXECUTION_ACK_REQUIRED", detail["code"])
+                self.assertEqual("job-drs-ack", detail["job_id"])
+                self.assertEqual("drs_live_migration_acknowledged", detail["required_acknowledgement"])
+                self.assertFalse(detail["proxmox_mutation_enabled"])
+                self.assertEqual([], detail["side_effects"])
+                self.assertNotIn("payload", detail)
+                inventory.assert_not_called()
+                risks.assert_not_called()
+                execute.assert_not_called()
+                drs_client_factory.assert_not_called()
+                threadpool.assert_not_called()
+                create_vm_client.assert_not_called()
+
+    def test_migration_job_execute_ack_failure_preserves_pending_job_without_locks(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+        from app.db.models import DrsMigrationJobRecord, OperationLockRecord
+        from app.db.session import session_scope
+
+        adapter = _adapter()
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
+            v1_router,
+            "_drs_risks",
+            return_value=[],
+        ):
+            recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
+            _set_policy(recommendation["identity_evidence"]["vm_identity_id"], "allowed")
+            recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
+            packet = v1_router.create_drs_approval_packet(
+                recommendation["id"],
+                {"recommendation": recommendation},
+                actor=actor,
+            )
+        job_id = packet["data"]["job_intent"]["job_id"]
+
+        with patch.object(v1_router, "_inventory_adapter") as inventory, patch.object(
+            v1_router,
+            "_drs_risks",
+        ) as risks, patch.object(v1_router, "execute_drs_migration_job") as execute, patch.object(
+            v1_router,
+            "get_default_drs_proxmox_migration_client",
+        ) as drs_client_factory, patch.object(v1_router, "run_in_threadpool") as threadpool:
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    v1_router.execute_drs_migration_job_action(
+                        job_id,
+                        {"proxmox_mutation_acknowledged": True},
+                        actor=actor,
+                    )
+                )
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("DRS_EXECUTION_ACK_REQUIRED", raised.exception.detail["code"])
+        inventory.assert_not_called()
+        risks.assert_not_called()
+        execute.assert_not_called()
+        drs_client_factory.assert_not_called()
+        threadpool.assert_not_called()
+        with session_scope() as session:
+            job = session.get(DrsMigrationJobRecord, job_id)
+            self.assertEqual("pending", job.status)
+            self.assertEqual([], job.side_effects)
+            self.assertIsNone(job.proxmox_upid)
+            self.assertIsNone(job.proxmox_task_node)
+            self.assertEqual([], job.operation_lock_ids)
+            self.assertEqual([], session.query(OperationLockRecord).all())
 
     def test_reconcile_preview_route_is_read_only_and_not_create_vm_coupled(self):
         from app.api.v1 import router as v1_router

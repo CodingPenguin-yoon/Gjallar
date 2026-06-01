@@ -14,7 +14,12 @@ from app.core.redaction import redact_secrets
 from app.db.vm_runtime import record_vm_create_request, record_vm_instance_from_create
 from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, find_drs_recommendation
 from app.drs.approval import DrsApprovalBlockedError, create_approval_packet_and_job_intent
-from app.drs.execution import DrsMigrationExecutionError, build_drs_migration_reconciliation_preview, execute_drs_migration_job
+from app.drs.execution import (
+    DrsMigrationExecutionError,
+    build_drs_migration_reconciliation_preview,
+    execute_drs_migration_job,
+    require_drs_live_migration_ack,
+)
 from app.drs.policies import DrsPolicyServiceError, get_drs_policy_item, list_drs_policy_items, update_drs_policy
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.vm_create.approval import validate_approval_request
@@ -524,13 +529,14 @@ async def execute_drs_migration_job_action(
     actor: AuthenticatedUser | dict | None = None,
 ) -> dict:
     """Execute one approved DRS migration job through the narrow operator-only path."""
-    _ = payload
     try:
+        require_drs_live_migration_ack(job_id, payload)
         result = await run_in_threadpool(
             execute_drs_migration_job,
             job_id,
             actor=actor_evidence(actor) if actor is not None else None,
             inventory_adapter=_inventory_adapter(),
+            payload=payload,
             risks=_drs_risks(),
             client_factory=get_default_drs_proxmox_migration_client,
         )
