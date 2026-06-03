@@ -24,10 +24,13 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "/api/v1/drs/recommendations",
             "/api/v1/drs/recommendations/{recommendation_id}",
             "/api/v1/drs/recommendations/{recommendation_id}/check",
+            "/api/v1/drs/explicit-test-candidates/check",
+            "/api/v1/drs/explicit-test-candidates/approval-packets",
             "/api/v1/drs/policies",
             "/api/v1/drs/policies/{vm_identity_id}",
             "/api/v1/drs/recommendations/{recommendation_id}/approval-packets",
             "/api/v1/drs/migration-jobs/{job_id}/execute",
+            "/api/v1/drs/migration-jobs/{job_id}/reconcile",
             "/api/v1/drs/migration-jobs/{job_id}/reconcile-preview",
         }
         self.assertEqual([], sorted(expected - self.paths))
@@ -217,6 +220,126 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertIn("proxmox_conflicts", data["check"]["checks"])
         record_job_run.assert_not_called()
 
+    def test_explicit_test_candidate_routes_require_exact_ack_before_drs_work(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        invalid_payloads = [
+            ("missing_payload", None),
+            ("missing_field", {}),
+            ("false", {"explicit_test_vm_acknowledged": False}),
+            ("null", {"explicit_test_vm_acknowledged": None}),
+            ("string_true", {"explicit_test_vm_acknowledged": "true"}),
+            ("number_one", {"explicit_test_vm_acknowledged": 1}),
+            ("camel_case_only", {"explicitTestVmAcknowledged": True}),
+            ("create_vm_ack_only", {"proxmox_mutation_acknowledged": True}),
+        ]
+
+        for label, payload in invalid_payloads:
+            for route in (v1_router.check_drs_explicit_test_candidate, v1_router.create_drs_explicit_test_approval_packet):
+                with self.subTest(label=label, route=route.__name__), patch.object(
+                    v1_router,
+                    "_inventory_adapter",
+                ) as inventory, patch.object(v1_router, "_drs_risks") as risks, patch.object(
+                    v1_router,
+                    "build_drs_check_result",
+                ) as build_check, patch.object(
+                    v1_router,
+                    "create_approval_packet_and_job_intent",
+                ) as create_packet:
+                    with self.assertRaises(HTTPException) as raised:
+                        route(payload, actor=actor)
+
+                    detail = raised.exception.detail
+                    self.assertEqual(409, raised.exception.status_code)
+                    self.assertEqual("DRS_EXPLICIT_TEST_CANDIDATE_ACK_REQUIRED", detail["code"])
+                    self.assertEqual("explicit_test_vm_acknowledged", detail["required_acknowledgement"])
+                    self.assertFalse(detail["proxmox_mutation_enabled"])
+                    self.assertEqual([], detail["side_effects"])
+                    inventory.assert_not_called()
+                    risks.assert_not_called()
+                    build_check.assert_not_called()
+                    create_packet.assert_not_called()
+
+    def test_explicit_test_candidate_check_and_approval_packet_use_local_drs_gates(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        adapter = _adapter(include_explicit_smoke=True)
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
+            v1_router,
+            "_drs_risks",
+            return_value=[],
+        ):
+            recommendations = v1_router.list_drs_recommendations()["data"]["recommendations"]
+            policy_items = v1_router.list_drs_policies()["data"]["items"]
+            smoke_policy = next(item for item in policy_items if item["current_locator"]["vmid"] == 140)
+            payload = {
+                "explicit_test_vm_acknowledged": True,
+                "vm_identity_id": smoke_policy["vm_identity_id"],
+                "vmid": 140,
+                "source_node_id": "node-a",
+                "target_node_id": "node-b",
+            }
+            blocked_check = v1_router.check_drs_explicit_test_candidate(payload, actor=actor)
+            with patch.object(v1_router, "create_approval_packet_and_job_intent") as create_packet:
+                with self.assertRaises(HTTPException) as blocked_approval:
+                    v1_router.create_drs_explicit_test_approval_packet(payload, actor=actor)
+            _set_policy(smoke_policy["vm_identity_id"], "allowed")
+            allowed_check = v1_router.check_drs_explicit_test_candidate(payload, actor=actor)
+            approval = v1_router.create_drs_explicit_test_approval_packet(payload, actor=actor)
+
+        self.assertNotIn(140, [item["vmid"] for item in recommendations])
+        self.assertTrue(blocked_check["ok"])
+        self.assertFalse(blocked_check["data"]["would_be_executable"])
+        self.assertIn("migration_policy_unknown", blocked_check["data"]["blockers"])
+        self.assertEqual(409, blocked_approval.exception.status_code)
+        self.assertEqual("DRS_APPROVAL_GATE_BLOCKED", blocked_approval.exception.detail["code"])
+        create_packet.assert_not_called()
+        self.assertTrue(allowed_check["data"]["would_be_executable"])
+        self.assertTrue(allowed_check["data"]["recommendation"]["explicit_test_candidate"])
+        self.assertTrue(approval["ok"])
+        self.assertEqual("drs_explicit_test_local_approval_packet_no_mutation", approval["meta"]["mode"])
+        self.assertEqual(allowed_check["data"]["recommendation_id"], approval["data"]["approval_packet"]["recommendation_id"])
+        self.assertEqual(smoke_policy["vm_identity_id"], approval["data"]["approval_packet"]["vm_identity_id"])
+        self.assertEqual("pending", approval["data"]["job_intent"]["status"])
+        self.assertFalse(approval["data"]["job_intent"]["proxmox_mutation_enabled"])
+        self.assertEqual([], approval["data"]["job_intent"]["side_effects"])
+
+    def test_explicit_test_candidate_selection_mismatch_rejects_before_approval_creation(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        adapter = _adapter(include_explicit_smoke=True)
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
+            v1_router,
+            "_drs_risks",
+            return_value=[],
+        ):
+            smoke_policy = next(
+                item for item in v1_router.list_drs_policies()["data"]["items"] if item["current_locator"]["vmid"] == 140
+            )
+            payload = {
+                "explicit_test_vm_acknowledged": True,
+                "vm_identity_id": smoke_policy["vm_identity_id"],
+                "vmid": 140,
+                "source_node_id": "node-x",
+                "target_node_id": "node-b",
+            }
+            with patch.object(v1_router, "create_approval_packet_and_job_intent") as create_packet:
+                with self.assertRaises(HTTPException) as raised:
+                    v1_router.create_drs_explicit_test_approval_packet(payload, actor=actor)
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("DRS_EXPLICIT_TEST_CANDIDATE_SELECTION_MISMATCH", raised.exception.detail["code"])
+        self.assertIn("source_node_id", raised.exception.detail["mismatches"])
+        self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
+        self.assertEqual([], raised.exception.detail["side_effects"])
+        create_packet.assert_not_called()
+
     def test_approval_packet_route_creates_local_non_runnable_job_without_proxmox_mutation(self):
         from app.api.v1 import router as v1_router
         from app.auth.roles import AuthenticatedUser
@@ -355,6 +478,79 @@ class ApiV1DrsContractTests(unittest.TestCase):
                 threadpool.assert_not_called()
                 create_vm_client.assert_not_called()
 
+    def test_migration_job_reconcile_route_delegates_to_local_reconciliation_only(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        expected = {
+            "status": "completed",
+            "proxmox_upid": "UPID:node-a:0001:migrate",
+            "proxmox_mutation_enabled": False,
+            "corrective_mutation_enabled": False,
+            "side_effects": ["proxmox_task_polled", "proxmox_drs_post_check_observed"],
+        }
+        payload = {"drs_reconciliation_acknowledged": True}
+        with patch.object(v1_router, "reconcile_drs_migration_job", return_value=expected) as reconcile, patch.object(
+            v1_router,
+            "execute_drs_migration_job",
+        ) as execute, patch.object(
+            v1_router,
+            "get_default_proxmox_mutation_client",
+        ) as create_vm_client:
+            response = asyncio.run(v1_router.reconcile_drs_migration_job_action("job-drs-1", payload, actor=actor))
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("drs_local_reconciliation_follow_up", response["meta"]["mode"])
+        self.assertEqual(expected, response["data"])
+        reconcile.assert_called_once()
+        self.assertEqual(payload, reconcile.call_args.kwargs["payload"])
+        execute.assert_not_called()
+        create_vm_client.assert_not_called()
+
+    def test_migration_job_reconcile_route_requires_exact_ack_before_drs_work(self):
+        from app.api.v1 import router as v1_router
+        from app.auth.roles import AuthenticatedUser
+
+        actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
+        invalid_payloads = [
+            ("missing_payload", None),
+            ("missing_field", {}),
+            ("false", {"drs_reconciliation_acknowledged": False}),
+            ("null", {"drs_reconciliation_acknowledged": None}),
+            ("string_true", {"drs_reconciliation_acknowledged": "true"}),
+            ("number_one", {"drs_reconciliation_acknowledged": 1}),
+            ("camel_case_only", {"drsReconciliationAcknowledged": True}),
+            ("create_vm_ack_only", {"proxmox_mutation_acknowledged": True}),
+            ("live_ack_only", {"drs_live_migration_acknowledged": True}),
+        ]
+
+        for label, payload in invalid_payloads:
+            with self.subTest(label=label), patch.object(v1_router, "reconcile_drs_migration_job") as reconcile, patch.object(
+                v1_router,
+                "get_default_drs_proxmox_migration_client",
+            ) as drs_client_factory, patch.object(
+                v1_router,
+                "run_in_threadpool",
+            ) as threadpool, patch.object(
+                v1_router,
+                "execute_drs_migration_job",
+            ) as execute:
+                with self.assertRaises(HTTPException) as raised:
+                    asyncio.run(v1_router.reconcile_drs_migration_job_action("job-drs-reconcile", payload, actor=actor))
+
+                detail = raised.exception.detail
+                self.assertEqual(409, raised.exception.status_code)
+                self.assertEqual("DRS_RECONCILIATION_ACK_REQUIRED", detail["code"])
+                self.assertEqual("job-drs-reconcile", detail["job_id"])
+                self.assertEqual("drs_reconciliation_acknowledged", detail["required_acknowledgement"])
+                self.assertFalse(detail["proxmox_mutation_enabled"])
+                self.assertEqual([], detail["side_effects"])
+                reconcile.assert_not_called()
+                drs_client_factory.assert_not_called()
+                threadpool.assert_not_called()
+                execute.assert_not_called()
+
     def test_migration_job_execute_ack_failure_preserves_pending_job_without_locks(self):
         from app.api.v1 import router as v1_router
         from app.auth.roles import AuthenticatedUser
@@ -455,6 +651,7 @@ def _adapter(
     target_storage_free=700,
     extra_target_storage_id=None,
     extra_target_storage_free=0,
+    include_explicit_smoke=False,
 ):
     from app.proxmox.models import (
         DiskInventory,
@@ -510,12 +707,21 @@ def _adapter(
                     networks=tuple(item for item in self._networks if item.node_id == "node-b"),
                 ),
             )
-            self._vms = (
+            vms = [
                 _vm(101, "app-01", "running", False, storage_id, vm_tags),
                 _vm(102, "stopped-01", "stopped", False, storage_id, ()),
                 _vm(103, "template-01", "running", True, storage_id, ()),
                 _vm(104, "red-risk-01", "running", False, storage_id, ()),
-            )
+            ]
+            if include_explicit_smoke:
+                vms.extend(
+                    [
+                        _vm(105, "app-02", "running", False, storage_id, ()),
+                        _vm(106, "app-03", "running", False, storage_id, ()),
+                        _vm(140, "drs-smoke-140", "running", False, storage_id, ()),
+                    ]
+                )
+            self._vms = tuple(vms)
 
         def snapshot(self):
             return InventorySnapshot(

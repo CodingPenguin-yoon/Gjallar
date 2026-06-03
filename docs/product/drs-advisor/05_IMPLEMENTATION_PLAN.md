@@ -1,6 +1,6 @@
 # DRS Advisor Implementation Plan
 
-Status note as of 2026-06-01: this is a historical phased plan. Goals 2-6 backend DRS substrate is implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Goal 7 and Goal 7.5 added the minimal safe DRS UI slice plus manual VM migration policy UI/API. Recommendation/check output remains execution-closed; live migration execute UI, corrective reconcile UI, richer policy rule/full metadata editing, corrective mutation, background automation, automatic DRS, and live DRS smoke evidence remain deferred.
+Status note: this is a historical phased plan. Goals 2-6 backend DRS substrate is implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Goal 7 and Goal 7.5 added the minimal safe DRS UI slice plus manual VM migration policy UI/API. Goal 10 later added approved VMID `140` live DRS smoke evidence and stored-UPID local reconciliation completion. Recommendation/check output remains execution-closed; live migration execute UI, corrective reconcile UI, richer policy rule/full metadata editing, corrective mutation, background automation, and automatic DRS remain deferred.
 
 ## 1. Current code inventory
 

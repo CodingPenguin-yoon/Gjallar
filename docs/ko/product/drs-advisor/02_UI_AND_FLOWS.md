@@ -52,4 +52,4 @@ Confirm modal은 VM identity, fingerprint assertion, source/target, policy, sens
 
 ## Current gap
 
-현재 `/drs`에는 live migration execute button이나 corrective reconcile UI가 없습니다. Manual policy configuration과 local approval packet/job intent creation은 current UI에 있고, backend에는 final pre-check, operation locks, UPID/task tracking, DRS job/artifact evidence, verified post-check, read-only reconcile preview가 있습니다. Live execute UI, corrective reconcile UI, richer policy rule/full metadata editor, live DRS smoke evidence는 남은 gap입니다.
+현재 `/drs`에는 live migration execute button이나 corrective reconcile UI가 없습니다. Manual policy configuration과 local approval packet/job intent creation은 current UI에 있고, backend에는 final pre-check, operation locks, UPID/task tracking, DRS job/artifact evidence, verified post-check, read-only reconcile preview, stored-UPID local reconciliation follow-up이 있습니다. Approved VMID `140` live DRS smoke evidence는 기록됐습니다. Live execute UI, corrective reconcile UI, richer policy rule/full metadata editor, blocker taxonomy UI는 남은 gap입니다.

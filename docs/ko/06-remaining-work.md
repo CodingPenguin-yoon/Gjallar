@@ -11,15 +11,15 @@
 | 영역 | 남은 일 |
 |---|---|
 | Create VM profiles | DB seed 기반 read-only profile은 구현됨. 남은 일은 profile 관리 UI/운영 정책 결정. |
-| DRS Advisor UI/execution | identity/fingerprint/policy, final pre-check, approval, locks, narrow backend execution, UPID/post-check, read-only reconcile preview는 구현됨. `/drs`에는 manual VM policy configuration과 local approval packet/job intent creation이 있음. 남은 일은 live execute UI, corrective reconcile UI, live DRS smoke. |
+| DRS Advisor UI/execution | identity/fingerprint/policy, final pre-check, approval, locks, narrow backend execution, UPID/post-check, read-only reconcile preview, approved VMID `140` live DRS smoke evidence는 구현/기록됨. `/drs`에는 manual VM policy configuration과 local approval packet/job intent creation이 있음. 남은 일은 live execute UI, corrective reconcile UI, blocker taxonomy UI. |
 | DRS policy/metadata | `GET/PUT /api/v1/drs/policies*` 기반 manual VM migration policy UI/API는 구현됨. 남은 일은 richer policy rule/full metadata editor. |
 | Metrics | 1분 resource polling, 15분 average/peak, stale evidence warning. |
 | Read-only DRS evidence | 더 깊은 active task/HA/quorum collection. 현재 일부 evidence는 `not_collected`로 남고 execution route는 별도 live gate를 수행함. |
 | Reconciliation | Corrective reconciliation mutation과 background reconciliation automation. |
-| Jobs/Risks | DRS blocker taxonomy의 `/api/v1/risks` 통합과 live DRS smoke evidence. |
+| Jobs/Risks | DRS blocker taxonomy의 `/api/v1/risks` 통합과 richer DRS lifecycle/evidence 표시. |
 | Goal 8 readiness | Minimal local-only post-create readiness evidence recorder는 구현됨. Live readiness checks, SSH, Ansible, app bootstrap은 deferred. |
 | Goal 9 account/session polish | Admin local account list/create/role/disable/reset-password, session inventory/revocation UI, self password change, sanitized audit metadata는 구현됨. Disable/reset-password는 target sessions를 revoke하고 role change는 revoke하지 않음. |
-| Goal 10-12 planned grouping | Goal 10 DRS live migration safety/evidence, Goal 11 DRS operations productization, Goal 12 platform hardening/decision quality는 candidate/not started follow-on입니다. Goal 10은 사용자가 명시적으로 선택할 때만 다음 planned candidate입니다. |
+| Goal 10/11 grouping | Goal 10 DRS live migration safety/evidence는 VMID `140` live evidence까지 완료됐습니다. 기존 Goal 11/12 분리는 superseded이고, 새 Goal 11은 DRS Criteria And Operations Productization입니다. |
 
 ## 문서 관리 원칙
 

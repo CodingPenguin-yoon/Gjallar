@@ -552,6 +552,45 @@ def test_task_ok_with_matching_postcheck_completes_and_releases_locks():
         assert {lock.status for lock in locks} == {"released"}
 
 
+def test_task_ok_postcheck_ignores_cloudinit_cdrom_volume_for_identity_fingerprint():
+    from app.db.models import DrsMigrationJobRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import execute_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    client = FakeDrsMigrationClient(
+        task_result="ok",
+        vm_config={
+            "name": "app-01",
+            "smbios1": "uuid=11111111-2222-3333-4444-555555555555",
+            "vmgenid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "net0": "virtio=aa:bb:cc:dd:ee:ff,bridge=vmbr0",
+            "ide2": "shared-nfs:vm-101-cloudinit.qcow2,media=cdrom,size=4M",
+            "scsi0": "shared-nfs:vm-101-disk-0,size=40G",
+        },
+    )
+
+    result = execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
+        risks=[],
+        client_factory=lambda: client,
+    )
+
+    disk_volume_ids = result["post_check"]["observed"]["fingerprint_components"]["disk_volume_ids"]
+    assert result["status"] == "completed"
+    assert disk_volume_ids == ["shared-nfs:vm-101-disk-0"]
+    assert result["post_check"]["observed"]["stable_fingerprint"] == result["post_check"]["expected"]["stable_fingerprint"]
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "completed"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"released"}
+
+
 @pytest.mark.parametrize(
     ("client_kwargs", "expected_reason"),
     [
@@ -685,6 +724,164 @@ def test_running_task_keeps_active_locks_and_running_job():
         locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
         assert len(locks) == 3
         assert {lock.status for lock in locks} == {"active"}
+
+
+def test_local_reconcile_ack_blocks_before_client_and_db_work():
+    from app.db.models import DrsMigrationJobRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import DrsMigrationExecutionError, execute_drs_migration_job, reconcile_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
+        risks=[],
+        client_factory=lambda: FakeDrsMigrationClient(task_result="running"),
+    )
+    called = False
+
+    def fail_factory():
+        nonlocal called
+        called = True
+        raise AssertionError("client factory must not be called without reconciliation ack")
+
+    with pytest.raises(DrsMigrationExecutionError) as raised:
+        reconcile_drs_migration_job(
+            job_id,
+            actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+            payload={"drs_reconciliation_acknowledged": "true"},
+            client_factory=fail_factory,
+        )
+
+    assert raised.value.code == "DRS_RECONCILIATION_ACK_REQUIRED"
+    assert called is False
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "running"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"active"}
+
+
+def test_local_reconcile_running_task_keeps_job_running_and_does_not_migrate_again():
+    from app.db.models import DrsMigrationJobRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import execute_drs_migration_job, reconcile_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
+        risks=[],
+        client_factory=lambda: FakeDrsMigrationClient(task_result="running"),
+    )
+    followup_client = FakeDrsMigrationClient(task_result="running")
+
+    result = reconcile_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        payload={"drs_reconciliation_acknowledged": True},
+        client_factory=lambda: followup_client,
+    )
+
+    assert result["status"] == "running"
+    assert result["proxmox_mutation_enabled"] is False
+    assert result["corrective_mutation_enabled"] is False
+    assert followup_client.migrate_calls == []
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "running"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"active"}
+
+
+def test_local_reconcile_task_ok_postcheck_pass_completes_and_releases_existing_locks():
+    from app.db.models import DrsMigrationJobRecord, DrsReconciliationEventRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import execute_drs_migration_job, reconcile_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
+        risks=[],
+        client_factory=lambda: FakeDrsMigrationClient(
+            task_result="ok",
+            vm_config={
+                "name": "app-01",
+                "smbios1": "uuid=99999999-2222-3333-4444-555555555555",
+                "vmgenid": "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "net0": "virtio=aa:bb:cc:dd:ee:ff,bridge=vmbr0",
+                "scsi0": "shared-nfs:vm-101-disk-0,size=40G",
+            },
+        ),
+    )
+    followup_client = FakeDrsMigrationClient(task_result="ok")
+
+    result = reconcile_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        payload={"drs_reconciliation_acknowledged": True},
+        client_factory=lambda: followup_client,
+    )
+
+    assert result["status"] == "completed"
+    assert result["needs_reconciliation"] is False
+    assert result["resolved_reconciliation_events"]
+    assert followup_client.migrate_calls == []
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "completed"
+        assert job.post_check_status == "completed"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"released"}
+        events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
+        assert {event.status for event in events} == {"resolved"}
+
+
+def test_local_reconcile_task_failed_marks_existing_locks_reconciliation_required():
+    from app.db.models import DrsMigrationJobRecord, DrsReconciliationEventRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs.execution import execute_drs_migration_job, reconcile_drs_migration_job
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    execute_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        inventory_adapter=adapter,
+        payload=VALID_EXECUTE_PAYLOAD,
+        risks=[],
+        client_factory=lambda: FakeDrsMigrationClient(task_result="running"),
+    )
+    followup_client = FakeDrsMigrationClient(task_result="failed")
+
+    result = reconcile_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        payload={"drs_reconciliation_acknowledged": True},
+        client_factory=lambda: followup_client,
+    )
+
+    assert result["status"] == "needs_reconciliation"
+    assert result["reconciliation_reason"] == "task_failed"
+    assert followup_client.migrate_calls == []
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "needs_reconciliation"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"reconciliation_required"}
+        events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
+        assert len(events) == 1
+        assert events[0].reason == "task_failed"
 
 
 def test_reconciliation_preview_is_read_only_and_does_not_reenter_migration():

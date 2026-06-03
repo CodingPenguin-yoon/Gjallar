@@ -6,9 +6,10 @@ Last updated: 2026-05-31
 > smoke and session context, but it is no longer the source of current goal
 > sequencing. Use [`docs/goal/README.md`](../goal/README.md) for the active
 > sequence. Goal Check 01-06, Goal 7, Goal 7.5, the minimal local-only
-> Goal 8 recorder, and Goal 9 local account/session polish are complete.
-> No live DRS smoke was run; future live smoke still requires explicit
-> active-session approval.
+> Goal 8 recorder, Goal 9 local account/session polish, and Goal 10 are
+> complete. Goal 10 includes approved VMID `140` live DRS evidence and
+> stored-UPID local reconciliation completion. Future live mutation still
+> requires explicit active-session approval for that specific run.
 
 ## Current State
 
@@ -98,7 +99,9 @@ Keep out of scope for this smoke:
 The "next work" sections previously in this handoff are historical and stale.
 Use [`docs/goal/README.md`](../goal/README.md) for current sequencing. Goal 7.5
 DRS VM Policy Configuration, the minimal local-only Goal 8 recorder, and Goal 9
-local account/session polish are complete; no live DRS smoke was run.
+local account/session polish are complete; Goal 10 is complete with approved
+VMID `140` live DRS evidence. The old Goal 11/12 split is superseded by the
+rewritten Goal 11 DRS Criteria And Operations Productization.
 
 ## First Commands In A New Session
 

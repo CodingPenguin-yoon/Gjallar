@@ -26,9 +26,11 @@ DRS Advisor는 identity/fingerprint DB model, manual VM policy configuration,
 policy audit evidence, read-only final pre-check, DB-backed operation lock
 lookup/acquisition/release, config-lock evidence, approval packet/job substrate,
 dedicated DRS live migration client, UPID/task evidence, verified post-check,
-reconciliation events, and read-only Reconcile preview가 구현되어 있다. 남은
-gap은 15분 average/peak metric substrate, broad execution UI, corrective
-reconciliation mutation, background reconciliation automation, live DRS smoke
-evidence, and deeper read-only advisor active task/HA/quorum collection이다.
+reconciliation events, read-only Reconcile preview, stored-UPID local
+reconciliation follow-up, and approved VMID `140` live DRS smoke evidence가
+구현/기록되어 있다. 남은 gap은 15분 average/peak metric substrate, backend-owned
+blocker taxonomy display, broad execution UI, corrective reconciliation mutation,
+background reconciliation automation, and deeper read-only advisor active
+task/HA/quorum collection이다.
 
 Create VM은 강한 보조 capability지만 MVP success line이 아니다. 현재 active 생성 경로는 Proxmox API native create다. 실제 생성은 `proxmox-create`가 approval과 final acknowledgement 뒤에 clone UPID polling, 필요한 boot disk resize, config, power-policy post-check, `observed_after` artifact와 DB request/VM record를 끝낸 뒤에만 완료로 기록한다. 기본 `stopped` 정책은 VM을 꺼진 상태로 끝내고, 선택 `boot_and_verify` 정책은 VM start, guest-agent IP discovery, cloud-init completion check까지 수행한다. Terraform plan/apply와 legacy `execute/archive` route surface는 제거됐고 old URL은 404다. SSH/Ansible/app bootstrap smoke는 deferred다.

@@ -241,6 +241,123 @@ class DrsProxmoxMigrationClientTests(unittest.TestCase):
             calls,
         )
 
+    def test_collect_live_precheck_does_not_block_empty_not_allowed_node_details(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient
+
+        empty_values = ({}, [], None, "")
+        for empty_value in empty_values:
+            with self.subTest(empty_value=empty_value):
+                def record_request(method, path, *, data=None, timeout=None):
+                    if path == "/nodes/node-a/tasks?source=active&vmid=140":
+                        return []
+                    if path == "/cluster/status":
+                        return [{"type": "cluster", "name": "cluster-a", "quorate": 1}]
+                    if path == "/cluster/ha/resources?type=vm":
+                        return []
+                    if path == "/nodes/node-a/qemu/140/migrate?target=node-b":
+                        return {
+                            "running": 1,
+                            "allowed_nodes": ["node-b", "node-c"],
+                            "not_allowed_nodes": {"node-b": empty_value, "node-c": {}},
+                            "local_disks": [],
+                            "local_resources": [],
+                            "dependent-ha-resources": [],
+                        }
+                    self.fail(f"unexpected call: {method} {path}")
+
+                client = DrsProxmoxMigrationClient(
+                    api_url="https://pve.example.test/api2/json",
+                    token_id="root@pam!drs",
+                    token_secret="secret",
+                    request=record_request,
+                )
+
+                result = client.collect_live_precheck(source_node="node-a", target_node="node-b", vmid=140)
+
+                migration_check = result["checks"]["proxmox_migration_preconditions"]
+                evidence = migration_check["evidence"]
+                self.assertEqual("pass", result["status"])
+                self.assertEqual([], result["blockers"])
+                self.assertEqual("pass", migration_check["status"])
+                self.assertEqual(["node-b", "node-c"], evidence["not_allowed_nodes"])
+                self.assertEqual([], evidence["not_allowed_nodes_with_blocking_details"])
+                self.assertEqual({}, evidence["not_allowed_node_blocking_details"])
+                self.assertEqual("object", evidence["not_allowed_nodes_shape"])
+
+    def test_collect_live_precheck_blocks_non_empty_not_allowed_node_details(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient
+
+        def record_request(method, path, *, data=None, timeout=None):
+            if path == "/nodes/node-a/tasks?source=active&vmid=140":
+                return []
+            if path == "/cluster/status":
+                return [{"type": "cluster", "name": "cluster-a", "quorate": 1}]
+            if path == "/cluster/ha/resources?type=vm":
+                return []
+            if path == "/nodes/node-a/qemu/140/migrate?target=node-b":
+                return {
+                    "running": 1,
+                    "allowed_nodes": ["node-b"],
+                    "not_allowed_nodes": {"node-b": {"reason": "storage mismatch"}},
+                    "local_disks": [],
+                    "local_resources": [],
+                }
+            self.fail(f"unexpected call: {method} {path}")
+
+        client = DrsProxmoxMigrationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!drs",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.collect_live_precheck(source_node="node-a", target_node="node-b", vmid=140)
+
+        migration_check = result["checks"]["proxmox_migration_preconditions"]
+        evidence = migration_check["evidence"]
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("proxmox_target_not_allowed", result["blockers"])
+        self.assertEqual("failed", migration_check["status"])
+        self.assertEqual(["node-b"], evidence["not_allowed_nodes"])
+        self.assertEqual(["node-b"], evidence["not_allowed_nodes_with_blocking_details"])
+        self.assertEqual({"node-b": {"reason": "storage mismatch"}}, evidence["not_allowed_node_blocking_details"])
+
+    def test_collect_live_precheck_preserves_list_style_not_allowed_nodes_as_blocking(self):
+        from app.proxmox.drs_migration import DrsProxmoxMigrationClient
+
+        def record_request(method, path, *, data=None, timeout=None):
+            if path == "/nodes/node-a/tasks?source=active&vmid=140":
+                return []
+            if path == "/cluster/status":
+                return [{"type": "cluster", "name": "cluster-a", "quorate": 1}]
+            if path == "/cluster/ha/resources?type=vm":
+                return []
+            if path == "/nodes/node-a/qemu/140/migrate?target=node-b":
+                return {
+                    "running": 1,
+                    "allowed_nodes": ["node-b"],
+                    "not_allowed_nodes": ["node-b"],
+                    "local_disks": [],
+                    "local_resources": [],
+                }
+            self.fail(f"unexpected call: {method} {path}")
+
+        client = DrsProxmoxMigrationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!drs",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.collect_live_precheck(source_node="node-a", target_node="node-b", vmid=140)
+
+        evidence = result["checks"]["proxmox_migration_preconditions"]["evidence"]
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("proxmox_target_not_allowed", result["blockers"])
+        self.assertEqual(["node-b"], evidence["not_allowed_nodes"])
+        self.assertEqual(["node-b"], evidence["not_allowed_nodes_with_blocking_details"])
+        self.assertEqual("list", evidence["not_allowed_nodes_shape"])
+
     def test_collect_live_precheck_blocks_active_task_before_migration(self):
         from app.proxmox.drs_migration import DrsProxmoxMigrationClient
 

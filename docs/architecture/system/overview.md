@@ -62,7 +62,7 @@ It is not currently automatic DRS, a broad migration control plane, an app deplo
 ## Non-Goals In Current Implementation
 
 - No Networks API write path, YAML persistence, DB migration, or Proxmox network mutation.
-- No automatic DRS, corrective reconciliation mutation, background reconciliation automation, broad DRS execution UI, or live DRS smoke evidence.
+- No automatic DRS, corrective reconciliation mutation, background reconciliation automation, or broad DRS execution UI. Approved VMID `140` live DRS smoke evidence exists but does not authorize future live mutation.
 - No recommendation-level approve/migrate/live-migrate aliases.
 - No richer DRS policy rule/full metadata editor beyond current manual per-VM policy configuration.
 - No direct VM stop/reset/delete/snapshot controls. Existing-VM start is the only current power action and is gated to stopped non-template VMs.

@@ -26,6 +26,7 @@ THRESHOLDS = {
     "memory_critical_percent": 85,
     "source_target_delta_percent": 25,
 }
+EXPLICIT_TEST_RECOMMENDATION_PREFIX = "drs-rec-explicit-test-vm-"
 READ_ONLY_EXECUTION = {
     "available": False,
     "allowed_actions": [],
@@ -98,6 +99,24 @@ def _unique(values: list[Any]) -> list[str]:
 
 def _safe_segment(value: Any) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", _as_text(value, "unknown")).strip("-") or "unknown"
+
+
+def explicit_test_recommendation_id(*, vmid: Any, source_node_id: Any, target_node_id: Any) -> str:
+    return (
+        f"{EXPLICIT_TEST_RECOMMENDATION_PREFIX}"
+        f"{_safe_segment(vmid)}-{_safe_segment(source_node_id)}-{_safe_segment(target_node_id)}"
+    )
+
+
+def _parse_explicit_test_recommendation_id(recommendation_id: str) -> dict[str, Any] | None:
+    text = _as_text(recommendation_id)
+    if not text.startswith(EXPLICIT_TEST_RECOMMENDATION_PREFIX):
+        return None
+    tail = text.removeprefix(EXPLICIT_TEST_RECOMMENDATION_PREFIX)
+    match = re.match(r"(?P<vmid>\d+)(?:-|$)", tail)
+    if match is None:
+        return None
+    return {"vmid": _as_int(match.group("vmid"))}
 
 
 def _source_label(adapter: Any, snapshot: Any | None) -> str:
@@ -356,6 +375,7 @@ def _blocker_detail(code: str) -> dict[str, str]:
         "final_precheck_not_run": "Final migration precheck has not run.",
         "vm_identity_unknown": "VM identity has no usable stable fingerprint.",
         "vm_identity_uncertain": "VM identity evidence is not high confidence.",
+        "vm_identity_mismatch": "Current VM identity does not match the requested DRS identity.",
         "migration_policy_unknown": "DRS migration policy defaults to unknown.",
         "migration_policy_restricted": "DRS migration policy restricts execution for this VM.",
         "migration_policy_blocked": "DRS migration policy blocks execution for this VM.",
@@ -619,6 +639,116 @@ def _policy_evidence_for_identity(identity_evidence: dict[str, Any]) -> dict[str
     return migration_policy_evidence(identity_evidence)
 
 
+def _explicit_reference_from_current_nodes(
+    *,
+    recommendation_id: str,
+    vmid: int,
+    nodes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    for source_node in nodes:
+        for target_node in nodes:
+            if source_node["id"] == target_node["id"]:
+                continue
+            if explicit_test_recommendation_id(
+                vmid=vmid,
+                source_node_id=source_node["id"],
+                target_node_id=target_node["id"],
+            ) == recommendation_id:
+                return {
+                    "vmid": vmid,
+                    "source_node_id": source_node["id"],
+                    "target_node_id": target_node["id"],
+                }
+    return {"vmid": vmid}
+
+
+def _explicit_test_reference(
+    calculated: dict[str, Any],
+    recommendation_id: str,
+    payload_reference: dict[str, Any],
+) -> dict[str, Any]:
+    parsed = _parse_explicit_test_recommendation_id(recommendation_id)
+    if parsed is None:
+        return {}
+    reference = dict(parsed)
+    for key in ("vm_identity_id", "vmid", "vm_name", "source_node_id", "target_node_id"):
+        if key in payload_reference:
+            reference[key] = payload_reference[key]
+    if reference.get("source_node_id") and reference.get("target_node_id"):
+        return reference
+    vmid = _as_int(reference.get("vmid"), 0)
+    if vmid <= 0:
+        return reference
+    current = _explicit_reference_from_current_nodes(
+        recommendation_id=recommendation_id,
+        vmid=vmid,
+        nodes=calculated["nodes"],
+    )
+    return {**current, **{key: value for key, value in reference.items() if value not in {"", 0}}}
+
+
+def _synthesize_explicit_test_recommendation(
+    calculated: dict[str, Any],
+    recommendation_id: str,
+    reference: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _parse_explicit_test_recommendation_id(recommendation_id):
+        return None
+    vmid = _as_int(reference.get("vmid"), 0)
+    source_node_id = _as_text(reference.get("source_node_id"))
+    target_node_id = _as_text(reference.get("target_node_id"))
+    if vmid <= 0 or not source_node_id or not target_node_id:
+        return None
+    if explicit_test_recommendation_id(
+        vmid=vmid,
+        source_node_id=source_node_id,
+        target_node_id=target_node_id,
+    ) != recommendation_id:
+        return None
+
+    source_node = next((node for node in calculated["nodes"] if node["id"] == source_node_id), None)
+    target_node = next((node for node in calculated["nodes"] if node["id"] == target_node_id), None)
+    vm = next((item for item in calculated["vms"] if item["vmid"] == vmid), None)
+    if source_node is None or target_node is None or vm is None:
+        return None
+    if vm["node_id"] != source_node["id"]:
+        return None
+    if not (source_node["online"] and source_node["pressure"] >= THRESHOLDS["hot"]):
+        return None
+    if not (
+        target_node["online"]
+        and target_node["id"] != source_node["id"]
+        and source_node["pressure"] - target_node["pressure"] >= THRESHOLDS["source_target_delta"]
+    ):
+        return None
+    if not (vm["status"] == "running" and not vm["template"] and not _has_red_risk(vm, calculated["risks"])):
+        return None
+
+    identity_evidence = _identity_evidence_for_vm(
+        vm,
+        calculated["identity_map"],
+        cluster_id=calculated["cluster_id"],
+        source=calculated["source"],
+    )
+    policy_evidence = _policy_evidence_for_identity(identity_evidence)
+    recommendation = _build_recommendation(
+        vm=vm,
+        source_node=source_node,
+        target_node=target_node,
+        nodes=calculated["nodes"],
+        identity_evidence=identity_evidence,
+        policy_evidence=policy_evidence,
+    )
+    recommendation["id"] = recommendation_id
+    recommendation["explicit_test_candidate"] = True
+    recommendation["evidence"]["candidate_filter"] = {
+        **recommendation["evidence"]["candidate_filter"],
+        "explicit_test_candidate": True,
+        "normal_top3_shortlist_bypassed": True,
+    }
+    return recommendation
+
+
 def _build_recommendations(
     nodes: list[dict[str, Any]],
     vms: list[dict[str, Any]],
@@ -792,8 +922,16 @@ def _payload_reference(payload: dict[str, Any] | None) -> dict[str, Any]:
     source = payload.get("recommendation")
     if not isinstance(source, dict):
         source = payload
+    source_identity = source.get("identity_evidence") if isinstance(source.get("identity_evidence"), dict) else {}
     fields = {
         "id": _as_text(source.get("id") or payload.get("recommendation_id") or payload.get("recommendationId")),
+        "vm_identity_id": _as_text(
+            source.get("vm_identity_id")
+            or source.get("vmIdentityId")
+            or source_identity.get("vm_identity_id")
+            or payload.get("vm_identity_id")
+            or payload.get("vmIdentityId")
+        ),
         "vmid": _as_int(source.get("vmid"), 0),
         "vm_name": _as_text(source.get("vm_name") or source.get("vmName")),
         "source_node_id": _as_text(source.get("source_node_id") or source.get("sourceNodeId")),
@@ -807,9 +945,12 @@ def _reference_value(reference: dict[str, Any], key: str, fallback: Any = None) 
 
 
 def _matching_reference(current: dict[str, Any], reference: dict[str, Any]) -> bool:
+    current_identity = current.get("identity_evidence") if isinstance(current.get("identity_evidence"), dict) else {}
     for key in ("vmid", "source_node_id", "target_node_id"):
         if key in reference and _reference_value(current, key) != reference[key]:
             return False
+    if "vm_identity_id" in reference and _as_text(current_identity.get("vm_identity_id")) != _as_text(reference["vm_identity_id"]):
+        return False
     return True
 
 
@@ -839,12 +980,19 @@ def build_drs_check_result(
 ) -> dict[str, Any] | None:
     calculated = _calculate_drs_model(adapter, risks=risks)
     model = calculated["model"]
+    payload_reference = _payload_reference(payload)
+    explicit_reference = _explicit_test_reference(calculated, recommendation_id, payload_reference)
     recommendation = next(
         (item for item in model["recommendations"] if item["id"] == recommendation_id),
         None,
     )
-    payload_reference = _payload_reference(payload)
-    reference = recommendation or payload_reference
+    if recommendation is None and explicit_reference:
+        recommendation = _synthesize_explicit_test_recommendation(
+            calculated,
+            recommendation_id,
+            explicit_reference,
+        )
+    reference = recommendation or explicit_reference or payload_reference
     checked_at = datetime.now(timezone.utc).isoformat()
 
     vms = calculated["vms"]
@@ -925,7 +1073,12 @@ def build_drs_check_result(
         }
     ]
     no_current_rule_blockers = not current_rule_blockers
-    identity_high = identity_evidence.get("match_confidence") == "high" and identity_evidence.get("conflict_signal") is not True
+    identity_reference_matches = not reference.get("vm_identity_id") or _as_text(identity_evidence.get("vm_identity_id")) == _as_text(reference.get("vm_identity_id"))
+    identity_high = (
+        identity_evidence.get("match_confidence") == "high"
+        and identity_evidence.get("conflict_signal") is not True
+        and identity_reference_matches
+    )
     policy_allowed = policy_evidence.get("policy") == "allowed"
     operation_lock_evidence = recommendation_lock_evidence(
         cluster_id=calculated["cluster_id"],
@@ -948,7 +1101,16 @@ def build_drs_check_result(
         "storage": _check_item("pass" if not storage.get("blocked") else "failed", blocker="local_storage_dependency" if storage.get("blocked") else None),
         "passthrough": _check_item("pass" if not passthrough.get("blocked") else "failed", blocker="passthrough_device_dependency" if passthrough.get("blocked") else None),
         "target_threshold": _check_item("pass" if not target_threshold.get("blocked") else "failed", blocker="target_over_threshold" if target_threshold.get("blocked") else None),
-        "identity": _check_item("pass" if identity_high else "failed", blocker="vm_identity_uncertain" if identity_evidence.get("match_confidence") != "unknown" else "vm_identity_unknown"),
+        "identity": _check_item(
+            "pass" if identity_high else "failed",
+            blocker=(
+                "vm_identity_mismatch"
+                if not identity_reference_matches
+                else "vm_identity_uncertain"
+                if identity_evidence.get("match_confidence") != "unknown"
+                else "vm_identity_unknown"
+            ),
+        ),
         "policy": _check_item("pass" if policy_allowed else "failed", blocker=f"migration_policy_{policy_evidence.get('policy', 'unknown')}"),
         "operation_lock": _check_item(
             "pass" if not operation_lock_blockers else "failed",

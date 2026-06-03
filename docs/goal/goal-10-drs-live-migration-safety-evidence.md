@@ -1,18 +1,19 @@
 # Goal 10: DRS Live Migration Safety And Evidence
 
-Status: Goal 10 safety baseline complete. The execute acknowledgement gate and
-optional live smoke runbook/evidence matrix are implemented; no live DRS smoke
-has been run. Any future live DRS smoke requires separate explicit approval for
-that specific run.
+Status: complete. The execute acknowledgement gate, optional live smoke
+runbook/evidence matrix, and one approved VMID `140` live DRS smoke are
+implemented and recorded. Any future live Proxmox mutation, cleanup, reverse
+migration, retry, corrective action, or live readiness check requires separate
+explicit approval for that specific run.
 
 ## Objective
 
 Harden the narrow backend DRS migration execution path and define the evidence
 contract for an optional approved live DRS smoke run.
 
-This goal does not make live DRS migration mandatory. It prepares the safety
-baseline that must exist before any broader execute UI or productized operator
-flow is considered.
+This goal did not make live DRS migration automatic or broadly available. It
+prepared the safety baseline and then recorded one explicitly approved live
+smoke before broader execute UI or productized operator flow work.
 
 ## Starting Point
 
@@ -29,9 +30,11 @@ flow is considered.
   verified target-node status/config post-check, expected power-state evidence,
   matching DRS fingerprint, and no conflicting active task.
 - Read-only Reconcile preview exists.
-- Broad live execute UI, corrective reconcile UI, live DRS smoke evidence,
-  richer policy rule/full metadata editor, 15-minute metrics, and deeper
-  read-only task/HA/quorum collection remain gaps.
+- Broad live execute UI, corrective reconcile UI, richer policy rule/full
+  metadata editor, 15-minute metrics, and deeper read-only advisor
+  task/HA/quorum collection remain gaps.
+- Approved VMID `140` live smoke evidence is recorded in
+  `docs/operations/drs-explicit-test-candidate-prep-2026-06-03.md`.
 
 ## Controlling References
 
@@ -194,8 +197,20 @@ Implemented in the Goal 10 safety baseline:
 - Ack failures are request validation failures; they do not mark pending DRS
   jobs `blocked`.
 - `docs/operations/runbook.md` now contains the optional live DRS smoke
-  readiness checklist and evidence matrix. No live DRS smoke was run and no
-  `docs/operations/drs-live-migration-smoke-YYYY-MM-DD.md` file was created.
+  readiness checklist and evidence matrix.
+- VMID `140` was migrated live from `yoonmanserver` to `yoonserver3` after exact
+  operator approval for job
+  `drs-mig-drs-rec-explicit-test-vm-140-yoonmanserver-yoonserver3-33cb1b78addc`.
+- Proxmox returned task `OK` for UPID
+  `UPID:yoonmanserver:002E5769:0E52B273:6A1FD43B:qmigrate:140:root@pam!terraform-macbook:`.
+- Gjallar initially held the job in `needs_reconciliation` because direct
+  post-check disk fingerprint extraction included the VM cloud-init cdrom volume.
+  The direct post-check parser was aligned with inventory normalization, the
+  stored-UPID local reconciliation follow-up completed, the job status became
+  `completed`, post-check blockers were empty, and operation locks were
+  released.
+- The live evidence record is
+  `docs/operations/drs-explicit-test-candidate-prep-2026-06-03.md`.
 
 ## Reconciliation And Failure Handling
 
@@ -222,17 +237,18 @@ Implemented in the Goal 10 safety baseline:
 
 ## Definition Of Done
 
-- Goal 10 safety baseline is complete; future live smoke evidence remains
-  optional and requires explicit active-session approval for that specific run.
+- Goal 10 safety baseline is complete and one approved VMID `140` live DRS smoke
+  has been recorded.
 - The execute route requires an explicit DRS live migration acknowledgement
   payload before mutation.
 - A runbook/checklist/evidence matrix exists for optional live DRS smoke.
 - Pre-mutation evidence packet shape is documented and validated.
 - Focused tests prove the acknowledgement and safety gates block before
   Proxmox mutation.
-- If no live run is approved, docs clearly state that no live DRS smoke was run.
-- If a live run is approved and performed, evidence is recorded in the
-  operations file for that actual run only.
+- The approved live run evidence is recorded in the operations file for that
+  actual run only.
+- Future live mutation, cleanup, reverse migration, retry, corrective action, or
+  live readiness remains explicit active-session approval gated.
 
 ## Suggested Validation
 

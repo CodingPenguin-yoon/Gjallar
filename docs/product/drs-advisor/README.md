@@ -44,7 +44,7 @@ Create VM native Proxmox flow는 삭제하지 않는다.
 - DRS metadata beyond compact identity/policy는 아직 구현되어 있지 않다.
 - 15분 average/peak metric series와 1분 polling substrate가 없다.
 - Config-lock evidence is collected for DRS final pre-check. The execute route separately collects live HA state, quorum, active Proxmox task, and migration precondition evidence before mutation.
-- Proxmox live migration request, UPID tracking, task timeout/ambiguous handling, post-check, and read-only reconcile preview exist in the backend. No live DRS smoke has been run.
+- Proxmox live migration request, UPID tracking, task timeout/ambiguous handling, post-check, read-only reconcile preview, and stored-UPID local reconciliation follow-up exist in the backend. Approved VMID `140` live DRS smoke evidence has been recorded.
 - DRS Advisor UI now includes recommendation/check views, manual VM policy configuration, and local approval packet/job intent creation. It still has no live migration execute UI or corrective reconcile UI. Corrective reconciliation mutation, background automation, and automatic DRS remain deferred.
 
 ## 읽는 순서

@@ -8,6 +8,15 @@ Gjallar DB는 Proxmox actual state를 대체하지 않는다.
 DRS recommendation과 final pre-check는 Proxmox current inventory/metrics/task/HA/storage state에서 재구성해야 한다.
 DB observed snapshot은 UI cache와 audit evidence일 뿐 실행 허가가 아니다.
 
+DRS authority is intentionally split. Proxmox migration preconditions and UPID
+task status are the technical authority for migration feasibility and task
+completion. Gjallar policy, identity/fingerprint, audit artifacts, operation
+locks, approval/job binding, and reconciliation status are the DRS authority for
+whether Gjallar may approve, execute, or locally complete a DRS migration job.
+Advisor-local route, storage, passthrough, and network checks are
+advisory/pre-filter signals and must not replace final Proxmox technical
+evidence.
+
 Proxmox current state로 확인할 값:
 
 - VM 존재 여부
@@ -95,6 +104,11 @@ Secondary fingerprint:
 
 Primary evidence는 정렬/정규화해서 hash를 만든다.
 MAC과 disk volume id list는 순서 차이를 흡수하되, 누락/추가는 confidence와 mismatch 판단에 반영한다.
+Inventory and direct DRS post-check use the same identity disk-volume
+normalization: config entries with `media=cdrom` and cloud-init volume names are
+not fingerprint disks. SMBIOS UUID, VMGenID, MAC list, and normalized
+non-cloud-init disk volume list still have to match; the normalization does not
+weaken fingerprint comparison.
 
 ## 5. Identity states and review
 

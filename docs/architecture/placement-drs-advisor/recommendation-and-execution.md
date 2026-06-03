@@ -48,5 +48,6 @@ DRS execution appears in Jobs/Runs as `drs_migration` job evidence. Risks/Alerts
 - Richer policy rule/full metadata editor beyond current per-VM migration policy configuration.
 - Corrective reconciliation mutation or Reconcile Now execution.
 - Background reconciliation automation or automatic DRS.
-- Live DRS migration smoke evidence.
+- Broad or repeated live DRS migration smoke evidence beyond the approved VMID
+  `140` run.
 - Recommendation-level approve/migrate/live-migrate aliases remain intentionally absent.

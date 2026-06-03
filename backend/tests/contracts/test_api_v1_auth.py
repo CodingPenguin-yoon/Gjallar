@@ -457,6 +457,43 @@ def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_wor
         record_job_run.assert_not_called()
 
 
+def test_drs_explicit_test_candidate_routes_require_operator_before_adapter_or_local_work(monkeypatch):
+    _create_user(monkeypatch, username="drs-explicit-viewer", role="viewer")
+    client = _client()
+    paths = [
+        "/api/v1/drs/explicit-test-candidates/check",
+        "/api/v1/drs/explicit-test-candidates/approval-packets",
+    ]
+    payload = {
+        "explicit_test_vm_acknowledged": True,
+        "vm_identity_id": "vmid-authz",
+        "vmid": 140,
+        "source_node_id": "node-a",
+        "target_node_id": "node-b",
+    }
+
+    with patch("app.api.v1.router._inventory_adapter") as inventory, patch(
+        "app.api.v1.router.build_drs_check_result"
+    ) as build_check, patch("app.api.v1.router.create_approval_packet_and_job_intent") as create_local_intent, patch(
+        "app.api.v1.router.get_default_drs_proxmox_migration_client"
+    ) as drs_client_factory:
+        for path in paths:
+            unauthenticated = client.post(path, json=payload)
+            assert unauthenticated.status_code == 401
+            assert unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+        _login(client, username="drs-explicit-viewer")
+        for path in paths:
+            viewer = client.post(path, json=payload)
+            assert viewer.status_code == 403
+            assert viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+
+        inventory.assert_not_called()
+        build_check.assert_not_called()
+        create_local_intent.assert_not_called()
+        drs_client_factory.assert_not_called()
+
+
 def test_drs_policy_put_requires_operator_before_service_or_db_mutation(monkeypatch):
     _create_user(monkeypatch, username="drs-policy-viewer", role="viewer")
     client = _client()
@@ -491,11 +528,14 @@ def test_drs_execute_and_reconcile_preview_routes_require_operator_before_work(m
     _create_user(monkeypatch, username="drs-exec-viewer", role="viewer")
     client = _client()
     execute_path = "/api/v1/drs/migration-jobs/authz-job/execute"
-    reconcile_path = "/api/v1/drs/migration-jobs/authz-job/reconcile-preview"
+    reconcile_preview_path = "/api/v1/drs/migration-jobs/authz-job/reconcile-preview"
+    reconcile_path = "/api/v1/drs/migration-jobs/authz-job/reconcile"
 
     with patch("app.api.v1.router.execute_drs_migration_job") as execute_drs, patch(
         "app.api.v1.router.build_drs_migration_reconciliation_preview"
     ) as preview_reconcile, patch(
+        "app.api.v1.router.reconcile_drs_migration_job"
+    ) as reconcile_drs, patch(
         "app.api.v1.router.get_default_drs_proxmox_migration_client"
     ) as drs_client_factory, patch(
         "app.api.v1.router.get_default_proxmox_mutation_client"
@@ -503,22 +543,29 @@ def test_drs_execute_and_reconcile_preview_routes_require_operator_before_work(m
         "app.api.v1.router.run_proxmox_create"
     ) as create_mutation:
         execute_unauthenticated = client.post(execute_path, json={})
+        reconcile_preview_unauthenticated = client.post(reconcile_preview_path, json={})
         reconcile_unauthenticated = client.post(reconcile_path, json={})
         assert execute_unauthenticated.status_code == 401
+        assert reconcile_preview_unauthenticated.status_code == 401
         assert reconcile_unauthenticated.status_code == 401
         assert execute_unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+        assert reconcile_preview_unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
         assert reconcile_unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
 
         _login(client, username="drs-exec-viewer")
         execute_viewer = client.post(execute_path, json={})
+        reconcile_preview_viewer = client.post(reconcile_preview_path, json={})
         reconcile_viewer = client.post(reconcile_path, json={})
         assert execute_viewer.status_code == 403
+        assert reconcile_preview_viewer.status_code == 403
         assert reconcile_viewer.status_code == 403
         assert execute_viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
+        assert reconcile_preview_viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
         assert reconcile_viewer.json()["detail"]["code"] == "AUTH_FORBIDDEN"
 
         execute_drs.assert_not_called()
         preview_reconcile.assert_not_called()
+        reconcile_drs.assert_not_called()
         drs_client_factory.assert_not_called()
         create_vm_client_factory.assert_not_called()
         create_mutation.assert_not_called()

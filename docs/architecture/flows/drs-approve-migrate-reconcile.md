@@ -4,7 +4,7 @@ Status source: [current product status](../../current/README.md). Relevant top-t
 
 This is the current DRS execution boundary.
 
-Current `/drs` UI calls read/check and policy endpoints and exposes local approval packet/job intent creation. It does not expose live execute or corrective reconcile controls. Backend `/api/v1/drs/*` has local approval packet creation, a narrow operator-only migration-job execute route with exact acknowledgement, UPID/task/post-check tracking, and read-only reconcile preview.
+Current `/drs` UI calls read/check and policy endpoints and exposes local approval packet/job intent creation. It does not expose live execute or corrective reconcile controls. Backend `/api/v1/drs/*` has local approval packet creation, backend-only explicit test candidate check/approval helpers for a selected VM outside the normal top-3 shortlist, a narrow operator-only migration-job execute route with exact acknowledgement, UPID/task/post-check tracking, read-only reconcile preview, and acknowledged stored-UPID local reconciliation follow-up. Approved VMID `140` live DRS smoke evidence has been recorded.
 
 ## Current Flow Summary
 
@@ -13,17 +13,28 @@ Current `/drs` UI calls read/check and policy endpoints and exposes local approv
 | 1 | Load DRS Advisor. | `GET /api/v1/drs/summary` and `GET /api/v1/drs/recommendations`. | May persist Gjallar-local identity observation evidence; no Proxmox mutation. |
 | 2 | Operator opens recommendation. | `GET /api/v1/drs/recommendations/{recommendation_id}` returns evidence bundle. | Same read-only/local-evidence boundary. |
 | 3 | Operator refreshes recommendation evidence for reference. | `POST /api/v1/drs/recommendations/{recommendation_id}/check`. | Check result remains `read_only=true`, `executable=false`, `allowed_actions=[]`; not execution authorization. |
-| 4 | Operator-only API creates approval packet/job intent. | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets`. | Local approval packet, final-precheck artifact, recommendation artifact, and pending `drs_migration` job intent. No Proxmox mutation. |
-| 5 | Operator-only API executes stored job. | `POST /api/v1/drs/migration-jobs/{job_id}/execute` with exact `drs_live_migration_acknowledged=true`. | Ack failure is request validation only: no DRS service call, client factory, live pre-check, lock, migration call, or job-state mutation. After ack, stored approval/job binding and artifact checksums are validated before any client factory or mutation. |
-| 6 | Execute route reruns fresh gates. | Reread recommendation, identity/fingerprint, locator, policy, operation-lock, and config-lock evidence. | Blocked gate records blocked job evidence; no Proxmox mutation. |
-| 7 | Execute route collects live Proxmox DRS evidence. | Dedicated DRS client checks active tasks, HA, quorum, and migration preconditions. | Blocked live evidence records blocked job evidence; no migration request. |
-| 8 | Backend acquires operation locks. | VM identity, Proxmox locator, and route locks. | Active locks. If acquisition fails, no migration request. |
-| 9 | Backend starts migration. | Dedicated DRS client calls Proxmox QEMU migrate. | UPID stored immediately when returned. Missing UPID/request uncertainty becomes `needs_reconciliation`. |
-| 10 | Backend polls task. | Read Proxmox task until terminal, running, timeout, or ambiguous result. | Task result/status/log excerpt evidence. |
-| 11 | Backend post-checks terminal OK task. | Direct target-node status/config/fingerprint and active-task evidence. | `completed` only after verified success; otherwise `needs_reconciliation`. |
-| 12 | Operator-only API previews reconciliation. | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`. | Read-only preview only; no corrective mutation. |
+| 4 | Optional explicit smoke candidate check/approval. | `POST /api/v1/drs/explicit-test-candidates/check` and `/approval-packets` with exact `explicit_test_vm_acknowledged=true`. | Only bypasses the normal top-3 VM slice for one selected `vm_identity_id`/VMID/source/target. Hot source, target delta, running non-template, red-risk exclusion, route/storage/network/passthrough/target-threshold/policy/identity/lock gates still block. Local approval only; no Proxmox mutation. |
+| 5 | Operator-only API creates approval packet/job intent. | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets`. | Local approval packet, final-precheck artifact, recommendation artifact, and pending `drs_migration` job intent. No Proxmox mutation. |
+| 6 | Operator-only API executes stored job. | `POST /api/v1/drs/migration-jobs/{job_id}/execute` with exact `drs_live_migration_acknowledged=true`. | Ack failure is request validation only: no DRS service call, client factory, live pre-check, lock, migration call, or job-state mutation. After ack, stored approval/job binding and artifact checksums are validated before any client factory or mutation. |
+| 7 | Execute route reruns fresh gates. | Reread recommendation, identity/fingerprint, locator, policy, operation-lock, and config-lock evidence. | Blocked gate records blocked job evidence; no Proxmox mutation. |
+| 8 | Execute route collects live Proxmox DRS evidence. | Dedicated DRS client checks active tasks, HA, quorum, and migration preconditions. | Blocked live evidence records blocked job evidence; no migration request. |
+| 9 | Backend acquires operation locks. | VM identity, Proxmox locator, and route locks. | Active locks. If acquisition fails, no migration request. |
+| 10 | Backend starts migration. | Dedicated DRS client calls Proxmox QEMU migrate. | UPID stored immediately when returned. Missing UPID/request uncertainty becomes `needs_reconciliation`. |
+| 11 | Backend polls task. | Read Proxmox task until terminal, running, timeout, or ambiguous result. | Task result/status/log excerpt evidence. |
+| 12 | Backend post-checks terminal OK task. | Direct target-node status/config/fingerprint and active-task evidence. | `completed` only after verified success; otherwise `needs_reconciliation`. |
+| 13 | Operator-only API previews reconciliation. | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`. | Read-only preview only; no corrective mutation. |
 
 ## Execute Request Gate
+
+`POST /api/v1/drs/explicit-test-candidates/check` and
+`/approval-packets` must include exact
+`{"explicit_test_vm_acknowledged": true}`. Missing payload, missing field,
+false/null/string/number values, camelCase-only acknowledgement, or Create VM
+acknowledgement return `409` with code
+`DRS_EXPLICIT_TEST_CANDIDATE_ACK_REQUIRED`,
+`required_acknowledgement="explicit_test_vm_acknowledged"`,
+`proxmox_mutation_enabled=false`, and `side_effects=[]` before inventory,
+advisor, DB, client, lock, or migration work.
 
 `POST /api/v1/drs/migration-jobs/{job_id}/execute` must include exact
 `{"drs_live_migration_acknowledged": true}`. Missing payload, missing field,
@@ -86,4 +97,4 @@ Risks/Alerts remain job-derived and do not yet have a full DRS blocker taxonomy.
 - Background reconciliation automation or automatic DRS.
 - Recommendation-level approve/migrate/live-migrate aliases.
 - Richer policy rule/full metadata editor beyond current per-VM policy configuration.
-- Live DRS smoke evidence.
+- Broad or repeated live DRS smoke evidence beyond the approved VMID `140` run.

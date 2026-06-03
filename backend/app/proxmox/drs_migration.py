@@ -87,6 +87,39 @@ def _as_list(value: Any) -> list[Any]:
     return [value]
 
 
+def _empty_not_allowed_detail(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (dict, list, tuple, set)):
+        return len(value) == 0
+    return False
+
+
+def _not_allowed_nodes_evidence(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        all_nodes = sorted([node for node in (_as_text(key) for key in value) if node])
+        blocking_details = {
+            _as_text(node): redact_secrets(detail)
+            for node, detail in value.items()
+            if _as_text(node) and not _empty_not_allowed_detail(detail)
+        }
+        return {
+            "shape": "object",
+            "all_nodes": all_nodes,
+            "blocking_nodes": sorted(blocking_details),
+            "blocking_details": blocking_details,
+        }
+    nodes = sorted([node for node in (_as_text(item) for item in _as_list(value)) if node])
+    return {
+        "shape": "list" if isinstance(value, list) else type(value).__name__,
+        "all_nodes": nodes,
+        "blocking_nodes": nodes,
+        "blocking_details": {},
+    }
+
+
 def _truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -416,17 +449,14 @@ class DrsProxmoxMigrationClient:
         try:
             preconditions = self.get_migration_preconditions(node=source_node, vmid=vmid, target=target_node)
             allowed_nodes = [_as_text(item) for item in _as_list(preconditions.get("allowed_nodes"))]
-            not_allowed = preconditions.get("not_allowed_nodes")
-            not_allowed_nodes = set()
-            if isinstance(not_allowed, dict):
-                not_allowed_nodes = {_as_text(key) for key in not_allowed}
-            else:
-                not_allowed_nodes = {_as_text(item) for item in _as_list(not_allowed)}
+            not_allowed_evidence = _not_allowed_nodes_evidence(preconditions.get("not_allowed_nodes"))
+            not_allowed_nodes = set(not_allowed_evidence["all_nodes"])
+            blocking_not_allowed_nodes = set(not_allowed_evidence["blocking_nodes"])
             local_disks = _as_list(preconditions.get("local_disks"))
             local_resources = _as_list(preconditions.get("local_resources"))
             dependent_ha = _as_list(preconditions.get("dependent-ha-resources"))
             migration_blockers = []
-            if target_node in not_allowed_nodes:
+            if target_node in blocking_not_allowed_nodes:
                 migration_blockers.append("proxmox_target_not_allowed")
             if allowed_nodes and target_node not in allowed_nodes:
                 migration_blockers.append("proxmox_target_not_allowed")
@@ -450,6 +480,9 @@ class DrsProxmoxMigrationClient:
                         "running": preconditions.get("running"),
                         "allowed_nodes": allowed_nodes,
                         "not_allowed_nodes": sorted(not_allowed_nodes),
+                        "not_allowed_nodes_with_blocking_details": sorted(blocking_not_allowed_nodes),
+                        "not_allowed_node_blocking_details": not_allowed_evidence["blocking_details"],
+                        "not_allowed_nodes_shape": not_allowed_evidence["shape"],
                         "local_disks": local_disks[:10],
                         "local_resources": local_resources[:10],
                         "dependent_ha_resources": dependent_ha[:10],
@@ -464,6 +497,9 @@ class DrsProxmoxMigrationClient:
                         "running": preconditions.get("running"),
                         "allowed_nodes": allowed_nodes,
                         "not_allowed_nodes": sorted(not_allowed_nodes),
+                        "not_allowed_nodes_with_blocking_details": sorted(blocking_not_allowed_nodes),
+                        "not_allowed_node_blocking_details": not_allowed_evidence["blocking_details"],
+                        "not_allowed_nodes_shape": not_allowed_evidence["shape"],
                         "local_disks": [],
                         "local_resources": [],
                         "dependent_ha_resources": [],

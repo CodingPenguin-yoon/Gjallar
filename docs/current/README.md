@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-06-01
+Last refreshed: 2026-06-03
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -10,7 +10,7 @@ This file is the docs source of truth for implemented behavior after active code
 
 - Product target: DRS Advisor is the next MVP success line.
 - Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, DRS Advisor identity/policy readiness foundation, manual VM migration policy UI/API, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval packet/job intent creation, narrow approval-gated DRS live migration execution with UPID/task metadata, verified DRS post-check/reconciliation state, read-only Reconcile preview, Jobs/Runs, Risks/Alerts, Create VM supporting capability, minimal local-only post-create readiness evidence recording, and local account/session operations polish.
-- Current gap: broad live DRS execution UI, corrective reconcile UI, live DRS migration smoke evidence, 15-minute average/peak metric substrate, richer policy rule/full metadata editor, deeper read-only advisor task/HA/quorum collection, and account/session audit browsing API/UI. Corrective reconciliation mutation and background reconciliation automation remain deferred.
+- Current gap: broad live DRS execution UI, corrective reconcile UI, backend-owned DRS blocker taxonomy, 15-minute average/peak metric substrate, richer policy rule/full metadata editor, deeper read-only advisor task/HA/quorum collection, and account/session audit browsing API/UI. Corrective reconciliation mutation and background reconciliation automation remain deferred.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
 - DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
@@ -42,7 +42,7 @@ This file is the docs source of truth for implemented behavior after active code
   other active sessions for the same user are revoked.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
-- `/drs` is a DRS Advisor screen with recommendation/check evidence, manual VM migration policy configuration, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. The screen does not provide live migration execute controls or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` requires exact `drs_live_migration_acknowledged=true` before any DRS execution work, and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remains backend-gated.
+- `/drs` is a DRS Advisor screen with recommendation/check evidence, manual VM migration policy configuration, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. Backend-only explicit test candidate routes can prepare smoke evidence for one selected VM outside the normal top-3 shortlist after exact `explicit_test_vm_acknowledged=true`; they do not call Proxmox mutation and still enforce normal DRS gates. The screen does not provide live migration execute controls or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` requires exact `drs_live_migration_acknowledged=true` before any DRS execution work, and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remains backend-gated.
 - Manual VM migration policy configuration is implemented through `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. It supports the current per-VM `unknown`/`allowed`/`restricted`/`blocked` policy workflow and local audit evidence; richer policy rule/full metadata editing remains deferred.
 
 ## Implemented behavior
@@ -80,7 +80,8 @@ This file is the docs source of truth for implemented behavior after active code
 - Legacy `/api` deploy/provision/task/log/LLM routes and legacy helper code are removed from the active tree.
 - Native Create VM polls the clone UPID, inspects cloned config for boot disk resize, applies config, reads `/status/current` and `/config`, writes `observed_after`, records `vm_create_requests`/`vm_instances`, and marks applied only when the requested disk resize is unnecessary or completed and the selected power-policy post-check passes.
 - Task failure, unknown cloned disk size, resize failure, VM missing, stopped-policy powered-on mismatch, or boot-and-verify guest-agent/cloud-init failure records failed/`needs_reconciliation` and does not mark the manifest applied.
-- DRS live migration execution is limited to the dedicated DRS Proxmox migration client. The execute route rejects missing or malformed `drs_live_migration_acknowledged=true` as `409` / `DRS_EXECUTION_ACK_REQUIRED` request validation before the DRS execution service, client factory, live pre-check, operation locks, or migration call; acknowledgement failures have `proxmox_mutation_enabled=false`, `side_effects=[]`, and do not mark pending jobs blocked. After that gate, execution stores UPID/task evidence and marks a migration completed only when Proxmox task `OK` is followed by direct target-node `/status/current` and `/config` post-check, expected power-state evidence, matching DRS fingerprint, and no conflicting active task. Missing UPID, failed/timed-out/ambiguous task evidence, task `OK` without verified post-check, wrong target, unexpected power state, fingerprint mismatch, or unknown active-task evidence stays `needs_reconciliation`. Operation locks release only after verified post-check; otherwise they become `reconciliation_required`. A read-only Reconcile preview exists; no live DRS migration smoke has been run.
+- DRS explicit test candidate routes are operator-only smoke/readiness helpers for a selected `vm_identity_id`/VMID/source/target outside the normal top-3 shortlist. They require exact `explicit_test_vm_acknowledged=true`, write no Proxmox state, and are not arbitrary migration endpoints; approval packet creation remains local-only and requires a passing final pre-check.
+- DRS live migration execution is limited to the dedicated DRS Proxmox migration client. The execute route rejects missing or malformed `drs_live_migration_acknowledged=true` as `409` / `DRS_EXECUTION_ACK_REQUIRED` request validation before the DRS execution service, client factory, live pre-check, operation locks, or migration call; acknowledgement failures have `proxmox_mutation_enabled=false`, `side_effects=[]`, and do not mark pending jobs blocked. After that gate, execution stores UPID/task evidence and marks a migration completed only when Proxmox task `OK` is followed by direct target-node `/status/current` and `/config` post-check, expected power-state evidence, matching DRS fingerprint, and no conflicting active task. Missing UPID, failed/timed-out/ambiguous task evidence, task `OK` without verified post-check, wrong target, unexpected power state, fingerprint mismatch, or unknown active-task evidence stays `needs_reconciliation`. Operation locks release only after verified post-check; otherwise they become `reconciliation_required`. A read-only Reconcile preview and acknowledged stored-UPID local reconciliation follow-up exist. Approved VMID `140` live DRS migration evidence is recorded in [`../operations/drs-explicit-test-candidate-prep-2026-06-03.md`](../operations/drs-explicit-test-candidate-prep-2026-06-03.md): Proxmox task `OK`, verified post-check after parser normalization, local job `completed`, and locks released.
 - Approved live Create VM smoke completed on 2026-05-28 against
   `yoonserver3` using template `yoonmanserver / 118 / ubuntu-templte`, storage
   `nas-server`, bridge `vmbr0`, and explicit static IPs. The matrix covered a
@@ -166,9 +167,11 @@ Development smoke and test results recorded for this refresh:
 
 - Use [`../goal/README.md`](../goal/README.md) for the current implementation
   order. Goal Check 01-06, Goal 7, Goal 7.5, the minimal local-only Goal 8
-  recorder, Goal 9 local account/session polish, and the Goal 10 safety baseline
-  are complete. Any future Goal 10 live smoke evidence requires explicit
-  approval for a specific live run. No live DRS smoke was run.
+  recorder, Goal 9 local account/session polish, and Goal 10 are complete. Goal
+  10 includes approved VMID `140` live DRS smoke evidence and stored-UPID
+  reconciliation completion. The next rewritten follow-on is Goal 11 DRS
+  Criteria And Operations Productization unless the user selects a different
+  task.
 - Use [`../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md`](../engineering/AI_CODING_WORKFLOW_PRINCIPLES.md) for repo-local AI coding workflow rules.
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.

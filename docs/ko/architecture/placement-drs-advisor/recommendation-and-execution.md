@@ -22,6 +22,6 @@ Final pre-check가 fail 또는 unknown이면 migration을 시작하지 않습니
 
 ## Execution and jobs/risks
 
-Backend narrow execution substrate는 operation record, lock acquisition, Proxmox migration, UPID storage, task polling, post-check, completed/failed/`needs_reconciliation` record를 구현합니다. Broad UI, live DRS smoke evidence, corrective/background reconciliation은 아직 남아 있습니다.
+Backend narrow execution substrate는 operation record, lock acquisition, Proxmox migration, UPID storage, task polling, post-check, completed/failed/`needs_reconciliation` record를 구현합니다. Approved VMID `140` live DRS smoke evidence도 기록됐습니다. Broad UI, blocker taxonomy display, corrective/background reconciliation은 아직 남아 있습니다.
 
 Jobs/Runs는 `drs_migration`을 first-class job으로 보여주고, Risks/Alerts는 DRS blockers를 source, blocked action, VM identity, evidence artifact와 함께 보여줘야 합니다.

@@ -188,4 +188,4 @@ Current DRS jobs include:
 - post-check artifact
 - reconciliation artifact when needed
 
-Remaining gaps are broad UI lifecycle polish, corrective reconciliation mutation/action, background reconciliation automation, and live DRS smoke evidence. Jobs/Runs itself remains read-only and exposes no retry, cancel, reconcile, or mutation controls.
+Remaining gaps are broad UI lifecycle polish, backend-owned blocker taxonomy display, corrective reconciliation mutation/action, and background reconciliation automation. Approved VMID `140` live DRS smoke evidence exists. Jobs/Runs itself remains read-only and exposes no retry, cancel, reconcile, or mutation controls.

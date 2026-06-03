@@ -109,6 +109,6 @@ Operations:
 - Target Create VM profile/template/network design uses DB-seeded profiles, Proxmox live templates, and selected target-node live bridges; current code still has known implementation gaps documented in status.
 - DRS Advisor has identity/fingerprint policy, read-only final pre-check, local
   approval/job substrate, narrow approval-gated migration execution, UPID
-  tracking, verified post-check, and read-only reconciliation preview. Broad
-  execution UI and live DRS migration smoke evidence remain pending.
+  tracking, verified post-check, read-only reconciliation preview, and approved
+  VMID `140` live DRS migration evidence. Broad execution UI remains pending.
 - Dashboard and read-only screens should stay available when DB-backed job history is unavailable or temporarily unreadable.

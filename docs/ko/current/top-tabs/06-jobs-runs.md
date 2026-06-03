@@ -28,4 +28,4 @@ Jobs/Runs UI에는 retry, cancel, resume, approve, live-run, VM mutation control
 
 ## Target gap
 
-Current backend에는 DRS local approval/job intent, `drs_migration` execution evidence, UPID/post-check/reconciliation preview evidence, 그리고 Goal 8 `post_create_readiness` job/artifact evidence가 있습니다. 남은 gap은 broad DRS UI, corrective/background reconciliation, live DRS smoke evidence, 그리고 Jobs/Runs에서의 더 풍부한 DRS 운영 표시입니다.
+Current backend에는 DRS local approval/job intent, `drs_migration` execution evidence, UPID/post-check/reconciliation preview/follow-up evidence, approved VMID `140` live DRS smoke evidence, 그리고 Goal 8 `post_create_readiness` job/artifact evidence가 있습니다. 남은 gap은 broad DRS UI, blocker taxonomy 표시, corrective/background reconciliation, 그리고 Jobs/Runs에서의 더 풍부한 DRS 운영 표시입니다.

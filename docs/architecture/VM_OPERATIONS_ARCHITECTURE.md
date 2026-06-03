@@ -80,7 +80,8 @@ Implemented baseline:
 Current gap:
 
 - Goal Check must verify Goal 1-6 implementation quality before Goal 7 starts.
-- No live DRS migration smoke evidence has been run.
+- Approved VMID `140` live DRS migration evidence has been recorded; broad DRS
+  execute UI remains pending.
 - Broad DRS execution UI polish remains pending.
 - Corrective reconciliation mutation, background reconciliation automation, and
   automatic DRS remain deferred.

@@ -21,6 +21,7 @@ from app.proxmox.drs_migration import DrsProxmoxMigrationError, get_default_drs_
 
 DRS_MIGRATION_JOB_TYPE = "drs_migration"
 DRS_LIVE_MIGRATION_ACK_FIELD = "drs_live_migration_acknowledged"
+DRS_RECONCILIATION_ACK_FIELD = "drs_reconciliation_acknowledged"
 LIVE_SUPERSEDED_ADVISOR_CHECKS = {
     "proxmox_active_task",
     "proxmox_ha_state",
@@ -163,6 +164,24 @@ def require_drs_live_migration_ack(job_id: str, payload: dict[str, Any] | None) 
                 "job_id": job_id,
                 "required_acknowledgement": DRS_LIVE_MIGRATION_ACK_FIELD,
                 "proxmox_mutation_enabled": False,
+                "side_effects": [],
+            },
+        )
+
+
+def require_drs_reconciliation_ack(job_id: str, payload: dict[str, Any] | None) -> None:
+    """Validate the local reconciliation request before DB/client work."""
+    request_payload = payload if isinstance(payload, dict) else {}
+    if request_payload.get(DRS_RECONCILIATION_ACK_FIELD) is not True:
+        raise DrsMigrationExecutionError(
+            code="DRS_RECONCILIATION_ACK_REQUIRED",
+            message=f"{DRS_RECONCILIATION_ACK_FIELD}=true is required before local DRS reconciliation",
+            status_code=409,
+            detail={
+                "job_id": job_id,
+                "required_acknowledgement": DRS_RECONCILIATION_ACK_FIELD,
+                "proxmox_mutation_enabled": False,
+                "corrective_mutation_enabled": False,
                 "side_effects": [],
             },
         )
@@ -355,11 +374,31 @@ def _disk_volume_ids_from_config(config: dict[str, Any]) -> list[str]:
     for key, value in sorted(config.items()):
         if not _DISK_CONFIG_PREFIX.match(_as_text(key)):
             continue
-        volume = _as_text(value).split(",", 1)[0].strip()
-        if not volume or volume.lower() in {"none", "cloudinit"} or ":" not in volume:
+        volume = _identity_disk_volume_from_config_value(value)
+        if not volume:
             continue
         result.append(volume.lower())
     return _dedupe(result)
+
+
+def _identity_disk_volume_from_config_value(value: Any) -> str:
+    parts = [part.strip() for part in _as_text(value).split(",") if part.strip()]
+    if not parts:
+        return ""
+    params: dict[str, str] = {}
+    for part in parts[1:]:
+        key, separator, param_value = part.partition("=")
+        params[key.strip().lower()] = param_value.strip() if separator else "true"
+    if _as_text(params.get("media")).lower() == "cdrom":
+        return ""
+    volume = parts[0]
+    lowered = volume.lower()
+    if not volume or lowered == "none" or ":" not in volume:
+        return ""
+    normalized = lowered.replace("-", "")
+    if "cloudinit" in normalized:
+        return ""
+    return volume
 
 
 def _mac_addresses_from_config(config: dict[str, Any]) -> list[str]:
@@ -661,6 +700,49 @@ def _list_reconciliation_events(job_id: str) -> list[dict[str, Any]]:
         ]
 
 
+def _resolve_open_reconciliation_events(
+    session: Any,
+    *,
+    job_id: str,
+    reason: str,
+    evidence: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    rows = (
+        session.query(DrsReconciliationEventRecord)
+        .filter(DrsReconciliationEventRecord.job_id == job_id, DrsReconciliationEventRecord.status == "open")
+        .order_by(DrsReconciliationEventRecord.created_at.asc(), DrsReconciliationEventRecord.event_id.asc())
+        .all()
+    )
+    now = _now()
+    for row in rows:
+        row.status = "resolved"
+        row.reason = _as_text(reason, row.reason)
+        row.evidence = {**dict(row.evidence or {}), **dict(evidence or {})}
+        row.updated_at = now
+    session.flush()
+    return [
+        {
+            "event_id": row.event_id,
+            "job_id": row.job_id,
+            "event_type": row.event_type,
+            "status": row.status,
+            "reason": row.reason,
+            "evidence": dict(row.evidence or {}),
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+def _stored_lock_result(job: DrsMigrationJobRecord) -> dict[str, Any]:
+    lock_result = dict(job.lock_evidence or {})
+    lock_ids = list(job.operation_lock_ids or lock_result.get("lock_ids") or [])
+    lock_result["lock_ids"] = lock_ids
+    lock_result.setdefault("locks", [])
+    lock_result.setdefault("checked_scopes", [])
+    return lock_result
+
+
 def _record_blocked_attempt(
     *,
     job: DrsMigrationJobRecord,
@@ -744,7 +826,7 @@ def _update_after_upid(
     task_result: str,
     task_payload: dict[str, Any],
     live_precheck: dict[str, Any],
-    final_check: dict[str, Any],
+    final_check: dict[str, Any] | None,
     lock_result: dict[str, Any],
     side_effects: list[str],
     reconciliation_reason: str | None = None,
@@ -754,19 +836,6 @@ def _update_after_upid(
     now = _now()
     status_payload = task_payload.get("status") if isinstance(task_payload.get("status"), dict) else {}
     log_excerpt = _as_list(task_payload.get("log"))
-    execution_evidence = {
-        "final_precheck_summary": final_precheck_summary(final_check),
-        "live_precheck": live_precheck,
-        "operation_lock": lock_result,
-        "task": {
-            "result": task_result,
-            "status": status_payload,
-            "polls": _as_list(task_payload.get("polls"))[:5],
-            "log_excerpt_count": len(log_excerpt),
-        },
-        "post_check": post_check_evidence or {},
-        "reconciliation_reason": reconciliation_reason,
-    }
     with session_scope() as session:
         row = session.get(DrsMigrationJobRecord, job_id)
         if row is None:
@@ -776,6 +845,21 @@ def _update_after_upid(
                 status_code=500,
                 detail={"job_id": job_id, "proxmox_upid": upid, "side_effects": side_effects},
             )
+        precheck_summary = final_precheck_summary(final_check) if final_check is not None else dict(row.final_precheck_summary or {})
+        execution_evidence = {
+            **dict(row.execution_evidence or {}),
+            "final_precheck_summary": precheck_summary,
+            "live_precheck": live_precheck,
+            "operation_lock": lock_result,
+            "task": {
+                "result": task_result,
+                "status": status_payload,
+                "polls": _as_list(task_payload.get("polls"))[:5],
+                "log_excerpt_count": len(log_excerpt),
+            },
+            "post_check": post_check_evidence or {},
+            "reconciliation_reason": reconciliation_reason,
+        }
         row.status = status
         row.runnable = False
         row.proxmox_mutation_enabled = True
@@ -944,6 +1028,185 @@ def _record_execution_run(
             **actor_detail_fields(actor),
         },
     )
+
+
+def _finish_drs_task_follow_up(
+    *,
+    job: DrsMigrationJobRecord,
+    packet: DrsApprovalPacketRecord,
+    actor: dict[str, str],
+    client: Any,
+    upid: str,
+    task_node: str,
+    task_payload: dict[str, Any],
+    final_check: dict[str, Any] | None,
+    live_precheck: dict[str, Any],
+    lock_result: dict[str, Any],
+    base_side_effects: list[str],
+    response_proxmox_mutation_enabled: bool,
+    evidence_source: str,
+) -> dict[str, Any]:
+    task_result = _as_text(task_payload.get("result"), "ambiguous")
+    side_effects = _dedupe([*base_side_effects, "proxmox_task_polled"])
+    post_check_evidence: dict[str, Any] | None = None
+    post_check_status: str | None = None
+    if task_result == "ok":
+        post_check_evidence = _collect_direct_drs_post_check(
+            client=client,
+            job=job,
+            packet=packet,
+            final_check=final_check,
+        )
+        side_effects = _dedupe([*side_effects, "proxmox_drs_post_check_observed"])
+        if post_check_evidence.get("status") == "pass":
+            status, reconciliation_reason, step_status = "completed", None, "completed"
+            post_check_status = "completed"
+        else:
+            status = "needs_reconciliation"
+            reconciliation_reason = _as_text(post_check_evidence.get("reconciliation_reason"), "post_check_mismatch")
+            step_status = "blocked"
+            post_check_status = "needs_reconciliation"
+    else:
+        status, reconciliation_reason, step_status = _status_from_task_result(task_result)
+
+    job_record = _update_after_upid(
+        job_id=job.job_id,
+        upid=upid,
+        status=status,
+        task_node=task_node,
+        task_result=task_result,
+        task_payload=task_payload,
+        live_precheck=live_precheck,
+        final_check=final_check,
+        lock_result=lock_result,
+        side_effects=side_effects,
+        reconciliation_reason=reconciliation_reason,
+        post_check_evidence=post_check_evidence,
+        post_check_status=post_check_status,
+    )
+    resolved_events: list[dict[str, Any]] = []
+    reconciliation_event: dict[str, Any] | None = None
+    if status == "completed":
+        with session_scope() as session:
+            locks = release_drs_operation_locks(
+                session,
+                lock_ids=list(lock_result.get("lock_ids") or []),
+                reason="drs_migration_post_check_verified",
+                evidence={
+                    "source": evidence_source,
+                    "job_id": job.job_id,
+                    "upid": upid,
+                    "task_result": task_result,
+                    "post_check_status": "completed",
+                },
+            )
+            resolved_events = _resolve_open_reconciliation_events(
+                session,
+                job_id=job.job_id,
+                reason="resolved_after_verified_post_check",
+                evidence={
+                    "source": evidence_source,
+                    "upid": upid,
+                    "task_result": task_result,
+                    "post_check_status": "completed",
+                },
+            )
+            row = session.get(DrsMigrationJobRecord, job.job_id)
+            if row is not None:
+                row.lock_evidence = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
+                row.operation_lock_ids = [lock["operation_lock_id"] for lock in locks]
+                row.updated_at = _now()
+        job_record["lock_evidence"] = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
+        job_record["operation_lock_ids"] = [lock["operation_lock_id"] for lock in locks]
+        job_record["resolved_reconciliation_events"] = resolved_events
+    elif status == "needs_reconciliation":
+        with session_scope() as session:
+            locks = mark_locks_reconciliation_required(
+                session,
+                lock_ids=list(lock_result.get("lock_ids") or []),
+                reason=_as_text(reconciliation_reason, "drs_migration_needs_reconciliation"),
+                evidence={
+                    "source": evidence_source,
+                    "job_id": job.job_id,
+                    "upid": upid,
+                    "task_result": task_result,
+                    "reconciliation_reason": reconciliation_reason,
+                    "post_check_status": post_check_status,
+                    "post_check_reason": reconciliation_reason,
+                },
+            )
+            reconciliation_event = _record_reconciliation_event(
+                session,
+                job_id=job.job_id,
+                reason=reconciliation_reason,
+                evidence={
+                    "source": evidence_source,
+                    "upid": upid,
+                    "task_result": task_result,
+                    "task_status": task_payload.get("status") if isinstance(task_payload, dict) else {},
+                    "post_check": post_check_evidence or {},
+                },
+            )
+            row = session.get(DrsMigrationJobRecord, job.job_id)
+            if row is not None:
+                row.lock_evidence = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
+                row.operation_lock_ids = [lock["operation_lock_id"] for lock in locks]
+                row.updated_at = _now()
+        job_record["lock_evidence"] = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
+        job_record["operation_lock_ids"] = [lock["operation_lock_id"] for lock in locks]
+        job_record["reconciliation_event"] = reconciliation_event
+
+    precheck_summary = final_precheck_summary(final_check) if final_check is not None else dict(job_record.get("final_precheck_summary") or {})
+    execution_payload = {
+        "job": job_record,
+        "approval_packet": {
+            "approval_packet_id": packet.approval_packet_id,
+            "recommendation_id": packet.recommendation_id,
+            "vm_identity_id": packet.vm_identity_id,
+        },
+        "final_precheck_summary": precheck_summary,
+        "live_precheck": live_precheck,
+        "operation_lock": job_record.get("lock_evidence") or lock_result,
+        "task": {
+            "result": task_result,
+            "status": task_payload.get("status") if isinstance(task_payload, dict) else {},
+            "log_excerpt": _as_list(task_payload.get("log"))[:50] if isinstance(task_payload, dict) else [],
+        },
+        "post_check": post_check_evidence or {},
+        "reconciliation_events": _list_reconciliation_events(job.job_id),
+        "resolved_reconciliation_events": resolved_events,
+        "source": evidence_source,
+    }
+    artifact = _write_execution_artifact(job.job_id, execution_payload)
+    job_run = _record_execution_run(
+        job_record=job_record,
+        packet=packet,
+        actor=actor,
+        artifact=artifact,
+        step_status=step_status,
+    )
+    return {
+        "job": job_record,
+        "job_run": job_run,
+        "artifact": artifact,
+        "status": status,
+        "proxmox_upid": upid,
+        "task_result": task_result,
+        "task_status": job_record.get("task_status"),
+        "task_exitstatus": job_record.get("task_exitstatus"),
+        "post_check_status": post_check_status,
+        "post_check": post_check_evidence or {},
+        "reconciliation_reason": reconciliation_reason,
+        "final_precheck_summary": precheck_summary,
+        "live_precheck": live_precheck,
+        "operation_lock": job_record.get("lock_evidence") or lock_result,
+        "proxmox_mutation_enabled": response_proxmox_mutation_enabled,
+        "corrective_mutation_enabled": False,
+        "side_effects": side_effects,
+        "needs_reconciliation": status == "needs_reconciliation",
+        "reconciliation_events": _list_reconciliation_events(job.job_id),
+        "resolved_reconciliation_events": resolved_events,
+    }
 
 
 def execute_drs_migration_job(
@@ -1146,147 +1409,75 @@ def execute_drs_migration_job(
             "error": str(exc),
             "details": exc.details,
         }
-    task_result = _as_text(task_payload.get("result"), "ambiguous")
-    side_effects = [*accepted_side_effects, "proxmox_upid_stored", "proxmox_task_polled"]
-    post_check_evidence: dict[str, Any] | None = None
-    post_check_status: str | None = None
-    if task_result == "ok":
-        post_check_evidence = _collect_direct_drs_post_check(
-            client=client,
-            job=job,
-            packet=packet,
-            final_check=final_check,
-        )
-        side_effects.append("proxmox_drs_post_check_observed")
-        if post_check_evidence.get("status") == "pass":
-            status, reconciliation_reason, step_status = "completed", None, "completed"
-            post_check_status = "completed"
-        else:
-            status = "needs_reconciliation"
-            reconciliation_reason = _as_text(post_check_evidence.get("reconciliation_reason"), "post_check_mismatch")
-            step_status = "blocked"
-            post_check_status = "needs_reconciliation"
-    else:
-        status, reconciliation_reason, step_status = _status_from_task_result(task_result)
-    job_record = _update_after_upid(
-        job_id=job.job_id,
-        upid=upid,
-        status=status,
-        task_node=job.source_node_id,
-        task_result=task_result,
-        task_payload=task_payload,
-        live_precheck=live_precheck,
-        final_check=final_check,
-        lock_result=lock_result,
-        side_effects=side_effects,
-        reconciliation_reason=reconciliation_reason,
-        post_check_evidence=post_check_evidence,
-        post_check_status=post_check_status,
-    )
-    if status == "completed":
-        with session_scope() as session:
-            locks = release_drs_operation_locks(
-                session,
-                lock_ids=list(lock_result.get("lock_ids") or []),
-                reason="drs_migration_post_check_verified",
-                evidence={
-                    "source": "drs_execution",
-                    "job_id": job.job_id,
-                    "upid": upid,
-                    "task_result": task_result,
-                    "post_check_status": "completed",
-                },
-            )
-            row = session.get(DrsMigrationJobRecord, job.job_id)
-            if row is not None:
-                row.lock_evidence = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
-                row.operation_lock_ids = [lock["operation_lock_id"] for lock in locks]
-                row.updated_at = _now()
-        job_record["lock_evidence"] = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
-        job_record["operation_lock_ids"] = [lock["operation_lock_id"] for lock in locks]
-    elif status == "needs_reconciliation":
-        with session_scope() as session:
-            locks = mark_locks_reconciliation_required(
-                session,
-                lock_ids=list(lock_result.get("lock_ids") or []),
-                reason=_as_text(reconciliation_reason, "drs_migration_needs_reconciliation"),
-                evidence={
-                    "source": "drs_execution",
-                    "job_id": job.job_id,
-                    "upid": upid,
-                    "task_result": task_result,
-                    "reconciliation_reason": reconciliation_reason,
-                    "post_check_status": post_check_status,
-                    "post_check_reason": reconciliation_reason,
-                },
-            )
-            reconciliation_event = _record_reconciliation_event(
-                session,
-                job_id=job.job_id,
-                reason=reconciliation_reason,
-                evidence={
-                    "source": "drs_execution",
-                    "upid": upid,
-                    "task_result": task_result,
-                    "task_status": task_payload.get("status") if isinstance(task_payload, dict) else {},
-                    "post_check": post_check_evidence or {},
-                },
-            )
-            row = session.get(DrsMigrationJobRecord, job.job_id)
-            if row is not None:
-                row.lock_evidence = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
-                row.operation_lock_ids = [lock["operation_lock_id"] for lock in locks]
-                row.updated_at = _now()
-        job_record["lock_evidence"] = {**lock_result, "locks": locks, "lock_ids": [lock["operation_lock_id"] for lock in locks]}
-        job_record["operation_lock_ids"] = [lock["operation_lock_id"] for lock in locks]
-        job_record["reconciliation_event"] = reconciliation_event
-
-    execution_payload = {
-        "job": job_record,
-        "approval_packet": {
-            "approval_packet_id": packet.approval_packet_id,
-            "recommendation_id": packet.recommendation_id,
-            "vm_identity_id": packet.vm_identity_id,
-        },
-        "final_precheck_summary": final_precheck_summary(final_check),
-        "live_precheck": live_precheck,
-        "operation_lock": job_record.get("lock_evidence") or lock_result,
-        "task": {
-            "result": task_result,
-            "status": task_payload.get("status") if isinstance(task_payload, dict) else {},
-            "log_excerpt": _as_list(task_payload.get("log"))[:50] if isinstance(task_payload, dict) else [],
-        },
-        "post_check": post_check_evidence or {},
-        "reconciliation_events": _list_reconciliation_events(job.job_id),
-    }
-    artifact = _write_execution_artifact(job.job_id, execution_payload)
-    job_run = _record_execution_run(
-        job_record=job_record,
+    return _finish_drs_task_follow_up(
+        job=job,
         packet=packet,
         actor=trusted_actor,
-        artifact=artifact,
-        step_status=step_status,
+        client=client,
+        upid=upid,
+        task_node=job.source_node_id,
+        task_payload=task_payload,
+        final_check=final_check,
+        live_precheck=live_precheck,
+        lock_result=lock_result,
+        base_side_effects=[*accepted_side_effects, "proxmox_upid_stored"],
+        response_proxmox_mutation_enabled=True,
+        evidence_source="drs_execution",
     )
-    return {
-        "job": job_record,
-        "job_run": job_run,
-        "artifact": artifact,
-        "status": status,
-        "proxmox_upid": upid,
-        "task_result": task_result,
-        "task_status": job_record.get("task_status"),
-        "task_exitstatus": job_record.get("task_exitstatus"),
-        "post_check_status": post_check_status,
-        "post_check": post_check_evidence or {},
-        "reconciliation_reason": reconciliation_reason,
-        "final_precheck_summary": final_precheck_summary(final_check),
-        "live_precheck": live_precheck,
-        "operation_lock": job_record.get("lock_evidence") or lock_result,
-        "proxmox_mutation_enabled": True,
-        "side_effects": side_effects,
-        "needs_reconciliation": status == "needs_reconciliation",
-        "reconciliation_events": _list_reconciliation_events(job.job_id),
-    }
+
+
+def reconcile_drs_migration_job(
+    job_id: str,
+    *,
+    actor: Any,
+    payload: dict[str, Any] | None = None,
+    client_factory: Callable[[], Any] | None = None,
+) -> dict[str, Any]:
+    """Poll a stored DRS migration UPID and update local reconciliation state."""
+    require_drs_reconciliation_ack(job_id, payload)
+    trusted_actor = _trusted_operator(actor)
+    job, packet = _load_job_and_packet(job_id)
+    upid = _as_text(job.proxmox_upid)
+    task_node = _as_text(job.proxmox_task_node)
+    if not upid or not task_node:
+        raise DrsMigrationExecutionError(
+            code="DRS_RECONCILIATION_UPID_REQUIRED",
+            message="stored Proxmox UPID and task node are required for local DRS reconciliation",
+            status_code=409,
+            detail={
+                "job_id": job_id,
+                "proxmox_mutation_enabled": False,
+                "corrective_mutation_enabled": False,
+                "side_effects": [],
+            },
+        )
+    client = client_factory() if client_factory is not None else get_default_drs_proxmox_migration_client()
+    try:
+        task_payload = client.poll_task_status(node=task_node, upid=upid)
+    except DrsProxmoxMigrationError as exc:
+        task_payload = {
+            "result": "ambiguous",
+            "status": {},
+            "polls": [],
+            "log": [],
+            "error": str(exc),
+            "details": exc.details,
+        }
+    return _finish_drs_task_follow_up(
+        job=job,
+        packet=packet,
+        actor=trusted_actor,
+        client=client,
+        upid=upid,
+        task_node=task_node,
+        task_payload=task_payload,
+        final_check=None,
+        live_precheck=dict((job.execution_evidence or {}).get("live_precheck") or {}),
+        lock_result=_stored_lock_result(job),
+        base_side_effects=list(job.side_effects or []),
+        response_proxmox_mutation_enabled=False,
+        evidence_source="drs_reconciliation_follow_up",
+    )
 
 
 def build_drs_migration_reconciliation_preview(

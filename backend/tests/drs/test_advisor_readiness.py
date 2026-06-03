@@ -126,6 +126,119 @@ class MutableDrsAdapter:
         self._vm = replace(self._vm, status=status)
 
 
+class ExplicitSmokeDrsAdapter:
+    source = "stub_read_only"
+
+    def __init__(self, *, source_cpu=82, source_memory=75, target_cpu=31, target_memory=40):
+        from app.proxmox.models import (
+            DiskInventory,
+            GuestAgentInventory,
+            InventorySnapshot,
+            NetworkInventory,
+            NicBridgeEvidenceInventory,
+            NodeInventory,
+            StorageInventory,
+            VmInventory,
+        )
+
+        self._snapshot_type = InventorySnapshot
+        self._storages = (
+            StorageInventory("shared-nfs", "node-a", "nfs", 1024, 600, ("images",)),
+            StorageInventory("shared-nfs", "node-b", "nfs", 1024, 700, ("images",)),
+        )
+        self._networks = (
+            NetworkInventory("vmbr0", "node-a", active=True),
+            NetworkInventory("vmbr0", "node-b", active=True),
+        )
+        self._nodes = (
+            NodeInventory(
+                "node-a",
+                "node-a",
+                "online",
+                32,
+                131072,
+                cpu_usage_percent=source_cpu,
+                memory_used_mb=98304,
+                memory_usage_percent=source_memory,
+                storage=tuple(item for item in self._storages if item.node_id == "node-a"),
+                networks=tuple(item for item in self._networks if item.node_id == "node-a"),
+            ),
+            NodeInventory(
+                "node-b",
+                "node-b",
+                "online",
+                32,
+                131072,
+                cpu_usage_percent=target_cpu,
+                memory_used_mb=52428,
+                memory_usage_percent=target_memory,
+                storage=tuple(item for item in self._storages if item.node_id == "node-b"),
+                networks=tuple(item for item in self._networks if item.node_id == "node-b"),
+            ),
+        )
+        self._vms = (
+            self._vm(VmInventory, DiskInventory, GuestAgentInventory, NicBridgeEvidenceInventory, 101, "app-01", 16384),
+            self._vm(VmInventory, DiskInventory, GuestAgentInventory, NicBridgeEvidenceInventory, 102, "app-02", 12288),
+            self._vm(VmInventory, DiskInventory, GuestAgentInventory, NicBridgeEvidenceInventory, 103, "app-03", 8192),
+            self._vm(VmInventory, DiskInventory, GuestAgentInventory, NicBridgeEvidenceInventory, 140, "drs-smoke-140", 1024),
+        )
+
+    def _vm(self, VmInventory, DiskInventory, GuestAgentInventory, NicBridgeEvidenceInventory, vmid, name, memory_mb):
+        mac = f"aa:bb:cc:dd:ee:{vmid % 100:02d}"
+        return VmInventory(
+            vmid=vmid,
+            name=name,
+            node_id="node-a",
+            status="running",
+            template=False,
+            cpu=2,
+            memory_mb=memory_mb,
+            disk_gb=40,
+            guest_agent=GuestAgentInventory(available=True),
+            storage_id="shared-nfs",
+            smbios1=f"uuid=11111111-2222-3333-4444-{vmid:012d}",
+            vmgenid=f"aaaaaaaa-bbbb-cccc-dddd-{vmid:012d}",
+            mac_addresses=(mac,),
+            nic_bridge_evidence=(
+                NicBridgeEvidenceInventory(interface_name="net0", bridge_id="vmbr0", model="virtio", mac_address=mac),
+            ),
+            disks=(
+                DiskInventory(
+                    device="scsi0",
+                    bus="scsi",
+                    index=0,
+                    size_gb=40,
+                    storage_id="shared-nfs",
+                    volume_id=f"shared-nfs:vm-{vmid}-disk-0",
+                    volume=f"vm-{vmid}-disk-0",
+                    boot=True,
+                ),
+            ),
+        )
+
+    def snapshot(self):
+        return self._snapshot_type(
+            source=self.source,
+            observed_at="2026-06-02T00:00:00+00:00",
+            nodes=self._nodes,
+            vms=self._vms,
+            templates=(),
+            connection={"source": self.source, "cluster_id": "cluster-a"},
+        )
+
+    def list_nodes(self):
+        return list(self._nodes)
+
+    def list_vms(self):
+        return list(self._vms)
+
+    def list_storage(self, node_id=None):
+        return [item for item in self._storages if node_id is None or item.node_id == node_id]
+
+    def list_networks(self, node_id=None):
+        return [item for item in self._networks if node_id is None or item.node_id == node_id]
+
+
 def _first_recommendation(adapter):
     from app.drs.advisor import build_drs_advisor_model
 
@@ -355,6 +468,140 @@ def test_allowed_policy_creates_local_approval_packet_and_pending_non_runnable_j
         "reconciliation",
     ]
     assert "post_check" in [step["id"] for step in job_run["steps"]]
+
+
+def test_explicit_smoke_candidate_outside_top3_can_check_approve_and_resynthesize_final_precheck():
+    from app.db.models import DrsApprovalPacketRecord, DrsMigrationJobRecord
+    from app.db.session import session_scope
+    from app.drs.advisor import build_drs_advisor_model, build_drs_check_result, explicit_test_recommendation_id
+    from app.drs.approval import create_approval_packet_and_job_intent
+
+    adapter = ExplicitSmokeDrsAdapter()
+    model = build_drs_advisor_model(adapter, risks=[])
+    assert 140 not in [item["vmid"] for item in model["recommendations"]]
+
+    recommendation_id = explicit_test_recommendation_id(vmid=140, source_node_id="node-a", target_node_id="node-b")
+    selection = {
+        "vm_identity_id": "",
+        "vmid": 140,
+        "source_node_id": "node-a",
+        "target_node_id": "node-b",
+    }
+    unknown_policy = build_drs_check_result(adapter, recommendation_id, risks=[], payload={"recommendation": selection})
+    selection["vm_identity_id"] = unknown_policy["identity_evidence"]["vm_identity_id"]
+
+    assert unknown_policy["recommendation"]["explicit_test_candidate"] is True
+    assert unknown_policy["would_be_executable"] is False
+    assert "migration_policy_unknown" in unknown_policy["blockers"]
+    assert "policy_unknown" in unknown_policy["recommendation"]["blockers"]
+
+    _set_policy(selection["vm_identity_id"], "allowed")
+    allowed = build_drs_check_result(adapter, recommendation_id, risks=[], payload={"recommendation": selection})
+    assert allowed["would_be_executable"] is True
+    assert allowed["recommendation"]["explicit_test_candidate"] is True
+    assert allowed["recommendation"]["id"] == recommendation_id
+    assert allowed["policy_evidence"]["policy"] == "allowed"
+
+    packet = create_approval_packet_and_job_intent(
+        allowed,
+        payload={"recommendation": selection},
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+    )
+    job_id = packet["job_intent"]["job_id"]
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        approval_packet = session.get(DrsApprovalPacketRecord, packet["approval_packet"]["approval_packet_id"])
+        job_reference = {
+            "recommendation_id": job.recommendation_id,
+            "vmid": job.vmid,
+            "vm_name": approval_packet.vm_name,
+            "source_node_id": job.source_node_id,
+            "target_node_id": job.target_node_id,
+        }
+
+    fresh = build_drs_check_result(adapter, recommendation_id, risks=[], payload={"recommendation": job_reference})
+    assert fresh["would_be_executable"] is True
+    assert fresh["recommendation"]["explicit_test_candidate"] is True
+    assert fresh["recommendation"]["vmid"] == 140
+    assert fresh["identity_evidence"]["vm_identity_id"] == selection["vm_identity_id"]
+
+
+@pytest.mark.parametrize(
+    ("adapter", "risks", "expected_blocker"),
+    [
+        (ExplicitSmokeDrsAdapter(source_cpu=60, source_memory=60), [], "stale_recommendation"),
+        (ExplicitSmokeDrsAdapter(), [{"level": "red", "vmid": 140, "code": "red-risk"}], "vm_state_ineligible"),
+    ],
+)
+def test_explicit_smoke_candidate_preserves_non_shortlist_candidate_predicates(adapter, risks, expected_blocker):
+    from app.drs.advisor import build_drs_check_result, explicit_test_recommendation_id
+
+    recommendation_id = explicit_test_recommendation_id(vmid=140, source_node_id="node-a", target_node_id="node-b")
+    result = build_drs_check_result(
+        adapter,
+        recommendation_id,
+        risks=risks,
+        payload={
+            "recommendation": {
+                "vmid": 140,
+                "source_node_id": "node-a",
+                "target_node_id": "node-b",
+            }
+        },
+    )
+
+    assert result["would_be_executable"] is False
+    assert expected_blocker in result["blockers"]
+    assert result["recommendation"].get("explicit_test_candidate") is not True
+
+
+def test_explicit_smoke_candidate_wrong_identity_and_source_are_exact_selection_blockers():
+    from app.drs.advisor import build_drs_check_result, explicit_test_recommendation_id
+
+    adapter = ExplicitSmokeDrsAdapter()
+    recommendation_id = explicit_test_recommendation_id(vmid=140, source_node_id="node-a", target_node_id="node-b")
+    baseline = build_drs_check_result(
+        adapter,
+        recommendation_id,
+        risks=[],
+        payload={"recommendation": {"vmid": 140, "source_node_id": "node-a", "target_node_id": "node-b"}},
+    )
+    _set_policy(baseline["identity_evidence"]["vm_identity_id"], "allowed")
+
+    wrong_identity = build_drs_check_result(
+        adapter,
+        recommendation_id,
+        risks=[],
+        payload={
+            "recommendation": {
+                "vm_identity_id": "vmid-wrong",
+                "vmid": 140,
+                "source_node_id": "node-a",
+                "target_node_id": "node-b",
+            }
+        },
+    )
+    wrong_source_id = explicit_test_recommendation_id(vmid=140, source_node_id="node-x", target_node_id="node-b")
+    wrong_source = build_drs_check_result(
+        adapter,
+        wrong_source_id,
+        risks=[],
+        payload={"recommendation": {"vmid": 140, "source_node_id": "node-x", "target_node_id": "node-b"}},
+    )
+    mismatched_route_id = build_drs_check_result(
+        adapter,
+        wrong_source_id,
+        risks=[],
+        payload={"recommendation": {"vmid": 140, "source_node_id": "node-a", "target_node_id": "node-b"}},
+    )
+
+    assert wrong_identity["would_be_executable"] is False
+    assert "stale_recommendation" in wrong_identity["blockers"]
+    assert wrong_source["would_be_executable"] is False
+    assert "source_node_changed" in wrong_source["blockers"]
+    assert mismatched_route_id["would_be_executable"] is False
+    assert mismatched_route_id["recommendation"].get("explicit_test_candidate") is not True
+    assert "stale_recommendation" in mismatched_route_id["blockers"]
 
 
 def test_synthetic_warnings_require_acknowledgement_before_local_approval_intent():

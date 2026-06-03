@@ -3,11 +3,12 @@
 ## Canonical Entrypoint
 
 This file is the canonical entrypoint for goal-sized Gjallar work. It is the
-source of truth for the Goal 1 through Goal 12 map, the inserted Goal 7.5,
-document roles, status, and next-session prompt. Goal 10 safety baseline is
-complete, with no live DRS smoke run. Goals 11-12 remain candidate follow-on
-goals. Start future live smoke or broader work only if the user explicitly
-selects it.
+source of truth for the Goal 1 through Goal 11 map, the inserted Goal 7.5,
+document roles, status, and next-session prompt. Goal 10 safety baseline and the
+approved VMID `140` live DRS smoke evidence are complete. The old Goal 11/12
+split has been superseded by the rewritten Goal 11 DRS Criteria And Operations
+Productization follow-on. Start future live mutation, cleanup, corrective action,
+or broader work only if the user explicitly selects it.
 
 Do not infer a second goal sequence from standalone files. Each goal has
 exactly one detailed document, listed below.
@@ -19,10 +20,13 @@ exactly one detailed document, listed below.
 - `docs/goal/remaining-operations-work.md`: concise overall operations
   backlog, status, validation, and risk overview only.
 - `docs/goal/goal-01-create-vm-live-smoke-matrix.md` through
-  `docs/goal/goal-12-platform-hardening-decision-quality.md`, plus
+  `docs/goal/goal-11-drs-operations-productization.md`, plus
   `docs/goal/goal-07-5-drs-vm-policy-management.md`: one detailed document per
-  goal, including the inserted Goal 7.5. Goal 10 safety baseline is complete;
-  Goals 11-12 are candidate/not-started follow-on briefs.
+  current goal, including the inserted Goal 7.5. Goal 10 safety baseline and
+  approved VMID `140` live evidence are complete. Goal 11 is the rewritten
+  criteria/operations productization follow-on.
+- `docs/goal/goal-12-platform-hardening-decision-quality.md`: historical
+  superseded pointer only. Do not start it as an active goal.
 - `docs/goal/goal-check-01-06-implementation-quality.md`: non-numbered gate
   that verifies Goal 1 through Goal 6 implementation quality before Goal 7.
 - `docs/goal/goal-check-01-06-summary-ko.md`: Korean operator-readable summary
@@ -47,23 +51,25 @@ exactly one detailed document, listed below.
 | Goal 8: Post-Create Readiness Evidence | Completed | `docs/goal/goal-08-post-create-readiness-evidence.md` | Minimal local-only opt-in recorder is implemented for already-created VMs; Create VM success is unchanged; future live readiness checks remain deferred and require explicit active-session approval. |
 | Goal Check: Current Implementation Validation Before Goal 9 | Completed | `docs/goal/goal-check-current-implementation-validation.md` | Result: pass-with-risk; no live DRS smoke was run. |
 | Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` | Admin local account operations, admin session inventory/revocation UI, self password change, and sanitized account/session audit metadata are implemented. |
-| Goal 10: DRS Live Migration Safety And Evidence | Safety baseline complete; no live smoke | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` | Execute acknowledgement gate and optional live smoke runbook/evidence matrix are implemented. Any future live DRS smoke requires separate explicit run approval. |
-| Goal 11: DRS Operations Productization | Candidate / not started | `docs/goal/goal-11-drs-operations-productization.md` | Productize guarded DRS operations UI after Goal 10 safety baseline; no frontend inference of executability. |
-| Goal 12: Platform Hardening And Decision Quality | Candidate / not started | `docs/goal/goal-12-platform-hardening-decision-quality.md` | Metrics, read-only evidence depth, blocker taxonomy, audit browsing, error envelope, retention, and redaction hardening candidate. |
+| Goal 10: DRS Live Migration Safety And Evidence | Completed with approved VMID `140` live evidence | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` | Execute acknowledgement gate, optional live smoke runbook/evidence matrix, approved live migration, verified post-check, stored-UPID reconciliation follow-up, and lock release are complete. Future live mutation/cleanup still requires separate explicit run approval. |
+| Goal 11: DRS Criteria And Operations Productization | Rewritten follow-on / not started | `docs/goal/goal-11-drs-operations-productization.md` | Supersedes the old Goal 11/12 split. Align DRS criteria, Advisor blocker taxonomy, UI operations workflow, and Jobs/Runs evidence without moving execution authority into the frontend. |
+| Goal 12: Superseded Platform Hardening And Decision Quality Brief | Superseded | `docs/goal/goal-12-platform-hardening-decision-quality.md` | Historical pointer only; selected hardening slices now live inside the rewritten Goal 11 or a later newly defined goal. |
 
 When a future session says "next goal", do not restart Goal 7.5, the minimal
-Goal 8 recorder, Goal 9 polish, or the Goal 10 safety baseline. Any future Goal
-10 live smoke evidence requires explicit approval for a specific live run. Goal
-11 and Goal 12 are later candidate follow-ons unless separately selected.
+Goal 8 recorder, Goal 9 polish, the Goal 10 safety baseline, or the approved
+VMID `140` live DRS smoke. The next coherent goal-sized follow-on is the
+rewritten Goal 11 unless the user selects a different task.
 The Goal 1-6 implementation quality audit is complete with result
 `pass-with-risk`; Goal 7, Goal 7.5, and the minimal local-only Goal 8 slice
-are complete; no live DRS smoke was run.
+are complete. That historical audit predated the later VMID `140` live DRS
+smoke.
 Goal 9 local account/session polish is complete: admin local account
 operations, admin session inventory/revocation UI, self password change, and
 sanitized account/session audit metadata are implemented. Disable and
 reset-password revoke target sessions while role changes do not.
-Goal 10 now has exact execute acknowledgement validation and an optional live
-DRS smoke readiness matrix; no live DRS smoke was run.
+Goal 10 now has exact execute acknowledgement validation, a live smoke readiness
+matrix, and approved VMID `140` live evidence recorded in
+`docs/operations/drs-explicit-test-candidate-prep-2026-06-03.md`.
 
 ## DRS Safety Constraints
 
@@ -91,15 +97,17 @@ The approved Create VM smoke range remains the live-smoke candidate range:
   `docs/operations/create-vm-live-smoke-2026-05-28.md`
 
 Goal 5, Goal 6, and the Goal 10 safety baseline used automated fake/mock
-validation. No live DRS migration smoke has been run.
+validation. The later approved Goal 10 live smoke moved VMID `140` from
+`yoonmanserver` to `yoonserver3`, recorded Proxmox task `OK`, verified Gjallar
+post-check after parser normalization, completed stored-UPID reconciliation, and
+released operation locks.
 
 ## Current DRS Gap Summary
 
 - Narrow backend DRS execute exists.
 - Broad live execute UI remains a gap.
 - Corrective reconcile UI and corrective reconciliation mutation remain gaps.
-- Live DRS smoke evidence remains a gap; only the optional checklist/evidence
-  matrix exists.
+- Backend-owned blocker taxonomy and UI display remain gaps.
 - Richer policy rule/full metadata editor remains a gap.
 - 15-minute average/peak metrics remain a gap.
 - Deeper read-only task/HA/quorum collection remains a gap.
@@ -113,16 +121,17 @@ Use docs/goal/README.md as the canonical goal entrypoint.
 Goal Check 01-06 is complete with result pass-with-risk; read
 docs/goal/goal-check-01-06-summary-ko.md for the audit summary.
 Goal 7, Goal 7.5, the minimal local-only Goal 8 recorder, Goal 9 local
-account/session polish, and the Goal 10 safety baseline are complete; no live
-DRS smoke was run. Goal 9 includes
+account/session polish, and Goal 10 are complete; Goal 10 includes approved
+VMID 140 live DRS smoke evidence and stored-UPID reconciliation completion. Goal
+9 includes
 admin list/create/role/disable/reset-password, admin session inventory and
 revocation UI, self password change, and sanitized account/session audit
 metadata; disable/reset-password revoke target sessions and role change does
 not. The non-numbered current implementation validation gate completed with
 result pass-with-risk in
-docs/goal/goal-check-current-implementation-validation.md. Remaining Goal 10
-live evidence work requires explicit approval for a specific live run; Goal 11
-and Goal 12 are later candidate follow-ons unless separately selected. Treat
+docs/goal/goal-check-current-implementation-validation.md. The next coherent
+follow-on is the rewritten Goal 11 DRS Criteria And Operations Productization
+unless the user selects a different task. Treat
 192.168.2.140-150/24 as candidate
 selection guard only, not execution authority. Do not run live Proxmox mutation,
 smoke, live readiness, cleanup, corrective action, or reconciliation mutation
@@ -130,7 +139,8 @@ without explicit active-session approval for that specific run. Preserve all
 DRS backend gates: policy `allowed` is only one prerequisite, not migration
 approval, and execute requires exact `drs_live_migration_acknowledged=true`
 before DRS service/client/lock/migration work. Current implemented state
-includes narrow backend DRS execute; broad live execute UI, corrective reconcile
-UI, live DRS smoke, richer policy editor, 15-minute metrics, and deeper
-read-only task/HA/quorum collection remain gaps.
+includes narrow backend DRS execute and approved VMID 140 live evidence; broad
+live execute UI, corrective reconcile UI, backend-owned blocker taxonomy, richer
+policy editor, 15-minute metrics, and deeper read-only task/HA/quorum collection
+remain gaps.
 ```

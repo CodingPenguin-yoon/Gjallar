@@ -170,6 +170,12 @@ node --test frontend/tests/authFlow.test.mjs frontend/tests/apiV1Client.test.mjs
   Proxmox create acknowledgement.
 - DRS VM policy updates write only Gjallar-local policy/audit rows. They do not
   start migration, approve migration, reconcile state, or write Proxmox tags.
+- DRS authority is split deliberately: Proxmox migration preconditions and
+  UPID task state are the technical authority, while Gjallar policy,
+  identity/fingerprint, audit artifacts, operation locks, approval/job binding,
+  and reconciliation status are the DRS authority. Advisor route, storage,
+  passthrough, and network checks are advisory/pre-filter signals, not final
+  Proxmox technical authority.
 - Create VM default `stopped` success remains powered-off after post-check and
   does not auto-start. The optional `boot_and_verify` request explicitly starts
   the new VM and verifies guest-agent IP plus cloud-init completion.
@@ -177,6 +183,12 @@ node --test frontend/tests/authFlow.test.mjs frontend/tests/apiV1Client.test.mjs
 - Do not rely on destructive VM list controls; the current UI does not expose stop/reset/shutdown/reboot/delete/terminate.
 - Live Proxmox Create VM smoke completed on 2026-05-28 and is recorded in
   [`create-vm-live-smoke-2026-05-28.md`](create-vm-live-smoke-2026-05-28.md).
+  A later approved Create VM run for DRS smoke preparation completed on
+  2026-06-01 and is recorded in
+  [`create-vm-live-smoke-2026-06-01.md`](create-vm-live-smoke-2026-06-01.md).
+  A DRS migration smoke for VMID `140` was later approved on 2026-06-03 and is
+  recorded in
+  [`drs-explicit-test-candidate-prep-2026-06-03.md`](drs-explicit-test-candidate-prep-2026-06-03.md).
   Future live smoke runs still require explicit approval in the active session.
 
 ## DRS VM Policy Classification
@@ -230,12 +242,48 @@ Verification:
 - Stale, mismatched, retired, low-confidence, or conflict observations return
   `409` and must not change policy or audit rows.
 
+## Explicit DRS Test Candidate Readiness
+
+Use this backend-only path when an approved smoke VM is outside the normal DRS
+top-3 recommendation slice. It is not an arbitrary migration endpoint and does
+not call Proxmox mutation. It still requires a hot source, target pressure
+delta, running non-template VM state, no red-risk exclusion, route/storage/
+network/passthrough/target-threshold compatibility, high-confidence identity,
+`allowed` migration policy, no blocking operation lock, and no config lock.
+
+1. Log in as `operator` or `admin`.
+2. Read `/api/v1/drs/policies` and copy the selected VM's `vm_identity_id`,
+   current VMID, source node, and intended target node.
+3. Run the explicit check with exact acknowledgement:
+
+```http
+POST /api/v1/drs/explicit-test-candidates/check
+{
+  "explicit_test_vm_acknowledged": true,
+  "vm_identity_id": "vmid-...",
+  "vmid": 140,
+  "source_node_id": "yoonmanserver",
+  "target_node_id": "target-node"
+}
+```
+
+4. If the check reports `would_be_executable=true`, the matching local approval
+   packet/job intent can be created with the same payload at
+   `POST /api/v1/drs/explicit-test-candidates/approval-packets`.
+
+Missing, false, null, string, number, camelCase-only, or Create VM
+acknowledgement values return `409` /
+`DRS_EXPLICIT_TEST_CANDIDATE_ACK_REQUIRED` with
+`proxmox_mutation_enabled=false` and `side_effects=[]` before inventory,
+advisor, DB, client, lock, or migration work. Stale source/target/identity
+selection rejects before approval creation.
+
 ## Optional Live DRS Migration Smoke Readiness Checklist
 
-No live DRS migration smoke has been run. Do not run this section without
-explicit user approval in the current session. The live path performs Proxmox
-mutation through `POST /api/v1/drs/migration-jobs/{job_id}/execute`, and the
-request must include exact `drs_live_migration_acknowledged=true`.
+Do not run this section without explicit user approval in the current session.
+The live path performs Proxmox mutation through
+`POST /api/v1/drs/migration-jobs/{job_id}/execute`, and the request must
+include exact `drs_live_migration_acknowledged=true`.
 
 Do not create `docs/operations/drs-live-migration-smoke-YYYY-MM-DD.md` unless an
 actual approved live DRS smoke is performed. Cleanup, corrective action, retry,
@@ -279,6 +327,35 @@ DRS smoke evidence matrix template:
 | Ack negative gate | `<timestamp>` | `<commit>` | `<job-id> / <packet-id>` | `<identity> / <vmid> / <name>` | `<source> -> <target>` | `<username>/<role>` | `<missing-or-malformed>` | `<approval/final-precheck refs>` | `409 / DRS_EXECUTION_ACK_REQUIRED` | `side_effects=[]; locks=<none>` | `<none>` | `pending job unchanged` | `<not requested>` | `blocked before work` |
 | Readiness packet | `<timestamp>` | `<commit>` | `<job-id> / <packet-id>` | `<identity> / <vmid> / <name>` | `<source> -> <target>` | `<username>/<role>` | `not live` | `<identity; policy; locator; route; checksums; warnings; lock scopes>` | `<read/check/approval endpoints>` | `side_effects=[]` | `<none>` | `<not run>` | `<not requested>` | `ready or blocked` |
 | Approved live execute | `<timestamp>` | `<commit>` | `<job-id> / <packet-id>` | `<identity> / <vmid> / <name>` | `<source> -> <target>` | `<username>/<role>` | `drs_live_migration_acknowledged=true` | `<fresh gates and live evidence refs>` | `<http/status/code>` | `<side_effects>; <lock ids/status>` | `<upid; task result/log refs>` | `<completed or needs_reconciliation evidence>` | `<separate approval id or none>` | `<result>` |
+
+## DRS Local Reconciliation Follow-Up
+
+Use this only for an existing DRS migration job that already has a stored UPID.
+It is not a retry, reverse migration, or corrective mutation endpoint. It must
+not create a new approval packet/job and must not call Proxmox `migrate_vm`.
+
+```http
+POST /api/v1/drs/migration-jobs/{job_id}/reconcile
+{
+  "drs_reconciliation_acknowledged": true
+}
+```
+
+The acknowledgement must be the exact boolean field above. Missing, false,
+null, string, number, camelCase-only, Create VM acknowledgement, or live DRS
+execute acknowledgement values return `409` /
+`DRS_RECONCILIATION_ACK_REQUIRED` with `proxmox_mutation_enabled=false`,
+`corrective_mutation_enabled=false`, and `side_effects=[]` before inventory,
+client, DB, lock, or reconciliation work.
+
+After the acknowledgement gate, the route polls the stored Proxmox task,
+collects direct target/source post-check evidence, and updates only local
+Gjallar job, operation-lock, artifact, Jobs/Runs, and reconciliation-event
+state. A still-running task keeps the job running and locks active. Task `OK`
+with a passing post-check completes the job and releases existing locks. Task
+`OK` with mismatch, failed task evidence, or ambiguous task evidence marks the
+job `needs_reconciliation`, keeps locks `reconciliation_required`, and records
+reconciliation evidence.
 
 ## Live Create VM Smoke Checklist
 
