@@ -199,6 +199,7 @@ for (const forbidden of [
   forbiddenEndpoint('/vm-create/', 'execute'),
   forbiddenEndpoint('/vm-create/', 'archive'),
   forbiddenEndpoint('/drs/recommendations/', 'approve'),
+  forbiddenEndpoint('/drs/recommendations/', 'execute'),
   forbiddenEndpoint('/drs/recommendations/', 'migrate'),
   forbiddenEndpoint('/drs/recommendations/', 'live-migrate'),
   forbiddenEndpoint('/drs/recommendations/', 'check-now'),

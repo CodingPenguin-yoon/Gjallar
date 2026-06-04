@@ -79,28 +79,110 @@ export function canSubmitDrsApprovalPacket(approvalReadiness = {}, { warningAckn
 function normalizeBlockerDetails(value = []) {
   return asArray(value).map((detail) => {
     if (typeof detail === 'string') {
-      return { code: detail, message: formatDrsBlocker(detail), severity: 'blocker', raw: detail }
+      return {
+        code: detail,
+        message: formatDrsBlocker(detail),
+        authority: 'gjallar_operational_gate',
+        category: 'hard_gate',
+        severity: 'blocking',
+        evidenceState: 'observed',
+        actionBlocked: 'approval',
+        blocking: true,
+        raw: detail,
+      }
     }
     const source = asObject(detail)
     const code = asText(source.code ?? source.blocker, '')
     return {
       code,
       message: asText(source.message ?? source.reason, code ? formatDrsBlocker(code) : '-'),
+      authority: asText(source.authority, 'gjallar_operational_gate'),
+      category: asText(source.category, 'hard_gate'),
       severity: asText(source.severity, 'blocker'),
+      evidenceState: asText(source.evidence_state ?? source.evidenceState, 'observed'),
+      actionBlocked: asText(source.action_blocked ?? source.actionBlocked, 'approval'),
+      blocking: source.blocking !== false,
       raw: detail,
     }
   }).filter((detail) => detail.code || detail.message !== '-')
 }
 
+function normalizeCriteriaDetail(value = {}) {
+  if (typeof value === 'string') {
+    return {
+      code: value,
+      message: formatDrsBlocker(value),
+      authority: 'gjallar_operational_gate',
+      category: 'hard_gate',
+      severity: 'blocking',
+      evidenceState: 'observed',
+      actionBlocked: 'approval',
+      blocking: true,
+      status: 'blocked',
+      evidence: {},
+      raw: value,
+    }
+  }
+  const source = asObject(value)
+  const code = asText(source.code ?? source.blocker, '')
+  return {
+    code,
+    message: asText(source.message ?? source.reason, code ? formatDrsBlocker(code) : '-'),
+    authority: asText(source.authority, 'gjallar_operational_gate'),
+    category: asText(source.category, 'hard_gate'),
+    severity: asText(source.severity, 'blocking'),
+    evidenceState: asText(source.evidence_state ?? source.evidenceState, 'observed'),
+    actionBlocked: asText(source.action_blocked ?? source.actionBlocked, 'approval'),
+    blocking: source.blocking === true,
+    status: asText(source.status, ''),
+    evidence: asObject(source.evidence),
+    raw: value,
+  }
+}
+
+function normalizeCriteriaDetails(value = []) {
+  return asArray(value).map(normalizeCriteriaDetail).filter((detail) => detail.code || detail.message !== '-')
+}
+
+function normalizeAdvisorySignals(value = []) {
+  return normalizeCriteriaDetails(value).filter((detail) => detail.authority === 'advisor_prefilter_signal')
+}
+
+function normalizeTechnicalGateStatus(value = {}) {
+  const source = asObject(value)
+  return {
+    authority: asText(source.authority, 'proxmox_final_technical_gate'),
+    category: asText(source.category, 'technical_gate'),
+    status: asText(source.status, 'unknown'),
+    evidenceState: asText(source.evidence_state ?? source.evidenceState, 'unknown'),
+    actionBlocked: asText(source.action_blocked ?? source.actionBlocked, 'execute'),
+    criteria: asArray(source.criteria).map((item) => asText(item)).filter((item) => item !== '-'),
+    raw: source,
+  }
+}
+
+function normalizeCriteriaSummary(source = {}) {
+  const criteria = asObject(source)
+  return {
+    hardGateBlockers: normalizeBlockers({ blockers: criteria.hard_gate_blockers ?? criteria.hardGateBlockers }),
+    advisorySignalCodes: normalizeBlockers({ blockers: criteria.advisory_signal_codes ?? criteria.advisorySignalCodes }),
+    technicalGateStatus: asText(criteria.technical_gate_status ?? criteria.technicalGateStatus, 'unknown'),
+    authorities: asArray(criteria.authorities).map((item) => asText(item)).filter((item) => item !== '-'),
+    raw: criteria,
+  }
+}
+
 function normalizeCheckItem(id, source = {}) {
   const item = asObject(source)
   const evidence = asObject(item.evidence)
+  const criterion = item.criterion ? normalizeCriteriaDetail(item.criterion) : null
   return {
     id: asText(id, 'check'),
     label: formatDrsBlocker(id),
     status: asText(item.status, 'unknown'),
     blocker: asText(item.blocker, ''),
     evidence,
+    criterion,
     raw: item,
   }
 }
@@ -193,6 +275,10 @@ function normalizeFinalPrecheck(source = {}) {
     blockers: normalizeBlockers(check),
     checks: normalizeCheckItems(checks),
     checksById: checks,
+    criteria: normalizeCriteriaSummary(check.criteria),
+    criteriaDetails: normalizeCriteriaDetails(check.criteria_details ?? check.criteriaDetails),
+    advisorySignals: normalizeAdvisorySignals(check.advisory_signals ?? check.advisorySignals),
+    technicalGateStatus: normalizeTechnicalGateStatus(check.technical_gate_status ?? check.technicalGateStatus),
     checkedAt: asText(check.checked_at ?? check.checkedAt, ''),
     observedAt: asText(check.observed_at ?? check.observedAt, ''),
     reason: asText(check.reason, ''),
@@ -266,6 +352,8 @@ function normalizeRecommendation(source = {}) {
   const evidence = asObject(source.evidence)
   const identityEvidence = asObject(source.identity_evidence ?? source.identityEvidence ?? evidence.identity)
   const policyEvidence = asObject(source.policy_evidence ?? source.policyEvidence ?? evidence.policy)
+  const criteriaDetails = normalizeCriteriaDetails(source.criteria_details ?? source.criteriaDetails)
+  const advisorySignals = normalizeAdvisorySignals(source.advisory_signals ?? source.advisorySignals)
   return {
     id: asText(source.id, 'unknown'),
     status: asText(source.status, 'blocked'),
@@ -279,6 +367,10 @@ function normalizeRecommendation(source = {}) {
     reason: asText(source.reason, 'Review current DRS evidence'),
     blockers: normalizeBlockers(source),
     blockerDetails: asArray(source.blocker_details ?? source.blockerDetails),
+    criteria: normalizeCriteriaSummary(source.criteria),
+    criteriaDetails,
+    advisorySignals,
+    technicalGateStatus: normalizeTechnicalGateStatus(source.technical_gate_status ?? source.technicalGateStatus),
     thresholds: asObject(source.thresholds),
     estimatedEffect: {
       sourcePressureBefore: asNumber(effect.source_pressure_before ?? effect.sourcePressureBefore),
@@ -545,6 +637,10 @@ export async function checkDrsRecommendation(client = apiV1Client, recommendatio
     execution: normalizeExecution(result.execution),
     blockers: normalizeBlockers(result),
     blockerDetails: normalizeBlockerDetails(result.blocker_details ?? result.blockerDetails),
+    criteria: normalizeCriteriaSummary(result.criteria),
+    criteriaDetails: normalizeCriteriaDetails(result.criteria_details ?? result.criteriaDetails),
+    advisorySignals: normalizeAdvisorySignals(result.advisory_signals ?? result.advisorySignals),
+    technicalGateStatus: normalizeTechnicalGateStatus(result.technical_gate_status ?? result.technicalGateStatus),
     identityEvidence: asObject(result.identity_evidence ?? result.identityEvidence),
     policyEvidence: asObject(result.policy_evidence ?? result.policyEvidence),
     checkedAt: asText(result.checked_at ?? result.checkedAt, ''),

@@ -13,7 +13,7 @@ Current `/drs` UI calls read/check and policy endpoints and exposes local approv
 | 1 | Load DRS Advisor. | `GET /api/v1/drs/summary` and `GET /api/v1/drs/recommendations`. | May persist Gjallar-local identity observation evidence; no Proxmox mutation. |
 | 2 | Operator opens recommendation. | `GET /api/v1/drs/recommendations/{recommendation_id}` returns evidence bundle. | Same read-only/local-evidence boundary. |
 | 3 | Operator refreshes recommendation evidence for reference. | `POST /api/v1/drs/recommendations/{recommendation_id}/check`. | Check result remains `read_only=true`, `executable=false`, `allowed_actions=[]`; not execution authorization. |
-| 4 | Optional explicit smoke candidate check/approval. | `POST /api/v1/drs/explicit-test-candidates/check` and `/approval-packets` with exact `explicit_test_vm_acknowledged=true`. | Only bypasses the normal top-3 VM slice for one selected `vm_identity_id`/VMID/source/target. Hot source, target delta, running non-template, red-risk exclusion, route/storage/network/passthrough/target-threshold/policy/identity/lock gates still block. Local approval only; no Proxmox mutation. |
+| 4 | Optional explicit smoke candidate check/approval. | `POST /api/v1/drs/explicit-test-candidates/check` and `/approval-packets` with exact `explicit_test_vm_acknowledged=true`. | Only bypasses the normal top-3 VM slice for one selected `vm_identity_id`/VMID/source/target. Hot source, target delta, running non-template, red-risk exclusion, target-threshold, policy, identity, lock, and Proxmox final technical gates still block. Route/storage/network/passthrough are Advisor pre-filter signals. Local approval only; no Proxmox mutation. |
 | 5 | Operator-only API creates approval packet/job intent. | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets`. | Local approval packet, final-precheck artifact, recommendation artifact, and pending `drs_migration` job intent. No Proxmox mutation. |
 | 6 | Operator-only API executes stored job. | `POST /api/v1/drs/migration-jobs/{job_id}/execute` with exact `drs_live_migration_acknowledged=true`. | Ack failure is request validation only: no DRS service call, client factory, live pre-check, lock, migration call, or job-state mutation. After ack, stored approval/job binding and artifact checksums are validated before any client factory or mutation. |
 | 7 | Execute route reruns fresh gates. | Reread recommendation, identity/fingerprint, locator, policy, operation-lock, and config-lock evidence. | Blocked gate records blocked job evidence; no Proxmox mutation. |
@@ -54,10 +54,10 @@ operation locks, or migration calls, and it does not mark a pending job blocked.
 | Gjallar identity/fingerprint still matches | Avoid identity mismatch and VMID reuse hazards. |
 | No conflicting Proxmox task | Avoid racing with backup, migration, clone, or manual operations. |
 | Source and target nodes online | Migration requires available endpoints. |
-| Target storage/network compatible | Avoid post-migration service failure. |
+| Proxmox live migration preconditions pass | Avoid post-migration service failure; this is collected by the dedicated DRS execution client before mutation. |
 | DRS policy still permits move | Policy may change after recommendation. |
 | Locks acquired | Avoid concurrent Gjallar operations. |
-| No red DRS blocker | Red blockers stop execution. |
+| No hard DRS gate blocker | Gjallar operational gates and Proxmox final technical gates stop execution. Advisor pre-filter signals are visible evidence unless explicitly promoted by backend contract. |
 
 ## Reconciliation
 

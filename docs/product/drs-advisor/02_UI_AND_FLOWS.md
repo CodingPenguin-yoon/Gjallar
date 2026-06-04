@@ -12,7 +12,7 @@
 - Jobs/Runs: `/jobs`
 - Risks/Alerts: `/risks`
 
-현재 `/drs` route는 recommendation/detail/check, manual VM policy configuration, and local approval packet/job intent creation을 제공한다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`다.
+현재 `/drs` route는 recommendation/detail/check, manual VM policy configuration, backend-owned criteria taxonomy display, and local approval packet/job intent creation을 제공한다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`다.
 
 ## 2. Dashboard
 
@@ -66,7 +66,8 @@ Top recommendation summary:
 - `loadDrsAdvisorModel`은 `/api/v1/drs/summary`, `/api/v1/drs/recommendations`, detail/check, `GET/PUT /api/v1/drs/policies*`, and `/approval-packets`를 사용한다.
 - CPU/Memory current usage와 imbalance로 Balanced/Watch/Imbalanced를 계산한다.
 - source pressure >= 70, source-target delta >= 25이면 recommendation 후보를 만든다.
-- bridge/storage evidence를 검토한다.
+- bridge/storage/network/passthrough evidence를 backend-owned criteria taxonomy로 표시한다.
+- `blockers`는 hard Gjallar/Proxmox gate subset이고, route/network/local-storage/passthrough는 `advisor_prefilter_signal` advisory evidence다.
 - recommendation/check execution은 `available: false`, `read_only: true`, `executable: false`이고 action list는 비어 있다.
 - manual per-VM migration policy configuration과 local approval packet/job intent creation은 current UI에 있다. Live migration execute UI와 corrective reconcile UI는 없다.
 
@@ -75,7 +76,7 @@ Top recommendation summary:
 - 화면 제목은 `DRS Advisor`다.
 - read-only notice는 "recommendation은 execution gate가 아니며 final pre-check가 권위"라는 설명으로 바꾼다.
 - 카드 중심 recommendation은 full table + detail drawer로 확장한다.
-- Allowed VM만 Approve & Migrate가 활성화된다.
+- Allowed policy만으로 migration action이 활성화되지 않는다. Current UI는 local approval packet/job intent creation only이고 live execute UI는 deferred다.
 
 주요 섹션:
 
@@ -88,7 +89,7 @@ Top recommendation summary:
 - Route Status
 - Check Now result
 - final pre-check result
-- Approve & Migrate action
+- Local approval packet / job intent action
 - Recent DRS jobs
 
 Recommendation table fields:
@@ -130,22 +131,20 @@ Route Status는 특정 source -> target 경로의 가능성이다.
 - Blocked
 - Unknown
 
-Unknown은 migration 불가다.
-Check Now로 Unknown이 temporarily 좋아 보여도 실행 권한은 생기지 않는다.
-Approve & Migrate 시 final pre-check를 새로 수행해야 한다.
+Current implementation에서 Advisor Route Status Unknown은 advisory/pre-filter signal이며 local approval packet creation을 직접 막는 hard gate가 아니다. It does not create execution authority. Stored job execution still reruns fresh Gjallar gates and then Proxmox live pre-check/migration preconditions immediately before mutation; those Proxmox final technical gates can block the migration request.
 
-## 5. Approve & Migrate flow
+## 5. Local approval and stored execute flow
 
 ```text
 recommendation selected
--> Approve & Migrate clicked
+-> local approval packet creation requested
 -> server reconstructs current Proxmox state
--> final pre-check runs
--> blocked/unknown: show blockers, no job
--> pass/warning: show confirm modal
--> user acknowledges warnings if any
+-> read-only final pre-check runs
+-> hard gates blocked: show blockers, no local approval packet/job intent
+-> hard gates pass: write local approval packet and pending job intent
+-> separate backend execute route requires drs_live_migration_acknowledged=true
+-> fresh gates and Proxmox live pre-check run
 -> operation lock acquired
--> drs_migration job created
 -> Proxmox live migration requested
 -> UPID stored
 -> worker tracks task
@@ -153,7 +152,7 @@ recommendation selected
 -> success/failed/needs_reconciliation
 ```
 
-Confirm modal 필수 표시:
+Approval/execution review must display:
 
 - VM name
 - VMID locator
@@ -165,6 +164,7 @@ Confirm modal 필수 표시:
 - sensitivity
 - final pre-check result
 - blockers/warnings
+- criteria authority: Gjallar gate, Advisor signal, or Proxmox technical gate
 - expected effect
 - operation lock scope
 - timeout: 30m
@@ -179,6 +179,7 @@ Confirm modal 필수 표시:
 - live statuses는 2.5초 polling한다.
 - retry/cancel/live-run/VM mutation control은 없다.
 - backend job run은 DB-backed `job_runs`/`job_artifacts`로 저장된다.
+- DRS `drs_migration` job details show compact read-only `drs_evidence` and artifact metadata only. Artifact payloads and local paths are not rendered.
 
 DRS Advisor 목표:
 
@@ -187,7 +188,7 @@ DRS Advisor 목표:
 - operation lock 상태를 표시한다.
 - final pre-check artifact를 표시한다.
 - success/failed/needs_reconciliation을 구분한다.
-- needs_reconciliation이면 Reconcile Now action을 표시한다.
+- needs_reconciliation이면 post-check/lock/reconciliation evidence와 read-only preview availability를 표시한다. Current UI does not expose a corrective Reconcile Now action.
 
 DRS job fields:
 
@@ -207,6 +208,12 @@ DRS job fields:
 - finished_at
 - inline log summary
 - artifact links
+
+Jobs/Runs DRS panel must remain inspection-only:
+
+- no frontend execute/reconcile/retry/cleanup/reverse-migration controls
+- no recommendation-level migrate/live-migrate/execute aliases
+- Proxmox task `OK` is historical task evidence only; Gjallar completion still requires post-check and lock/reconciliation evidence
 
 ## 7. Risks / Alerts
 

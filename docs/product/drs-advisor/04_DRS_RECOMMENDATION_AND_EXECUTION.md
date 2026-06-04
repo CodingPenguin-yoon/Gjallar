@@ -19,14 +19,26 @@
 - execution.available은 false
 - read_only true, executable false, allowed_actions 빈 배열
 
-현재 구현 상태: backend에는 identity/policy evidence, operation locks, local approval/job substrate, selected smoke/test VM을 위한 operator-only explicit candidate check/approval helper, narrow operator-only migration-job execute route, exact `drs_live_migration_acknowledged=true` request gate, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. `/drs` frontend에는 manual VM policy configuration과 local approval packet/job intent creation이 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Explicit test candidate helper는 normal top-3 shortlist만 우회하고 Proxmox mutation을 호출하지 않으며, arbitrary migration endpoint가 아니다. Live migration execute UI와 corrective reconcile UI는 아직 deferred다.
+현재 구현 상태: backend에는 identity/policy evidence, backend-owned criteria taxonomy, operation locks, local approval/job substrate, selected smoke/test VM을 위한 operator-only explicit candidate check/approval helper, narrow operator-only migration-job execute route, exact `drs_live_migration_acknowledged=true` request gate, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. `/drs` frontend에는 manual VM policy configuration, criteria taxonomy display, and local approval packet/job intent creation이 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Explicit test candidate helper는 normal top-3 shortlist만 우회하고 Proxmox mutation을 호출하지 않으며, arbitrary migration endpoint가 아니다. Live migration execute UI와 corrective reconcile UI는 아직 deferred다.
 
 이 문서의 나머지 target guidance는 backend-backed, identity/policy aware, final pre-check gated, approval-gated execution model을 설명한다. Recommendation/check result 자체를 execution authority로 해석하면 안 된다.
+
+### 1.1 Implemented criteria taxonomy
+
+Recommendation/check responses expose the same backend vocabulary:
+
+- `authority`: `gjallar_operational_gate`, `proxmox_final_technical_gate`, or `advisor_prefilter_signal`.
+- `category`: `hard_gate`, `policy_gate`, `technical_gate`, `advisory`, or `warning`.
+- `severity`: display/triage severity such as `blocking`, `warning`, `pending`, or `info`.
+- `evidence_state`: explicit evidence state such as `observed`, `unknown`, `stale`, `unavailable`, `ambiguous`, or `not_collected`.
+- `action_blocked`: `approval`, `execute`, `local_completion`, or `none`.
+
+The flat `blockers` list remains the compatibility hard-gate subset. Advisor route/network/local-storage/passthrough evidence is returned as `advisory_signals` and `criteria_details` with `authority=advisor_prefilter_signal`, `category=advisory`, and `action_blocked=none`. Proxmox active task, HA state, and cluster quorum rows are explicit `not_collected` final technical gate evidence in recommendation/check output; live execution still collects final Proxmox technical evidence through the dedicated DRS execution path before mutation.
 
 ## 2. Target DRS model
 
 MVP 추천은 CPU/Memory 중심이다.
-Disk/storage/network/HA는 score driver가 아니라 route feasibility, blocker, warning evidence다.
+Disk/storage/network/HA는 score driver가 아니라 criteria evidence다. In the current implementation, Advisor route/network/local-storage/passthrough evidence is advisory/pre-filter signal, while Proxmox live pre-check/migration preconditions remain the final technical gate before mutation.
 
 Polling:
 
@@ -67,9 +79,9 @@ min_pressure_delta = 20 percentage points
 8. metadata complete
 9. migration_policy allowed
 10. no active operation lock
-11. no active conflicting job/task
+11. no active conflicting job/task at execution live pre-check
 12. target projected CPU/Memory below block threshold
-13. route status Feasible 또는 Warning
+13. Advisor route/storage/network/passthrough signal visible as advisory/pre-filter evidence
 14. no blocker
 
 추천 제외:
@@ -84,13 +96,14 @@ min_pressure_delta = 20 percentage points
 - VM moved from source
 - target offline
 - quorum unhealthy
-- active conflicting task
+- active conflicting task at execution live pre-check
 - config lock
-- passthrough blocker
-- route blocked
-- route unknown
-- missing or malformed `drs_live_migration_acknowledged=true` on the execute
-  request
+- Advisor passthrough signal visible as advisory evidence
+- Advisor route blocked/unknown signal visible as advisory evidence
+
+Missing or malformed `drs_live_migration_acknowledged=true` is not a
+recommendation exclusion. It is execute request validation only, enforced by the
+stored-job execute route before DRS service/client/lock/migration work.
 
 ## 4. Route Status
 
@@ -101,9 +114,7 @@ Route Status는 특정 source -> target 경로의 가능성이다.
 - Blocked: known blocker 있음
 - Unknown: 필요한 evidence가 없어 실행 허가 불가
 
-Unknown은 migration 불가다.
-Unknown은 warning과 다르다.
-final pre-check가 Unknown을 Feasible/Warning으로 확정하기 전까지 실행할 수 없다.
+Current Advisor Unknown is not execution authority and is surfaced as advisory/pre-filter evidence. It does not by itself grant or deny mutation. The stored execute path must still run the final Proxmox technical live pre-check; unavailable, ambiguous, conflicting, or failing live route/precondition evidence blocks before mutation.
 
 ## 5. Check Now and final pre-check
 
@@ -117,7 +128,7 @@ Check Now:
 Final pre-check:
 
 - 실행 직전의 유일한 authoritative gate다.
-- Approve & Migrate마다 새로 수행한다.
+- stored job execute마다 fresh gates and Proxmox live pre-check evidence are collected before mutation.
 - 이전 final pre-check도 재사용하지 않는다.
 
 Final pre-check 10개:
@@ -131,7 +142,7 @@ Final pre-check 10개:
 7. target node online
 8. cluster health/quorum OK
 9. no active conflicting task
-10. route feasible/warning
+10. Proxmox live migration preconditions pass before mutation
 
 각 check의 source:
 
@@ -144,7 +155,7 @@ Final pre-check 10개:
 - target node online: live Proxmox node state
 - cluster health/quorum OK: live Proxmox cluster status
 - no active conflicting task: live Proxmox tasks + jobs
-- route feasible/warning: live storage/network/HA/config evidence
+- Proxmox live migration preconditions: live storage/network/HA/config/quorum/task evidence collected by the dedicated DRS execution client
 
 ## 6. Blockers
 
@@ -162,11 +173,9 @@ Blocked 기준:
 - VM not on approved source node
 - target offline
 - cluster quorum unhealthy
-- active conflicting task
+- active conflicting task at execution live pre-check
 - config lock
-- passthrough device
-- route blocked
-- route unknown
+- Proxmox migration precondition blocked/unavailable/ambiguous
 - final pre-check unknown
 
 ## 7. Warnings
@@ -184,8 +193,8 @@ Warning examples:
 - Check Now result stale
 - recent failed job on same VM
 
-Warning은 migration을 막지 않을 수 있다.
-단 confirm modal에서 명시적 acknowledgement가 필요하다.
+Warning은 local approval packet/job intent creation을 막지 않을 수 있다.
+단 backend-tracked approval warning acknowledgement가 필요하다.
 
 ## 8. Execution flow
 
@@ -197,12 +206,10 @@ poll Proxmox state
 -> compute route status
 -> create recommendation snapshot
 -> render Dashboard top 1-3 and DRS Advisor table
--> Approve & Migrate
--> confirm modal sends drs_live_migration_acknowledged=true
--> POST stored job execute
--> final pre-check
+-> create local approval packet and pending drs_migration job intent
+-> POST stored job execute with drs_live_migration_acknowledged=true
+-> fresh final gates and Proxmox live pre-check
 -> acquire operation lock
--> create drs_migration job
 -> call Proxmox live migration
 -> store UPID
 -> poll Proxmox task
@@ -267,7 +274,7 @@ Timeout result:
 - job status: needs_reconciliation
 - lock status: reconciliation_required 또는 stale
 - Risks/Alerts에 migration_timeout과 needs_reconciliation 표시
-- Jobs/Runs에 Reconcile Now 표시
+- Jobs/Runs에 read-only reconciliation evidence/read-only preview availability 표시. Corrective Reconcile Now action은 deferred이며 current frontend control이 아니다.
 
 Needs reconciliation 조건:
 
@@ -278,7 +285,7 @@ Needs reconciliation 조건:
 - task success but fingerprint mismatch
 - lock stale and state unknown
 
-Reconcile Now:
+Deferred corrective Reconcile Now:
 
 1. Proxmox current inventory를 다시 읽는다.
 2. UPID/task log 조회를 시도한다.

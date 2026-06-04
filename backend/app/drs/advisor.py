@@ -38,6 +38,289 @@ BASE_BLOCKERS = (
 LOCAL_STORAGE_TYPES = {"dir", "lvm", "lvmthin", "zfspool", "zfs"}
 LOCAL_STORAGE_IDS = {"local", "local-lvm", "local-zfs"}
 PASSTHROUGH_TAG_TERMS = ("passthrough", "pci", "gpu", "usb")
+AUTHORITY_GJALLAR = "gjallar_operational_gate"
+AUTHORITY_PROXMOX = "proxmox_final_technical_gate"
+AUTHORITY_ADVISOR = "advisor_prefilter_signal"
+ACTION_NONE = "none"
+
+
+CRITERIA_TAXONOMY = {
+    "identity_unknown": {
+        "message": "VM identity is not mapped to a stable DRS identity record.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "unknown",
+        "action_blocked": "approval",
+    },
+    "metadata_missing": {
+        "message": "Required VM metadata/fingerprint records are not available.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "unavailable",
+        "action_blocked": "approval",
+    },
+    "policy_unknown": {
+        "message": "Placement policy data is not available.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "policy_gate",
+        "severity": "blocking",
+        "evidence_state": "unknown",
+        "action_blocked": "approval",
+    },
+    "final_precheck_not_run": {
+        "message": "Final migration precheck has not run.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "blocking",
+        "evidence_state": "not_collected",
+        "action_blocked": "approval",
+    },
+    "vm_identity_unknown": {
+        "message": "VM identity has no usable stable fingerprint.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "unknown",
+        "action_blocked": "approval",
+    },
+    "vm_identity_uncertain": {
+        "message": "VM identity evidence is not high confidence.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "ambiguous",
+        "action_blocked": "approval",
+    },
+    "vm_identity_mismatch": {
+        "message": "Current VM identity does not match the requested DRS identity.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "ambiguous",
+        "action_blocked": "approval",
+    },
+    "vm_identity_high": {
+        "message": "VM identity evidence is high confidence.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "info",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
+    },
+    "migration_policy_unknown": {
+        "message": "DRS migration policy defaults to unknown.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "policy_gate",
+        "severity": "blocking",
+        "evidence_state": "unknown",
+        "action_blocked": "approval",
+    },
+    "migration_policy_restricted": {
+        "message": "DRS migration policy restricts execution for this VM.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "policy_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "migration_policy_blocked": {
+        "message": "DRS migration policy blocks execution for this VM.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "policy_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "migration_policy_allowed": {
+        "message": "DRS migration policy allows local approval when other gates pass.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "policy_gate",
+        "severity": "info",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
+    },
+    "drs_final_precheck_failed": {
+        "message": "Read-only DRS final pre-check did not pass.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "stale_recommendation": {
+        "message": "Current inventory no longer matches the recommendation.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "stale",
+        "action_blocked": "approval",
+    },
+    "source_vm_missing": {
+        "message": "Source VM is no longer present in current inventory.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "unavailable",
+        "action_blocked": "approval",
+    },
+    "source_node_changed": {
+        "message": "Source VM is no longer on the recommended source node.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "stale",
+        "action_blocked": "approval",
+    },
+    "source_node_not_applicable": {
+        "message": "Source-node match is not applicable because source VM evidence is unavailable.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "info",
+        "evidence_state": "unavailable",
+        "action_blocked": ACTION_NONE,
+    },
+    "target_node_unavailable": {
+        "message": "Recommended target node is unavailable.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "blocking",
+        "evidence_state": "unavailable",
+        "action_blocked": "approval",
+    },
+    "vm_state_ineligible": {
+        "message": "VM state is not eligible for the current DRS rule set.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "identity_conflict": {
+        "message": "Current identity evidence contains a conflict signal.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "ambiguous",
+        "action_blocked": "approval",
+    },
+    "route_unknown": {
+        "message": "Route, storage, or network evidence is insufficient.",
+        "authority": AUTHORITY_ADVISOR,
+        "category": "advisory",
+        "severity": "warning",
+        "evidence_state": "unknown",
+        "action_blocked": ACTION_NONE,
+    },
+    "local_storage_dependency": {
+        "message": "VM depends on local-style storage.",
+        "authority": AUTHORITY_ADVISOR,
+        "category": "advisory",
+        "severity": "warning",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
+    },
+    "passthrough_device_dependency": {
+        "message": "VM has passthrough evidence.",
+        "authority": AUTHORITY_ADVISOR,
+        "category": "advisory",
+        "severity": "warning",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
+    },
+    "target_over_threshold": {
+        "message": "Estimated target pressure would reach or exceed the critical threshold.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "operation_lock_active": {
+        "message": "An active DRS operation lock matches this VM or route.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "operation_lock_stale": {
+        "message": "A stale DRS operation lock matches this VM or route.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "stale",
+        "action_blocked": "approval",
+    },
+    "operation_lock_reconciliation_required": {
+        "message": "A DRS operation lock requires reconciliation before execution.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "operation_lock_clear": {
+        "message": "No active DRS operation lock matched this VM or route.",
+        "authority": AUTHORITY_GJALLAR,
+        "category": "hard_gate",
+        "severity": "info",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
+    },
+    "vm_config_lock": {
+        "message": "The VM has a Proxmox config lock.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "blocking",
+        "evidence_state": "observed",
+        "action_blocked": "approval",
+    },
+    "vm_config_lock_clear": {
+        "message": "No Proxmox config lock is present in current VM config evidence.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "info",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
+    },
+    "proxmox_active_task_not_collected": {
+        "message": "Proxmox active-task evidence is not collected in recommendation/check output.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "pending",
+        "evidence_state": "not_collected",
+        "action_blocked": "execute",
+    },
+    "proxmox_ha_state_not_collected": {
+        "message": "Proxmox HA-state evidence is not collected in recommendation/check output.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "pending",
+        "evidence_state": "not_collected",
+        "action_blocked": "execute",
+    },
+    "proxmox_cluster_quorum_not_collected": {
+        "message": "Proxmox cluster-quorum evidence is not collected in recommendation/check output.",
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "pending",
+        "evidence_state": "not_collected",
+        "action_blocked": "execute",
+    },
+}
+
+ADVISOR_PREFILTER_CODES = (
+    "route_unknown",
+    "local_storage_dependency",
+    "passthrough_device_dependency",
+)
+PROXMOX_PENDING_TECHNICAL_CODES = (
+    "proxmox_active_task_not_collected",
+    "proxmox_ha_state_not_collected",
+    "proxmox_cluster_quorum_not_collected",
+)
 
 
 def _field(source: Any, *names: str, default: Any = None) -> Any:
@@ -311,6 +594,11 @@ def _local_storage_evidence(vm: dict[str, Any], nodes: list[dict[str, Any]]) -> 
     ]
     return {
         "blocked": bool(local_ids or local_types),
+        "authority": AUTHORITY_ADVISOR,
+        "category": "advisory",
+        "severity": "warning" if local_ids or local_types else "info",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
         "storage_ids": vm["storage_ids"],
         "local_storage_ids": _unique(local_ids),
         "local_storage_types": _unique(local_types),
@@ -325,6 +613,11 @@ def _passthrough_evidence(vm: dict[str, Any]) -> dict[str, Any]:
             matched.append(tag)
     return {
         "blocked": bool(matched),
+        "authority": AUTHORITY_ADVISOR,
+        "category": "advisory",
+        "severity": "warning" if matched else "info",
+        "evidence_state": "observed",
+        "action_blocked": ACTION_NONE,
         "matched_tags": _unique(matched),
         "method": "tags_only",
         "limitation": "Current passthrough detection uses VM tags only; Proxmox device config parsing is not yet included.",
@@ -356,6 +649,11 @@ def _route_evidence(vm: dict[str, Any], source_node: dict[str, Any], target_node
         storage_sufficient = any(storage["free_gb"] >= vm["disk_gb"] for storage in matching_target_storages)
     return {
         "blocked": not (network_sufficient and storage_sufficient),
+        "authority": AUTHORITY_ADVISOR,
+        "category": "advisory",
+        "severity": "warning" if not (network_sufficient and storage_sufficient) else "info",
+        "evidence_state": "observed" if network_sufficient and storage_sufficient else "unknown",
+        "action_blocked": ACTION_NONE,
         "network_evidence_sufficient": network_sufficient,
         "storage_evidence_sufficient": storage_sufficient,
         "vm_bridge_ids": sorted(vm_bridge_ids),
@@ -367,41 +665,131 @@ def _route_evidence(vm: dict[str, Any], source_node: dict[str, Any], target_node
     }
 
 
-def _blocker_detail(code: str) -> dict[str, str]:
-    messages = {
-        "identity_unknown": "VM identity is not mapped to a stable DRS identity record.",
-        "metadata_missing": "Required VM metadata/fingerprint records are not available.",
-        "policy_unknown": "Placement policy data is not available.",
-        "final_precheck_not_run": "Final migration precheck has not run.",
-        "vm_identity_unknown": "VM identity has no usable stable fingerprint.",
-        "vm_identity_uncertain": "VM identity evidence is not high confidence.",
-        "vm_identity_mismatch": "Current VM identity does not match the requested DRS identity.",
-        "migration_policy_unknown": "DRS migration policy defaults to unknown.",
-        "migration_policy_restricted": "DRS migration policy restricts execution for this VM.",
-        "migration_policy_blocked": "DRS migration policy blocks execution for this VM.",
-        "drs_final_precheck_failed": "Read-only DRS final pre-check did not pass.",
-        "stale_recommendation": "Current inventory no longer matches the recommendation.",
-        "source_vm_missing": "Source VM is no longer present in current inventory.",
-        "source_node_changed": "Source VM is no longer on the recommended source node.",
-        "target_node_unavailable": "Recommended target node is unavailable.",
-        "vm_state_ineligible": "VM state is not eligible for the current DRS rule set.",
-        "identity_conflict": "Current identity evidence contains a conflict signal.",
-        "route_unknown": "Route, storage, or network evidence is insufficient.",
-        "local_storage_dependency": "VM depends on local-style storage.",
-        "passthrough_device_dependency": "VM has passthrough evidence.",
-        "target_over_threshold": "Estimated target pressure would reach or exceed the critical threshold.",
-        "operation_lock_active": "An active DRS operation lock matches this VM or route.",
-        "operation_lock_stale": "A stale DRS operation lock matches this VM or route.",
-        "operation_lock_reconciliation_required": "A DRS operation lock requires reconciliation before execution.",
-        "vm_config_lock": "The VM has a Proxmox config lock.",
+def _criterion_detail(
+    code: str,
+    *,
+    status: str | None = None,
+    severity: str | None = None,
+    evidence_state: str | None = None,
+    blocking: bool | None = None,
+    action_blocked: str | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    taxonomy = CRITERIA_TAXONOMY.get(code, {})
+    detail = {
+        "code": code,
+        "message": taxonomy.get("message", code),
+        "authority": taxonomy.get("authority", AUTHORITY_GJALLAR),
+        "category": taxonomy.get("category", "hard_gate"),
+        "severity": severity or taxonomy.get("severity", "blocking"),
+        "evidence_state": evidence_state or taxonomy.get("evidence_state", "observed"),
+        "action_blocked": action_blocked if action_blocked is not None else taxonomy.get("action_blocked", "approval"),
     }
-    return {"code": code, "message": messages.get(code, code), "severity": "blocking"}
+    detail["blocking"] = blocking if blocking is not None else detail["action_blocked"] != ACTION_NONE and detail["severity"] == "blocking"
+    detail["status"] = status or ("blocked" if detail["blocking"] else "advisory")
+    if evidence is not None:
+        detail["evidence"] = evidence
+    return detail
+
+
+def _blocker_detail(code: str) -> dict[str, Any]:
+    detail = _criterion_detail(code, status="blocked")
+    if detail["action_blocked"] == ACTION_NONE:
+        detail["action_blocked"] = "approval"
+    detail["severity"] = "blocking"
+    detail["blocking"] = True
+    return detail
+
+
+def _advisory_signal(code: str, *, active: bool, evidence: dict[str, Any]) -> dict[str, Any]:
+    taxonomy = CRITERIA_TAXONOMY[code]
+    return _criterion_detail(
+        code,
+        status="warning" if active else "pass",
+        severity=taxonomy["severity"] if active else "info",
+        evidence_state=taxonomy["evidence_state"] if active else "observed",
+        blocking=False,
+        action_blocked=ACTION_NONE,
+        evidence=evidence,
+    )
+
+
+def _proxmox_pending_technical_criteria() -> list[dict[str, Any]]:
+    return [
+        _criterion_detail(code, status="not_collected", blocking=False)
+        for code in PROXMOX_PENDING_TECHNICAL_CODES
+    ]
+
+
+def _technical_gate_status(criteria: list[dict[str, Any]]) -> dict[str, Any]:
+    technical = [
+        item
+        for item in criteria
+        if item.get("authority") == AUTHORITY_PROXMOX and item.get("category") == "technical_gate"
+    ]
+    observed_blockers = [
+        item
+        for item in technical
+        if item.get("blocking") is True and item.get("evidence_state") != "not_collected"
+    ]
+    if observed_blockers:
+        status = "blocked"
+    elif any(item.get("evidence_state") == "not_collected" for item in technical):
+        status = "not_collected"
+    elif technical:
+        status = "pass"
+    else:
+        status = "unknown"
+    evidence_state = "not_collected" if status == "not_collected" else "observed" if status in {"blocked", "pass"} else "unknown"
+    return {
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "status": status,
+        "evidence_state": evidence_state,
+        "action_blocked": "execute" if status in {"blocked", "not_collected", "unknown"} else ACTION_NONE,
+        "criteria": [item["code"] for item in technical],
+    }
+
+
+def _criteria_summary(
+    *,
+    blockers: list[str],
+    advisory_signals: list[dict[str, Any]] | None = None,
+    extra: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    details = [
+        *_blocker_details(blockers),
+        *(advisory_signals or []),
+        *(extra or []),
+    ]
+    hard_gate_blockers = [item["code"] for item in details if item.get("blocking") is True]
+    advisory_codes = [item["code"] for item in details if item.get("authority") == AUTHORITY_ADVISOR]
+    technical_status = _technical_gate_status(details)
+    return (
+        {
+            "hard_gate_blockers": hard_gate_blockers,
+            "advisory_signal_codes": advisory_codes,
+            "technical_gate_status": technical_status["status"],
+            "authorities": sorted({_as_text(item.get("authority")) for item in details if item.get("authority")}),
+        },
+        details,
+        technical_status,
+    )
+
+
+def _blocker_details(blockers: list[str]) -> list[dict[str, Any]]:
+    return [_blocker_detail(code) for code in blockers]
 
 
 def _unsupported_proxmox_evidence(name: str) -> dict[str, Any]:
     return {
         "status": "not_collected",
         "blocking": False,
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "pending",
+        "evidence_state": "not_collected",
+        "action_blocked": "execute",
         "source": "inventory_adapter",
         "detail": f"{name} evidence is not collected by the current read-only inventory adapter.",
     }
@@ -412,6 +800,11 @@ def _proxmox_conflict_evidence(source_vm: dict[str, Any] | None) -> dict[str, An
     config_lock_evidence = {
         "status": "conflict" if config_lock else "pass",
         "blocking": bool(config_lock),
+        "authority": AUTHORITY_PROXMOX,
+        "category": "technical_gate",
+        "severity": "blocking" if config_lock else "info",
+        "evidence_state": "observed",
+        "action_blocked": "approval" if config_lock else ACTION_NONE,
         "source": "vm_config.lock",
         "lock": config_lock,
     }
@@ -555,12 +948,19 @@ def _build_recommendation(
     blockers = [
         *_identity_policy_blockers(identity_evidence, policy_evidence),
         *BASE_BLOCKERS,
-        "route_unknown" if route["blocked"] else "",
-        "local_storage_dependency" if local_storage["blocked"] else "",
-        "passthrough_device_dependency" if passthrough["blocked"] else "",
         "target_over_threshold" if target_over_threshold else "",
     ]
     blockers = _unique([code for code in blockers if code])
+    advisory_signals = [
+        _advisory_signal("route_unknown", active=route["blocked"], evidence=route),
+        _advisory_signal("local_storage_dependency", active=local_storage["blocked"], evidence=local_storage),
+        _advisory_signal("passthrough_device_dependency", active=passthrough["blocked"], evidence=passthrough),
+    ]
+    criteria, criteria_details, technical_gate_status = _criteria_summary(
+        blockers=blockers,
+        advisory_signals=advisory_signals,
+        extra=_proxmox_pending_technical_criteria(),
+    )
     delta = source_node["pressure"] - target_node["pressure"]
     return {
         "id": f"drs-rec-vm-{_safe_segment(vm['vmid'])}-{_safe_segment(source_node['id'])}-{_safe_segment(target_node['id'])}",
@@ -576,7 +976,11 @@ def _build_recommendation(
         "reason": _candidate_reason(source_node, target_node),
         "thresholds": dict(THRESHOLDS),
         "blockers": blockers,
-        "blocker_details": [_blocker_detail(code) for code in blockers],
+        "blocker_details": _blocker_details(blockers),
+        "criteria": criteria,
+        "criteria_details": criteria_details,
+        "advisory_signals": advisory_signals,
+        "technical_gate_status": technical_gate_status,
         "identity_evidence": identity_evidence,
         "policy_evidence": policy_evidence,
         "estimated_effect": {
@@ -960,6 +1364,7 @@ def _check_item(
     blocker: str | None = None,
     detail: str = "",
     evidence: dict[str, Any] | None = None,
+    criterion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"status": status}
     if blocker:
@@ -968,6 +1373,8 @@ def _check_item(
         payload["detail"] = detail
     if evidence is not None:
         payload["evidence"] = evidence
+    if criterion is not None:
+        payload["criterion"] = criterion
     return payload
 
 
@@ -1056,6 +1463,11 @@ def build_drs_check_result(
         and route.get("network_evidence_sufficient") is True
         and route.get("storage_evidence_sufficient") is True
     )
+    advisory_signals = [
+        _advisory_signal("route_unknown", active=not route_ok, evidence=route),
+        _advisory_signal("local_storage_dependency", active=storage.get("blocked") is True, evidence=storage),
+        _advisory_signal("passthrough_device_dependency", active=passthrough.get("blocked") is True, evidence=passthrough),
+    ]
     current_rule_blockers = [
         blocker
         for blocker in (recommendation or {}).get("blockers", [])
@@ -1092,15 +1504,56 @@ def build_drs_check_result(
     proxmox_conflict_blocker = "vm_config_lock" if proxmox_conflicts["config_lock"]["blocking"] else None
 
     checks = {
-        "recommendation_freshness": _check_item("pass" if not stale else "failed", blocker="stale_recommendation" if stale else None),
-        "source_vm": _check_item("pass" if source_exists else "failed", blocker="source_vm_missing" if not source_exists else None),
-        "source_node": _check_item("pass" if source_node_matches else "failed", blocker="source_node_changed" if source_exists and not source_node_matches else None),
-        "target_node": _check_item("pass" if target_eligible else "failed", blocker="target_node_unavailable" if not target_eligible else None),
-        "vm_state": _check_item("pass" if vm_state_eligible else "failed", blocker="vm_state_ineligible" if not vm_state_eligible else None),
-        "route": _check_item("pass" if route_ok else "failed", blocker="route_unknown" if not route_ok else None),
-        "storage": _check_item("pass" if not storage.get("blocked") else "failed", blocker="local_storage_dependency" if storage.get("blocked") else None),
-        "passthrough": _check_item("pass" if not passthrough.get("blocked") else "failed", blocker="passthrough_device_dependency" if passthrough.get("blocked") else None),
-        "target_threshold": _check_item("pass" if not target_threshold.get("blocked") else "failed", blocker="target_over_threshold" if target_threshold.get("blocked") else None),
+        "recommendation_freshness": _check_item(
+            "pass" if not stale else "failed",
+            blocker="stale_recommendation" if stale else None,
+            criterion=_criterion_detail("stale_recommendation", status="failed" if stale else "pass", blocking=stale),
+        ),
+        "source_vm": _check_item(
+            "pass" if source_exists else "failed",
+            blocker="source_vm_missing" if not source_exists else None,
+            criterion=_criterion_detail("source_vm_missing", status="failed" if not source_exists else "pass", blocking=not source_exists),
+        ),
+        "source_node": _check_item(
+            "not_applicable" if not source_exists else "pass" if source_node_matches else "failed",
+            blocker="source_node_changed" if source_exists and not source_node_matches else None,
+            criterion=_criterion_detail(
+                "source_node_not_applicable" if not source_exists else "source_node_changed",
+                status="not_applicable" if not source_exists else "failed" if not source_node_matches else "pass",
+                blocking=source_exists and not source_node_matches,
+            ),
+        ),
+        "target_node": _check_item(
+            "pass" if target_eligible else "failed",
+            blocker="target_node_unavailable" if not target_eligible else None,
+            criterion=_criterion_detail("target_node_unavailable", status="failed" if not target_eligible else "pass", blocking=not target_eligible),
+        ),
+        "vm_state": _check_item(
+            "pass" if vm_state_eligible else "failed",
+            blocker="vm_state_ineligible" if not vm_state_eligible else None,
+            criterion=_criterion_detail("vm_state_ineligible", status="failed" if not vm_state_eligible else "pass", blocking=not vm_state_eligible),
+        ),
+        "route": _check_item(
+            "pass" if route_ok else "warning",
+            evidence=route,
+            criterion=advisory_signals[0],
+        ),
+        "storage": _check_item(
+            "pass" if not storage.get("blocked") else "warning",
+            evidence=storage,
+            criterion=advisory_signals[1],
+        ),
+        "passthrough": _check_item(
+            "pass" if not passthrough.get("blocked") else "warning",
+            evidence=passthrough,
+            criterion=advisory_signals[2],
+        ),
+        "target_threshold": _check_item(
+            "pass" if not target_threshold.get("blocked") else "failed",
+            blocker="target_over_threshold" if target_threshold.get("blocked") else None,
+            evidence=target_threshold,
+            criterion=_criterion_detail("target_over_threshold", status="failed" if target_threshold.get("blocked") else "pass", blocking=target_threshold.get("blocked") is True),
+        ),
         "identity": _check_item(
             "pass" if identity_high else "failed",
             blocker=(
@@ -1110,25 +1563,73 @@ def build_drs_check_result(
                 if identity_evidence.get("match_confidence") != "unknown"
                 else "vm_identity_unknown"
             ),
+            criterion=_criterion_detail(
+                "vm_identity_high"
+                if identity_high
+                else "identity_conflict"
+                if identity_evidence.get("conflict_signal") is True
+                else "vm_identity_mismatch"
+                if not identity_reference_matches
+                else "vm_identity_uncertain"
+                if identity_evidence.get("match_confidence") != "unknown"
+                else "vm_identity_unknown",
+                status="pass" if identity_high else "failed",
+                blocking=not identity_high,
+            ),
         ),
-        "policy": _check_item("pass" if policy_allowed else "failed", blocker=f"migration_policy_{policy_evidence.get('policy', 'unknown')}"),
+        "policy": _check_item(
+            "pass" if policy_allowed else "failed",
+            blocker=f"migration_policy_{policy_evidence.get('policy', 'unknown')}",
+            criterion=_criterion_detail(
+                "migration_policy_allowed" if policy_allowed else f"migration_policy_{policy_evidence.get('policy', 'unknown')}",
+                status="pass" if policy_allowed else "failed",
+                blocking=not policy_allowed,
+            ),
+        ),
         "operation_lock": _check_item(
             "pass" if not operation_lock_blockers else "failed",
             blocker=operation_lock_blockers[0] if operation_lock_blockers else None,
             evidence=operation_lock_evidence,
+            criterion=_criterion_detail(
+                operation_lock_blockers[0] if operation_lock_blockers else "operation_lock_clear",
+                status="failed" if operation_lock_blockers else "pass",
+                blocking=bool(operation_lock_blockers),
+            ),
         ),
         "proxmox_config_lock": _check_item(
             "failed" if proxmox_conflicts["config_lock"]["blocking"] else "pass",
             blocker=proxmox_conflict_blocker,
             evidence=proxmox_conflicts["config_lock"],
+            criterion=_criterion_detail(
+                "vm_config_lock" if proxmox_conflicts["config_lock"]["blocking"] else "vm_config_lock_clear",
+                status="failed" if proxmox_conflicts["config_lock"]["blocking"] else "pass",
+                blocking=proxmox_conflicts["config_lock"]["blocking"],
+            ),
         ),
-        "proxmox_active_task": _check_item("not_collected", evidence=proxmox_conflicts["active_task"]),
-        "proxmox_ha_state": _check_item("not_collected", evidence=proxmox_conflicts["ha_state"]),
-        "proxmox_cluster_quorum": _check_item("not_collected", evidence=proxmox_conflicts["cluster_quorum"]),
+        "proxmox_active_task": _check_item(
+            "not_collected",
+            evidence=proxmox_conflicts["active_task"],
+            criterion=_criterion_detail("proxmox_active_task_not_collected", status="not_collected", blocking=False),
+        ),
+        "proxmox_ha_state": _check_item(
+            "not_collected",
+            evidence=proxmox_conflicts["ha_state"],
+            criterion=_criterion_detail("proxmox_ha_state_not_collected", status="not_collected", blocking=False),
+        ),
+        "proxmox_cluster_quorum": _check_item(
+            "not_collected",
+            evidence=proxmox_conflicts["cluster_quorum"],
+            criterion=_criterion_detail("proxmox_cluster_quorum_not_collected", status="not_collected", blocking=False),
+        ),
         "proxmox_conflicts": _check_item(
             _proxmox_conflict_status(proxmox_conflicts),
             blocker=proxmox_conflict_blocker,
             evidence=proxmox_conflicts,
+            criterion=_criterion_detail(
+                "vm_config_lock" if proxmox_conflicts["blocking"] else "vm_config_lock_clear",
+                status=_proxmox_conflict_status(proxmox_conflicts),
+                blocking=proxmox_conflicts["blocking"],
+            ),
         ),
     }
     blockers = []
@@ -1146,7 +1647,6 @@ def build_drs_check_result(
             source_node_matches,
             target_eligible,
             vm_state_eligible,
-            route_ok,
             no_current_rule_blockers,
             identity_high,
             policy_allowed,
@@ -1156,6 +1656,11 @@ def build_drs_check_result(
     )
     if not precheck_pass:
         blockers = _unique([*blockers, "drs_final_precheck_failed"])
+    criteria, criteria_details, technical_gate_status = _criteria_summary(
+        blockers=blockers,
+        advisory_signals=advisory_signals,
+        extra=_proxmox_pending_technical_criteria(),
+    )
     result = {
         "recommendation_id": recommendation_id,
         "read_only": True,
@@ -1165,7 +1670,11 @@ def build_drs_check_result(
         "execution": dict(READ_ONLY_EXECUTION),
         "thresholds": dict(THRESHOLDS),
         "blockers": blockers,
-        "blocker_details": [_blocker_detail(code) for code in blockers],
+        "blocker_details": _blocker_details(blockers),
+        "criteria": criteria,
+        "criteria_details": criteria_details,
+        "advisory_signals": advisory_signals,
+        "technical_gate_status": technical_gate_status,
         "identity_evidence": identity_evidence,
         "policy_evidence": policy_evidence,
         "checked_at": checked_at,
@@ -1176,6 +1685,10 @@ def build_drs_check_result(
             "would_be_executable": precheck_pass,
             "blockers": blockers,
             "checks": checks,
+            "criteria": criteria,
+            "criteria_details": criteria_details,
+            "advisory_signals": advisory_signals,
+            "technical_gate_status": technical_gate_status,
             "checked_at": checked_at,
             "reason": "Read-only final pre-check completed; recommendation/check output remains execution-closed.",
             "observed_at": model["evidence"]["observed_at"],
@@ -1184,6 +1697,11 @@ def build_drs_check_result(
             "id": recommendation_id,
             "status": "stale",
             "blockers": blockers,
+            "blocker_details": _blocker_details(blockers),
+            "criteria": criteria,
+            "criteria_details": criteria_details,
+            "advisory_signals": advisory_signals,
+            "technical_gate_status": technical_gate_status,
             "identity_evidence": identity_evidence,
             "policy_evidence": policy_evidence,
             "read_only": True,

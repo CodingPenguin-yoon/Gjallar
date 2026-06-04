@@ -139,5 +139,6 @@ For docs-only restructuring, run the requested document checks and
   returns sanitized audit metadata on the implemented mutation responses.
 - Broad live DRS execute UI, corrective reconcile UI, richer policy rule/full
   metadata editor, 15-minute metrics, deeper read-only task/HA/quorum collection,
-  and backend-owned blocker taxonomy remain gaps for the rewritten Goal 11 or
-  later hardening slices.
+  and Jobs/Runs/Risks taxonomy polish remain gaps for the rewritten Goal 11 or
+  later hardening slices. The first recommendation/check backend-owned criteria
+  taxonomy slice is implemented.

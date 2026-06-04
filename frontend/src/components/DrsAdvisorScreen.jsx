@@ -64,8 +64,8 @@ function routeStatus(recommendation) {
   const route = recommendation.evidence?.route || {}
   const networkOk = evidenceBool(route, 'network_evidence_sufficient', 'networkEvidenceSufficient')
   const storageOk = evidenceBool(route, 'storage_evidence_sufficient', 'storageEvidenceSufficient')
-  const routeBlocked = recommendation.blockers.includes('route_unknown') || route.blocked === true || !networkOk || !storageOk
-  if (routeBlocked) return { label: 'Unknown', tone: 'yellow', networkOk, storageOk }
+  const routeUnknown = route.blocked === true || !networkOk || !storageOk
+  if (routeUnknown) return { label: 'Unknown', tone: 'yellow', networkOk, storageOk }
   return { label: 'Verified', tone: 'green', networkOk, storageOk }
 }
 
@@ -355,6 +355,7 @@ function RecommendationQueue({ recommendations, selectedId, loadingDetail, check
           const route = routeStatus(recommendation)
           const identityConfidence = recommendation.identityEvidence?.match_confidence || recommendation.identityEvidence?.matchConfidence || 'unknown'
           const migrationPolicy = recommendation.policyEvidence?.policy || 'unknown'
+          const activeAdvisorSignals = asList(recommendation.advisorySignals).filter((signal) => signal.status !== 'pass')
           return (
             <article
               key={recommendation.id}
@@ -374,6 +375,8 @@ function RecommendationQueue({ recommendations, selectedId, loadingDetail, check
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${drsToneClass(route.tone)}`}>Route Status {route.label}</span>
+                  <StatusPill tone={activeAdvisorSignals.length ? 'yellow' : 'green'}>advisory {activeAdvisorSignals.length}</StatusPill>
+                  <StatusPill tone={technicalGateTone(recommendation.technicalGateStatus?.status)}>Proxmox {recommendation.technicalGateStatus?.status || 'unknown'}</StatusPill>
                   <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">{recommendation.blockers.length} blockers</span>
                 </div>
               </div>
@@ -483,6 +486,27 @@ function boolLabel(value) {
   return value === true ? 'true' : 'false'
 }
 
+function criteriaTone(detail) {
+  if (detail?.blocking) return 'red'
+  if (detail?.status === 'warning' || detail?.severity === 'warning' || detail?.evidenceState === 'not_collected') return 'yellow'
+  if (detail?.status === 'pass' || detail?.severity === 'info') return 'green'
+  return 'slate'
+}
+
+function technicalGateTone(status) {
+  if (status === 'blocked') return 'red'
+  if (status === 'pass') return 'green'
+  if (status === 'not_collected' || status === 'unknown') return 'yellow'
+  return 'slate'
+}
+
+function authorityLabel(authority) {
+  if (authority === 'gjallar_operational_gate') return 'Gjallar gate'
+  if (authority === 'proxmox_final_technical_gate') return 'Proxmox technical'
+  if (authority === 'advisor_prefilter_signal') return 'Advisor signal'
+  return authority || '-'
+}
+
 function lockLabel(lock) {
   const source = lock || {}
   return [
@@ -510,11 +534,47 @@ function CheckRows({ checks }) {
           <div className="min-w-0">
             <div className="truncate font-semibold text-slate-900">{check.label}</div>
             {check.blocker && <div className="mt-0.5 truncate text-slate-500">{formatDrsBlocker(check.blocker)}</div>}
+            {check.criterion?.authority && (
+              <div className="mt-0.5 truncate text-slate-500">
+                {authorityLabel(check.criterion.authority)} · {check.criterion.evidenceState || check.criterion.status || '-'}
+              </div>
+            )}
           </div>
           <StatusPill tone={checkTone(check.status)}>{check.status}</StatusPill>
         </div>
       ))}
     </div>
+  )
+}
+
+function CriteriaTaxonomyPanel({ criteriaDetails, advisorySignals, technicalGateStatus }) {
+  const details = asList(criteriaDetails)
+  const hardGates = details.filter((detail) => detail.blocking === true)
+  const advisorSignals = asList(advisorySignals).length
+    ? asList(advisorySignals)
+    : details.filter((detail) => detail.authority === 'advisor_prefilter_signal')
+  const proxmoxCriteria = details.filter((detail) => detail.authority === 'proxmox_final_technical_gate')
+  const activeAdvisorSignals = advisorSignals.filter((detail) => detail.status !== 'pass')
+  return (
+    <DetailSection title="DRS Criteria" icon={ShieldCheck}>
+      <div className="flex flex-wrap gap-1.5">
+        <StatusPill tone={hardGates.length ? 'red' : 'green'}>hard gates {hardGates.length}</StatusPill>
+        <StatusPill tone={activeAdvisorSignals.length ? 'yellow' : 'green'}>advisory signals {activeAdvisorSignals.length}</StatusPill>
+        <StatusPill tone={technicalGateTone(technicalGateStatus?.status)}>Proxmox technical {technicalGateStatus?.status || 'unknown'}</StatusPill>
+      </div>
+      <DetailStatusRow label="Hard gate blockers" value={asCompactDisplay(hardGates.map((detail) => formatDrsBlocker(detail.code)), 3)} tone={hardGates.length ? 'red' : 'green'} />
+      <DetailStatusRow label="Technical criteria" value={asCompactDisplay(technicalGateStatus?.criteria || proxmoxCriteria.map((detail) => detail.code), 3)} tone={technicalGateTone(technicalGateStatus?.status)} />
+      {advisorSignals.length > 0 && (
+        <div className="space-y-1">
+          {advisorSignals.slice(0, 4).map((detail) => (
+            <div key={detail.code} className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs">
+              <span className="min-w-0 truncate font-semibold text-slate-800">{formatDrsBlocker(detail.code)}</span>
+              <StatusPill tone={criteriaTone(detail)}>{detail.status || detail.severity}</StatusPill>
+            </div>
+          ))}
+        </div>
+      )}
+    </DetailSection>
   )
 }
 
@@ -695,6 +755,9 @@ function DetailPanel({
   const fingerprintLabel = fingerprint === '-' ? '-' : `${fingerprint.slice(0, 18)}...`
   const finalPrecheck = checkResult?.finalPrecheck
   const approvalReadiness = checkResult?.approvalReadiness
+  const criteriaDetails = checkResult?.criteriaDetails?.length ? checkResult.criteriaDetails : detail.criteriaDetails
+  const advisorySignals = checkResult?.advisorySignals?.length ? checkResult.advisorySignals : detail.advisorySignals
+  const technicalGateStatus = checkResult?.technicalGateStatus || detail.technicalGateStatus
   const identityRows = [
     ['Identity', identityConfidence, identityTone(identityConfidence)],
     ['Status', identityStatus, identityTone(identityConfidence)],
@@ -752,6 +815,12 @@ function DetailPanel({
           <DetailStatusRow label="Critical" value={formatPercent(targetThreshold.critical_threshold ?? targetThreshold.criticalThreshold ?? detail.thresholds.critical)} />
           <DetailStatusRow label="Status" value={targetBlocked ? 'target over threshold' : 'within threshold'} tone={targetBlocked ? 'red' : 'green'} />
         </DetailSection>
+
+        <CriteriaTaxonomyPanel
+          criteriaDetails={criteriaDetails}
+          advisorySignals={advisorySignals}
+          technicalGateStatus={technicalGateStatus}
+        />
 
         <DetailSection title="Identity / Metadata / Policy" icon={ShieldCheck}>
           <div className="grid grid-cols-2 gap-1.5">

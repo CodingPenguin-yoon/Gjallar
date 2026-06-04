@@ -421,6 +421,18 @@ def test_final_precheck_policy_regression_blocks_before_client_factory():
 
     assert raised.value.code == "DRS_EXECUTION_FINAL_PRECHECK_BLOCKED"
     assert "migration_policy_blocked" in raised.value.detail["blockers"]
+    drs_evidence = raised.value.detail["job_run"]["details"]["drs_evidence"]
+    assert drs_evidence["read_only"] is True
+    assert drs_evidence["allowed_actions"] == []
+    assert drs_evidence["current_mutation_controls"] == []
+    assert drs_evidence["execution_acknowledgement"] == {
+        "field": "drs_live_migration_acknowledged",
+        "value": True,
+    }
+    assert drs_evidence["historical_execution"]["proxmox_mutation_recorded"] is False
+    assert drs_evidence["final_precheck_summary"]["status"] == "blocked"
+    assert "migration_policy_blocked" in drs_evidence["blockers"]
+    assert "migration_policy_blocked" in drs_evidence["final_precheck_summary"]["blockers"]
 
 
 def test_live_precheck_block_does_not_call_migration_mutation():
@@ -538,6 +550,22 @@ def test_task_ok_with_matching_postcheck_completes_and_releases_locks():
     assert result["post_check"]["expected"]["target_node_id"] == "node-b"
     assert result["post_check"]["observed"]["node_id"] == "node-b"
     assert result["post_check"]["observed"]["power_state"] == "running"
+    drs_evidence = result["job_run"]["details"]["drs_evidence"]
+    assert drs_evidence["read_only"] is True
+    assert drs_evidence["allowed_actions"] == []
+    assert drs_evidence["current_mutation_controls"] == []
+    assert drs_evidence["execution_acknowledgement"] == {
+        "field": "drs_live_migration_acknowledged",
+        "value": True,
+    }
+    assert drs_evidence["historical_execution"]["proxmox_mutation_recorded"] is True
+    assert "proxmox_migrate_invoked" in drs_evidence["historical_execution"]["side_effects"]
+    assert drs_evidence["task"]["upid"] == "UPID:node-a:0001:migrate"
+    assert drs_evidence["task"]["result"] == "ok"
+    assert drs_evidence["task"]["exitstatus"] == "OK"
+    assert drs_evidence["post_check"]["status"] == "pass"
+    assert drs_evidence["post_check"]["fingerprint"]["matches"] is True
+    assert {lock["status"] for lock in drs_evidence["operation_lock"]["locks"]} == {"released"}
     assert client.migrate_calls == [{"source_node": "node-a", "target_node": "node-b", "vmid": 101}]
     artifact_payload = json.loads(read_artifact_text(result["artifact"]))
     assert artifact_payload["post_check"]["expected"]["vmid"] == 101
@@ -636,6 +664,18 @@ def test_task_ok_postcheck_mismatch_needs_reconciliation_locks_and_event(client_
     assert result["post_check_status"] == "needs_reconciliation"
     assert result["reconciliation_reason"] == expected_reason
     assert expected_reason in result["post_check"]["blockers"]
+    drs_evidence = result["job_run"]["details"]["drs_evidence"]
+    assert drs_evidence["read_only"] is True
+    assert drs_evidence["allowed_actions"] == []
+    assert drs_evidence["current_mutation_controls"] == []
+    assert drs_evidence["task"]["upid"] == "UPID:node-a:0001:migrate"
+    assert drs_evidence["task"]["result"] == "ok"
+    assert drs_evidence["post_check"]["status"] == "needs_reconciliation"
+    assert expected_reason in drs_evidence["post_check"]["blockers"]
+    assert drs_evidence["reconciliation"]["required"] is True
+    assert drs_evidence["reconciliation"]["reason"] == expected_reason
+    assert drs_evidence["reconciliation"]["events"]
+    assert {lock["status"] for lock in drs_evidence["operation_lock"]["locks"]} == {"reconciliation_required"}
     with session_scope() as session:
         job = session.get(DrsMigrationJobRecord, job_id)
         assert job.status == "needs_reconciliation"

@@ -12,7 +12,7 @@ from app.auth.roles import actor_detail_fields, actor_evidence, role_at_least
 from app.db.models import DrsApprovalPacketRecord, DrsMigrationJobRecord, DrsReconciliationEventRecord
 from app.db.session import session_scope
 from app.drs.advisor import build_drs_check_result
-from app.drs.approval import final_precheck_summary
+from app.drs.approval import build_drs_run_evidence, final_precheck_summary
 from app.drs.identity import fingerprint_components_for_vm, stable_fingerprint_for_components
 from app.drs.operation_locks import acquire_drs_operation_locks, mark_locks_reconciliation_required, release_drs_operation_locks
 from app.jobs.artifacts import get_artifact_record, read_artifact_text, write_json_artifact
@@ -770,6 +770,28 @@ def _record_blocked_attempt(
             row.runnable_blockers = blockers
             row.execution_evidence = evidence
             row.updated_at = now
+    job_for_evidence = {
+        **_row_dict(job),
+        "status": "blocked",
+        "runnable": False,
+        "proxmox_mutation_enabled": False,
+        "side_effects": [],
+        "runnable_blockers": blockers,
+        "execution_evidence": evidence,
+        "lock_evidence": lock_result or dict(job.lock_evidence or {}),
+    }
+    drs_evidence = build_drs_run_evidence(
+        job=job_for_evidence,
+        packet=packet,
+        approved_actor=dict(job.approved_actor or {}),
+        executed_actor=actor,
+        final_precheck_summary=evidence["final_precheck_summary"],
+        live_precheck=live_precheck,
+        operation_lock=lock_result or dict(job.lock_evidence or {}),
+        blockers=blockers,
+        acknowledgement_field=DRS_LIVE_MIGRATION_ACK_FIELD,
+        acknowledgement_value=True,
+    )
     job_run = record_job_run(
         job_id=job.job_id,
         job_type=DRS_MIGRATION_JOB_TYPE,
@@ -789,6 +811,7 @@ def _record_blocked_attempt(
             "blockers": blockers,
             "proxmox_mutation_enabled": False,
             "side_effects": [],
+            "drs_evidence": drs_evidence,
             **actor_detail_fields(actor),
         },
     )
@@ -979,6 +1002,27 @@ def _record_execution_run(
 ) -> dict[str, Any]:
     status = _as_text(job_record.get("status"))
     post_check = job_record.get("post_check_evidence") if isinstance(job_record.get("post_check_evidence"), dict) else {}
+    execution_evidence = job_record.get("execution_evidence") if isinstance(job_record.get("execution_evidence"), dict) else {}
+    final_summary = execution_evidence.get("final_precheck_summary") if isinstance(execution_evidence.get("final_precheck_summary"), dict) else {}
+    if not final_summary:
+        final_summary = job_record.get("final_precheck_summary") if isinstance(job_record.get("final_precheck_summary"), dict) else {}
+    reconciliation_events = _list_reconciliation_events(job_record["job_id"])
+    drs_evidence = build_drs_run_evidence(
+        job=job_record,
+        packet=packet,
+        approved_actor=job_record.get("approved_actor") if isinstance(job_record.get("approved_actor"), dict) else {},
+        executed_actor=actor,
+        final_precheck_summary=final_summary,
+        live_precheck=execution_evidence.get("live_precheck") if isinstance(execution_evidence.get("live_precheck"), dict) else {},
+        operation_lock=job_record.get("lock_evidence") if isinstance(job_record.get("lock_evidence"), dict) else execution_evidence.get("operation_lock"),
+        task=execution_evidence.get("task") if isinstance(execution_evidence.get("task"), dict) else {},
+        post_check=post_check,
+        blockers=list(job_record.get("runnable_blockers") or []),
+        acknowledgement_field=DRS_LIVE_MIGRATION_ACK_FIELD,
+        acknowledgement_value=True,
+        reconciliation_events=reconciliation_events,
+        resolved_reconciliation_events=list(job_record.get("resolved_reconciliation_events") or []),
+    )
     if status == "completed":
         stage = "post_check"
         message = "DRS migration completed after Proxmox task OK and verified direct post-check."
@@ -1021,10 +1065,11 @@ def _record_execution_run(
             "post_check": post_check,
             "reconciliation_reason": job_record.get("reconciliation_reason"),
             "reconciliation_required": status == "needs_reconciliation",
-            "reconciliation_events": _list_reconciliation_events(job_record["job_id"]),
+            "reconciliation_events": reconciliation_events,
             "operation_lock_ids": list(job_record.get("operation_lock_ids") or []),
             "proxmox_mutation_enabled": True,
             "side_effects": list(job_record.get("side_effects") or []),
+            "drs_evidence": drs_evidence,
             **actor_detail_fields(actor),
         },
     )

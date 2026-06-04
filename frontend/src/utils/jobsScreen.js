@@ -314,50 +314,243 @@ function taskStatusLabel(value) {
   return firstValue(status.status, status.exitstatus, status.result)
 }
 
-function buildDrsMigrationSummary(job) {
+function actorLabel(actor = {}) {
+  return firstValue(actor.username, actor.user_id, actor.userId, actor.role)
+}
+
+function boolSource(value, fallback = undefined) {
+  if (value === true || value === false) return value
+  return fallback
+}
+
+function criteriaLabel(item = {}) {
+  const code = firstValue(item.code, item.id, item.name, compactList(item.criteria))
+  const status = firstValue(item.status, item.evidence_state, item.evidenceState)
+  const authority = firstValue(item.authority, item.category)
+  const actionBlocked = firstValue(item.action_blocked, item.actionBlocked)
+  return `${code}: ${status} (${authority}; action ${actionBlocked})`
+}
+
+function compactList(values, limit = 6) {
+  const items = asArray(values).map((value) => asText(value, '')).filter(Boolean)
+  if (!items.length) return '-'
+  const head = items.slice(0, limit)
+  return items.length > limit ? `${head.join(', ')} +${items.length - limit}` : head.join(', ')
+}
+
+function checkStatusList(checkStatuses = {}) {
+  const checks = asObject(checkStatuses)
+  const labels = Object.entries(checks).map(([name, item]) => {
+    const status = asObject(item)
+    const blocker = firstValue(status.blocker, '')
+    return blocker !== '-' ? `${name}: ${firstValue(status.status)} / ${blocker}` : `${name}: ${firstValue(status.status)}`
+  })
+  return compactList(labels)
+}
+
+function lockRecordLabel(lock = {}) {
+  return [
+    firstValue(lock.operation_lock_id, lock.operationLockId),
+    firstValue(lock.scope_type, lock.scopeType),
+    firstValue(lock.status),
+    firstValue(lock.reason, ''),
+  ].filter((value) => value && value !== '-').join(' / ') || '-'
+}
+
+function taskLogLabel(logExcerpt) {
+  const labels = asArray(logExcerpt).map((item) => {
+    if (typeof item === 'string') return item
+    const entry = asObject(item)
+    return firstValue(entry.t, entry.message, entry.status)
+  })
+  return compactList(labels, 3)
+}
+
+function locatorLabel(value = {}) {
+  const locator = asObject(value)
+  const node = firstValue(locator.target_node_id, locator.targetNodeId, locator.node_id, locator.nodeId, locator.target_node_endpoint, '')
+  const vmid = firstValue(locator.vmid, '')
+  const power = firstValue(locator.power_state, locator.powerState, '')
+  return [node, vmid && `VMID ${vmid}`, power].filter((item) => item && item !== '-').join(' / ') || '-'
+}
+
+function normalizeDrsEvidence(details = {}) {
+  const evidence = asObject(details.drs_evidence ?? details.drsEvidence)
+  const approvalPacket = asObject(evidence.approval_packet ?? evidence.approvalPacket)
+  const vm = asObject(evidence.vm)
+  const route = asObject(evidence.route)
+  const actors = asObject(evidence.actors)
+  const approvedActor = asObject(actors.approved ?? details.approved_actor ?? details.approvedActor)
+  const executedActor = asObject(actors.executed)
+  const finalPrecheck = asObject(evidence.final_precheck_summary ?? evidence.finalPrecheckSummary ?? details.final_precheck_summary ?? details.finalPrecheckSummary)
+  const livePrecheck = asObject(evidence.live_precheck ?? evidence.livePrecheck)
+  const operationLock = asObject(evidence.operation_lock ?? evidence.operationLock ?? details.lock_evidence ?? details.lockEvidence)
+  const historicalExecution = asObject(evidence.historical_execution ?? evidence.historicalExecution)
+  const task = asObject(evidence.task)
+  const postCheck = asObject(evidence.post_check ?? evidence.postCheck ?? details.post_check ?? details.postCheck)
+  const reconciliation = asObject(evidence.reconciliation)
+  const acknowledgement = asObject(evidence.execution_acknowledgement ?? evidence.executionAcknowledgement)
+  const operationLockIds = asArray(operationLock.lock_ids ?? operationLock.lockIds ?? details.operation_lock_ids ?? details.operationLockIds)
+  const sideEffects = asArray(historicalExecution.side_effects ?? historicalExecution.sideEffects ?? details.side_effects ?? details.sideEffects)
+  const criteriaDetails = asArray(finalPrecheck.criteria_details ?? finalPrecheck.criteriaDetails)
+  const advisorySignals = asArray(finalPrecheck.advisory_signals ?? finalPrecheck.advisorySignals)
+  const technicalGateStatus = asObject(finalPrecheck.technical_gate_status ?? finalPrecheck.technicalGateStatus)
+
+  return {
+    readOnly: boolSource(evidence.read_only ?? evidence.readOnly, true),
+    allowedActions: asArray(evidence.allowed_actions ?? evidence.allowedActions),
+    currentMutationControls: asArray(evidence.current_mutation_controls ?? evidence.currentMutationControls),
+    runnable: boolSource(evidence.runnable, details.runnable),
+    approvalPacket: {
+      id: firstValue(approvalPacket.id, details.approval_packet_id, details.approvalPacketId),
+      status: firstValue(approvalPacket.status),
+      warningAcknowledged: approvalPacket.warning_acknowledged ?? approvalPacket.warningAcknowledged,
+      warningCodes: asArray(approvalPacket.warning_codes ?? approvalPacket.warningCodes),
+    },
+    recommendationId: firstValue(evidence.recommendation_id, evidence.recommendationId, details.recommendation_id, details.recommendationId),
+    vmIdentityId: firstValue(vm.identity_id, vm.identityId, details.vm_identity_id, details.vmIdentityId),
+    vmid: firstValue(vm.vmid, details.vmid),
+    sourceNode: firstValue(route.source_node_id, route.sourceNodeId, details.source_node_id, details.sourceNodeId),
+    targetNode: firstValue(route.target_node_id, route.targetNodeId, details.target_node_id, details.targetNodeId),
+    approvedActor,
+    executedActor,
+    acknowledgement,
+    blockers: asArray(evidence.blockers ?? details.blockers),
+    finalPrecheck,
+    livePrecheck,
+    operationLock: {
+      ...operationLock,
+      lockIds: operationLockIds,
+      locks: asArray(operationLock.locks),
+      matchingLocks: asArray(operationLock.matching_locks ?? operationLock.matchingLocks),
+      checkedScopes: asArray(operationLock.checked_scopes ?? operationLock.checkedScopes),
+    },
+    historicalExecution: {
+      proxmoxMutationRecorded: boolSource(historicalExecution.proxmox_mutation_recorded ?? historicalExecution.proxmoxMutationRecorded, details.proxmox_mutation_enabled ?? details.proxmoxMutationEnabled),
+      sideEffects,
+    },
+    task: {
+      upid: firstValue(task.upid, details.proxmox_upid, details.proxmoxUpid),
+      node: firstValue(task.node, details.proxmox_task_node, details.proxmoxTaskNode),
+      result: firstValue(task.result, details.task_result, details.taskResult),
+      status: firstValue(task.status, taskStatusLabel(details.task_status ?? details.taskStatus)),
+      exitstatus: firstValue(task.exitstatus, details.task_exitstatus, details.taskExitstatus, asObject(details.task_status ?? details.taskStatus).exitstatus),
+      logExcerpt: asArray(task.log_excerpt ?? task.logExcerpt),
+    },
+    postCheck: {
+      ...postCheck,
+      status: firstValue(postCheck.status, details.post_check_status, details.postCheckStatus),
+      blockers: asArray(postCheck.blockers),
+      expected: asObject(postCheck.expected),
+      observed: asObject(postCheck.observed),
+      fingerprint: asObject(postCheck.fingerprint),
+    },
+    reconciliation: {
+      required: boolSource(reconciliation.required, details.reconciliation_required ?? details.reconciliationRequired),
+      reason: firstValue(reconciliation.reason, details.reconciliation_reason, details.reconciliationReason),
+      events: asArray(reconciliation.events ?? details.reconciliation_events ?? details.reconciliationEvents),
+      resolvedEvents: asArray(reconciliation.resolved_events ?? reconciliation.resolvedEvents),
+    },
+    criteriaDetails,
+    advisorySignals,
+    technicalGateStatus,
+  }
+}
+
+function normalizeDrsArtifacts(artifacts = []) {
+  return asArray(artifacts).map((artifact) => ({
+    id: artifact.id,
+    type: artifact.kind,
+    storageBackend: artifact.storageBackend,
+    sizeBytes: artifact.sizeBytes,
+    checksum: artifact.checksum,
+  }))
+}
+
+function buildDrsMigrationSummary(job, artifacts = []) {
   if (!job || String(job.type ?? '') !== 'drs_migration') return null
 
   const details = asObject(job.raw?.details)
-  const sourceNode = firstValue(details.source_node_id, details.sourceNodeId)
-  const targetNode = firstValue(details.target_node_id, details.targetNodeId)
-  const operationLockIds = asArray(details.operation_lock_ids ?? details.operationLockIds)
-  const sideEffects = asArray(details.side_effects ?? details.sideEffects)
-  const taskStatus = details.task_status ?? details.taskStatus
+  const evidence = normalizeDrsEvidence(details)
+  const allLocks = [...evidence.operationLock.locks, ...evidence.operationLock.matchingLocks]
+  const fingerprint = asObject(evidence.postCheck.fingerprint)
+  const acknowledgement = evidence.acknowledgement
 
   return {
     title: 'DRS migration summary',
-    subtitle: `${sourceNode}->${targetNode}`,
+    subtitle: `${evidence.sourceNode}->${evidence.targetNode}`,
     status: job.status,
+    readOnly: evidence.readOnly,
+    allowedActions: evidence.allowedActions,
+    currentMutationControls: evidence.currentMutationControls,
+    artifacts: normalizeDrsArtifacts(artifacts),
     sections: [
       {
-        title: 'Intent',
+        title: 'Read-only state',
         items: [
-          { label: 'Approval packet', value: firstValue(details.approval_packet_id, details.approvalPacketId) },
-          { label: 'Recommendation', value: firstValue(details.recommendation_id, details.recommendationId) },
-          { label: 'VM identity', value: firstValue(details.vm_identity_id, details.vmIdentityId) },
-          { label: 'Source node', value: sourceNode },
-          { label: 'Target node', value: targetNode },
+          { label: 'Read-only evidence', value: yesNo(evidence.readOnly) },
+          { label: 'Allowed actions', value: listLabel(evidence.allowedActions) },
+          { label: 'Current mutation controls', value: listLabel(evidence.currentMutationControls) },
+          { label: 'Runnable', value: yesNo(evidence.runnable) },
         ],
       },
       {
-        title: 'Execution state',
+        title: 'Approval / intent',
         items: [
-          { label: 'Runnable', value: yesNo(details.runnable) },
-          { label: 'Proxmox mutation enabled', value: yesNo(details.proxmox_mutation_enabled ?? details.proxmoxMutationEnabled) },
-          { label: 'Side effects', value: listLabel(sideEffects) },
-          { label: 'Proxmox UPID', value: firstValue(details.proxmox_upid, details.proxmoxUpid) },
-          { label: 'Task result', value: firstValue(details.task_result, details.taskResult) },
-          { label: 'Task status', value: taskStatusLabel(taskStatus) },
-          { label: 'Task exitstatus', value: firstValue(details.task_exitstatus, details.taskExitstatus, asObject(taskStatus).exitstatus) },
+          { label: 'Approval packet', value: evidence.approvalPacket.id },
+          { label: 'Packet status', value: evidence.approvalPacket.status },
+          { label: 'Recommendation', value: evidence.recommendationId },
+          { label: 'VM identity', value: evidence.vmIdentityId },
+          { label: 'VMID', value: evidence.vmid },
+          { label: 'Source node', value: evidence.sourceNode },
+          { label: 'Target node', value: evidence.targetNode },
+          { label: 'Approved actor', value: actorLabel(evidence.approvedActor) },
+          { label: 'Executed actor', value: actorLabel(evidence.executedActor) },
+          { label: 'Execution acknowledgement', value: acknowledgement.field ? `${acknowledgement.field}=${yesNo(acknowledgement.value)}` : '-' },
         ],
       },
       {
-        title: 'Post-check / Reconciliation',
+        title: 'Final pre-check',
         items: [
-          { label: 'Post-check status', value: firstValue(details.post_check_status, details.postCheckStatus) },
-          { label: 'Reconciliation reason', value: firstValue(details.reconciliation_reason, details.reconciliationReason) },
-          { label: 'Operation locks', value: listLabel(operationLockIds) },
-          { label: 'Reconciliation required', value: yesNo(details.reconciliation_required ?? details.reconciliationRequired) },
+          { label: 'Status', value: firstValue(evidence.finalPrecheck.status) },
+          { label: 'Would be executable', value: yesNo(evidence.finalPrecheck.would_be_executable ?? evidence.finalPrecheck.wouldBeExecutable) },
+          { label: 'Blockers', value: listLabel(evidence.finalPrecheck.blockers ?? evidence.blockers) },
+          { label: 'Check statuses', value: checkStatusList(evidence.finalPrecheck.check_statuses ?? evidence.finalPrecheck.checkStatuses) },
+          { label: 'Technical gate', value: criteriaLabel(evidence.technicalGateStatus) },
+          { label: 'Criteria statuses', value: compactList(evidence.criteriaDetails.map(criteriaLabel)) },
+          { label: 'Advisory signals', value: compactList(evidence.advisorySignals.map(criteriaLabel)) },
+        ],
+      },
+      {
+        title: 'Historical execution evidence',
+        items: [
+          { label: 'Live pre-check', value: firstValue(evidence.livePrecheck.status) },
+          { label: 'Live blockers', value: listLabel(evidence.livePrecheck.blockers) },
+          { label: 'Recorded Proxmox mutation', value: yesNo(evidence.historicalExecution.proxmoxMutationRecorded) },
+          { label: 'Side effects', value: listLabel(evidence.historicalExecution.sideEffects) },
+          { label: 'Proxmox UPID', value: evidence.task.upid },
+          { label: 'Task node', value: evidence.task.node },
+          { label: 'Task result', value: evidence.task.result },
+          { label: 'Task status', value: evidence.task.status },
+          { label: 'Task exitstatus', value: evidence.task.exitstatus },
+          { label: 'Task log excerpt', value: taskLogLabel(evidence.task.logExcerpt) },
+        ],
+      },
+      {
+        title: 'Locks / reconciliation',
+        items: [
+          { label: 'Operation lock ids', value: listLabel(evidence.operationLock.lockIds) },
+          { label: 'Lock records', value: compactList(allLocks.map(lockRecordLabel)) },
+          { label: 'Checked scopes', value: compactList(evidence.operationLock.checkedScopes.map((scope) => `${scope.scope_type ?? scope.scopeType}:${scope.scope_key ?? scope.scopeKey}`)) },
+          { label: 'Post-check status', value: evidence.postCheck.status },
+          { label: 'Post-check blockers', value: listLabel(evidence.postCheck.blockers) },
+          { label: 'Expected', value: locatorLabel(evidence.postCheck.expected) },
+          { label: 'Observed', value: locatorLabel(evidence.postCheck.observed) },
+          { label: 'Fingerprint', value: `${shortHash(fingerprint.expected)} -> ${shortHash(fingerprint.observed)} (${yesNo(fingerprint.matches)})` },
+          { label: 'Reconciliation required', value: yesNo(evidence.reconciliation.required) },
+          { label: 'Reconciliation reason', value: evidence.reconciliation.reason },
+          { label: 'Reconciliation events', value: compactList(evidence.reconciliation.events.map((event) => `${firstValue(event.event_id, event.eventId)}:${firstValue(event.status)}:${firstValue(event.reason)}`)) },
+          { label: 'Resolved events', value: compactList(evidence.reconciliation.resolvedEvents.map((event) => `${firstValue(event.event_id, event.eventId)}:${firstValue(event.status)}:${firstValue(event.reason)}`)) },
         ],
       },
     ],
@@ -399,7 +592,7 @@ export async function loadJobsScreenModel(client, { selectedJobId = null } = {})
       ? {
         ...selectedJob,
         vmSummary: buildCreateVmSummary(selectedJob, artifacts),
-        drsMigrationSummary: buildDrsMigrationSummary(selectedJob),
+        drsMigrationSummary: buildDrsMigrationSummary(selectedJob, artifacts),
       }
       : null,
     artifacts,

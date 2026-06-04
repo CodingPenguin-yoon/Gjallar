@@ -45,8 +45,8 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 현재 방향으로 바꿔야 하는 점:
 
 - `/drs` DRS Advisor Phase 1 화면은 실행 없이 recommendation evidence를 보여준다.
-- read-only recommendation은 identity/policy/final pre-check authority로 확장한다.
-- recommendation 실행은 Allowed VM에 한해 manual approved live migration까지 포함한다.
+- read-only recommendation/check model includes backend-owned identity, policy, and criteria evidence without execution authority.
+- recommendation 실행은 stored approval/job과 별도 backend execute acknowledgement를 통해서만 진행한다.
 - Jobs/Runs는 `vm_create`뿐 아니라 `drs_migration`을 1급 job으로 다룬다.
 - Risks/Alerts는 identity, policy, lock, route, reconciliation blocker를 표시해야 한다.
 - Create VM은 보조 capability로 유지한다.
@@ -63,15 +63,16 @@ Gjallar DRS Advisor = Proxmox-native migration advisor and control tower
 - inventory/HA/storage polling 5분
 - VM identity/fingerprint reattachment
 - VM metadata/policy validation
-- Allowed VM 대상 manual approved live migration
-- Approve & Migrate flow
+- Allowed policy VM 대상 local approval packet and pending DRS migration job intent
+- stored job execute flow with explicit backend acknowledgement
 - final pre-check
-- Confirm modal
+- local approval review and stored execute acknowledgement gate
 - operation lock
 - Proxmox migration task/UPID tracking
 - Jobs/Runs artifact/log
 - success/failed/needs_reconciliation
-- Reconcile Now
+- read-only reconciliation evidence/preview
+- deferred corrective Reconcile Now only in a later explicitly approved slice
 - Gjallar restart 후 Proxmox current state 재구성
 
 ## 4. MVP 제외
@@ -113,14 +114,14 @@ Create VM Proxmox native flow는 보조 기능으로 유지한다. Legacy Terraf
 - Dashboard가 상위 1~3개 DRS 추천을 보여준다.
 - `/drs`가 DRS Advisor 화면으로 보인다.
 - DRS Advisor table이 CPU/Memory 15분 average/peak evidence를 보여준다.
-- Allowed VM만 Approve & Migrate 가능하다.
+- Allowed policy는 local approval packet/job intent의 prerequisite일 뿐이며, stored job execution requires separate backend acknowledgement.
 - Restricted/Blocked/Unclassified/Identity Mismatch는 실행되지 않는다.
 - final pre-check 10개가 실행 직전에 새로 수행된다.
 - Check Now 결과를 실행 허가로 재사용하지 않는다.
-- manual approved live migration이 Proxmox UPID tracking으로 진행된다.
+- stored approved DRS migration job execution records Proxmox UPID tracking.
 - Jobs/Runs가 `drs_migration` success/failed/needs_reconciliation을 표시한다.
 - timeout 30분 후 needs_reconciliation으로 전환된다.
-- Reconcile Now가 current Proxmox state 기반으로 job/lock 상태를 정리한다.
+- Current Jobs/Runs shows read-only reconciliation evidence/preview state. Deferred corrective Reconcile Now would use current Proxmox state to resolve job/lock state only in a later explicitly approved slice.
 - restart 후 metadata/policy는 fingerprint match 시에만 재연결된다.
 - same VMID + different fingerprint mismatch가 감지되고 모든 작업을 차단한다.
 
@@ -132,17 +133,18 @@ Normal DRS migration:
 2. target node가 online이고 여유가 있다.
 3. VM identity confirmed, metadata complete, policy allowed다.
 4. Dashboard top recommendation에서 DRS Advisor로 이동한다.
-5. Approve & Migrate를 누른다.
-6. final pre-check가 통과한다.
-7. confirm modal에서 승인한다.
-8. operation lock이 잡힌다.
-9. Proxmox migration UPID가 저장되고 polling된다.
-10. target node running + fingerprint match 후 success가 된다.
+5. Operator creates a local approval packet and pending DRS migration job intent.
+6. Read-only final pre-check gates pass for local approval.
+7. The stored job execute route receives exact `drs_live_migration_acknowledged=true`.
+8. Fresh gates and Proxmox live pre-check pass before mutation.
+9. operation lock이 잡힌다.
+10. Proxmox migration UPID가 저장되고 polling된다.
+11. target node running + fingerprint match 후 success가 된다.
 
 Identity protection:
 
 1. metadata 없는 VM은 Unclassified warning이다.
-2. Approve & Migrate가 disabled다.
+2. local approval packet/job intent creation is blocked.
 3. same VMID + different fingerprint는 Identity Mismatch critical이다.
 4. 기존 metadata 자동 attach가 금지된다.
 5. Confirm Same VM 또는 Treat as New VM flow로 이동한다.
@@ -153,5 +155,5 @@ Timeout reconciliation:
 2. 30분 안에 명확한 완료 상태를 얻지 못한다.
 3. job은 needs_reconciliation이 된다.
 4. lock은 reconciliation_required로 남는다.
-5. Reconcile Now가 Proxmox current state와 task log를 확인한다.
-6. target node running + fingerprint match이면 success, 불명확하면 needs_reconciliation 유지다.
+5. Current Jobs/Runs shows stored UPID/task, lock, post-check, and reconciliation evidence without a corrective action.
+6. Deferred corrective Reconcile Now would check Proxmox current state/task log and only mark success when target node running + fingerprint match; unclear evidence stays needs_reconciliation.

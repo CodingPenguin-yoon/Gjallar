@@ -36,6 +36,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertEqual([], sorted(expected - self.paths))
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/check-now", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/approve", self.paths)
+        self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/execute", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/migrate", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/migration", self.paths)
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/live-migrate", self.paths)
@@ -106,12 +107,15 @@ class ApiV1DrsContractTests(unittest.TestCase):
             {"migration_policy_unknown", "policy_unknown", "final_precheck_not_run"},
             set(recommendation["blockers"]),
         )
+        self.assertEqual("not_collected", recommendation["technical_gate_status"]["status"])
+        self.assertIn("proxmox_final_technical_gate", recommendation["criteria"]["authorities"])
+        self.assertEqual("proxmox_final_technical_gate", recommendation["technical_gate_status"]["authority"])
         self.assertEqual("high", recommendation["identity_evidence"]["match_confidence"])
         self.assertEqual("unknown", recommendation["policy_evidence"]["policy"])
         self.assertEqual(2, data["summary"]["running_candidate_vms"])
         self.assertEqual(1, data["summary"]["excluded_red_risk_vms"])
 
-    def test_blockers_include_policy_route_local_and_passthrough(self):
+    def test_advisory_prefilter_signals_are_not_hard_blockers(self):
         from app.api.v1 import router as v1_router
 
         adapter = _adapter(
@@ -132,9 +136,14 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertIn("migration_policy_unknown", recommendation["blockers"])
         self.assertIn("policy_unknown", recommendation["blockers"])
         self.assertIn("final_precheck_not_run", recommendation["blockers"])
-        self.assertIn("route_unknown", recommendation["blockers"])
-        self.assertIn("local_storage_dependency", recommendation["blockers"])
-        self.assertIn("passthrough_device_dependency", recommendation["blockers"])
+        self.assertNotIn("route_unknown", recommendation["blockers"])
+        self.assertNotIn("local_storage_dependency", recommendation["blockers"])
+        self.assertNotIn("passthrough_device_dependency", recommendation["blockers"])
+        advisory = {item["code"]: item for item in recommendation["advisory_signals"]}
+        self.assertEqual("advisor_prefilter_signal", advisory["route_unknown"]["authority"])
+        self.assertEqual("advisory", advisory["local_storage_dependency"]["category"])
+        self.assertEqual("warning", advisory["passthrough_device_dependency"]["severity"])
+        self.assertEqual("none", advisory["route_unknown"]["action_blocked"])
         self.assertEqual(["gpu"], recommendation["evidence"]["passthrough"]["matched_tags"])
         self.assertFalse(recommendation["evidence"]["route"]["network_evidence_sufficient"])
 
@@ -173,7 +182,10 @@ class ApiV1DrsContractTests(unittest.TestCase):
         ):
             recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
 
-        self.assertIn("route_unknown", recommendation["blockers"])
+        self.assertNotIn("route_unknown", recommendation["blockers"])
+        advisory = {item["code"]: item for item in recommendation["advisory_signals"]}
+        self.assertEqual("warning", advisory["route_unknown"]["status"])
+        self.assertEqual("advisor_prefilter_signal", advisory["route_unknown"]["authority"])
         self.assertFalse(recommendation["evidence"]["route"]["storage_evidence_sufficient"])
         self.assertIn("shared-nfs", recommendation["evidence"]["route"]["target_storage_ids"])
         self.assertIn("spacious-nfs", recommendation["evidence"]["route"]["target_storage_ids"])

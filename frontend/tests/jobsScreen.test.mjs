@@ -157,7 +157,7 @@ const drsModel = await loadJobsScreenModel({
       {
         job_id: 'drs-mig-1',
         job_type: 'drs_migration',
-        status: 'pending',
+        status: 'needs_reconciliation',
         target_id: 'node-a->node-b:101',
         risk_level: 'yellow',
         artifact_count: 4,
@@ -168,7 +168,7 @@ const drsModel = await loadJobsScreenModel({
     return {
       job_id: 'drs-mig-1',
       job_type: 'drs_migration',
-      status: 'pending',
+      status: 'needs_reconciliation',
       target_id: 'node-a->node-b:101',
       risk_level: 'yellow',
       details: {
@@ -177,35 +177,170 @@ const drsModel = await loadJobsScreenModel({
         vm_identity_id: 'vmid-1',
         source_node_id: 'node-a',
         target_node_id: 'node-b',
-        proxmox_upid: '',
-        task_result: 'not_started',
-        task_status: { status: 'pending' },
-        task_exitstatus: '',
-        post_check_status: 'not_started',
-        reconciliation_reason: '',
+        proxmox_upid: 'UPID:node-a:0001:migrate',
+        task_result: 'ok',
+        task_status: { status: 'stopped', exitstatus: 'OK' },
+        task_exitstatus: 'OK',
+        post_check_status: 'needs_reconciliation',
+        reconciliation_reason: 'fingerprint_mismatch',
         operation_lock_ids: ['lock-a', 'lock-b'],
         runnable: false,
-        proxmox_mutation_enabled: false,
-        side_effects: [],
+        proxmox_mutation_enabled: true,
+        side_effects: ['drs_operation_locks_acquired', 'proxmox_migrate_invoked', 'proxmox_task_polled'],
+        drs_evidence: {
+          read_only: true,
+          allowed_actions: [],
+          current_mutation_controls: [],
+          runnable: false,
+          approval_packet: {
+            id: 'drsap-1',
+            status: 'approved',
+            warning_acknowledged: false,
+            warning_codes: [],
+          },
+          recommendation_id: 'drs-rec-1',
+          vm: { identity_id: 'vmid-1', vmid: 101 },
+          route: { source_node_id: 'node-a', target_node_id: 'node-b' },
+          actors: {
+            approved: { user_id: 'operator-1', username: 'operator', role: 'operator' },
+            executed: { user_id: 'operator-2', username: 'executor', role: 'operator' },
+          },
+          execution_acknowledgement: { field: 'drs_live_migration_acknowledged', value: true },
+          final_precheck_summary: {
+            status: 'would_pass',
+            would_be_executable: true,
+            blockers: [],
+            check_statuses: {
+              identity: { status: 'pass' },
+              policy: { status: 'pass' },
+              route: { status: 'warning' },
+              proxmox_active_task: { status: 'not_collected' },
+            },
+            criteria_details: [
+              { code: 'migration_policy_allowed', status: 'pass', authority: 'gjallar_drs_gate', category: 'policy_gate', action_blocked: 'none' },
+              { code: 'proxmox_active_task_not_collected', status: 'not_collected', authority: 'proxmox_final_technical_gate', category: 'technical_gate', action_blocked: 'execute' },
+            ],
+            advisory_signals: [
+              { code: 'route_unknown', status: 'warning', authority: 'advisor_prefilter_signal', category: 'advisory', action_blocked: 'none' },
+            ],
+            technical_gate_status: {
+              authority: 'proxmox_final_technical_gate',
+              category: 'technical_gate',
+              status: 'not_collected',
+              action_blocked: 'execute',
+              criteria: ['proxmox_active_task_not_collected'],
+            },
+          },
+          live_precheck: {
+            status: 'pass',
+            blockers: [],
+            check_statuses: {
+              proxmox_active_task: { status: 'pass' },
+              proxmox_cluster_quorum: { status: 'pass' },
+            },
+          },
+          operation_lock: {
+            lock_ids: ['lock-a', 'lock-b'],
+            checked_scopes: [{ scope_type: 'vm_identity', scope_key: 'cluster-a|vm_identity|vmid-1' }],
+            locks: [
+              { operation_lock_id: 'lock-a', status: 'reconciliation_required', scope_type: 'vm_identity', reason: 'fingerprint_mismatch' },
+              { operation_lock_id: 'lock-b', status: 'reconciliation_required', scope_type: 'route', reason: 'fingerprint_mismatch' },
+            ],
+          },
+          task: {
+            upid: 'UPID:node-a:0001:migrate',
+            node: 'node-a',
+            result: 'ok',
+            status: 'stopped',
+            exitstatus: 'OK',
+            log_excerpt: [{ n: 1, t: 'migration done' }],
+          },
+          post_check: {
+            status: 'needs_reconciliation',
+            blockers: ['fingerprint_mismatch'],
+            expected: { target_node_id: 'node-b', vmid: 101, power_state: 'running', stable_fingerprint: 'sha256:expected-fingerprint' },
+            observed: { node_id: 'node-b', vmid: 101, power_state: 'running', stable_fingerprint: 'sha256:observed-fingerprint' },
+            fingerprint: { expected: 'sha256:expected-fingerprint', observed: 'sha256:observed-fingerprint', matches: false },
+          },
+          reconciliation: {
+            required: true,
+            reason: 'fingerprint_mismatch',
+            events: [{ event_id: 'drsrec-1', status: 'open', reason: 'fingerprint_mismatch' }],
+            resolved_events: [{ event_id: 'drsrec-0', status: 'resolved', reason: 'resolved_after_verified_post_check' }],
+          },
+          historical_execution: {
+            proxmox_mutation_recorded: true,
+            side_effects: ['drs_operation_locks_acquired', 'proxmox_migrate_invoked', 'proxmox_task_polled'],
+          },
+        },
       },
     }
   },
   async listJobArtifacts() {
-    return []
+    return [
+      {
+        artifact_id: 'artifact_drs_final_precheck',
+        type: 'drs_final_precheck',
+        path: 'db://job-artifacts/artifact_drs_final_precheck',
+        storage_backend: 'db',
+        size_bytes: 2048,
+        checksum: 'sha256:final',
+      },
+      {
+        artifact_id: 'artifact_drs_migration_execution',
+        type: 'drs_migration_execution',
+        path: 'db://job-artifacts/artifact_drs_migration_execution',
+        storage_backend: 'db',
+        size_bytes: 4096,
+        checksum: 'sha256:execution',
+      },
+    ]
   },
 }, { selectedJobId: 'drs-mig-1' })
 
 assert.equal(drsModel.selectedJob.type, 'drs_migration')
 assert.equal(drsModel.selectedJob.drsMigrationSummary.title, 'DRS migration summary')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[0].items.find((item) => item.label === 'Approval packet').value, 'drsap-1')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[0].items.find((item) => item.label === 'Recommendation').value, 'drs-rec-1')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[0].items.find((item) => item.label === 'VM identity').value, 'vmid-1')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Runnable').value, '아니오')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Proxmox mutation enabled').value, '아니오')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Side effects').value, '-')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[1].items.find((item) => item.label === 'Task status').value, 'pending')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[2].items.find((item) => item.label === 'Post-check status').value, 'not_started')
-assert.equal(drsModel.selectedJob.drsMigrationSummary.sections[2].items.find((item) => item.label === 'Operation locks').value, 'lock-a, lock-b')
+const drsSummary = drsModel.selectedJob.drsMigrationSummary
+const drsSection = (title) => drsSummary.sections.find((section) => section.title === title)
+const drsValue = (title, label) => drsSection(title).items.find((item) => item.label === label).value
+assert.equal(drsValue('Read-only state', 'Read-only evidence'), '예')
+assert.equal(drsValue('Read-only state', 'Allowed actions'), '-')
+assert.equal(drsValue('Read-only state', 'Current mutation controls'), '-')
+assert.equal(drsValue('Approval / intent', 'Approval packet'), 'drsap-1')
+assert.equal(drsValue('Approval / intent', 'Packet status'), 'approved')
+assert.equal(drsValue('Approval / intent', 'Recommendation'), 'drs-rec-1')
+assert.equal(drsValue('Approval / intent', 'VM identity'), 'vmid-1')
+assert.equal(drsValue('Approval / intent', 'VMID'), '101')
+assert.equal(drsValue('Approval / intent', 'Approved actor'), 'operator')
+assert.equal(drsValue('Approval / intent', 'Executed actor'), 'executor')
+assert.equal(drsValue('Approval / intent', 'Execution acknowledgement'), 'drs_live_migration_acknowledged=예')
+assert.match(drsValue('Final pre-check', 'Check statuses'), /proxmox_active_task: not_collected/)
+assert.match(drsValue('Final pre-check', 'Technical gate'), /proxmox_final_technical_gate/)
+assert.match(drsValue('Final pre-check', 'Criteria statuses'), /migration_policy_allowed: pass/)
+assert.match(drsValue('Final pre-check', 'Advisory signals'), /route_unknown: warning/)
+assert.equal(drsValue('Historical execution evidence', 'Recorded Proxmox mutation'), '예')
+assert.match(drsValue('Historical execution evidence', 'Side effects'), /proxmox_migrate_invoked/)
+assert.equal(drsValue('Historical execution evidence', 'Proxmox UPID'), 'UPID:node-a:0001:migrate')
+assert.equal(drsValue('Historical execution evidence', 'Task node'), 'node-a')
+assert.equal(drsValue('Historical execution evidence', 'Task result'), 'ok')
+assert.equal(drsValue('Historical execution evidence', 'Task status'), 'stopped')
+assert.equal(drsValue('Historical execution evidence', 'Task exitstatus'), 'OK')
+assert.equal(drsValue('Historical execution evidence', 'Task log excerpt'), 'migration done')
+assert.match(drsValue('Locks / reconciliation', 'Operation lock ids'), /lock-a, lock-b/)
+assert.match(drsValue('Locks / reconciliation', 'Lock records'), /reconciliation_required/)
+assert.equal(drsValue('Locks / reconciliation', 'Post-check status'), 'needs_reconciliation')
+assert.match(drsValue('Locks / reconciliation', 'Post-check blockers'), /fingerprint_mismatch/)
+assert.match(drsValue('Locks / reconciliation', 'Fingerprint'), /아니오/)
+assert.equal(drsValue('Locks / reconciliation', 'Reconciliation required'), '예')
+assert.equal(drsValue('Locks / reconciliation', 'Reconciliation reason'), 'fingerprint_mismatch')
+assert.match(drsValue('Locks / reconciliation', 'Reconciliation events'), /drsrec-1:open:fingerprint_mismatch/)
+assert.match(drsValue('Locks / reconciliation', 'Resolved events'), /drsrec-0:resolved:resolved_after_verified_post_check/)
+assert.deepEqual(drsSummary.artifacts.map((artifact) => artifact.type), ['drs_final_precheck', 'drs_migration_execution'])
+assert.deepEqual(drsSummary.artifacts.map((artifact) => artifact.id), ['artifact_drs_final_precheck', 'artifact_drs_migration_execution'])
+assert.equal(drsSummary.artifacts[0].storageBackend, 'db')
+assert.equal(drsSummary.artifacts[0].sizeBytes, 2048)
+assert.equal(drsSummary.artifacts[0].checksum, 'sha256:final')
+assert.equal(drsSummary.artifacts[0].path, undefined)
 
 const source = readFileSync(new URL('../src/components/TaskBoard.jsx', import.meta.url), 'utf8')
 assert.match(source, /apiV1Client/)

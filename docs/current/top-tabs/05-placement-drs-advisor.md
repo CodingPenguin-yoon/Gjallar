@@ -1,8 +1,8 @@
 # Placement / DRS Advisor
 
-평가일: 2026-05-31
+평가일: 2026-06-03
 
-검증 기준: 2026-05-31에 backend focused DRS/API/DB validation `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/drs backend/tests/contracts backend/tests/db` and frontend focused validation `node --test frontend/tests/drsAdvisor.test.mjs frontend/tests/apiV1Client.test.mjs frontend/tests/authFlow.test.mjs`를 통과했다.
+검증 기준: 2026-06-03에 latest combined backend validation `PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests/drs/test_advisor_readiness.py backend/tests/contracts/test_api_v1_drs.py backend/tests/drs/test_execution.py backend/tests/proxmox/test_mutation_client.py`가 `96 passed, 37 subtests passed`, frontend validation `node --test frontend/tests/drsAdvisor.test.mjs frontend/tests/apiV1Client.test.mjs frontend/tests/apiV1ViewModels.test.mjs`가 `3 passed`, and `pnpm --dir frontend build` / `git diff --check`가 통과했다.
 
 ## 구현 수준
 
@@ -28,13 +28,21 @@ DRS Advisor backend endpoint는 다음 `/api/v1` 조회, local evidence, and nar
 
 모든 recommendation과 final pre-check result는 `read_only=true`, `executable=false`, `allowed_actions=[]`다. `/check`는 current inventory를 다시 읽고 `would_be_executable`을 계산하지만 mutation authority는 제공하지 않는다.
 
-DRS authority split: Proxmox migration preconditions and UPID task status are the technical authority for whether a migration can run and whether the task completed. Gjallar policy, identity/fingerprint, audit artifacts, operation locks, approval/job binding, and reconciliation status are the DRS authority for whether Gjallar may approve, execute, or locally complete a DRS job. Advisor local storage, passthrough, route, and network signals remain advisory/pre-filter evidence and do not replace the final Proxmox technical checks.
+Recommendation/check output now includes backend-owned DRS criteria taxonomy:
+
+- `blockers`: compatibility hard-gate subset only.
+- `blocker_details`: hard-gate details with `authority`, `category`, `severity`, `evidence_state`, and `action_blocked`.
+- `criteria` / `criteria_details`: combined hard-gate, advisory/pre-filter, and Proxmox technical-gate criteria.
+- `advisory_signals`: Advisor pre-filter evidence such as route/network, local storage, and passthrough.
+- `technical_gate_status`: compact Proxmox final technical-gate status, including explicit `not_collected` evidence.
+
+DRS authority split: Proxmox migration preconditions, live pre-check evidence, and UPID task status are the technical authority for whether a migration can run and whether the task completed. Gjallar policy, identity/fingerprint, audit artifacts, operation locks, approval/job binding, acknowledgement gates, post-check/fingerprint, and reconciliation status are the DRS authority for whether Gjallar may approve, execute, or locally complete a DRS job. Advisor local storage, passthrough, route, and network signals are `advisor_prefilter_signal` advisory evidence and do not replace the final Proxmox technical checks.
 
 `/drs/policies`는 current non-template VM의 policy coverage를 `vm_identity_id` 기준으로 표시한다. `PUT /drs/policies/{vm_identity_id}`는 operator-only Gjallar-local manual update이며 `expected_observation` guard, `policy_change_acknowledged=true`, trusted session actor, and audit event row를 요구한다. `allowed`는 DRS prerequisite only이고 migration approval이 아니다. `unknown`, `restricted`, `blocked`는 계속 DRS-blocking이다.
 
 `/approval-packets`는 operator-only local evidence endpoint다. Passing final pre-check, high-confidence identity, allowed migration policy, no open operation lock, and warning acknowledgement gates are required before it writes a compact approval packet and pending `drs_migration` job intent. It does not call Proxmox mutation APIs; the job intent remains `runnable=false`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.
 
-`/explicit-test-candidates/check` and `/explicit-test-candidates/approval-packets` are backend/API-only smoke readiness helpers for a selected VM outside the normal top-3 recommendation slice. They require exact `explicit_test_vm_acknowledged=true` before inventory/advisor/DB work, bind exact `vm_identity_id`, `vmid`, `source_node_id`, and `target_node_id`, and still enforce hot source, target delta, running non-template, red-risk exclusion, route/storage/network/passthrough/target-threshold/policy/identity/lock gates. They do not call Proxmox mutation and are not broad migration endpoints.
+`/explicit-test-candidates/check` and `/explicit-test-candidates/approval-packets` are backend/API-only smoke readiness helpers for a selected VM outside the normal top-3 recommendation slice. They require exact `explicit_test_vm_acknowledged=true` before inventory/advisor/DB work, bind exact `vm_identity_id`, `vmid`, `source_node_id`, and `target_node_id`, and still enforce hot source, target delta, running non-template, red-risk exclusion, target-threshold, policy, identity, lock, and Proxmox final technical gates. Route/storage/network/passthrough are surfaced as advisory/pre-filter evidence unless a future backend change explicitly promotes one. They do not call Proxmox mutation and are not broad migration endpoints.
 
 `/migration-jobs/{job_id}/execute`는 operator-only execution endpoint다. It first requires exact `{"drs_live_migration_acknowledged": true}`. Missing payload, false/null/string/number values, camelCase-only acknowledgement, or Create VM acknowledgement are rejected as `409` / `DRS_EXECUTION_ACK_REQUIRED` request validation with `proxmox_mutation_enabled=false` and `side_effects=[]` before DRS service delegation, client factory, live pre-check, locks, or migration call; this does not mark a pending job blocked. After that gate, it loads stored `DrsMigrationJobRecord` + `DrsApprovalPacketRecord`, rejects missing/stale/cancelled/already-executed bindings, reruns a fresh advisor final pre-check, collects live Proxmox evidence through the dedicated DRS client, transactionally acquires VM identity, Proxmox locator, and route operation locks, and only then POSTs Proxmox QEMU migrate. It does not expose recommendation aliases such as `/migrate` or `/live-migrate`.
 
@@ -52,7 +60,7 @@ DRS authority split: Proxmox migration preconditions and UPID task status are th
 
 VM identity foundation은 Proxmox inventory에서 SMBIOS UUID, VM generation ID, MAC addresses, disk volume IDs만 curated fingerprint evidence로 사용한다. node, VMID, name은 locator/supporting evidence이며 이것만으로 high confidence identity가 되지 않는다. Low/medium/unknown identity는 execution-blocking이고, policy는 high confidence identity 뒤에서만 의미 있게 평가된다.
 
-Migration policy default는 `unknown`이며 execution-blocking이다. Canonical blockers는 `vm_identity_unknown`, `vm_identity_uncertain`, `migration_policy_unknown`, `migration_policy_restricted`, `migration_policy_blocked`, `drs_final_precheck_failed`를 사용하고, compatibility blockers such as `identity_unknown`, `metadata_missing`, `policy_unknown`, `final_precheck_not_run`도 필요한 곳에 남아 있다.
+Migration policy default는 `unknown`이며 execution-blocking이다. Canonical blockers는 `vm_identity_unknown`, `vm_identity_uncertain`, `migration_policy_unknown`, `migration_policy_restricted`, `migration_policy_blocked`, `drs_final_precheck_failed`를 사용하고, compatibility blockers such as `identity_unknown`, `metadata_missing`, `policy_unknown`, `final_precheck_not_run`도 필요한 곳에 남아 있다. Advisor-only `route_unknown`, `local_storage_dependency`, and `passthrough_device_dependency`는 recommendation/check hard `blockers`에서 빠지고 `advisory_signals`에 표시된다.
 
 Manual policy configuration is attached only to Gjallar `vm_identity_id`. The shared policy review modal is used by both `/drs` policy configuration and Infra Explorer VM rows. It shows current locator and observation guard evidence, blocks policy writes for uncertain identities, requires a deliberate policy select, reason, acknowledgement, and does not send actor/source/operator fields from the browser.
 
@@ -60,7 +68,7 @@ Manual policy configuration is attached only to Gjallar `vm_identity_id`. The sh
 
 DRS readiness output already surfaces reconciliation state through `approval_readiness.lock_evidence` and `approval_readiness.reconciliation`. A `reconciliation_required` operation lock reports matching lock ids and reasons and blocks approval/execution readiness.
 
-Read-only Proxmox conflict evidence는 현재 VM config의 curated `lock` 값만 지원한다. Config lock이 관찰되면 `vm_config_lock` blocker가 추가된다. Active task, HA state, cluster health/quorum evidence는 현재 adapter에서 수집하지 않으며 `not_collected`로 명시된다.
+Read-only Proxmox conflict evidence는 현재 VM config의 curated `lock` 값만 지원한다. Config lock이 관찰되면 `vm_config_lock` blocker가 추가되고 `proxmox_final_technical_gate`로 분류된다. Active task, HA state, cluster health/quorum evidence는 현재 adapter에서 수집하지 않으며 `not_collected`로 명시되고 `technical_gate_status`와 runnable blockers에 반영된다.
 
 DRS execution does not treat read-only `not_collected` Proxmox evidence as executable. Before mutation, the request acknowledgement gate must pass, then the dedicated DRS client collects active task scan, cluster quorum, HA resource state, and Proxmox migration preconditions. Any unavailable, ambiguous, conflicting, missing, or failing live evidence blocks before mutation.
 
@@ -76,7 +84,7 @@ Live migration uses only the dedicated DRS Proxmox client and calls `POST /nodes
 
 ## DRS Advisor 기준 gaps
 
-[DRS recommendation/execution 목표](../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) 대비 남은 gap은 backend-owned blocker taxonomy, 15분 average/peak metric substrate, deeper read-only active task/HA/quorum collection, richer policy rule/full metadata editor, corrective reconciliation mutation, background reconciliation workflow, and broad execution UI다. Approved VMID `140` live DRS smoke evidence는 기록되었지만, broad live execute UI는 아직 없다.
+[DRS recommendation/execution 목표](../../product/drs-advisor/04_DRS_RECOMMENDATION_AND_EXECUTION.md) 대비 남은 gap은 15분 average/peak metric substrate, deeper read-only active task/HA/quorum collection, richer policy rule/full metadata editor, corrective reconciliation mutation, background reconciliation workflow, and broad execution UI다. Approved VMID `140` live DRS smoke evidence는 기록되었지만, broad live execute UI는 아직 없다.
 
 Live execute confirm modal, broad UI execution controls, corrective reconciliation workflow가 없다. 현재 reconciliation surface는 backend read-only preview와 Jobs/Runs/operation-lock evidence에 한정된다.
 

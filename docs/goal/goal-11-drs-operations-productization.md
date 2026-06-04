@@ -1,10 +1,11 @@
 # Goal 11: DRS Criteria And Operations Productization
 
-Status: rewritten canonical follow-on goal; not implemented. This goal
+Status: rewritten canonical follow-on goal; first criteria/taxonomy and
+Jobs/Runs evidence slices implemented while broader Goal 11 remains in
+progress. This goal
 supersedes the previous split between Goal 11 DRS Operations Productization and
-Goal 12 Platform Hardening And Decision Quality. Start implementation only when
-the user explicitly selects this goal after the Goal 10 live evidence close-out
-is accepted.
+Goal 12 Platform Hardening And Decision Quality. Continue broader implementation
+only when the user explicitly selects the next Goal 11 slice.
 
 ## Objective
 
@@ -38,10 +39,21 @@ product slice:
 - Backend-only explicit test candidate helpers, narrow migration-job execute,
   read-only reconcile preview, and stored-UPID local reconciliation follow-up are
   implemented.
-- Broad DRS execute UI, corrective reconcile UI, richer DRS lifecycle panels,
-  and a complete backend-owned blocker taxonomy are not implemented.
-- Current Advisor checks still mix advisory/pre-filter evidence and final
-  blocking language in ways that can mislead operators if surfaced directly.
+- Broad DRS execute UI, corrective reconcile UI, broader DRS lifecycle panels,
+  and Risks criteria taxonomy polish are not implemented. The first
+  recommendation/check backend-owned criteria taxonomy slice exists, and the
+  first Jobs/Runs read-only DRS evidence slice records/renders compact
+  approval, task, lock, post-check, reconciliation, taxonomy, and artifact
+  metadata evidence.
+- First implementation slice now exposes backend-owned criteria taxonomy fields
+  on recommendation/check output and reclassifies Advisor route/network,
+  local-storage, and passthrough evidence as advisory/pre-filter signals.
+  Current recommendation/check output no longer mixes those advisory/pre-filter
+  signals into the compatibility hard `blockers` list.
+- Remaining gaps include broad live execute UI, corrective reconcile UI,
+  broader DRS lifecycle panels, Risks taxonomy polish, richer policy rule/full
+  metadata editing, 15-minute average/peak metrics, and deeper read-only
+  task/HA/quorum collection.
 
 ## Controlling References
 
@@ -108,6 +120,9 @@ Goal 11 must preserve this split:
      visible and does not silently become executable.
    - Normalize route/storage/network/passthrough messaging so operators can tell
      advisory/pre-filter evidence apart from final Proxmox technical gates.
+   - First slice implemented fields: `criteria`, `criteria_details`,
+     `advisory_signals`, and `technical_gate_status`, with `authority`,
+     `category`, `severity`, `evidence_state`, and `action_blocked`.
 3. Advisor hard-blocker cleanup.
    - Decide which local Advisor checks remain hard blockers before approval and
      which become warnings/advisory evidence.
@@ -115,6 +130,9 @@ Goal 11 must preserve this split:
      lock, and post-check/fingerprint requirements.
    - Preserve Proxmox migration preconditions as the final technical feasibility
      check before mutation.
+   - First slice keeps the compatibility `blockers` list as the hard-gate subset
+     and removes Advisor route/network/local-storage/passthrough from hard
+     recommendation/check blockers.
 4. DRS operations UI.
    - Add guarded UI for explicit test candidate preparation where selected.
    - Show approval packet/job creation and lifecycle state.
@@ -129,6 +147,11 @@ Goal 11 must preserve this split:
      reconciliation evidence.
    - Keep Jobs/Runs read-only unless a later goal explicitly selects mutation
      controls.
+   - Current slice adds `job_runs.details.drs_evidence` with explicit
+     `read_only=true`, `allowed_actions=[]`, `current_mutation_controls=[]`,
+     final-precheck criteria details/advisory signals/statuses, historical
+     execution evidence, lock/post-check/reconciliation summaries, and DRS
+     artifact metadata display without payloads or local paths.
 6. Decision-quality foundations selected for this slice.
    - Add freshness/stale evidence display where it materially affects DRS trust.
    - Include 15-minute average/peak metrics, deeper read-only active task/HA/quorum
@@ -175,7 +198,8 @@ Goal 11 must preserve this split:
 - Reconcile UI remains read-only or local stored-UPID follow-up only; no
   corrective mutation is exposed.
 - Jobs/Runs DRS detail panels make approval, UPID/task, post-check, lock, and
-  reconciliation evidence easier to inspect.
+  reconciliation evidence easier to inspect. Artifact metadata is visible, but
+  artifact payloads and local paths are not rendered.
 - Remaining hardening slices are explicitly listed instead of mixed into the
   active goal.
 

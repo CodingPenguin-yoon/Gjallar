@@ -132,6 +132,7 @@ function CreateVmSummary({ summary }) {
 
 function DrsMigrationSummary({ summary }) {
   if (!summary) return null
+  const artifacts = Array.isArray(summary.artifacts) ? summary.artifacts : []
 
   return (
     <div className="mt-6">
@@ -165,6 +166,29 @@ function DrsMigrationSummary({ summary }) {
             </dl>
           </section>
         ))}
+      </div>
+
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold text-slate-900">DRS artifact metadata</h3>
+        {artifacts.length === 0 ? (
+          <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">No DRS artifacts published for this job.</div>
+        ) : (
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            {artifacts.map((artifact) => (
+              <div key={artifact.id} className="rounded-lg border border-slate-200 p-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="font-medium text-slate-900">{artifact.type}</span>
+                  <span className="break-all text-right text-xs text-slate-500">{artifact.id}</span>
+                </div>
+                <div className="mt-2 grid gap-x-3 gap-y-1 text-xs text-slate-500 sm:grid-cols-2">
+                  <span>storage: {artifact.storageBackend || '-'}</span>
+                  <span>size: {artifact.sizeBytes ? `${artifact.sizeBytes} B` : '-'}</span>
+                  {artifact.checksum && <span className="break-all sm:col-span-2">checksum: {artifact.checksum}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <p className="mt-3 text-xs text-slate-500">
         DRS migration runs are shown for audit and reconciliation awareness only. This panel has no mutation controls.

@@ -122,8 +122,8 @@ Tests:
 - same VMID + different fingerprint creates Identity Mismatch.
 - unknown fingerprint blocks migration.
 - name/tag/IP/owner/profile alone cannot confirm identity.
-- restricted/blocked policies disable Approve & Migrate.
-- Allowed + confirmed + complete metadata can become executable if route/final pre-check allows.
+- restricted/blocked policies block local approval packet/job intent creation and stored execute readiness.
+- Allowed + confirmed + complete metadata can create local approval/job intent only if hard gates pass; live migration still requires stored job execution acknowledgement, fresh gates, and Proxmox live pre-check.
 
 ## 5. Phase 3 - DRS Advisor UI transition
 
@@ -139,32 +139,36 @@ Work:
 - Dashboard consumes DRS summary.
 - DRS Advisor screen shows identity, metadata, policy, mobility, route status.
 - Add Check Now panel.
-- Keep execution disabled unless backend says action is available.
+- Keep recommendation/check execution disabled; display backend criteria and stored approval/job readiness only.
 
 Tests:
 
 - App navigation includes `/drs` and label is DRS Advisor.
 - Dashboard shows max 3 recommendations.
 - DRS Advisor table displays identity/policy/route fields.
-- Unknown route disables migration.
+- Advisor Route Unknown is advisory/pre-filter evidence. It does not grant frontend execution authority; final Proxmox live pre-check/migration preconditions block before mutation when route evidence is unavailable, ambiguous, or failing.
 - Check Now result is marked reference-only.
 
-## 6. Phase 4 - Final pre-check and approval
+## 6. Phase 4 - Final pre-check, local approval, and stored execute
 
 Goals:
 
 - Implement authoritative final pre-check.
-- Add Approve & Migrate confirm modal.
+- Add local approval packet and pending DRS migration job intent creation.
+- Keep live migration execution behind stored-job execute route acknowledgement.
 - Add operation locks.
 
 Candidate endpoints:
 
 ```http
-POST /api/v1/drs/recommendations/{recommendation_id}/approve-migrate
-POST /api/v1/drs/jobs/{job_id}/confirm
+POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets
+POST /api/v1/drs/migration-jobs/{job_id}/execute
 ```
 
-Or one endpoint can run final pre-check and return confirm packet before a second confirm endpoint starts migration.
+The approval endpoint writes local approval/job artifacts only. The stored
+execute endpoint requires exact `drs_live_migration_acknowledged=true`, reruns
+fresh gates, collects Proxmox live pre-check evidence, acquires operation locks,
+and only then requests migration.
 
 Required final pre-check:
 
@@ -186,13 +190,14 @@ Tests:
 - source node mismatch blocks.
 - active lock blocks.
 - warning requires acknowledgement.
-- blocker/unknown does not create migration job.
+- hard gate blocker/unknown does not create a local approval packet/job intent.
+- execute acknowledgement failure is request validation only and does not mark a pending job blocked.
 
 ## 7. Phase 5 - Proxmox migration execution
 
 Goals:
 
-- Execute manual approved live migration through Proxmox.
+- Execute stored approved DRS migration jobs through Proxmox.
 - Track UPID and logs.
 - Publish Jobs/Runs artifacts.
 
@@ -224,7 +229,7 @@ Goals:
 Work:
 
 - Add startup reconciliation scan.
-- Add Reconcile Now endpoint/action.
+- Add read-only reconciliation preview and, in a later explicitly approved slice, corrective Reconcile Now endpoint/action.
 - Add lock stale/reconciliation_required handling.
 - Store reconciliation_events.
 
@@ -239,7 +244,7 @@ Tests:
 - restart with same fingerprint reattaches metadata.
 - restart with same VMID but different fingerprint creates Identity Mismatch.
 - timeout after 30m marks needs_reconciliation.
-- Reconcile Now success requires target node running + fingerprint match.
+- Deferred corrective Reconcile Now success would require target node running + fingerprint match. Current Jobs/Runs displays read-only reconciliation evidence and does not expose a corrective action.
 - ambiguous state keeps needs_reconciliation.
 
 ## 9. Deferred

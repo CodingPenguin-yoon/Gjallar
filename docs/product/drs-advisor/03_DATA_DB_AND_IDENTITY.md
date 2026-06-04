@@ -156,7 +156,7 @@ Optional metadata:
 
 Policy behavior:
 
-- Allowed: final pre-check 통과 시 manual approved live migration 가능
+- Allowed: local approval packet/job intent의 prerequisite이며, live migration still requires stored job execution acknowledgement and fresh gates
 - Restricted: metadata는 있지만 MVP 일반 DRS 실행 제외
 - Blocked: 이동 금지
 
@@ -214,7 +214,7 @@ Code/validation usage:
 
 - owner/environment/sensitivity/migration_policy가 없으면 metadata incomplete blocker다.
 - sensitivity critical은 warning이다.
-- migration_policy allowed만 Approve & Migrate 후보가 된다.
+- migration_policy allowed is required before local approval packet/job intent creation.
 - restricted는 MVP DRS 실행 제외다.
 - blocked는 recommendation과 execution 모두 차단한다.
 - preferred_node는 warning/tie-breaker evidence일 뿐 final pre-check 대체값이 아니다.
@@ -297,8 +297,8 @@ Code/validation usage:
 
 - Dashboard top 1~3과 DRS Advisor full table을 렌더링한다.
 - approval review에 recommendation snapshot을 표시한다.
-- blockers가 있으면 Approve & Migrate disabled다.
-- route_status Unknown/Blocked이면 실행 불가다.
+- hard-gate `blockers`가 있으면 local approval packet/job intent creation이 blocked다.
+- route_status Unknown/Blocked from Advisor evidence is advisory/pre-filter signal in the current implementation; Proxmox live pre-check/migration preconditions remain the final technical execution gate.
 - snapshot은 실행 허가가 아니며 final pre-check가 필요하다.
 
 ### 7.6 drs_prechecks
@@ -344,7 +344,7 @@ Fields:
 Code/validation usage:
 
 - final pre-check의 no operation lock 검증에 사용한다.
-- active lock이 있으면 Approve & Migrate disabled다.
+- active lock blocks approval readiness and stored execute readiness.
 - timeout/worker crash 후 stale 또는 reconciliation_required로 남긴다.
 - 현재 구현은 read-only reconcile preview로 current Proxmox state를 확인한다. Corrective Reconcile Now/release action은 future work다.
 

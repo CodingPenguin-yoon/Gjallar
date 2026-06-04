@@ -7,7 +7,17 @@ import pytest
 class MutableDrsAdapter:
     source = "stub_read_only"
 
-    def __init__(self, *, identity_mode="high", vm_status="running", policy_storage="shared-nfs", config_lock=""):
+    def __init__(
+        self,
+        *,
+        identity_mode="high",
+        vm_status="running",
+        policy_storage="shared-nfs",
+        storage_type="nfs",
+        target_network=True,
+        vm_tags=(),
+        config_lock="",
+    ):
         from app.proxmox.models import (
             DiskInventory,
             GuestAgentInventory,
@@ -22,12 +32,12 @@ class MutableDrsAdapter:
         self._snapshot_type = InventorySnapshot
         self._storage_id = policy_storage
         self._storages = (
-            StorageInventory(policy_storage, "node-a", "nfs", 1024, 600, ("images",)),
-            StorageInventory(policy_storage, "node-b", "nfs", 1024, 700, ("images",)),
+            StorageInventory(policy_storage, "node-a", storage_type, 1024, 600, ("images",)),
+            StorageInventory(policy_storage, "node-b", storage_type, 1024, 700, ("images",)),
         )
         self._networks = (
             NetworkInventory("vmbr0", "node-a", active=True),
-            NetworkInventory("vmbr0", "node-b", active=True),
+            *(() if not target_network else (NetworkInventory("vmbr0", "node-b", active=True),)),
         )
         self._nodes = (
             NodeInventory(
@@ -88,6 +98,7 @@ class MutableDrsAdapter:
             smbios1=smbios1,
             vmgenid=vmgenid,
             mac_addresses=mac_addresses,
+            tags=tuple(vm_tags),
             nic_bridge_evidence=(
                 NicBridgeEvidenceInventory(
                     interface_name="net0",
@@ -400,6 +411,57 @@ def test_allowed_policy_can_reach_read_only_final_precheck_would_pass():
     assert "live_migration_execution_not_implemented" not in readiness["runnable_blockers"]
 
 
+def test_advisor_prefilter_signals_do_not_become_hard_blockers():
+    from app.drs.advisor import build_drs_check_result
+
+    adapter = MutableDrsAdapter(
+        identity_mode="high",
+        policy_storage="local-lvm",
+        storage_type="lvmthin",
+        target_network=False,
+        vm_tags=("gpu", "prod"),
+    )
+    first = _first_recommendation(adapter)
+    _set_policy(first["identity_evidence"]["vm_identity_id"], "allowed")
+    recommendation = _first_recommendation(adapter)
+
+    advisory = {item["code"]: item for item in recommendation["advisory_signals"]}
+    assert "route_unknown" not in recommendation["blockers"]
+    assert "local_storage_dependency" not in recommendation["blockers"]
+    assert "passthrough_device_dependency" not in recommendation["blockers"]
+    assert advisory["route_unknown"]["authority"] == "advisor_prefilter_signal"
+    assert advisory["route_unknown"]["category"] == "advisory"
+    assert advisory["route_unknown"]["severity"] == "warning"
+    assert advisory["route_unknown"]["action_blocked"] == "none"
+    assert advisory["local_storage_dependency"]["severity"] == "warning"
+    assert advisory["passthrough_device_dependency"]["severity"] == "warning"
+    assert recommendation["criteria"]["advisory_signal_codes"] == [
+        "route_unknown",
+        "local_storage_dependency",
+        "passthrough_device_dependency",
+    ]
+    assert recommendation["technical_gate_status"]["status"] == "not_collected"
+
+    result = build_drs_check_result(
+        adapter,
+        recommendation["id"],
+        risks=[],
+        payload={"recommendation": recommendation},
+    )
+
+    assert result["would_be_executable"] is True
+    assert result["approval_readiness"]["approval_packet_creatable"] is True
+    assert "route_unknown" not in result["blockers"]
+    assert "local_storage_dependency" not in result["blockers"]
+    assert "passthrough_device_dependency" not in result["blockers"]
+    assert result["check"]["checks"]["route"]["status"] == "warning"
+    assert result["check"]["checks"]["storage"]["status"] == "warning"
+    assert result["check"]["checks"]["passthrough"]["status"] == "warning"
+    assert result["check"]["checks"]["route"]["criterion"]["action_blocked"] == "none"
+    assert result["technical_gate_status"]["status"] == "not_collected"
+    assert "proxmox_active_task_not_collected" in result["technical_gate_status"]["criteria"]
+
+
 def test_allowed_policy_creates_local_approval_packet_and_pending_non_runnable_job():
     from app.drs.advisor import build_drs_check_result
     from app.drs.approval import create_approval_packet_and_job_intent
@@ -456,6 +518,24 @@ def test_allowed_policy_creates_local_approval_packet_and_pending_non_runnable_j
     assert job_run is not None
     assert job_run["job_type"] == "drs_migration"
     assert job_run["status"] == "pending"
+    drs_evidence = job_run["details"]["drs_evidence"]
+    assert drs_evidence["read_only"] is True
+    assert drs_evidence["allowed_actions"] == []
+    assert drs_evidence["current_mutation_controls"] == []
+    assert drs_evidence["approval_packet"]["id"] == packet["approval_packet"]["approval_packet_id"]
+    assert drs_evidence["approval_packet"]["status"] == "approved"
+    assert drs_evidence["recommendation_id"] == recommendation["id"]
+    assert drs_evidence["vm"]["identity_id"] == recommendation["identity_evidence"]["vm_identity_id"]
+    assert drs_evidence["vm"]["vmid"] == recommendation["vmid"]
+    assert drs_evidence["route"]["source_node_id"] == recommendation["source_node_id"]
+    assert drs_evidence["route"]["target_node_id"] == recommendation["target_node_id"]
+    assert drs_evidence["actors"]["approved"]["username"] == "operator"
+    assert drs_evidence["actors"]["executed"] == {}
+    assert drs_evidence["historical_execution"]["proxmox_mutation_recorded"] is False
+    assert drs_evidence["final_precheck_summary"]["status"] == "would_pass"
+    assert drs_evidence["final_precheck_summary"]["technical_gate_status"]["status"] == "not_collected"
+    assert drs_evidence["final_precheck_summary"]["criteria_details"]
+    assert drs_evidence["final_precheck_summary"]["advisory_signals"] == recommendation["advisory_signals"]
     assert [step["id"] for step in job_run["steps"]] == [
         "recommendation",
         "final_precheck",
@@ -602,6 +682,30 @@ def test_explicit_smoke_candidate_wrong_identity_and_source_are_exact_selection_
     assert mismatched_route_id["would_be_executable"] is False
     assert mismatched_route_id["recommendation"].get("explicit_test_candidate") is not True
     assert "stale_recommendation" in mismatched_route_id["blockers"]
+
+
+def test_unavailable_target_node_is_proxmox_final_technical_gate():
+    from app.drs.advisor import build_drs_check_result, explicit_test_recommendation_id
+
+    adapter = ExplicitSmokeDrsAdapter()
+    recommendation_id = explicit_test_recommendation_id(vmid=140, source_node_id="node-a", target_node_id="node-x")
+
+    result = build_drs_check_result(
+        adapter,
+        recommendation_id,
+        risks=[],
+        payload={"recommendation": {"vmid": 140, "source_node_id": "node-a", "target_node_id": "node-x"}},
+    )
+
+    assert result["would_be_executable"] is False
+    assert "target_node_unavailable" in result["blockers"]
+    target_check = result["check"]["checks"]["target_node"]
+    assert target_check["status"] == "failed"
+    assert target_check["criterion"]["authority"] == "proxmox_final_technical_gate"
+    assert target_check["criterion"]["category"] == "technical_gate"
+    assert target_check["criterion"]["severity"] == "blocking"
+    assert target_check["criterion"]["evidence_state"] == "unavailable"
+    assert result["technical_gate_status"]["status"] == "blocked"
 
 
 def test_synthetic_warnings_require_acknowledgement_before_local_approval_intent():
@@ -876,12 +980,12 @@ def test_config_lock_blocks_final_precheck_and_reports_unsupported_evidence():
     assert checks["proxmox_ha_state"]["status"] == "not_collected"
     assert checks["proxmox_cluster_quorum"]["status"] == "not_collected"
     assert conflicts["status"] == "failed"
-    assert checks["proxmox_config_lock"]["evidence"] == {
-        "status": "conflict",
-        "blocking": True,
-        "source": "vm_config.lock",
-        "lock": "backup",
-    }
+    assert checks["proxmox_config_lock"]["evidence"]["status"] == "conflict"
+    assert checks["proxmox_config_lock"]["evidence"]["blocking"] is True
+    assert checks["proxmox_config_lock"]["evidence"]["source"] == "vm_config.lock"
+    assert checks["proxmox_config_lock"]["evidence"]["lock"] == "backup"
+    assert checks["proxmox_config_lock"]["evidence"]["authority"] == "proxmox_final_technical_gate"
+    assert checks["proxmox_config_lock"]["evidence"]["evidence_state"] == "observed"
     assert conflicts["evidence"]["active_task"]["status"] == "not_collected"
     assert conflicts["evidence"]["ha_state"]["status"] == "not_collected"
     assert conflicts["evidence"]["cluster_quorum"]["status"] == "not_collected"

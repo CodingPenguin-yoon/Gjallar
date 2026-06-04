@@ -52,7 +52,7 @@ exactly one detailed document, listed below.
 | Goal Check: Current Implementation Validation Before Goal 9 | Completed | `docs/goal/goal-check-current-implementation-validation.md` | Result: pass-with-risk; no live DRS smoke was run. |
 | Goal 9: Account/Session Operations Polish | Completed | `docs/goal/goal-09-account-session-operations-polish.md` | Admin local account operations, admin session inventory/revocation UI, self password change, and sanitized account/session audit metadata are implemented. |
 | Goal 10: DRS Live Migration Safety And Evidence | Completed with approved VMID `140` live evidence | `docs/goal/goal-10-drs-live-migration-safety-evidence.md` | Execute acknowledgement gate, optional live smoke runbook/evidence matrix, approved live migration, verified post-check, stored-UPID reconciliation follow-up, and lock release are complete. Future live mutation/cleanup still requires separate explicit run approval. |
-| Goal 11: DRS Criteria And Operations Productization | Rewritten follow-on / not started | `docs/goal/goal-11-drs-operations-productization.md` | Supersedes the old Goal 11/12 split. Align DRS criteria, Advisor blocker taxonomy, UI operations workflow, and Jobs/Runs evidence without moving execution authority into the frontend. |
+| Goal 11: DRS Criteria And Operations Productization | In progress; first criteria/taxonomy and Jobs/Runs evidence slices implemented | `docs/goal/goal-11-drs-operations-productization.md` | Supersedes the old Goal 11/12 split. Align DRS criteria, Advisor blocker taxonomy, UI operations workflow, and Jobs/Runs evidence without moving execution authority into the frontend. |
 | Goal 12: Superseded Platform Hardening And Decision Quality Brief | Superseded | `docs/goal/goal-12-platform-hardening-decision-quality.md` | Historical pointer only; selected hardening slices now live inside the rewritten Goal 11 or a later newly defined goal. |
 
 When a future session says "next goal", do not restart Goal 7.5, the minimal
@@ -107,7 +107,12 @@ released operation locks.
 - Narrow backend DRS execute exists.
 - Broad live execute UI remains a gap.
 - Corrective reconcile UI and corrective reconciliation mutation remain gaps.
-- Backend-owned blocker taxonomy and UI display remain gaps.
+- Backend-owned criteria taxonomy and `/drs` UI display exist for the first
+  recommendation/check slice.
+- Jobs/Runs has the first read-only `drs_migration` evidence panel with compact
+  approval, task, lock, post-check, reconciliation, taxonomy, and artifact
+  metadata evidence.
+- Risks taxonomy polish and broader DRS lifecycle/operations polish remain gaps.
 - Richer policy rule/full metadata editor remains a gap.
 - 15-minute average/peak metrics remain a gap.
 - Deeper read-only task/HA/quorum collection remains a gap.
@@ -140,7 +145,9 @@ DRS backend gates: policy `allowed` is only one prerequisite, not migration
 approval, and execute requires exact `drs_live_migration_acknowledged=true`
 before DRS service/client/lock/migration work. Current implemented state
 includes narrow backend DRS execute and approved VMID 140 live evidence; broad
-live execute UI, corrective reconcile UI, backend-owned blocker taxonomy, richer
-policy editor, 15-minute metrics, and deeper read-only task/HA/quorum collection
-remain gaps.
+live execute UI, corrective reconcile UI, richer policy editor, 15-minute
+metrics, deeper read-only task/HA/quorum collection, Risks taxonomy polish, and
+broader DRS lifecycle/operations polish remain gaps. The first
+recommendation/check backend-owned criteria taxonomy slice and first read-only
+Jobs/Runs DRS evidence slice exist.
 ```

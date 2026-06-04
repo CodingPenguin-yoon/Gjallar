@@ -23,7 +23,7 @@ Jobs/Runs is the `/jobs` route. It is a read-only UI over DB-backed job status a
 | `GET /api/v1/jobs/{job_id}` | Read one job summary. |
 | `GET /api/v1/jobs/{job_id}/artifacts` | Read artifact metadata for one job. |
 
-The UI has no retry, cancel, resume, approve, or mutation controls.
+The Jobs/Runs API reads `job_runs.details` and artifact metadata. It does not expose artifact payloads through the Jobs/Runs screen. The UI has no retry, cancel, resume, approve, reconcile, cleanup, reverse-migration, or mutation controls.
 
 ## Job Status Record
 
@@ -47,7 +47,7 @@ metadata are stored in `job_artifacts`; artifact references use
 | `steps` | Ordered stage progress. |
 | `artifacts` | Artifact metadata, including a `job_status` artifact. |
 | `risks` | Current job risk list. |
-| `details` | Redacted extra details. |
+| `details` | Redacted extra details. DRS migration jobs include compact `drs_evidence`; artifact content and local paths are not part of this field. |
 
 This is latest-state persistence, not an immutable append-only audit log.
 
@@ -167,6 +167,16 @@ Artifact APIs return metadata such as id, type, checksum, storage backend, size,
 | Task failed, timed out, ambiguous, missing UPID, request uncertainty, or post-check mismatch | `needs_reconciliation`, stage `reconciliation` or `post_check`; locks become `reconciliation_required`. |
 | Task OK plus verified target-node post-check | `completed`, stage `post_check`; locks are released. |
 
+DRS run details include `drs_evidence` with `read_only=true`,
+`allowed_actions=[]`, and `current_mutation_controls=[]`. It summarizes:
+
+- approval packet id/status, recommendation id, VM identity/VMID, source/target, and approved/executed actor
+- execution acknowledgement field/value when execution was acknowledged
+- final pre-check blockers, check statuses, criteria details, advisory signals, and technical gate status
+- live pre-check status/blockers, UPID/task node/result/status/exitstatus, compact task log excerpt, and side effects as historical execution evidence
+- operation lock ids, checked scopes, lock records/status/scope/reason
+- post-check status/blockers, expected/observed locator/fingerprint evidence, reconciliation reason, open events, and resolved events
+
 ## UI Behavior
 
 | UI area | Current behavior |
@@ -174,7 +184,7 @@ Artifact APIs return metadata such as id, type, checksum, storage backend, size,
 | Summary cards | Total, running, completed, blocked, failed. |
 | Search | Filters by id, type, status, target, risk. |
 | Job cards | Status, target, risk, artifact count, timestamps. |
-| Selected panel | Current message, fields, progress steps, artifact metadata. |
+| Selected panel | Current message, fields, progress steps, artifact metadata. DRS jobs render the compact evidence sections and artifact metadata type/id/checksum/storage backend/size. |
 | Auto-refresh | Polls every 2.5 seconds while selected job is live. |
 
 ## DRS Job Gaps
@@ -188,4 +198,4 @@ Current DRS jobs include:
 - post-check artifact
 - reconciliation artifact when needed
 
-Remaining gaps are broad UI lifecycle polish, backend-owned blocker taxonomy display, corrective reconciliation mutation/action, and background reconciliation automation. Approved VMID `140` live DRS smoke evidence exists. Jobs/Runs itself remains read-only and exposes no retry, cancel, reconcile, or mutation controls.
+Remaining gaps are broad DRS operations UI polish, corrective reconciliation mutation/action, and background reconciliation automation. Approved VMID `140` live DRS smoke evidence exists. Jobs/Runs itself remains read-only and exposes no retry, cancel, reconcile, cleanup, reverse migration, or mutation controls.

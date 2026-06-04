@@ -37,7 +37,82 @@ const recommendation = {
   target_node_id: 'node-b',
   target_node_name: 'node-b',
   reason: 'Source node is hot and target pressure is lower by 42%.',
-  blockers: ['migration_policy_unknown', 'policy_unknown', 'final_precheck_not_run', 'local_storage_dependency'],
+  blockers: ['migration_policy_unknown', 'policy_unknown', 'final_precheck_not_run'],
+  blocker_details: [
+    {
+      code: 'migration_policy_unknown',
+      message: 'DRS migration policy defaults to unknown.',
+      authority: 'gjallar_operational_gate',
+      category: 'policy_gate',
+      severity: 'blocking',
+      evidence_state: 'unknown',
+      action_blocked: 'approval',
+      blocking: true,
+      status: 'blocked',
+    },
+  ],
+  criteria: {
+    hard_gate_blockers: ['migration_policy_unknown', 'policy_unknown', 'final_precheck_not_run'],
+    advisory_signal_codes: ['local_storage_dependency'],
+    technical_gate_status: 'not_collected',
+    authorities: ['advisor_prefilter_signal', 'gjallar_operational_gate', 'proxmox_final_technical_gate'],
+  },
+  criteria_details: [
+    {
+      code: 'migration_policy_unknown',
+      message: 'DRS migration policy defaults to unknown.',
+      authority: 'gjallar_operational_gate',
+      category: 'policy_gate',
+      severity: 'blocking',
+      evidence_state: 'unknown',
+      action_blocked: 'approval',
+      blocking: true,
+      status: 'blocked',
+    },
+    {
+      code: 'local_storage_dependency',
+      message: 'VM depends on local-style storage.',
+      authority: 'advisor_prefilter_signal',
+      category: 'advisory',
+      severity: 'warning',
+      evidence_state: 'observed',
+      action_blocked: 'none',
+      blocking: false,
+      status: 'warning',
+    },
+    {
+      code: 'proxmox_active_task_not_collected',
+      message: 'Proxmox active-task evidence is not collected in recommendation/check output.',
+      authority: 'proxmox_final_technical_gate',
+      category: 'technical_gate',
+      severity: 'pending',
+      evidence_state: 'not_collected',
+      action_blocked: 'execute',
+      blocking: false,
+      status: 'not_collected',
+    },
+  ],
+  advisory_signals: [
+    {
+      code: 'local_storage_dependency',
+      message: 'VM depends on local-style storage.',
+      authority: 'advisor_prefilter_signal',
+      category: 'advisory',
+      severity: 'warning',
+      evidence_state: 'observed',
+      action_blocked: 'none',
+      blocking: false,
+      status: 'warning',
+    },
+  ],
+  technical_gate_status: {
+    authority: 'proxmox_final_technical_gate',
+    category: 'technical_gate',
+    status: 'not_collected',
+    evidence_state: 'not_collected',
+    action_blocked: 'execute',
+    criteria: ['proxmox_active_task_not_collected'],
+  },
   identity_evidence: {
     vm_identity_id: 'vmid-1',
     stable_fingerprint: 'sha256:abcdef0123456789',
@@ -196,6 +271,10 @@ assert.equal(viewModel.execution.available, false)
 assert.equal(viewModel.recommendations[0].id, recommendation.id)
 assert.equal(viewModel.recommendations[0].vmName, 'app-01')
 assert.deepEqual(viewModel.recommendations[0].blockers, recommendation.blockers)
+assert.equal(viewModel.recommendations[0].criteria.hardGateBlockers[0], 'migration_policy_unknown')
+assert.equal(viewModel.recommendations[0].advisorySignals[0].authority, 'advisor_prefilter_signal')
+assert.equal(viewModel.recommendations[0].advisorySignals[0].actionBlocked, 'none')
+assert.equal(viewModel.recommendations[0].technicalGateStatus.status, 'not_collected')
 assert.equal(viewModel.recommendations[0].identityEvidence.match_confidence, 'high')
 assert.equal(viewModel.recommendations[0].policyEvidence.policy, 'unknown')
 assert.equal(viewModel.recommendations[0].estimatedEffect.sourceTargetDelta, 42)
@@ -277,9 +356,78 @@ const fakeClient = {
       allowed_actions: [],
       blockers: ['operation_lock_reconciliation_required', 'vm_config_lock', 'drs_final_precheck_failed'],
       blocker_details: [
-        { code: 'operation_lock_reconciliation_required', message: 'A DRS operation lock requires reconciliation before execution.' },
-        { code: 'vm_config_lock', message: 'Proxmox config lock is present.' },
+        {
+          code: 'operation_lock_reconciliation_required',
+          message: 'A DRS operation lock requires reconciliation before execution.',
+          authority: 'gjallar_operational_gate',
+          category: 'hard_gate',
+          severity: 'blocking',
+          evidence_state: 'observed',
+          action_blocked: 'approval',
+          blocking: true,
+        },
+        {
+          code: 'vm_config_lock',
+          message: 'Proxmox config lock is present.',
+          authority: 'proxmox_final_technical_gate',
+          category: 'technical_gate',
+          severity: 'blocking',
+          evidence_state: 'observed',
+          action_blocked: 'approval',
+          blocking: true,
+        },
       ],
+      criteria: {
+        hard_gate_blockers: ['operation_lock_reconciliation_required', 'vm_config_lock', 'drs_final_precheck_failed'],
+        advisory_signal_codes: ['route_unknown'],
+        technical_gate_status: 'blocked',
+        authorities: ['advisor_prefilter_signal', 'gjallar_operational_gate', 'proxmox_final_technical_gate'],
+      },
+      criteria_details: [
+        {
+          code: 'route_unknown',
+          message: 'Route, storage, or network evidence is insufficient.',
+          authority: 'advisor_prefilter_signal',
+          category: 'advisory',
+          severity: 'warning',
+          evidence_state: 'unknown',
+          action_blocked: 'none',
+          blocking: false,
+          status: 'warning',
+        },
+        {
+          code: 'vm_config_lock',
+          message: 'Proxmox config lock is present.',
+          authority: 'proxmox_final_technical_gate',
+          category: 'technical_gate',
+          severity: 'blocking',
+          evidence_state: 'observed',
+          action_blocked: 'approval',
+          blocking: true,
+          status: 'blocked',
+        },
+      ],
+      advisory_signals: [
+        {
+          code: 'route_unknown',
+          message: 'Route, storage, or network evidence is insufficient.',
+          authority: 'advisor_prefilter_signal',
+          category: 'advisory',
+          severity: 'warning',
+          evidence_state: 'unknown',
+          action_blocked: 'none',
+          blocking: false,
+          status: 'warning',
+        },
+      ],
+      technical_gate_status: {
+        authority: 'proxmox_final_technical_gate',
+        category: 'technical_gate',
+        status: 'blocked',
+        evidence_state: 'observed',
+        action_blocked: 'execute',
+        criteria: ['vm_config_lock'],
+      },
       identity_evidence: recommendation.identity_evidence,
       policy_evidence: recommendation.policy_evidence,
       check: {
@@ -292,6 +440,16 @@ const fakeClient = {
           operation_lock: {
             status: 'failed',
             blocker: 'operation_lock_reconciliation_required',
+            criterion: {
+              code: 'operation_lock_reconciliation_required',
+              authority: 'gjallar_operational_gate',
+              category: 'hard_gate',
+              severity: 'blocking',
+              evidence_state: 'observed',
+              action_blocked: 'approval',
+              blocking: true,
+              status: 'failed',
+            },
             evidence: {
               operation_type: 'drs_migration',
               cluster_id: 'cluster-a',
@@ -330,6 +488,44 @@ const fakeClient = {
         checked_at: '2026-05-30T01:00:00Z',
         observed_at: '2026-05-30T00:59:00Z',
         reason: 'Read-only final pre-check completed; recommendation/check output remains execution-closed.',
+        criteria: {
+          hard_gate_blockers: ['operation_lock_reconciliation_required', 'vm_config_lock', 'drs_final_precheck_failed'],
+          advisory_signal_codes: ['route_unknown'],
+          technical_gate_status: 'blocked',
+          authorities: ['advisor_prefilter_signal', 'gjallar_operational_gate', 'proxmox_final_technical_gate'],
+        },
+        criteria_details: [
+          {
+            code: 'route_unknown',
+            authority: 'advisor_prefilter_signal',
+            category: 'advisory',
+            severity: 'warning',
+            evidence_state: 'unknown',
+            action_blocked: 'none',
+            blocking: false,
+            status: 'warning',
+          },
+        ],
+        advisory_signals: [
+          {
+            code: 'route_unknown',
+            authority: 'advisor_prefilter_signal',
+            category: 'advisory',
+            severity: 'warning',
+            evidence_state: 'unknown',
+            action_blocked: 'none',
+            blocking: false,
+            status: 'warning',
+          },
+        ],
+        technical_gate_status: {
+          authority: 'proxmox_final_technical_gate',
+          category: 'technical_gate',
+          status: 'blocked',
+          evidence_state: 'observed',
+          action_blocked: 'execute',
+          criteria: ['vm_config_lock'],
+        },
       },
       approval_readiness: {
         recommendation_id: id,
@@ -436,7 +632,12 @@ assert.equal(checkResult.execution.available, false)
 assert.equal(checkResult.identityEvidence.match_confidence, 'high')
 assert.equal(checkResult.policyEvidence.policy, 'unknown')
 assert.equal(checkResult.blockerDetails[0].code, 'operation_lock_reconciliation_required')
+assert.equal(checkResult.blockerDetails[0].authority, 'gjallar_operational_gate')
+assert.equal(checkResult.criteria.hardGateBlockers[0], 'operation_lock_reconciliation_required')
+assert.equal(checkResult.advisorySignals[0].actionBlocked, 'none')
+assert.equal(checkResult.technicalGateStatus.status, 'blocked')
 assert.equal(checkResult.finalPrecheck.status, 'blocked')
+assert.equal(checkResult.finalPrecheck.criteria.technicalGateStatus, 'blocked')
 assert.ok(checkResult.finalPrecheck.checks.some((check) => check.id === 'proxmox_active_task' && check.status === 'not_collected'))
 assert.equal(checkResult.operationLock.matchingLockIds[0], 'lock-reconcile')
 assert.equal(checkResult.operationLock.reconciliationRequired, true)
@@ -551,6 +752,9 @@ assert.match(screenSource, /Final Pre-check/)
 assert.match(screenSource, /Operation Lock Evidence/)
 assert.match(screenSource, /Proxmox Conflict Evidence/)
 assert.match(screenSource, /Approval Readiness/)
+assert.match(screenSource, /DRS Criteria/)
+assert.match(screenSource, /advisory signals/)
+assert.match(screenSource, /Proxmox technical/)
 assert.match(screenSource, /VM Policy Configuration/)
 assert.match(screenSource, /PolicyCoveragePanel/)
 assert.match(screenSource, /PolicyReviewModal/)

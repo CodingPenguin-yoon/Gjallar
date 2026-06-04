@@ -163,15 +163,20 @@ def _operation_lock_evidence(check_result: dict[str, Any]) -> dict[str, Any]:
 def _compact_lock(lock: dict[str, Any]) -> dict[str, Any]:
     return {
         "operation_lock_id": lock.get("operation_lock_id"),
+        "operation_type": lock.get("operation_type"),
         "status": lock.get("status"),
         "scope_type": lock.get("scope_type"),
         "scope_key": lock.get("scope_key"),
+        "cluster_id": lock.get("cluster_id"),
         "vm_identity_id": lock.get("vm_identity_id"),
         "vmid": lock.get("vmid"),
         "source_node_id": lock.get("source_node_id"),
         "target_node_id": lock.get("target_node_id"),
         "owner_id": lock.get("owner_id"),
         "reason": lock.get("reason"),
+        "created_at": lock.get("created_at"),
+        "updated_at": lock.get("updated_at"),
+        "released_at": lock.get("released_at"),
     }
 
 
@@ -289,7 +294,7 @@ def compact_final_precheck_binding(check_result: dict[str, Any]) -> dict[str, An
 
 def final_precheck_summary(check_result: dict[str, Any]) -> dict[str, Any]:
     binding = compact_final_precheck_binding(check_result)
-    return {
+    summary = {
         "recommendation_id": binding["recommendation_id"],
         "status": binding["status"],
         "would_be_executable": binding["would_be_executable"],
@@ -299,6 +304,289 @@ def final_precheck_summary(check_result: dict[str, Any]) -> dict[str, Any]:
         "check_statuses": binding["check_statuses"],
         "operation_lock": binding["operation_lock"],
         "proxmox_conflicts": binding["proxmox_conflicts"],
+    }
+    if isinstance(check_result.get("criteria_details"), list):
+        summary["criteria_details"] = list(check_result["criteria_details"])
+    if isinstance(check_result.get("advisory_signals"), list):
+        summary["advisory_signals"] = list(check_result["advisory_signals"])
+    if isinstance(check_result.get("technical_gate_status"), dict):
+        summary["technical_gate_status"] = dict(check_result["technical_gate_status"])
+    return summary
+
+
+def _field(source: Any, key: str, default: Any = None) -> Any:
+    if source is None:
+        return default
+    if isinstance(source, dict):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
+def _compact_actor(actor: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(actor, dict):
+        return {}
+    return {
+        "user_id": actor.get("user_id"),
+        "username": actor.get("username"),
+        "role": actor.get("role"),
+    }
+
+
+def _compact_check_statuses(checks: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(checks, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for key, item in sorted(checks.items()):
+        if not isinstance(item, dict):
+            continue
+        result[key] = {
+            "status": item.get("status"),
+            "blocker": item.get("blocker"),
+        }
+    return result
+
+
+def _compact_live_precheck(live_precheck: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(live_precheck, dict):
+        return {}
+    return {
+        "status": live_precheck.get("status"),
+        "blockers": list(live_precheck.get("blockers") or []),
+        "check_statuses": _compact_check_statuses(live_precheck.get("checks")),
+    }
+
+
+def _compact_operation_lock(lock_evidence: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(lock_evidence, dict):
+        return {}
+    locks = [_compact_lock(lock) for lock in _as_list(lock_evidence.get("locks")) if isinstance(lock, dict)]
+    matching_locks = [
+        _compact_lock(lock)
+        for lock in _as_list(lock_evidence.get("matching_locks"))
+        if isinstance(lock, dict)
+    ]
+    lock_ids = list(lock_evidence.get("lock_ids") or [])
+    matching_lock_ids = list(lock_evidence.get("matching_lock_ids") or [])
+    if not lock_ids:
+        lock_ids = [lock["operation_lock_id"] for lock in locks if lock.get("operation_lock_id")]
+    if not matching_lock_ids:
+        matching_lock_ids = [lock["operation_lock_id"] for lock in matching_locks if lock.get("operation_lock_id")]
+    return {
+        "operation_type": lock_evidence.get("operation_type") or lock_evidence.get("operation"),
+        "cluster_id": lock_evidence.get("cluster_id"),
+        "acquired": lock_evidence.get("acquired"),
+        "blocking": lock_evidence.get("blocking"),
+        "blockers": list(lock_evidence.get("blockers") or []),
+        "checked_scopes": [
+            {"scope_type": scope.get("scope_type"), "scope_key": scope.get("scope_key")}
+            for scope in _as_list(lock_evidence.get("checked_scopes"))
+            if isinstance(scope, dict)
+        ],
+        "lock_ids": lock_ids,
+        "matching_lock_ids": matching_lock_ids,
+        "matching_statuses": list(lock_evidence.get("matching_statuses") or []),
+        "locks": locks,
+        "matching_locks": matching_locks,
+    }
+
+
+def _compact_task_log(log_excerpt: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in _as_list(log_excerpt):
+        if isinstance(item, dict):
+            result.append({key: item.get(key) for key in ("n", "t", "type", "status") if key in item})
+        else:
+            text = _as_text(item)
+            if text:
+                result.append({"t": text})
+    return result[:20]
+
+
+def _compact_task(job: Any, task: dict[str, Any] | None = None) -> dict[str, Any]:
+    task = task if isinstance(task, dict) else {}
+    task_status = task.get("status") if isinstance(task.get("status"), dict) else {}
+    task_metadata = _field(job, "task_metadata", {})
+    task_metadata = task_metadata if isinstance(task_metadata, dict) else {}
+    metadata_status = task_metadata.get("status") if isinstance(task_metadata.get("status"), dict) else {}
+    status = _field(job, "task_status") or task_status.get("status") or metadata_status.get("status")
+    return {
+        "upid": _field(job, "proxmox_upid") or task.get("upid"),
+        "node": _field(job, "proxmox_task_node") or task.get("node"),
+        "result": _field(job, "task_result") or task.get("result"),
+        "status": status,
+        "exitstatus": _field(job, "task_exitstatus") or task_status.get("exitstatus"),
+        "poll_count": task_metadata.get("poll_count") or len(_as_list(task.get("polls"))),
+        "log_excerpt": _compact_task_log(_field(job, "task_log_excerpt") or task.get("log_excerpt") or task.get("log")),
+    }
+
+
+def _compact_expected_observed(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: value.get(key)
+        for key in (
+            "cluster_id",
+            "vm_identity_id",
+            "target_node_id",
+            "target_node_endpoint",
+            "node_id",
+            "vmid",
+            "vm_name",
+            "name",
+            "power_state",
+            "exists_on_target",
+            "stable_fingerprint",
+        )
+        if key in value
+    }
+
+
+def _compact_post_check(post_check: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(post_check, dict):
+        return {}
+    expected = _compact_expected_observed(post_check.get("expected"))
+    observed = _compact_expected_observed(post_check.get("observed"))
+    expected_fingerprint = expected.get("stable_fingerprint")
+    observed_fingerprint = observed.get("stable_fingerprint")
+    return {
+        "status": post_check.get("status"),
+        "checked_at": post_check.get("checked_at"),
+        "source": post_check.get("source"),
+        "read_only": post_check.get("read_only") is True,
+        "blockers": list(post_check.get("blockers") or []),
+        "expected": expected,
+        "observed": observed,
+        "fingerprint": {
+            "expected": expected_fingerprint,
+            "observed": observed_fingerprint,
+            "matches": bool(expected_fingerprint and observed_fingerprint and expected_fingerprint == observed_fingerprint),
+        },
+        "reconciliation_required": post_check.get("reconciliation_required") is True,
+        "reconciliation_reason": post_check.get("reconciliation_reason"),
+        "check_statuses": _compact_check_statuses(post_check.get("checks")),
+    }
+
+
+def _compact_reconciliation_event(event: dict[str, Any]) -> dict[str, Any]:
+    evidence = event.get("evidence") if isinstance(event.get("evidence"), dict) else {}
+    return {
+        "event_id": event.get("event_id"),
+        "event_type": event.get("event_type"),
+        "status": event.get("status"),
+        "reason": event.get("reason"),
+        "created_at": event.get("created_at"),
+        "evidence_summary": {
+            key: evidence.get(key)
+            for key in (
+                "source",
+                "upid",
+                "task_result",
+                "reconciliation_reason",
+                "post_check_status",
+                "post_check_reason",
+            )
+            if key in evidence
+        },
+    }
+
+
+def build_drs_run_evidence(
+    *,
+    job: Any,
+    packet: Any | None = None,
+    approved_actor: dict[str, Any] | None = None,
+    executed_actor: dict[str, Any] | None = None,
+    final_precheck_summary: dict[str, Any] | None = None,
+    live_precheck: dict[str, Any] | None = None,
+    operation_lock: dict[str, Any] | None = None,
+    task: dict[str, Any] | None = None,
+    post_check: dict[str, Any] | None = None,
+    blockers: list[str] | None = None,
+    acknowledgement_field: str | None = None,
+    acknowledgement_value: bool | None = None,
+    reconciliation_events: list[dict[str, Any]] | None = None,
+    resolved_reconciliation_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build compact read-only DRS job evidence for job_runs.details."""
+    packet_actor = {
+        "user_id": _field(packet, "actor_user_id"),
+        "username": _field(packet, "actor_username"),
+        "role": _field(packet, "actor_role"),
+    }
+    approved = _compact_actor(approved_actor) or _compact_actor(_field(job, "approved_actor")) or _compact_actor(packet_actor)
+    executed = _compact_actor(executed_actor)
+    final_summary = dict(final_precheck_summary or _field(job, "final_precheck_summary", {}) or {})
+    execution_evidence = _field(job, "execution_evidence", {})
+    execution_evidence = execution_evidence if isinstance(execution_evidence, dict) else {}
+    if not live_precheck:
+        live_precheck = execution_evidence.get("live_precheck") if isinstance(execution_evidence.get("live_precheck"), dict) else None
+    if not operation_lock:
+        operation_lock = _field(job, "lock_evidence", None) or execution_evidence.get("operation_lock")
+    if not post_check:
+        post_check = _field(job, "post_check_evidence", None) or execution_evidence.get("post_check")
+    if not task:
+        task = execution_evidence.get("task") if isinstance(execution_evidence.get("task"), dict) else {}
+    side_effects = list(_field(job, "side_effects", []) or [])
+    historical_mutation = _field(job, "proxmox_mutation_enabled") is True or bool(side_effects)
+    acknowledgement = None
+    if acknowledgement_field:
+        acknowledgement = {"field": acknowledgement_field, "value": acknowledgement_value is True}
+    reconciliation_reason = _field(job, "reconciliation_reason")
+    if not reconciliation_reason and isinstance(post_check, dict):
+        reconciliation_reason = post_check.get("reconciliation_reason")
+    return {
+        "read_only": True,
+        "allowed_actions": [],
+        "current_mutation_controls": [],
+        "runnable": _field(job, "runnable") is True,
+        "status": _field(job, "status"),
+        "approval_packet": {
+            "id": _field(packet, "approval_packet_id") or _field(job, "approval_packet_id"),
+            "status": _field(packet, "packet_status"),
+            "warning_acknowledged": _field(packet, "warning_acknowledged"),
+            "warning_codes": list(_field(packet, "warning_codes", []) or []),
+        },
+        "recommendation_id": _field(job, "recommendation_id") or _field(packet, "recommendation_id"),
+        "vm": {
+            "identity_id": _field(job, "vm_identity_id") or _field(packet, "vm_identity_id"),
+            "vmid": _field(job, "vmid") or _field(packet, "vmid"),
+        },
+        "route": {
+            "source_node_id": _field(job, "source_node_id") or _field(packet, "source_node_id"),
+            "target_node_id": _field(job, "target_node_id") or _field(packet, "target_node_id"),
+        },
+        "actors": {
+            "approved": approved,
+            "executed": executed,
+        },
+        "execution_acknowledgement": acknowledgement,
+        "blockers": list(blockers or _field(job, "runnable_blockers", []) or []),
+        "final_precheck_summary": final_summary,
+        "live_precheck": _compact_live_precheck(live_precheck),
+        "operation_lock": _compact_operation_lock(operation_lock),
+        "task": _compact_task(job, task),
+        "post_check": _compact_post_check(post_check),
+        "reconciliation": {
+            "required": _as_text(_field(job, "status")) == "needs_reconciliation"
+            or bool(_field(job, "reconciliation_reason"))
+            or (isinstance(post_check, dict) and post_check.get("reconciliation_required") is True),
+            "reason": reconciliation_reason,
+            "events": [
+                _compact_reconciliation_event(event)
+                for event in _as_list(reconciliation_events)
+                if isinstance(event, dict)
+            ],
+            "resolved_events": [
+                _compact_reconciliation_event(event)
+                for event in _as_list(resolved_reconciliation_events)
+                if isinstance(event, dict)
+            ],
+        },
+        "historical_execution": {
+            "proxmox_mutation_recorded": historical_mutation,
+            "side_effects": side_effects,
+        },
     }
 
 
@@ -637,6 +925,14 @@ def create_approval_packet_and_job_intent(
         packet_record = _row_dict(packet_row)
         job_record = _row_dict(job_row)
 
+    drs_evidence = build_drs_run_evidence(
+        job=job_record,
+        packet=packet_record,
+        approved_actor=trusted_actor,
+        final_precheck_summary=summary,
+        operation_lock=readiness["lock_evidence"],
+        blockers=readiness["runnable_blockers"],
+    )
     job_run = record_job_run(
         job_id=job_id,
         job_type=DRS_MIGRATION_JOB_TYPE,
@@ -665,6 +961,7 @@ def create_approval_packet_and_job_intent(
             "runnable": False,
             "proxmox_mutation_enabled": False,
             "side_effects": [],
+            "drs_evidence": drs_evidence,
             **actor_detail_fields(trusted_actor),
         },
     )
