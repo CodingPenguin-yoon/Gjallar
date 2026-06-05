@@ -37,6 +37,13 @@ BACKEND_PORT=8000
 VITE_BACKEND_URL=http://127.0.0.1:8000
 ```
 
+## Docker Build
+
+The root Dockerfile runs `pnpm install --frozen-lockfile` and `pnpm build` for
+this frontend, then copies the generated `dist` into the FastAPI runtime image.
+In that image, the backend serves the React app from the same `:8000` origin;
+the local Vite dev workflow above is unchanged.
+
 ## Validate
 
 ```bash

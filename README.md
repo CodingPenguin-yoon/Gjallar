@@ -46,6 +46,33 @@ alembic upgrade head
 python -m app.db.seed_create_vm_profiles
 ```
 
+## Docker Runtime
+
+Build the single runtime image from the repo root:
+
+```bash
+docker build -t gjallar:local .
+```
+
+Run FastAPI/Uvicorn on port `8000`; the backend serves the built React app from
+the same origin:
+
+```bash
+docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:local
+```
+
+The image does not bake in `.env`, local databases, virtualenvs, `node_modules`,
+or docs. Run database/bootstrap tasks as explicit one-off commands:
+
+```bash
+docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local alembic -c /app/backend/alembic.ini upgrade head
+docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.db.seed_create_vm_profiles
+docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
+```
+
+If Create VM/IaC readiness uses host paths from `.env`, mount those paths into
+the container or adjust the environment values for the container filesystem.
+
 ## Product framing
 
 - Gjallar owns safe human-facing visibility and operational control for Proxmox.

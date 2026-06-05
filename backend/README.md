@@ -77,6 +77,30 @@ set -a
 set +a
 ```
 
+## Docker
+
+The root Dockerfile builds the Vite frontend, copies the built `dist` into the
+Python runtime image, and sets `GJALLAR_FRONTEND_DIST=/app/frontend-dist`.
+FastAPI serves `/health` and `/api/v1/*` as backend routes and serves the React
+SPA for extensionless frontend routes from the same origin.
+
+```bash
+docker build -t gjallar:local .
+docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:local
+```
+
+The Docker CMD only starts Uvicorn. Run migrations, seed data, and admin user
+creation explicitly:
+
+```bash
+docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local alembic -c /app/backend/alembic.ini upgrade head
+docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.db.seed_create_vm_profiles
+docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
+```
+
+Do not bake secrets into the image. Pass runtime values with `--env-file` or
+orchestrator secrets, and mount any host data/IaC paths referenced by `.env`.
+
 Account operations:
 
 ```bash

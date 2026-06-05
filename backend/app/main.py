@@ -6,10 +6,13 @@ FastAPI 메인 애플리케이션 진입점
 - PRD v1 MVP `/api/v1` 라우트 등록
 """
 
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
+
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 # 환경 변수 로드 (.env 파일에서)
 # proxmox_service.py에서도 로드하지만, 다른 서비스들을 위해 여기서도 로드
@@ -47,10 +50,54 @@ app.include_router(admin_router)
 app.include_router(api_v1_router)
 # PRD v1 MVP exposes only the explicit /api/v1 operator surface.
 
+FRONTEND_DIST_ENV = "GJALLAR_FRONTEND_DIST"
+RESERVED_FRONTEND_PREFIXES = {"api", "assets", "docs", "health", "openapi.json", "redoc"}
+
+
+def _configured_frontend_dist() -> Path | None:
+    raw_path = os.environ.get(FRONTEND_DIST_ENV)
+    if not raw_path:
+        return None
+    dist = Path(raw_path).expanduser().resolve()
+    if not (dist / "index.html").is_file():
+        return None
+    return dist
+
+
+def _is_file_like_path(path: str) -> bool:
+    return "." in PurePosixPath(path).name
+
+
+def _is_reserved_frontend_path(path: str) -> bool:
+    stripped = path.strip("/")
+    if not stripped:
+        return False
+    first_segment = stripped.split("/", 1)[0]
+    return first_segment in RESERVED_FRONTEND_PREFIXES
+
+
+def _dist_file_response(dist: Path, relative_path: str) -> FileResponse | None:
+    root = dist.resolve()
+    candidate = (root / relative_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return FileResponse(candidate)
+
+
+def _frontend_index_response(dist: Path) -> FileResponse:
+    return FileResponse(dist / "index.html")
+
 
 @app.get("/")
 async def root():
-    """헬스체크 엔드포인트"""
+    """Return backend root JSON or the built frontend index."""
+    frontend_dist = _configured_frontend_dist()
+    if frontend_dist is not None:
+        return _frontend_index_response(frontend_dist)
     return {"message": "Gjallar VM Operations API", "status": "running"}
 
 
@@ -58,3 +105,29 @@ async def root():
 async def health():
     """상세 헬스체크 엔드포인트"""
     return {"status": "healthy", "service": "backend"}
+
+
+@app.get("/assets/{asset_path:path}", include_in_schema=False)
+async def frontend_asset(asset_path: str):
+    frontend_dist = _configured_frontend_dist()
+    if frontend_dist is None:
+        raise HTTPException(status_code=404)
+    response = _dist_file_response(frontend_dist / "assets", asset_path)
+    if response is None:
+        raise HTTPException(status_code=404)
+    return response
+
+
+@app.get("/{frontend_path:path}", include_in_schema=False)
+async def frontend_route(frontend_path: str):
+    frontend_dist = _configured_frontend_dist()
+    if frontend_dist is None or _is_reserved_frontend_path(frontend_path):
+        raise HTTPException(status_code=404)
+
+    if _is_file_like_path(frontend_path):
+        response = _dist_file_response(frontend_dist, frontend_path)
+        if response is not None:
+            return response
+        raise HTTPException(status_code=404)
+
+    return _frontend_index_response(frontend_dist)
