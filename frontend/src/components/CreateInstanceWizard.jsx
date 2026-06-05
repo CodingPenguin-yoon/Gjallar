@@ -602,7 +602,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       yellowRiskAcknowledged,
       proxmoxMutationAcknowledged,
     })
-    navigate(`/jobs?job=${encodeURIComponent(jobId)}`)
+    navigate(`/operations/jobs?job=${encodeURIComponent(jobId)}`)
     try {
       const result = await createPromise
       setCreateResult(result)

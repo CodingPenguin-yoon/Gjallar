@@ -1,6 +1,6 @@
 # Current Implemented State
 
-Last refreshed: 2026-06-03
+Last refreshed: 2026-06-04
 
 Gjallar is a human-facing Proxmox Operations & Risk Console. Hermes, AI, and agent flows are control plumbing around the product, not the product identity.
 
@@ -9,7 +9,7 @@ This file is the docs source of truth for implemented behavior after active code
 ## Product direction vs implemented state
 
 - Product target: DRS Advisor is the next MVP success line.
-- Implemented state: Proxmox inventory, Dashboard, Infra Explorer with gated stopped-VM start, Networks, DRS Advisor identity/policy readiness foundation, manual VM migration policy UI/API, backend-owned recommendation/check criteria taxonomy, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval packet/job intent creation, narrow approval-gated DRS live migration execution with UPID/task metadata, verified DRS post-check/reconciliation state, read-only Reconcile preview, Jobs/Runs with read-only DRS evidence panel, Risks/Alerts, Create VM supporting capability, minimal local-only post-create readiness evidence recording, and local account/session operations polish.
+- Implemented state: Proxmox inventory, Overview/Dashboard, VM Instances inventory with gated stopped-VM start, dedicated VM Instances / DRS Policies manual VM migration policy UI/API, Network readiness, DRS Advisor identity/policy readiness evidence, backend-owned recommendation/check criteria taxonomy, DB-backed operation lock lookup/acquisition/release, config-lock evidence, read-only final pre-check, local approval packet/job intent creation, narrow approval-gated DRS live migration execution with UPID/task metadata, verified DRS post-check/reconciliation state, read-only Reconcile preview, Operations/Jobs with read-only DRS evidence panel, Operations/Risks, Create VM supporting capability, minimal local-only post-create readiness evidence recording, and Settings account/session operations polish.
 - Current gap: broad live DRS execution UI, corrective reconcile UI, broader DRS lifecycle/operations polish, Risks taxonomy polish, 15-minute average/peak metric substrate, richer policy rule/full metadata editor, deeper read-only advisor task/HA/quorum collection, and account/session audit browsing API/UI. Corrective reconciliation mutation and background reconciliation automation remain deferred.
 - Create VM is a supporting existing capability. It must not define the next MVP success line or implementation order.
 - Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
@@ -19,6 +19,7 @@ This file is the docs source of truth for implemented behavior after active code
 ## Active surface
 
 - The active frontend contract remains `/api/v1`.
+- Canonical frontend routes are `/` (Overview), `/instances`, `/instances/drs-policies`, `/instances/create`, `/instances/networks`, `/drs`, `/operations/jobs`, `/operations/risks`, `/settings/account`, and `/settings/admin/users`. Legacy frontend aliases `/infra`, `/create`, `/networks`, `/jobs`, `/risks`, `/account`, and `/admin/users` still render the same screens for deep links.
 - Do not treat `/api/instances` or `/api/provision` as the active frontend surface.
 - Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
 - Create VM uses `/api/v1` draft/preflight/plan/approval endpoints, explicit node/template/storage/network/IP/power selections, final acknowledgement, and gated Proxmox native create.
@@ -27,9 +28,9 @@ This file is the docs source of truth for implemented behavior after active code
   `/api/v1/templates`; builtin template defaults are not an active selection
   source.
 - Current Create VM create policy is explicit per request: the default `stopped` policy performs native Proxmox clone, boot disk resize when needed, config, and stopped post-check; the optional `boot_and_verify` policy starts the new VM, waits for guest-agent IP discovery, and verifies `cloud-init status --wait`. SSH login, Ansible, app bootstrap, and DRS identity registration remain deferred.
-- Existing VM start is a separate Infra Explorer action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Jobs/Runs evidence.
+- Existing VM start is a separate VM Instances inventory action at `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/start`. It requires `vm_start_acknowledged=true`, a non-empty `idempotency_key`, fresh inventory precheck, Proxmox task polling, running post-check, and `vm_start` Operations/Jobs evidence.
 - Post-create readiness evidence is local-only and opt-in at `POST /api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence`. It records sanitized operator-supplied evidence for already-created VMs and does not call inventory, Proxmox, DRS, SSH, Ansible, guest-agent, shell, or network checks.
-- Admin local-user and session management is available at `/admin/users` for
+- Admin local-user and session management is available at `/settings/admin/users` for
   users with the `admin` role. The backend endpoints are
   `GET/POST /api/v1/admin/users`,
   `PATCH /api/v1/admin/users/{username}/role`,
@@ -37,19 +38,19 @@ This file is the docs source of truth for implemented behavior after active code
   `POST /api/v1/admin/users/{username}/reset-password`,
   `GET /api/v1/admin/sessions`, and
   `POST /api/v1/admin/sessions/{session_id}/revoke`.
-- Authenticated users can change their own local password at `/account` through
+- Authenticated users can change their own local password at `/settings/account` through
   `POST /api/v1/auth/change-password`; the current session is preserved and
   other active sessions for the same user are revoked.
 - Terraform plan/apply routes and helper code are removed from the active backend; old URLs naturally return FastAPI 404.
 - Read-only inventory is the safe baseline.
-- `/drs` is a DRS Advisor screen with recommendation/check evidence, manual VM migration policy configuration, backend-owned criteria taxonomy, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. Backend-owned criteria fields distinguish Gjallar operational gates, Proxmox final technical gates, and Advisor pre-filter signals. Advisor route/network/local-storage/passthrough evidence is visible as advisory/pre-filter signal and no longer appears in the compatibility `blockers` list unless a future backend change deliberately promotes a signal. Backend-only explicit test candidate routes can prepare smoke evidence for one selected VM outside the normal top-3 shortlist after exact `explicit_test_vm_acknowledged=true`; they do not call Proxmox mutation and still enforce normal DRS identity, policy, target-threshold, freshness, lock, and Proxmox final technical gates. The screen does not provide live migration execute controls or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` requires exact `drs_live_migration_acknowledged=true` before any DRS execution work, and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remains backend-gated.
-- `/jobs` shows `drs_migration` run evidence through compact `job_runs.details.drs_evidence`: approval packet, recommendation/VM identity, final pre-check taxonomy/statuses, live pre-check, historical UPID/task/log excerpt, operation locks, post-check, reconciliation events, and artifact metadata. Artifact payloads and local paths are not rendered. DRS Jobs/Runs has no execute, reconcile, retry, cleanup, or mutation controls.
-- Manual VM migration policy configuration is implemented through `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. It supports the current per-VM `unknown`/`allowed`/`restricted`/`blocked` policy workflow and local audit evidence; richer policy rule/full metadata editing remains deferred.
+- `/drs` is a DRS Advisor screen with recommendation/detail/check evidence, compact policy evidence, policy blockers, backend-owned criteria taxonomy, and local approval packet/job intent creation. Recommendation/check results remain `read_only=true`, `executable=false`, and `allowed_actions=[]`. Backend-owned criteria fields distinguish Gjallar operational gates, Proxmox final technical gates, and Advisor pre-filter signals. Advisor route/network/local-storage/passthrough evidence is visible as advisory/pre-filter signal and no longer appears in the compatibility `blockers` list unless a future backend change deliberately promotes a signal. Backend-only explicit test candidate routes can prepare smoke evidence for one selected VM outside the normal top-3 shortlist after exact `explicit_test_vm_acknowledged=true`; they do not call Proxmox mutation and still enforce normal DRS identity, policy, target-threshold, freshness, lock, and Proxmox final technical gates. The screen does not provide policy edit controls, live migration execute controls, or corrective reconcile controls; the narrow backend execution route `POST /api/v1/drs/migration-jobs/{job_id}/execute` requires exact `drs_live_migration_acknowledged=true` before any DRS execution work, and read-only reconciliation preview route `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` remains backend-gated.
+- `/operations/jobs` shows `drs_migration` run evidence through compact `job_runs.details.drs_evidence`: approval packet, recommendation/VM identity, final pre-check taxonomy/statuses, live pre-check, historical UPID/task/log excerpt, operation locks, post-check, reconciliation events, and artifact metadata. Artifact payloads and local paths are not rendered. DRS Operations/Jobs has no execute, reconcile, retry, cleanup, or mutation controls.
+- `/instances/drs-policies` is the dedicated VM Instances DRS policy management screen backed by `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. Policy coverage is visible to viewers; update controls require operator/admin capability. Per-VM and bulk writes use the shared helper with policy/reason, `policy_change_acknowledged`, and `expected_observation`, and do not send browser-controlled actor/source/operator fields. The screen supports per-VM and writable-row bulk `unknown`/`allowed`/`restricted`/`blocked` policy workflow and local audit evidence; richer policy rule/full metadata editing remains deferred.
 
 ## Implemented behavior
 
 - Instances UI is a grouped and collapsible inventory card. It exposes only a Start action for stopped, non-template VM rows; stop/reset/shutdown/reboot/delete/terminate controls are absent.
-- Create VM review publishes request progress and artifacts to DB-backed Jobs/Runs tables. Native create also records the request/result and created VM summary in DB. Legacy `execute/archive` routes are removed from the active API.
+- Create VM review publishes request progress and artifacts to DB-backed Operations/Jobs tables. Native create also records the request/result and created VM summary in DB. Legacy `execute/archive` routes are removed from the active API.
 - Create VM plan/review records `power_policy` and `first_power_on_included`. The generated VMInstance manifest requests `desired_power_state: stopped` for default creation and `running` for `boot_and_verify`.
 - `GET /api/v1/profiles` exposes active DB-seeded `db_seed` profile choices. The initial manual seed creates `general-vm`, `runtime-server`, and `development-vm`.
 - Profile selection controls draft defaults for CPU/RAM/Disk. Backend preflight red-blocks unknown/disabled profiles and requested CPU/RAM/Disk outside the selected profile min/max.
@@ -119,14 +120,14 @@ Implemented target behaviors retained:
   presence/source/fingerprint metadata.
 - Profile has no power policy. The operator chooses `stopped` or
   `boot_and_verify` per Create VM request; separate existing-VM starts still use
-  the Infra Explorer row action with Jobs/Runs audit.
+  the VM Instances inventory row action with Operations/Jobs audit.
 - Raw SSH public key material is used only transiently for native Proxmox
   `sshkeys` config and is not returned in API responses or written to
   draft/plan/review/manifest/preview/observed artifacts.
 - Terraform executor routes/helper code and Terraform-named state metadata are
   removed from active draft/preflight/plan/review/API/frontend/artifact
   contracts.
-- `/networks` is a read-only Network Readiness / migration pre-check
+- `/instances/networks` is a read-only Network Readiness / migration pre-check
   visualization composed from `GET /api/v1/nodes`, `/vms`, and `/networks`.
   It uses a migration source selector, target network comparison rows for that
   selected source, CIDR-verified exact bridge match / CIDR remap evidence, and
@@ -138,7 +139,7 @@ Remaining Create VM gaps:
 
 - Templates come from Proxmox live inventory with no Gjallar template catalog
   or registration window in the active Create VM selection path.
-- Networks readiness is not a red-gate source for Create VM static range
+- Network readiness is not a red-gate source for Create VM static range
   membership.
 - `boot_and_verify` now covers first boot, guest-agent IP discovery, and
   cloud-init completion for the new VM. SSH/Ansible/app bootstrap smoke remains

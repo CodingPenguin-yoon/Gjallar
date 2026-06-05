@@ -1,4 +1,4 @@
-# Dashboard
+# Overview / Dashboard
 
 평가일: 2026-05-13
 
@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Dashboard는 read-only 운영 summary 수준이다. cluster/nodes/vms/storage/networks/jobs/risks를 모아 현재 CPU/Memory와 기본 운영 count를 보여주지만, DRS Advisor 목표의 15분 average/peak나 top DRS recommendation은 없다.
+현재 Overview(`/`)의 Dashboard는 read-only 운영 summary 수준이다. cluster/nodes/vms/storage/networks/jobs/risks를 모아 현재 CPU/Memory와 기본 운영 count를 보여주지만, DRS Advisor 목표의 15분 average/peak나 top DRS recommendation은 없다.
 
 ## 구현 API/endpoints
 
@@ -30,7 +30,7 @@ Dashboard는 `Promise.allSettled`로 cluster, node, VM, storage, network, job, r
 
 요약 tile은 node online count, VM count/running count, storage summary, red risk count와 active job count를 보여준다. node row는 VM 수, running VM 수, current CPU usage, current memory usage, storage free, bridge 목록을 표시한다.
 
-화면 action은 새로고침, Infra Explorer 이동, Create VM 이동이다. Dashboard에서 migration을 실행하지 않는다.
+화면 action은 새로고침, VM Instances(`/instances`) 이동, Create VM(`/instances/create`) 이동이다. Dashboard에서 migration을 실행하지 않는다.
 
 ## DRS Advisor 기준 gaps
 

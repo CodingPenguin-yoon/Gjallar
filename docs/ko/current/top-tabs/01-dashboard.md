@@ -1,10 +1,10 @@
-# Dashboard
+# Overview / Dashboard
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
 기준 문서: [영어 Dashboard snapshot](../../../current/top-tabs/01-dashboard.md), [영어 Dashboard architecture](../../../architecture/dashboard/overview.md), [Current implemented state](../../../current/README.md).
 
-Dashboard는 `/` route의 read-only 운영 요약 화면입니다. 목적은 운영자가 cluster/node/VM/storage/job/risk 상태를 한 화면에서 빠르게 보는 것입니다. DRS 실행 판단이나 migration 시작 화면이 아닙니다.
+Overview/Dashboard는 `/` route의 read-only 운영 요약 화면입니다. 목적은 운영자가 cluster/node/VM/storage/job/risk 상태를 한 화면에서 빠르게 보는 것입니다. DRS 실행 판단이나 migration 시작 화면이 아닙니다.
 
 ## 사용하는 API와 호출 위치
 

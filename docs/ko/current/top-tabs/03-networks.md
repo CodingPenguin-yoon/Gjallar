@@ -1,10 +1,10 @@
-# Networks
+# VM Instances / Network Readiness
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
-기준 문서: [영어 Networks snapshot](../../../current/top-tabs/03-networks.md), [영어 Network architecture](../../../architecture/network/overview.md), [Current implemented state](../../../current/README.md).
+기준 문서: [영어 Network readiness snapshot](../../../current/top-tabs/03-networks.md), [영어 Network architecture](../../../architecture/network/overview.md), [Current implemented state](../../../current/README.md).
 
-Networks는 `/networks` route의 read-only Network Readiness / migration pre-check visualization입니다. 기존 live inventory API를 프론트엔드에서 조합해 migration source selector, selected-source target network comparison, CIDR-verified exact bridge match / CIDR remap evidence, selected-source VM impact를 보여줍니다. Target comparison UI는 한국어 중심 3-column 표(`대상 노드`, `결과`, `네트워크 매핑`)이며 별도 `Evidence` 컬럼은 없습니다.
+Network readiness는 canonical `/instances/networks` route의 read-only migration pre-check visualization이며 legacy `/networks` deep link도 같은 화면을 렌더링합니다. 기존 live inventory API를 프론트엔드에서 조합해 migration source selector, selected-source target network comparison, CIDR-verified exact bridge match / CIDR remap evidence, selected-source VM impact를 보여줍니다. Target comparison UI는 한국어 중심 3-column 표(`대상 노드`, `결과`, `네트워크 매핑`)이며 별도 `Evidence` 컬럼은 없습니다.
 
 Proxmox network mutation, API write path, YAML persistence, DB migration, DRS execution authority는 없습니다.
 
@@ -12,9 +12,9 @@ Proxmox network mutation, API write path, YAML persistence, DB migration, DRS ex
 
 | API | 하는 일 | Frontend 호출 |
 |---|---|---|
-| `GET /api/v1/nodes` | node inventory와 embedded network evidence | Networks, Dashboard, Create VM, Placement |
-| `GET /api/v1/vms` | VM IP와 guest-agent evidence | Networks, Dashboard, Infra Explorer, Placement |
-| `GET /api/v1/networks` | live/read-only bridge inventory와 optional observed bridge config evidence | Networks, Dashboard, Create VM, Placement |
+| `GET /api/v1/nodes` | node inventory와 embedded network evidence | Network readiness, Dashboard, Create VM, Placement |
+| `GET /api/v1/vms` | VM IP와 guest-agent evidence | Network readiness, Dashboard, VM Instances, Placement |
+| `GET /api/v1/networks` | live/read-only bridge inventory와 optional observed bridge config evidence | Network readiness, Dashboard, Create VM, Placement |
 
 Frontend 구현은 [NetworkReadinessScreen.jsx](../../../../frontend/src/components/NetworkReadinessScreen.jsx)와 [networkReadiness.js](../../../../frontend/src/utils/networkReadiness.js)에 있습니다.
 
@@ -31,8 +31,8 @@ Frontend 구현은 [NetworkReadinessScreen.jsx](../../../../frontend/src/compone
 
 ## Create VM과의 경계
 
-Create VM의 current network source of truth는 Networks readiness가 아닙니다. Create VM은 selected target node의 active live bridge와 explicit `bridge_id`, `static_ip`, `prefix`, `gateway`를 사용합니다. `network_id`/`networkId`는 transition compatibility로 무시되고 active output에 echo되지 않습니다.
+Create VM의 current network source of truth는 Network readiness가 아닙니다. Create VM은 selected target node의 active live bridge와 explicit `bridge_id`, `static_ip`, `prefix`, `gateway`를 사용합니다. `network_id`/`networkId`는 transition compatibility로 무시되고 active output에 echo되지 않습니다.
 
 ## Target gap
 
-DRS route feasibility에는 shared storage, HA, active task, config lock, passthrough, final pre-check, approval, operation lock, migration execution이 별도로 필요합니다. Networks readiness는 pre-check evidence이며 final gate가 아닙니다. `준비됨`은 CIDR-verified exact active bridge match가 차단/검토 evidence 없이 관찰되었다는 뜻입니다. `검토 필요`는 bridge name only 또는 CIDR remap evidence처럼 사람이 확인해야 하는 상태입니다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아닙니다.
+DRS route feasibility에는 shared storage, HA, active task, config lock, passthrough, final pre-check, approval, operation lock, migration execution이 별도로 필요합니다. Network readiness는 pre-check evidence이며 final gate가 아닙니다. `준비됨`은 CIDR-verified exact active bridge match가 차단/검토 evidence 없이 관찰되었다는 뜻입니다. `검토 필요`는 bridge name only 또는 CIDR remap evidence처럼 사람이 확인해야 하는 상태입니다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아닙니다.

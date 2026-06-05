@@ -1,4 +1,4 @@
-# Risks/Alerts
+# Operations / Risks
 
 평가일: 2026-05-13
 
@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Risks/Alerts는 read-only job-derived risk 화면이다. Create VM preflight/plan에서 기록된 risk를 모아 보여주며, DRS blocker taxonomy는 아직 구현되어 있지 않다.
+현재 Operations / Risks는 canonical `/operations/risks` route의 read-only job-derived risk 화면이며, legacy `/risks` deep link도 같은 화면을 렌더링한다. Create VM preflight/plan에서 기록된 risk를 모아 보여주며, DRS blocker taxonomy는 아직 구현되어 있지 않다.
 
 ## 구현 API/endpoints
 
@@ -26,7 +26,7 @@ frontend는 red/yellow/green/unknown summary, filter, risk detail, artifact link
 
 ## DRS Advisor 기준 gaps
 
-[DRS Risks 목표](../../product/drs-advisor/02_UI_AND_FLOWS.md) 대비 Risks/Alerts에는 아직 DRS criteria taxonomy가 연결되어 있지 않다. Recommendation/check output에는 backend-owned criteria taxonomy가 있지만, Risks/Alerts risk codes for identity mismatch, unclassified, metadata incomplete, policy restricted/blocked, stale lock, migration timeout, needs_reconciliation, and Advisor pre-filter signals are not yet normalized as a dedicated risk model.
+[DRS Risks 목표](../../product/drs-advisor/02_UI_AND_FLOWS.md) 대비 Operations / Risks에는 아직 DRS criteria taxonomy가 연결되어 있지 않다. Recommendation/check output에는 backend-owned criteria taxonomy가 있지만, Operations/Risks risk codes for identity mismatch, unclassified, metadata incomplete, policy restricted/blocked, stale lock, migration timeout, needs_reconciliation, and Advisor pre-filter signals are not yet normalized as a dedicated risk model.
 
 각 risk가 어떤 action을 막는지, Dashboard와 DRS Advisor recommendation에 어떻게 연결되는지도 없다.
 

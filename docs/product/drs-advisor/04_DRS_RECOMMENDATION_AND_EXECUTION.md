@@ -19,7 +19,7 @@
 - execution.available은 false
 - read_only true, executable false, allowed_actions 빈 배열
 
-현재 구현 상태: backend에는 identity/policy evidence, backend-owned criteria taxonomy, operation locks, local approval/job substrate, selected smoke/test VM을 위한 operator-only explicit candidate check/approval helper, narrow operator-only migration-job execute route, exact `drs_live_migration_acknowledged=true` request gate, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. `/drs` frontend에는 manual VM policy configuration, criteria taxonomy display, and local approval packet/job intent creation이 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Explicit test candidate helper는 normal top-3 shortlist만 우회하고 Proxmox mutation을 호출하지 않으며, arbitrary migration endpoint가 아니다. Live migration execute UI와 corrective reconcile UI는 아직 deferred다.
+현재 구현 상태: backend에는 identity/policy evidence, backend-owned criteria taxonomy, operation locks, local approval/job substrate, selected smoke/test VM을 위한 operator-only explicit candidate check/approval helper, narrow operator-only migration-job execute route, exact `drs_live_migration_acknowledged=true` request gate, UPID/task tracking, verified post-check, read-only reconcile preview가 있다. `/drs` frontend에는 recommendation/detail/check policy evidence, criteria taxonomy display, and local approval packet/job intent creation이 있다. Manual VM policy configuration은 VM Instances / DRS Policies(`/instances/drs-policies`)에 있다. Recommendation/check output은 계속 execution-closed이며 `read_only=true`, `executable=false`, `allowed_actions=[]`를 유지한다. Explicit test candidate helper는 normal top-3 shortlist만 우회하고 Proxmox mutation을 호출하지 않으며, arbitrary migration endpoint가 아니다. Live migration execute UI와 corrective reconcile UI는 아직 deferred다.
 
 이 문서의 나머지 target guidance는 backend-backed, identity/policy aware, final pre-check gated, approval-gated execution model을 설명한다. Recommendation/check result 자체를 execution authority로 해석하면 안 된다.
 
@@ -63,7 +63,7 @@ min_pressure_delta = 20 percentage points
 ```
 
 이 값은 MVP 기본 정책이다.
-현재 manual VM migration policy UI/API는 per-VM policy를 다루며, threshold/rule controls는 config/default로 유지할 수 있다. Richer policy rule/full metadata editor는 deferred다.
+현재 manual VM migration policy UI/API는 VM Instances / DRS Policies에서 per-VM policy를 다루며, threshold/rule controls는 config/default로 유지할 수 있다. Bulk policy selection/edit and richer policy rule/full metadata editor are deferred.
 
 ## 3. Recommendation candidate rules
 

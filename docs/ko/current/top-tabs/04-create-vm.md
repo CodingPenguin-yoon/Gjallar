@@ -1,10 +1,10 @@
-# Create VM
+# VM Instances / Create VM
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
 기준 문서: [영어 Create VM snapshot](../../../current/top-tabs/04-create-vm.md), [영어 Create VM architecture](../../../architecture/create-vm/overview.md), [VM provisioning contract](../../../architecture/VM_PROVISIONING_CONTRACT.md), [native architecture](../../../architecture/CREATE_VM_NATIVE_ARCHITECTURE.md).
 
-Create VM은 `/create` route의 operator-reviewed VM 생성 flow입니다. DRS Advisor의 next MVP success line은 아니지만, approval, artifact, job progress, native Proxmox mutation gate를 제공하는 supporting capability입니다.
+Create VM은 canonical `/instances/create` route의 operator-reviewed VM 생성 flow이며 legacy `/create` deep link도 같은 화면을 렌더링합니다. DRS Advisor의 next MVP success line은 아니지만, approval, artifact, job progress, native Proxmox mutation gate를 제공하는 supporting capability입니다.
 
 ## 사용하는 API와 frontend 함수
 

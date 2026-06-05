@@ -1,4 +1,4 @@
-# Networks
+# VM Instances / Network Readiness
 
 평가일: 2026-05-17
 
@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Networks는 read-only Network Readiness / migration pre-check visualization 화면이다. 프론트엔드가 기존 live inventory API를 조합해 migration source selector, selected-source target network comparison, CIDR-verified exact bridge match / CIDR remap evidence, selected-source VM impact를 보여준다. Target comparison UI는 한국어 중심의 3-column 표(`대상 노드`, `결과`, `네트워크 매핑`)로 단순화되어 있으며 별도 `Evidence` 컬럼은 없다.
+현재 Network readiness는 canonical `/instances/networks` route의 read-only migration pre-check visualization 화면이며, legacy `/networks` deep link도 같은 화면을 렌더링한다. 프론트엔드가 기존 live inventory API를 조합해 migration source selector, selected-source target network comparison, CIDR-verified exact bridge match / CIDR remap evidence, selected-source VM impact를 보여준다. Target comparison UI는 한국어 중심의 3-column 표(`대상 노드`, `결과`, `네트워크 매핑`)로 단순화되어 있으며 별도 `Evidence` 컬럼은 없다.
 
 이 화면은 Proxmox network를 변경하지 않고, API write path가 없으며, YAML persistence나 DB migration을 수행하지 않는다. 표시되는 readiness는 pre-check evidence일 뿐 DRS 실행 권한이 아니다.
 
@@ -24,7 +24,7 @@
 
 ## 현재 구현
 
-`GET /nodes`, `GET /vms`, `GET /networks`는 live/read-only inventory를 반환한다. Networks 탭은 이 세 응답을 프론트엔드에서 조합한다. Network inventory는 Proxmox bridge row에서 관찰한 `address`, `netmask`, `prefix`, `cidr`, `gateway`, `bridge_ports`, `vlan_aware`, `mtu`를 optional evidence로 포함할 수 있다.
+`GET /nodes`, `GET /vms`, `GET /networks`는 live/read-only inventory를 반환한다. Network readiness screen은 이 세 응답을 프론트엔드에서 조합한다. Network inventory는 Proxmox bridge row에서 관찰한 `address`, `netmask`, `prefix`, `cidr`, `gateway`, `bridge_ports`, `vlan_aware`, `mtu`를 optional evidence로 포함할 수 있다.
 
 - Migration source: source node를 하나 선택한다. source가 없거나 invalid하면 정렬된 첫 node가 deterministic default가 된다.
 - Target network comparison: 선택한 source에서 다른 node로 가는 target row만 표시한다. Self-pair와 전체 source-target pair grid는 표시하지 않는다. Summary card는 `대상 노드`, `준비됨`, `검토 필요`, `차단`, `영향 VM` 중심이다. Target row status는 UI에서 `준비됨`, `검토 필요`, `차단`, `정보 부족`으로 표시한다. `차단`은 같은 target row 안의 `bridge_id_subnet_mismatch`, 매핑 없음, 비활성 같은 차단성 evidence가 있으면 `준비됨`보다 우선한다. `검토 필요`는 이름만 같거나 같은 CIDR의 다른 bridge ID remap 후보만 있는 경우다. `준비됨`은 source active bridge들이 차단/검토/정보부족 evidence 없이 CIDR-verified exact match로 확인될 때만 표시한다.
@@ -35,7 +35,7 @@
 
 ## Create VM target gap
 
-Target Create VM networking은 Networks tab readiness를 source of truth로 사용하지 않는다. Create wizard는 live bridge inventory를 로드하고, backend preflight는 명시적 `bridge_id`가 target node에서 active인지 확인한다. Static mode는 `static_ip`, `prefix`, `gateway`를 명시적으로 요구하고, native create는 static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지 않는다.
+Target Create VM networking은 Network readiness screen을 source of truth로 사용하지 않는다. Create wizard는 live bridge inventory를 로드하고, backend preflight는 명시적 `bridge_id`가 target node에서 active인지 확인한다. Static mode는 `static_ip`, `prefix`, `gateway`를 명시적으로 요구하고, native create는 static IP에서 `.1` gateway 또는 `/24` prefix를 추론하지 않는다.
 
 ## DRS Advisor 기준 gaps
 
@@ -43,7 +43,7 @@ Target Create VM networking은 Networks tab readiness를 source of truth로 사�
 
 ## 리스크/메모
 
-Networks readiness는 inventory evidence visualization이다. `준비됨`은 CIDR-verified exact active bridge match가 차단/검토 evidence 없이 관찰되었다는 뜻이며, migration 실행 가능이나 DRS approval을 의미하지 않는다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아니다. `검토 필요`는 bridge name only 또는 CIDR remap evidence처럼 사람이 확인해야 하는 상태이고, `정보 부족`은 evidence가 부족하다는 뜻이며 execution authority가 아니다.
+Network readiness는 inventory evidence visualization이다. `준비됨`은 CIDR-verified exact active bridge match가 차단/검토 evidence 없이 관찰되었다는 뜻이며, migration 실행 가능이나 DRS approval을 의미하지 않는다. CIDR/gateway match는 observed config evidence일 뿐 actual same L2/VLAN/routed network나 migration feasibility의 proof가 아니다. `검토 필요`는 bridge name only 또는 CIDR remap evidence처럼 사람이 확인해야 하는 상태이고, `정보 부족`은 evidence가 부족하다는 뜻이며 execution authority가 아니다.
 
 ## 다음 구현 slice
 

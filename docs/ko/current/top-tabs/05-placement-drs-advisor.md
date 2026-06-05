@@ -4,11 +4,11 @@
 
 기준 문서: [영어 Placement snapshot](../../../current/top-tabs/05-placement-drs-advisor.md), [영어 Placement/DRS architecture](../../../architecture/placement-drs-advisor/overview.md), [Target DRS API](../../../architecture/api/target-drs-api.md), [DRS product docs](../../../product/drs-advisor/README.md).
 
-현재 `/drs`는 DRS Advisor recommendation/check, manual VM policy configuration, local approval packet/job intent creation screen입니다. Frontend에는 live execute/corrective reconcile controls가 없습니다. Backend에는 compact identity/fingerprint와 policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview, stored-UPID local reconciliation follow-up이 있습니다. Approved VMID `140` live DRS smoke evidence는 기록됐습니다.
+현재 `/drs`는 DRS Advisor recommendation/detail/check, compact policy evidence, criteria taxonomy, local approval packet/job intent creation screen입니다. Manual VM policy configuration은 VM Instances/InstanceList row workflow에 있습니다. Frontend에는 live execute/corrective reconcile controls가 없습니다. Backend에는 compact identity/fingerprint와 policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview, stored-UPID local reconciliation follow-up이 있습니다. Approved VMID `140` live DRS smoke evidence는 기록됐습니다.
 
 ## 사용하는 API와 호출 위치
 
-`loadDrsAdvisorModel()` in [frontend/src/utils/drsAdvisor.js](../../../../frontend/src/utils/drsAdvisor.js)는 다음 API를 조합합니다.
+DRS Advisor와 InstanceList policy workflow는 다음 API를 사용합니다.
 
 | API | 현재 사용 |
 |---|---|
@@ -16,9 +16,9 @@
 | `GET /api/v1/drs/recommendations` | backend-owned read-only recommendation list |
 | `GET /api/v1/drs/recommendations/{recommendation_id}` | detail evidence |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/check` | reference-only recalculation |
-| `GET /api/v1/drs/policies` | current VM policy coverage와 blocker impact |
-| `GET /api/v1/drs/policies/{vm_identity_id}` | one VM policy item |
-| `PUT /api/v1/drs/policies/{vm_identity_id}` | operator-only local policy update와 audit evidence |
+| `GET /api/v1/drs/policies` | InstanceList row의 current VM policy coverage와 blocker impact |
+| `GET /api/v1/drs/policies/{vm_identity_id}` | InstanceList policy review용 one VM policy item |
+| `PUT /api/v1/drs/policies/{vm_identity_id}` | InstanceList row workflow의 operator-only local policy update와 audit evidence |
 | `POST /api/v1/drs/recommendations/{recommendation_id}/approval-packets` | operator-only local approval/job/artifact write; migration 시작 안 함 |
 | `POST /api/v1/drs/migration-jobs/{job_id}/execute` | operator-only narrow backend execution after fresh gates |
 | `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | read-only reconciliation preview |
@@ -40,4 +40,4 @@ Backend는 current CPU/Memory usage로 node pressure와 imbalance를 계산합�
 
 ## Target gap
 
-DRS recommendation/check result는 실행 허가가 아닙니다. Live migration은 stored approval/job, fresh final pre-check, live Proxmox evidence, operation locks를 통과한 dedicated execute route에서만 가능합니다. Risks/Alerts DRS blocker taxonomy 통합과 broad UI는 future work입니다.
+DRS recommendation/check result는 실행 허가가 아닙니다. Live migration은 stored approval/job, fresh final pre-check, live Proxmox evidence, operation locks를 통과한 dedicated execute route에서만 가능합니다. Operations/Risks DRS blocker taxonomy 통합과 broad UI는 future work입니다.

@@ -8,7 +8,7 @@
 
 Current routes are Dashboard `/`, Infra Explorer `/infra`, Networks `/networks`, Create VM `/create`, DRS Advisor `/drs`, Jobs/Runs `/jobs`, Risks/Alerts `/risks`.
 
-현재 `/drs` route는 recommendation/detail/check, manual VM policy configuration, local approval packet/job intent creation을 제공합니다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다.
+현재 `/drs` route는 recommendation/detail/check, compact policy evidence, criteria taxonomy, local approval packet/job intent creation을 제공합니다. Manual VM policy configuration은 Infra Explorer/InstanceList row workflow가 제공합니다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다.
 
 ## 왜 각 화면이 필요한가
 
@@ -28,7 +28,7 @@ Dashboard는 node row 중심이어야 합니다. Current usage뿐 아니라 15�
 
 Recommendation table fields include rank, recommendation id, VM name, VMID locator, identity status, metadata completeness, migration policy, sensitivity, source/target node, CPU/Memory evidence, route status, blockers, warnings, generated_at, action availability.
 
-Allowed VM만 Approve & Migrate가 활성화됩니다. Unclassified, Identity Mismatch, Restricted, Blocked, Route Unknown은 실행 불가입니다.
+Allowed policy는 prerequisite일 뿐 migration approval이 아닙니다. Local approval packet/job intent, stored execute acknowledgement, fresh gates, live Proxmox evidence가 별도로 필요합니다. Unclassified, Identity Mismatch, Restricted, Blocked는 실행 불가입니다.
 
 ## Approve & Migrate flow
 
@@ -52,4 +52,4 @@ Confirm modal은 VM identity, fingerprint assertion, source/target, policy, sens
 
 ## Current gap
 
-현재 `/drs`에는 live migration execute button이나 corrective reconcile UI가 없습니다. Manual policy configuration과 local approval packet/job intent creation은 current UI에 있고, backend에는 final pre-check, operation locks, UPID/task tracking, DRS job/artifact evidence, verified post-check, read-only reconcile preview, stored-UPID local reconciliation follow-up이 있습니다. Approved VMID `140` live DRS smoke evidence는 기록됐습니다. Live execute UI, corrective reconcile UI, richer policy rule/full metadata editor, blocker taxonomy UI는 남은 gap입니다.
+현재 `/drs`에는 live migration execute button, corrective reconcile UI, policy edit grid가 없습니다. Manual policy configuration은 Infra Explorer/InstanceList row workflow에 있고, `/drs`에는 local approval packet/job intent creation이 있습니다. Backend에는 final pre-check, operation locks, UPID/task tracking, DRS job/artifact evidence, verified post-check, read-only reconcile preview, stored-UPID local reconciliation follow-up이 있습니다. Approved VMID `140` live DRS smoke evidence는 기록됐습니다. Live execute UI, corrective reconcile UI, bulk policy edit UI, richer policy rule/full metadata editor는 남은 gap입니다.

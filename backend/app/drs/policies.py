@@ -101,27 +101,6 @@ def _iso(value: datetime | None) -> str | None:
     return aware.isoformat() if aware is not None else None
 
 
-def _parse_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return _aware(value)
-    text = _as_text(value)
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return _aware(parsed)
-
-
-def _same_observed_at(left: Any, right: Any) -> bool:
-    left_dt = _parse_datetime(left)
-    right_dt = _parse_datetime(right)
-    if left_dt is None or right_dt is None:
-        return _as_text(left) == _as_text(right)
-    return left_dt == right_dt
-
-
 def _latest_observation(
     session: Session,
     vm_identity_id: str,
@@ -439,8 +418,6 @@ def _validate_expected_observation(
             mismatches.append(field)
     if _as_int(expected.get("vmid"), -1) != _as_int(current.get("vmid"), -2):
         mismatches.append("vmid")
-    if not _same_observed_at(expected.get("observed_at"), current.get("observed_at")):
-        mismatches.append("observed_at")
     if mismatches:
         validation_result["status"] = "failed"
         validation_result["reason"] = "stale_or_mismatched_expected_observation"

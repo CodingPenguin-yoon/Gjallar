@@ -1,4 +1,4 @@
-# Create VM
+# VM Instances / Create VM
 
 평가일: 2026-05-28
 
@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-Create VM은 현재 가장 강한 supporting capability다. draft/preflight/plan/review/approval과 Proxmox API native create gate가 구현되어 있지만, DRS Advisor의 success line은 아니다. Terraform plan/apply legacy executor route surface는 제거됐다.
+Create VM은 canonical `/instances/create` route의 supporting capability이며, legacy `/create` deep link도 같은 화면을 렌더링한다. draft/preflight/plan/review/approval과 Proxmox API native create gate가 구현되어 있지만, DRS Advisor의 success line은 아니다. Terraform plan/apply legacy executor route surface는 제거됐다.
 
 ## 구현 API/endpoints
 
@@ -103,7 +103,7 @@ Target design은
   preflight다.
 - Incoming `network_id`/`networkId`는 transition compatibility로 ignore되며
   draft/plan/review/manifest/job active output에 echo하지 않는다.
-- Networks readiness는 Create VM red blocker가 아니다. 관찰된 static IP
+- Network readiness는 Create VM red blocker가 아니다. 관찰된 static IP
   conflict는 계속 red blocker다.
 - Static mode는 현재 `static_ip`, `prefix`, `gateway`를 모두 요구한다.
 - Gateway와 prefix는 사용자가 입력한 값을 그대로 사용하며, native create는
@@ -111,7 +111,7 @@ Target design은
 - Access section, SSH public key collection, missing-key red gate, safe
   fingerprint evidence, and fixed disabled password-login gate are current
   behavior.
-- Profile에는 power policy가 없다. 운영자가 요청마다 `stopped` 또는 `boot_and_verify`를 선택한다. 기존 VM start는 여전히 별도 Infra Explorer row action과 Jobs/Runs audit 대상이다.
+- Profile에는 power policy가 없다. 운영자가 요청마다 `stopped` 또는 `boot_and_verify`를 선택한다. 기존 VM start는 여전히 별도 VM Instances row action과 Operations/Jobs audit 대상이다.
 
 ## DRS Advisor 기준 gaps
 

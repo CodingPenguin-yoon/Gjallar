@@ -1,4 +1,4 @@
-# Jobs/Runs
+# Operations / Jobs
 
 평가일: 2026-06-03
 
@@ -6,7 +6,7 @@
 
 ## 구현 수준
 
-현재 Jobs/Runs는 read-only DB-backed job/artifact inspection 화면이다. Create VM progress/artifacts, Infra Explorer `vm_start` job evidence, DRS `drs_migration` job evidence, and local-only `post_create_readiness` evidence jobs가 구현되어 있다.
+현재 Operations / Jobs는 canonical `/operations/jobs` route의 read-only DB-backed job/artifact inspection 화면이며, legacy `/jobs` deep link도 같은 화면을 렌더링한다. Create VM progress/artifacts, VM Instances `vm_start` job evidence, DRS `drs_migration` job evidence, and local-only `post_create_readiness` evidence jobs가 구현되어 있다.
 
 ## 구현 API/endpoints
 
@@ -22,19 +22,19 @@
 
 ## 현재 구현
 
-backend는 `job_runs`와 `job_artifacts` 테이블에 job status와 artifacts를 저장하고, summary와 artifact metadata를 read-only로 반환한다. Artifact reference는 `db://job-artifacts/<artifact_id>` 형태이며 UI는 로컬 파일 경로를 노출하지 않는다. Create VM draft/preflight/plan/approval/create 단계, Infra Explorer VM start `precheck/start/task_poll/post_check` 단계, and DRS migration `recommendation/final_precheck/approval/job_intent/operation_lock/migration/task_poll/post_check/reconciliation` 단계가 job progress로 기록된다. DRS execute acknowledgement failures are request validation errors; they do not create operation locks, do not call the DRS migration client, and do not change a pending `drs_migration` job to `blocked`.
+backend는 `job_runs`와 `job_artifacts` 테이블에 job status와 artifacts를 저장하고, summary와 artifact metadata를 read-only로 반환한다. Artifact reference는 `db://job-artifacts/<artifact_id>` 형태이며 UI는 로컬 파일 경로를 노출하지 않는다. Create VM draft/preflight/plan/approval/create 단계, VM Instances VM start `precheck/start/task_poll/post_check` 단계, and DRS migration `recommendation/final_precheck/approval/job_intent/operation_lock/migration/task_poll/post_check/reconciliation` 단계가 job progress로 기록된다. DRS execute acknowledgement failures are request validation errors; they do not create operation locks, do not call the DRS migration client, and do not change a pending `drs_migration` job to `blocked`.
 
 DRS `job_runs.details` now includes compact `drs_evidence` for operator inspection: approval packet/status, recommendation/VM identity, source/target, approved/executed actor, execution acknowledgement evidence when present, final pre-check blockers/check statuses/criteria taxonomy, live pre-check summary, historical UPID/task/status/exitstatus/log excerpt, side effects as historical evidence, operation lock ids/records/scopes/statuses, post-check expected/observed/fingerprint evidence, and reconciliation reason/events/resolved events. It is explicitly `read_only=true`, `allowed_actions=[]`, and `current_mutation_controls=[]`.
 
 `vm_start` jobs는 `vm_start_observed_after.json` artifact를 남긴다. Artifact에는 observed-before inventory, target node/VMID/name, idempotency key, Proxmox start UPID/task poll result, observed-after status, redacted connection context가 포함된다.
 
-`post_create_readiness` jobs는 operator-supplied sanitized evidence만 기록한다. Artifact type은 `post_create_readiness_evidence`이며 endpoint result는 `side_effects=[]`, `proxmox_mutation_enabled=false`, `live_checks_performed_by_gjallar=false`, and `allowed_actions=[]`를 유지한다. Jobs/Runs UI에는 이 job을 실행하거나 재실행하는 control이 없다.
+`post_create_readiness` jobs는 operator-supplied sanitized evidence만 기록한다. Artifact type은 `post_create_readiness_evidence`이며 endpoint result는 `side_effects=[]`, `proxmox_mutation_enabled=false`, `live_checks_performed_by_gjallar=false`, and `allowed_actions=[]`를 유지한다. Operations/Jobs UI에는 이 job을 실행하거나 재실행하는 control이 없다.
 
 frontend는 job list, selected job detail, progress steps, artifact metadata를 보여준다. DRS jobs render artifact metadata type/id/checksum/storage backend/size but not artifact payloads or local paths. retry, cancel, live-run, reconcile, cleanup, reverse migration, or VM mutation controls are absent.
 
 ## DRS Advisor 기준 gaps
 
-[DRS UI/flow 목표](../../product/drs-advisor/02_UI_AND_FLOWS.md) 대비 backend는 `drs_migration` job_type, recommendation id, VM locator, identity id, source/target node, approver, UPID, lock id/status, timeout/post-check/reconciliation evidence를 저장한다. Approved VMID `140` live DRS smoke evidence도 기록됐다. Jobs/Runs now has the first richer read-only DRS evidence panel. 남은 gap은 broader DRS operations UI polish, corrective reconciliation mutation/action, and background reconciliation automation이다.
+[DRS UI/flow 목표](../../product/drs-advisor/02_UI_AND_FLOWS.md) 대비 backend는 `drs_migration` job_type, recommendation id, VM locator, identity id, source/target node, approver, UPID, lock id/status, timeout/post-check/reconciliation evidence를 저장한다. Approved VMID `140` live DRS smoke evidence도 기록됐다. Operations/Jobs now has the first richer read-only DRS evidence panel. 남은 gap은 broader DRS operations UI polish, corrective reconciliation mutation/action, and background reconciliation automation이다.
 
 ## 리스크/메모
 

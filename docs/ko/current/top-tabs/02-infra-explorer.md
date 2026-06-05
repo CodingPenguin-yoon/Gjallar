@@ -1,10 +1,10 @@
-# Infra Explorer
+# VM Instances / Inventory
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
-기준 문서: [영어 Infra Explorer snapshot](../../../current/top-tabs/02-infra-explorer.md), [영어 Infra Explorer architecture](../../../architecture/infra-explorer/overview.md), [Current implemented state](../../../current/README.md).
+기준 문서: [영어 VM Instances inventory snapshot](../../../current/top-tabs/02-infra-explorer.md), [영어 Infra Explorer architecture](../../../architecture/infra-explorer/overview.md), [Current implemented state](../../../current/README.md).
 
-Infra Explorer는 `/infra` route의 read-only VM/node inventory 화면입니다. 목적은 Proxmox가 현재 보고하는 VM 배치와 evidence를 운영자가 확인하게 하는 것입니다. 현재 VM row는 `/drs/policies` coverage가 있으면 DRS migration policy 상태와 guarded local policy review action도 표시하지만, DRS migration action은 제공하지 않습니다.
+VM Instances inventory는 canonical `/instances` route의 read-only VM/node inventory 화면이며 legacy `/infra` deep link도 같은 화면을 렌더링합니다. 목적은 Proxmox가 현재 보고하는 VM 배치와 evidence를 운영자가 확인하게 하는 것입니다. 현재 VM row는 `/drs/policies` coverage가 있으면 DRS migration policy 상태와 guarded local policy review action도 표시합니다. 이 InstanceList row workflow가 현재 policy configuration surface이며, DRS migration action은 제공하지 않습니다.
 
 ## 사용하는 API와 호출 위치
 
@@ -24,8 +24,8 @@ Frontend view model은 node id, VMID/name, observed status, IP evidence, guest-a
 
 ## 현재 하지 않는 일
 
-Infra Explorer에는 start, stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, Ansible 버튼이 없습니다. 기존 VM start는 이 화면의 별도 gated action입니다. 새 VM은 Create VM의 `boot_and_verify` 선택 시에만 부팅 후 IP/cloud-init 검증까지 수행합니다.
+VM Instances에는 stop, reboot, reset, delete, snapshot, rollback, migrate, clone, SSH, Ansible 버튼이 없습니다. 기존 VM start는 이 화면의 별도 gated action입니다. 새 VM은 Create VM의 `boot_and_verify` 선택 시에만 부팅 후 IP/cloud-init 검증까지 수행합니다.
 
 ## Target gap
 
-DRS Advisor에는 VM identity/fingerprint, metadata completeness, operation lock, last DRS job 같은 더 깊은 패널이 필요합니다. 현재 Infra Explorer는 compact DRS migration policy 상태와 guarded local policy update만 보조로 표시하고, full identity/blocker/job context나 migration action flow는 제공하지 않습니다.
+DRS Advisor에는 VM identity/fingerprint, metadata completeness, operation lock, last DRS job 같은 더 깊은 패널이 필요합니다. 현재 VM Instances는 compact DRS migration policy 상태와 guarded local policy update만 보조로 표시하고, full identity/blocker/job context나 migration action flow는 제공하지 않습니다.

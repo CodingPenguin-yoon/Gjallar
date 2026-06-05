@@ -1,6 +1,6 @@
 # DRS Advisor Implementation Plan
 
-Status note: this is a historical phased plan. Goals 2-6 backend DRS substrate is implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Goal 7 and Goal 7.5 added the minimal safe DRS UI slice plus manual VM migration policy UI/API. Goal 10 later added approved VMID `140` live DRS smoke evidence and stored-UPID local reconciliation completion. Recommendation/check output remains execution-closed; live migration execute UI, corrective reconcile UI, richer policy rule/full metadata editing, corrective mutation, background automation, and automatic DRS remain deferred.
+Status note: this is a historical phased plan. Goals 2-6 backend DRS substrate is implemented: compact identity/policy evidence, operation locks, local approval/job substrate, a narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, and read-only reconcile preview. Goal 7 and Goal 7.5 added the minimal safe DRS UI slice plus manual VM migration policy UI/API; the current policy configuration surface is VM Instances / DRS Policies(`/instances/drs-policies`), while `/drs` shows recommendation/detail/check evidence and local approval packet/job intent controls. Goal 10 later added approved VMID `140` live DRS smoke evidence and stored-UPID local reconciliation completion. Recommendation/check output remains execution-closed; live migration execute UI, bulk policy selection/edit, corrective reconcile UI, richer policy rule/full metadata editing, corrective mutation, background automation, and automatic DRS remain deferred.
 
 ## 1. Current code inventory
 
@@ -9,7 +9,9 @@ Status note: this is a historical phased plan. Goals 2-6 backend DRS substrate i
 Frontend:
 
 - `frontend/src/App.jsx`: route/nav, Dashboard aggregation
-- `frontend/src/components/DrsAdvisorScreen.jsx`: DRS Advisor recommendation/check screen with manual policy configuration and local approval packet/job intent creation, but without live execute or corrective reconcile controls
+- `frontend/src/components/DrsAdvisorScreen.jsx`: DRS Advisor recommendation/detail/check screen with compact policy evidence, criteria taxonomy, and local approval packet/job intent creation, but without policy edit, live execute, or corrective reconcile controls
+- `frontend/src/components/InstanceList.jsx`: VM inventory and stopped-VM start controls
+- `frontend/src/components/DrsPoliciesScreen.jsx`: dedicated VM policy coverage plus guarded policy review/edit modal
 - `frontend/src/utils/drsAdvisor.js`: DRS recommendation/check view model
 - `frontend/src/components/TaskBoard.jsx`: Jobs/Runs read-only UI
 - `frontend/src/utils/jobsScreen.js`: job/artifact view model

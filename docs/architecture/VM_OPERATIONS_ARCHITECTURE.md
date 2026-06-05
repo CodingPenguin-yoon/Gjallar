@@ -27,7 +27,7 @@ React operator UI
     -> read-only network readiness and migration pre-check evidence
     -> Create VM draft/preflight/plan/approval helpers
     -> DRS identity/policy/final-precheck/approval/job helpers
-    -> DB-backed Jobs/Runs and risk summaries
+    -> DB-backed Operations/Jobs and risk summaries
     -> gated Proxmox native clone/resize/config/post-check helpers
     -> gated existing-VM start helper
     -> narrow approval-gated DRS migration execution helper
@@ -45,23 +45,31 @@ Active routes:
 
 | Route | Component | Purpose |
 |---|---|---|
-| `/` | `Dashboard` in `App.jsx` | Cluster summary from inventory, jobs, and risks. Uses partial-load behavior so job/risk read failures do not blank the first screen. |
-| `/infra` | `InstanceList` | Grouped VM inventory, detail evidence, and Start action for stopped non-template VMs. |
-| `/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
-| `/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Proxmox native preview/create gates. |
+| `/` | `Dashboard` in `App.jsx` | Overview cluster summary from inventory, jobs, and risks. Uses partial-load behavior so job/risk read failures do not blank the first screen. |
+| `/instances` | `InstanceList` | VM Instances inventory, detail evidence, and Start action for stopped non-template VMs. |
+| `/instances/drs-policies` | `DrsPoliciesScreen` | Dedicated DRS VM migration policy coverage and guarded manual policy review/update. |
+| `/instances/networks` | `NetworkReadinessScreen` | Read-only Network Readiness / migration pre-check visualization. |
+| `/instances/create` | `CreateInstanceWizard` | Guided VM create flow using draft, preflight, plan, approval, and Proxmox native preview/create gates. |
 | `/drs` | `DrsAdvisorScreen` | DRS Advisor recommendations, identity/policy evidence, final pre-check, approval/job substrate, and reconciliation state; broad execution UI polish remains pending. |
-| `/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
-| `/risks` | `OperationalRiskDashboard` | Read-only risk summaries derived from job records. |
+| `/operations/jobs` | `TaskBoard` | Read-only job/run progress and artifact metadata. |
+| `/operations/risks` | `OperationalRiskDashboard` | Read-only risk summaries derived from job records. |
+| `/settings/account` | `AccountSettingsScreen` in `App.jsx` | Authenticated self password change. |
+| `/settings/admin/users` | `AdminUsersScreen` with `AdminGuard` | Admin-only local user and session operations. |
+
+Legacy frontend aliases `/infra`, `/networks`, `/create`, `/jobs`,
+`/risks`, `/account`, and `/admin/users` render the same screens to preserve
+deep links. They are not the canonical paths for new UI navigation.
 
 Legacy frontend paths and components for `/api/provision`, app deployment,
 destructive VM actions, and LLM chat are intentionally absent from active `src`.
 
 ## DRS Advisor Current Baseline And Gaps
 
-Current `/drs` uses backend `/api/v1/drs/*` read models, manual policy routes,
-and local approval packet/job intent creation plus backend execution,
+Current `/drs` uses backend `/api/v1/drs/*` read models and local approval
+packet/job intent creation plus backend execution,
 post-check, and read-only reconciliation routes. Backend gates are
-authoritative; live execute and corrective reconcile UI remain absent.
+authoritative; live execute and corrective reconcile UI remain absent. Manual
+policy routes are surfaced under `/instances/drs-policies`.
 
 Implemented baseline:
 
@@ -75,7 +83,7 @@ Implemented baseline:
   Proxmox migration client and UPID/task metadata.
 - Verified post-check and conservative `needs_reconciliation` handling.
 - Read-only Reconcile preview before any corrective mutation.
-- `drs_migration` jobs and artifacts in Jobs/Runs.
+- `drs_migration` jobs and artifacts in Operations/Jobs.
 
 Current gap:
 
@@ -171,7 +179,7 @@ selection model is being updated as follows:
 - Create success follows the reviewed request power policy: `stopped` leaves the
   VM powered off, while `boot_and_verify` starts the VM and verifies
   guest-agent IP plus cloud-init completion. Existing-VM start remains a
-  separate Infra Explorer row action with Jobs/Runs audit.
+  separate VM Instances row action with Operations/Jobs audit.
 
 Current implementation note: profiles are DB-seeded read-only rows with no
 profile management UI yet. The active path exposes the three initial enabled
@@ -182,7 +190,7 @@ template requirements and access SSH key gates, uses explicit `bridge_id` plus
 
 ## Main Data Flows
 
-### Dashboard
+### Overview / Dashboard
 
 ```text
 Dashboard
@@ -191,7 +199,7 @@ Dashboard
   -> operator summary and node table
 ```
 
-The dashboard uses partial-load behavior. If `/jobs` or `/risks` cannot read
+The dashboard uses partial-load behavior. If `/api/v1/jobs` or `/api/v1/risks` cannot read
 job/risk data, available inventory still renders and the UI shows a yellow
 partial-failure notice.
 
@@ -214,8 +222,8 @@ adapter methods in the active inventory path.
 Create VM and VM start routes record job progress
   -> app.jobs.runs writes latest state to job_runs
   -> app.jobs.artifacts writes payloads/metadata to job_artifacts
-  -> /jobs reads summaries
-  -> /risks derives risk rows from stored job risks
+  -> /operations/jobs reads summaries
+  -> /operations/risks derives risk rows from stored job risks
 ```
 
 If the job DB read is unavailable, list reads fail open with an empty list so
@@ -242,7 +250,7 @@ CreateInstanceWizard
 
 Success requires Proxmox actual state, not planned state: requested disk resize must be unnecessary or completed, the VM must exist on the target node, and an `observed_after` artifact with fingerprint hash must exist. The `stopped` policy requires `status/current=stopped`; `boot_and_verify` requires `status/current=running`, guest-agent IP discovery, and cloud-init completion. Task failure, unknown cloned disk size, resize failure, VM missing, or failed power-policy verification marks the manifest `apply_failed` or `needs_reconciliation` and does not mark it `applied`.
 
-### Infra Explorer VM Start
+### VM Instances VM Start
 
 ```text
 InstanceList
@@ -268,10 +276,10 @@ GET /api/v1/networks
   -> NetworkReadinessScreen
 ```
 
-Networks readiness is read-only. It has no Proxmox network mutation, API write
+Network readiness is read-only. It has no Proxmox network mutation, API write
 path, YAML persistence, DB migration, or DRS execution authority.
 
-For target Create VM, the Networks tab is not the source of truth for bridge
+For target Create VM, the Network readiness screen is not the source of truth for bridge
 selection. Create VM uses live Proxmox bridge inventory for the selected target
 node.
 

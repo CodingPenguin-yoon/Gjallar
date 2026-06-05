@@ -11,14 +11,14 @@ MVP 중심은 DRS Advisor이며, VMware DRS 대체품이라고 주장하지 않�
 Gjallar는 Proxmox-native inventory, migration, HA, storage, task state를 관찰하고, CPU/Memory 중심 추천을 만들고, 운영자 승인 후 Proxmox live migration을 실행/추적하는 advisor/control tower다.
 
 Create VM native Proxmox flow는 삭제하지 않는다.
-현재 구현된 보조 capability로 유지하고, legacy Terraform executor와 GitOps execute/archive route/helper code는 active contract에서 제거됐다. DRS Advisor는 기존 Dashboard, Jobs/Runs, Risks/Alerts, Proxmox inventory, job/artifact substrate와 현재 `/drs` recommendation/check, manual VM policy configuration, local approval packet/job intent creation, narrow backend execution substrate를 확장한다.
+현재 구현된 보조 capability로 유지하고, legacy Terraform executor와 GitOps execute/archive route/helper code는 active contract에서 제거됐다. DRS Advisor는 기존 Overview/Dashboard, Operations/Jobs, Operations/Risks, Proxmox inventory, job/artifact substrate와 현재 `/drs` recommendation/check, compact policy evidence, local approval packet/job intent creation, narrow backend execution substrate를 확장한다. Manual VM policy configuration은 VM Instances / DRS Policies(`/instances/drs-policies`)에 있다.
 
 ## 문서 구성
 
 | Document | Purpose |
 |---|---|
 | `01_PRODUCT_DIRECTION.md` | 제품 방향, MVP scope, current implemented baseline, exclusions |
-| `02_UI_AND_FLOWS.md` | Dashboard, DRS Advisor, Jobs/Runs, Risks/Alerts, Create VM 보조 flow |
+| `02_UI_AND_FLOWS.md` | Overview/Dashboard, DRS Advisor, Operations/Jobs, Operations/Risks, Create VM 보조 flow |
 | `03_DATA_DB_AND_IDENTITY.md` | Source of truth, DB boundary, identity/fingerprint, metadata/policy, DB field validation usage |
 | `04_DRS_RECOMMENDATION_AND_EXECUTION.md` | Recommendation model, pre-check, execution, UPID tracking, reconciliation, Proxmox assumptions |
 | `05_IMPLEMENTATION_PLAN.md` | 현재 코드 기반 gap analysis와 구현 순서 |
@@ -27,12 +27,12 @@ Create VM native Proxmox flow는 삭제하지 않는다.
 
 문서 작성 시 확인한 현재 구현 기반:
 
-- Frontend navigation은 `Dashboard`, `Infra Explorer`, `Networks`, `Create VM`, `DRS Advisor`, `Jobs/Runs`, `Risks/Alerts`를 제공한다.
+- Frontend primary navigation은 `Overview`, `VM Instances`, `DRS Advisor`, `Operations`, `Settings`를 제공한다. Canonical child routes are `/instances`, `/instances/drs-policies`, `/instances/create`, `/instances/networks`, `/operations/jobs`, `/operations/risks`, `/settings/account`, and `/settings/admin/users`; legacy deep links still render aliases.
 - Dashboard는 `/api/v1/cluster/summary`, `nodes`, `vms`, `storage`, `networks`, `jobs`, `risks`를 조합해 노드/VM/storage/risk summary를 보여준다.
-- DRS Advisor UI는 `/api/v1/drs/*` summary/recommendation/detail/check endpoint, `GET/PUT /api/v1/drs/policies*`, local approval packet creation, and `frontend/src/utils/drsAdvisor.js`를 사용한다. Recommendation/check output exposes backend-owned criteria taxonomy through `criteria`, `criteria_details`, `advisory_signals`, and `technical_gate_status`, distinguishing Gjallar operational gates, Proxmox final technical gates, and Advisor pre-filter signals. CPU/Memory current usage, node imbalance, red risk exclusion, DB-backed identity evidence, migration policy evidence, and advisory route/storage/network/passthrough signals are visible while all recommendation/check results remain `read_only=true`, `executable=false`, `allowed_actions=[]`.
-- Jobs/Runs는 `/api/v1/jobs`, `/api/v1/jobs/{job_id}`, `/api/v1/jobs/{job_id}/artifacts` 기반 read-only 화면이다.
-- Risks/Alerts는 `/api/v1/risks`를 읽어 job-derived risk를 높은 위험도부터 보여준다.
-- Backend `/api/v1`은 read-only Proxmox inventory, Jobs/Runs, Risks, Create VM draft/preflight/plan/approval/Proxmox native create gates를 제공한다.
+- DRS Advisor UI는 `/api/v1/drs/*` summary/recommendation/detail/check endpoints, local approval packet creation, and `frontend/src/utils/drsAdvisor.js`를 사용한다. VM Instances / DRS Policies uses `GET/PUT /api/v1/drs/policies*`. Recommendation/check output exposes backend-owned criteria taxonomy through `criteria`, `criteria_details`, `advisory_signals`, and `technical_gate_status`, distinguishing Gjallar operational gates, Proxmox final technical gates, and Advisor pre-filter signals. CPU/Memory current usage, node imbalance, red risk exclusion, DB-backed identity evidence, migration policy evidence, and advisory route/storage/network/passthrough signals are visible while all recommendation/check results remain `read_only=true`, `executable=false`, `allowed_actions=[]`.
+- Operations/Jobs는 `/api/v1/jobs`, `/api/v1/jobs/{job_id}`, `/api/v1/jobs/{job_id}/artifacts` 기반 read-only 화면이다.
+- Operations/Risks는 `/api/v1/risks`를 읽어 job-derived risk를 높은 위험도부터 보여준다.
+- Backend `/api/v1`은 read-only Proxmox inventory, Jobs, Risks, Create VM draft/preflight/plan/approval/Proxmox native create gates를 제공한다.
 - Proxmox inventory adapter는 현재 read-only이며 node CPU/Memory current usage, VM disk volume, tags, IP/guest-agent 일부 evidence를 수집한다.
 - Create VM flow는 `general-vm` 중심 draft/preflight/plan, artifact-backed review, approval checksum, Proxmox native preview/create acknowledgement gate를 갖고 있다. Active mutation은 Proxmox native create이며 Terraform plan/apply와 GitOps execute/archive route surface는 제거됐다.
 
@@ -40,12 +40,12 @@ Create VM native Proxmox flow는 삭제하지 않는다.
 
 - Recommendation/check result 자체에는 execution authority가 없다. Narrow backend execution은 stored approval/job, fresh gates, live Proxmox evidence, operation locks를 통과한 `POST /api/v1/drs/migration-jobs/{job_id}/execute`에서만 존재한다.
 - DB-backed identity observations, migration policy records, operation locks, approval packets, migration jobs, UPID/task tracking, post-check evidence, and reconciliation events now exist. Broader DRS metadata and richer policy rule/full metadata editing remain absent.
-- Manual VM migration policy UI/API is implemented through `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. It supports the current per-VM policy workflow; richer policy rules and full metadata catalog editing remain deferred.
+- Manual VM migration policy UI/API is implemented through VM Instances / DRS Policies backed by `GET /api/v1/drs/policies`, `GET /api/v1/drs/policies/{vm_identity_id}`, and `PUT /api/v1/drs/policies/{vm_identity_id}`. It supports the current per-VM policy workflow; bulk policy selection/edit, richer policy rules, and full metadata catalog editing remain deferred.
 - DRS metadata beyond compact identity/policy는 아직 구현되어 있지 않다.
 - 15분 average/peak metric series와 1분 polling substrate가 없다.
 - Config-lock evidence is collected for DRS final pre-check. The execute route separately collects live HA state, quorum, active Proxmox task, and migration precondition evidence before mutation.
 - Proxmox live migration request, UPID tracking, task timeout/ambiguous handling, post-check, read-only reconcile preview, and stored-UPID local reconciliation follow-up exist in the backend. Approved VMID `140` live DRS smoke evidence has been recorded.
-- DRS Advisor UI now includes recommendation/check views, manual VM policy configuration, and local approval packet/job intent creation. It still has no live migration execute UI or corrective reconcile UI. Corrective reconciliation mutation, background automation, and automatic DRS remain deferred.
+- DRS Advisor UI now includes recommendation/check views, compact policy evidence, criteria taxonomy, and local approval packet/job intent creation. It still has no policy edit grid, live migration execute UI, or corrective reconcile UI. Corrective reconciliation mutation, background automation, and automatic DRS remain deferred.
 
 ## 읽는 순서
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, CheckCircle2, Clock3, Database, HardDrive, KeyRound, LayoutDashboard, List, LogOut, Network, Plus, RefreshCw, Server, UserCircle, UserCog } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Database, HardDrive, KeyRound, LayoutDashboard, List, LogOut, Network, Plus, RefreshCw, Server, Settings as SettingsIcon, UserCircle, UserCog } from 'lucide-react'
 import AdminUsersScreen from './components/AdminUsersScreen'
 import CreateInstanceWizard from './components/CreateInstanceWizard'
+import DrsPoliciesScreen from './components/DrsPoliciesScreen'
 import InstanceList from './components/InstanceList'
 import NetworkReadinessScreen from './components/NetworkReadinessScreen'
 import OperationalRiskDashboard from './components/OperationalRiskDashboard'
@@ -12,19 +13,31 @@ import { apiV1Client } from './services/apiV1'
 import { authFailureMessage, canAdmin, canOperate } from './utils/auth'
 import middlepiaStackLogo from './assets/middlepia-stack.svg'
 
-const navItems = [
-  { label: 'Dashboard', path: '/', icon: LayoutDashboard, end: true },
-  { label: 'Infra Explorer', path: '/infra', icon: List },
-  { label: 'Networks', path: '/networks', icon: Network },
-  { label: 'Create VM', path: '/create', icon: Plus },
-  { label: 'DRS Advisor', path: '/drs', icon: Activity },
-  { label: 'Jobs/Runs', path: '/jobs', icon: Clock3 },
-  { label: 'Risks/Alerts', path: '/risks', icon: AlertTriangle },
+const primaryNavItems = [
+  { label: 'Overview', path: '/', icon: LayoutDashboard },
+  { label: 'VM Instances', path: '/instances', icon: List, activePrefixes: ['/instances'], aliasPaths: ['/infra', '/create', '/networks'] },
+  { label: 'DRS Advisor', path: '/drs', icon: Activity, activePrefixes: ['/drs'] },
+  { label: 'Operations', path: '/operations/jobs', icon: Clock3, activePrefixes: ['/operations'], aliasPaths: ['/jobs', '/risks'] },
+  { label: 'Settings', path: '/settings/account', icon: SettingsIcon, activePrefixes: ['/settings'], aliasPaths: ['/account', '/admin/users'] },
 ]
-const adminNavItem = { label: 'Admin Users', path: '/admin/users', icon: UserCog }
-const accountNavItem = { label: 'Account', path: '/account', icon: UserCircle }
+
+const vmInstancesSubnavItems = [
+  { label: 'Inventory', path: '/instances', icon: List, aliasPaths: ['/infra'] },
+  { label: 'DRS Policies', path: '/instances/drs-policies', icon: ClipboardCheck },
+  { label: 'Create VM', path: '/instances/create', icon: Plus, aliasPaths: ['/create'] },
+  { label: 'Network readiness', path: '/instances/networks', icon: Network, aliasPaths: ['/networks'] },
+]
+
+const operationsSubnavItems = [
+  { label: 'Jobs', path: '/operations/jobs', icon: Clock3, aliasPaths: ['/jobs'] },
+  { label: 'Risks', path: '/operations/risks', icon: AlertTriangle, aliasPaths: ['/risks'] },
+]
+
+const accountNavItem = { label: 'Account', path: '/settings/account', icon: UserCircle, aliasPaths: ['/account'] }
+const adminNavItem = { label: 'Admin Users', path: '/settings/admin/users', icon: UserCog, aliasPaths: ['/admin/users'] }
 
 const DASHBOARD_DATA_LABELS = ['Cluster', 'Nodes', 'VMs', 'Storage', 'Networks', 'Jobs/Runs', 'Risks/Alerts']
+const appShellClass = 'mx-auto w-full max-w-7xl px-8'
 
 function navClass({ isActive }) {
   return `flex shrink-0 items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
@@ -32,6 +45,75 @@ function navClass({ isActive }) {
       ? 'text-slate-900 border-slate-900 bg-slate-50'
       : 'text-gray-600 border-transparent hover:text-gray-900 hover:bg-gray-50'
   }`
+}
+
+function subnavClass({ isActive }) {
+  return `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+    isActive
+      ? 'bg-slate-950 text-white'
+      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+  }`
+}
+
+function normalizePathname(pathname) {
+  const normalized = String(pathname || '/').replace(/\/+$/, '')
+  return normalized || '/'
+}
+
+function navItemActive(item, pathname) {
+  const current = normalizePathname(pathname)
+  const itemPath = normalizePathname(item.path)
+  if (itemPath === '/') return current === '/'
+  if (current === itemPath) return true
+  if ((item.aliasPaths || []).map(normalizePathname).includes(current)) return true
+  return (item.activePrefixes || []).some((prefix) => {
+    const normalizedPrefix = normalizePathname(prefix)
+    return current === normalizedPrefix || current.startsWith(`${normalizedPrefix}/`)
+  })
+}
+
+function SectionSubnav({ items, ariaLabel }) {
+  const location = useLocation()
+  return (
+    <nav className="overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm" aria-label={ariaLabel}>
+      <div className="flex gap-1">
+        {items.map(({ label, path, icon: Icon, aliasPaths }) => (
+          <NavLink key={path} to={path} className={() => subnavClass({ isActive: navItemActive({ path, aliasPaths }, location.pathname) })}>
+            <Icon className="h-4 w-4" />
+            {label}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
+function VmInstancesShell({ children }) {
+  return (
+    <section className="space-y-4">
+      <SectionSubnav items={vmInstancesSubnavItems} ariaLabel="VM Instances navigation" />
+      {children}
+    </section>
+  )
+}
+
+function OperationsShell({ children }) {
+  return (
+    <section className="space-y-4">
+      <SectionSubnav items={operationsSubnavItems} ariaLabel="Operations navigation" />
+      {children}
+    </section>
+  )
+}
+
+function SettingsShell({ isAdmin, children }) {
+  const settingsSubnavItems = isAdmin ? [accountNavItem, adminNavItem] : [accountNavItem]
+  return (
+    <section className="space-y-4">
+      <SectionSubnav items={settingsSubnavItems} ariaLabel="Settings navigation" />
+      {children}
+    </section>
+  )
 }
 
 function asArray(value) {
@@ -241,11 +323,11 @@ function Dashboard() {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             새로고침
           </button>
-          <button type="button" onClick={() => navigate('/infra')} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={() => navigate('/instances')} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             <List className="h-4 w-4" />
-            Infra Explorer
+            VM Instances
           </button>
-          <button type="button" onClick={() => navigate('/create')} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+          <button type="button" onClick={() => navigate('/instances/create')} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">
             <Plus className="h-4 w-4" />
             Create VM
           </button>
@@ -267,12 +349,12 @@ function Dashboard() {
         <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Datacenter</div>
           <div className="space-y-1">
-            <button type="button" onClick={() => navigate('/infra')} className="flex w-full items-center gap-3 rounded-lg bg-slate-950 px-3 py-2 text-left text-sm font-semibold text-white">
+            <button type="button" onClick={() => navigate('/instances')} className="flex w-full items-center gap-3 rounded-lg bg-slate-950 px-3 py-2 text-left text-sm font-semibold text-white">
               <Database className="h-4 w-4 text-yellow-300" />
               {model.clusterId}
             </button>
             {model.nodeRows.map((node) => (
-              <button key={node.id} type="button" onClick={() => navigate('/infra')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+              <button key={node.id} type="button" onClick={() => navigate('/instances')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
                 <span className="flex min-w-0 items-center gap-3">
                   <Server className="h-4 w-4 shrink-0 text-slate-500" />
                   <span className="truncate">{node.name}</span>
@@ -280,17 +362,17 @@ function Dashboard() {
                 <span className={`h-2 w-2 shrink-0 rounded-full ${node.tone === 'green' ? 'bg-emerald-500' : node.tone === 'red' ? 'bg-red-500' : 'bg-yellow-400'}`} />
               </button>
             ))}
-            <button type="button" onClick={() => navigate('/networks')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+            <button type="button" onClick={() => navigate('/instances/networks')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
               <span className="flex items-center gap-3">
                 <Network className="h-4 w-4 text-slate-500" />
-                Networks
+                Network readiness
               </span>
               <span className="text-xs font-semibold text-slate-500">{model.summary.bridges}</span>
             </button>
-            <button type="button" onClick={() => navigate('/jobs')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+            <button type="button" onClick={() => navigate('/operations/jobs')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
               <span className="flex items-center gap-3">
                 <Clock3 className="h-4 w-4 text-slate-500" />
-                Jobs/Runs
+                Jobs
               </span>
               <span className="text-xs font-semibold text-slate-500">{model.summary.activeJobs}</span>
             </button>
@@ -624,12 +706,53 @@ function App() {
   const currentUser = authState.user
   const canMutate = canOperate(currentUser)
   const isAdmin = canAdmin(currentUser)
-  const visibleNavItems = isAdmin ? [...navItems, adminNavItem, accountNavItem] : [...navItems, accountNavItem]
+  const vmInventoryRoute = (
+    <VmInstancesShell>
+      <InstanceList currentUser={currentUser} canStartVms={canMutate} />
+    </VmInstancesShell>
+  )
+  const drsPoliciesRoute = (
+    <VmInstancesShell>
+      <DrsPoliciesScreen currentUser={currentUser} canManageDrsPolicies={canMutate} />
+    </VmInstancesShell>
+  )
+  const createVmRoute = (
+    <VmInstancesShell>
+      <CreateInstanceWizard currentUser={currentUser} canExecuteLiveMutation={canMutate} />
+    </VmInstancesShell>
+  )
+  const networkReadinessRoute = (
+    <VmInstancesShell>
+      <NetworkReadinessScreen />
+    </VmInstancesShell>
+  )
+  const jobsRoute = (
+    <OperationsShell>
+      <TaskBoard />
+    </OperationsShell>
+  )
+  const risksRoute = (
+    <OperationsShell>
+      <OperationalRiskDashboard />
+    </OperationsShell>
+  )
+  const accountRoute = (
+    <SettingsShell isAdmin={isAdmin}>
+      <AccountSettingsScreen currentUser={currentUser} onPasswordChanged={refreshCurrentUser} />
+    </SettingsShell>
+  )
+  const adminUsersRoute = (
+    <SettingsShell isAdmin={isAdmin}>
+      <AdminGuard currentUser={currentUser}>
+        <AdminUsersScreen currentUser={currentUser} onCurrentUserChanged={refreshCurrentUser} />
+      </AdminGuard>
+    </SettingsShell>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="container mx-auto px-8 py-5">
+        <div className={`${appShellClass} py-5`}>
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <Server className="h-8 w-8 shrink-0 text-slate-700" />
@@ -655,10 +778,10 @@ function App() {
       </header>
 
       <nav className="bg-white border-b border-gray-200 shadow-sm" aria-label="Gjallar primary navigation">
-        <div className="container mx-auto px-8">
+        <div className={appShellClass}>
           <div className="flex overflow-x-auto">
-            {visibleNavItems.map(({ label, path, icon: Icon, end }) => (
-              <NavLink key={path} to={path} end={end} className={navClass}>
+            {primaryNavItems.map(({ label, path, icon: Icon, activePrefixes, aliasPaths }) => (
+              <NavLink key={path} to={path} className={() => navClass({ isActive: navItemActive({ path, activePrefixes, aliasPaths }, location.pathname) })}>
                 <Icon className="w-5 h-5" />
                 {label}
               </NavLink>
@@ -667,64 +790,32 @@ function App() {
         </div>
       </nav>
 
-      <main className="container mx-auto px-8 py-8">
+      <main className={`${appShellClass} py-8`}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route
-            path="/infra"
-            element={
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <InstanceList currentUser={currentUser} canStartVms={canMutate} canManageDrsPolicies={canMutate} />
-              </div>
-            }
-          />
-          <Route
-            path="/networks"
-            element={
-              <div className="mx-auto max-w-7xl">
-                <NetworkReadinessScreen />
-              </div>
-            }
-          />
-          <Route
-            path="/create"
-            element={
-              <div className="mx-auto max-w-6xl">
-                <CreateInstanceWizard currentUser={currentUser} canExecuteLiveMutation={canMutate} />
-              </div>
-            }
-          />
+          <Route path="/instances" element={vmInventoryRoute} />
+          <Route path="/instances/drs-policies" element={drsPoliciesRoute} />
+          <Route path="/instances/create" element={createVmRoute} />
+          <Route path="/instances/networks" element={networkReadinessRoute} />
           <Route
             path="/drs"
             element={
-              <div className="mx-auto max-w-7xl">
-                <DrsAdvisorScreen currentUser={currentUser} canOperate={canMutate} />
-              </div>
+              <DrsAdvisorScreen currentUser={currentUser} canOperate={canMutate} />
             }
           />
-          <Route path="/jobs" element={<TaskBoard />} />
-          <Route
-            path="/risks"
-            element={
-              <div className="mx-auto max-w-7xl">
-                <OperationalRiskDashboard />
-              </div>
-            }
-          />
-          <Route
-            path="/admin/users"
-            element={
-              <AdminGuard currentUser={currentUser}>
-                <div className="mx-auto max-w-7xl">
-                  <AdminUsersScreen currentUser={currentUser} onCurrentUserChanged={refreshCurrentUser} />
-                </div>
-              </AdminGuard>
-            }
-          />
-          <Route
-            path="/account"
-            element={<AccountSettingsScreen currentUser={currentUser} onPasswordChanged={refreshCurrentUser} />}
-          />
+          <Route path="/operations" element={<Navigate to="/operations/jobs" replace />} />
+          <Route path="/operations/jobs" element={jobsRoute} />
+          <Route path="/operations/risks" element={risksRoute} />
+          <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
+          <Route path="/settings/account" element={accountRoute} />
+          <Route path="/settings/admin/users" element={adminUsersRoute} />
+          <Route path="/infra" element={vmInventoryRoute} />
+          <Route path="/create" element={createVmRoute} />
+          <Route path="/networks" element={networkReadinessRoute} />
+          <Route path="/jobs" element={jobsRoute} />
+          <Route path="/risks" element={risksRoute} />
+          <Route path="/account" element={accountRoute} />
+          <Route path="/admin/users" element={adminUsersRoute} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

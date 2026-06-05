@@ -23,6 +23,7 @@ class PolicyAdapter:
         )
 
         self._snapshot_type = InventorySnapshot
+        self._observed_at = "2026-05-31T00:00:00+00:00"
         self._storage_id = "shared-nfs"
         self._storages = (
             StorageInventory(self._storage_id, "node-a", "nfs", 1024, 600, ("images",)),
@@ -131,7 +132,7 @@ class PolicyAdapter:
     def snapshot(self):
         return self._snapshot_type(
             source=self.source,
-            observed_at="2026-05-31T00:00:00+00:00",
+            observed_at=self._observed_at,
             nodes=self._nodes,
             vms=self._vms,
             templates=(),
@@ -163,6 +164,9 @@ class PolicyAdapter:
             replace(vm, node_id="node-b") if vm.vmid == 101 else vm
             for vm in self._vms
         )
+
+    def set_observed_at(self, observed_at: str):
+        self._observed_at = observed_at
 
 
 def _actor():
@@ -355,7 +359,6 @@ def test_stale_or_mismatched_expected_observation_rejects_without_mutation():
         ("cluster_id", "cluster-stale"),
         ("vmid", 9999),
         ("fingerprint_hash", "sha256:stale"),
-        ("observed_at", "2026-05-30T00:00:00+00:00"),
     ],
 )
 def test_expected_observation_guard_field_mismatches_reject_without_mutation(field, replacement):
@@ -385,6 +388,28 @@ def test_expected_observation_guard_field_mismatches_reject_without_mutation(fie
     assert field in exc.value.detail["mismatches"]
     assert _policy_count() == 0
     assert _policy_event_count() == 0
+
+
+def test_observed_at_only_drift_does_not_block_same_identity_policy_update():
+    from app.drs.policies import update_drs_policy
+
+    adapter = PolicyAdapter()
+    item = _high_item(adapter)
+    adapter.set_observed_at("2026-05-31T00:00:05+00:00")
+
+    response = update_drs_policy(
+        adapter,
+        item["vm_identity_id"],
+        _update_payload(item),
+        actor=_actor(),
+        risks=[],
+    )
+
+    assert response["new_policy"]["policy"] == "allowed"
+    assert response["validation_result"]["status"] == "pass"
+    assert response["validation_result"]["mismatches"] == []
+    assert _policy_count() == 1
+    assert _policy_event_count() == 1
 
 
 def test_retired_or_non_high_current_identity_blocks_policy_write():

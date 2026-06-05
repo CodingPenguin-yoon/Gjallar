@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, ClipboardCheck, Eye, HardDrive, Lock, Network, RefreshCw, Route as RouteIcon, Server, ShieldCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import PolicyReviewModal from './DrsPolicyReviewModal'
 import { apiV1Client } from '../services/apiV1'
 import {
   canOfferDrsApprovalPacket,
@@ -11,13 +10,8 @@ import {
   drsToneClass,
   formatDrsBlocker,
   loadDrsAdvisorModel,
-  loadDrsPolicyCoverage,
   loadDrsRecommendationDetail,
-  submitDrsPolicyUpdate,
 } from '../utils/drsAdvisor'
-
-const POLICY_FILTERS = ['unknown', 'allowed', 'restricted', 'blocked']
-const CONFIDENCE_FILTERS = ['all', 'high', 'uncertain']
 
 function formatPercent(value) {
   const number = Number(value)
@@ -195,144 +189,6 @@ function BalanceOverviewPanel({ summary, thresholds, execution }) {
             </div>
           </div>
         </div>
-      </div>
-    </section>
-  )
-}
-
-function PolicyFilterButton({ active, children, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
-        active
-          ? 'border-blue-300 bg-blue-50 text-blue-800'
-          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
-
-function policyValueTone(value) {
-  if (value === 'allowed') return 'green'
-  if (value === 'blocked') return 'red'
-  if (value === 'restricted') return 'yellow'
-  return 'yellow'
-}
-
-function confidenceFilterMatch(item, filter) {
-  if (filter === 'high') return item.identityConfidence === 'high'
-  if (filter === 'uncertain') return item.identityConfidence !== 'high'
-  return true
-}
-
-function policyLocation(item) {
-  const locator = item.currentLocator || {}
-  return `${locator.nodeId || '-'} / VMID ${locator.vmid ?? '-'}`
-}
-
-function PolicyCoveragePanel({
-  policyCoverage,
-  filters,
-  onPolicyFilterToggle,
-  onConfidenceFilter,
-  canOperate,
-  savingPolicyId,
-  onReviewPolicy,
-}) {
-  const items = asList(policyCoverage?.items)
-  const visibleItems = items.filter((item) => filters.policies[item.policy.value] && confidenceFilterMatch(item, filters.confidence))
-  const coverage = policyCoverage?.coverage || {}
-  return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-950">VM Policy Configuration</h3>
-          <div className="mt-1 text-xs text-slate-500">
-            {coverage.totalNonTemplateVms ?? items.length} current non-template VMs · {coverage.writeAllowedCount ?? 0} writable identities
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-          <div className="flex flex-wrap gap-1.5">
-            {POLICY_FILTERS.map((policy) => (
-              <PolicyFilterButton
-                key={policy}
-                active={filters.policies[policy]}
-                onClick={() => onPolicyFilterToggle(policy)}
-              >
-                {policy}
-              </PolicyFilterButton>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {CONFIDENCE_FILTERS.map((filter) => (
-              <PolicyFilterButton
-                key={filter}
-                active={filters.confidence === filter}
-                onClick={() => onConfidenceFilter(filter)}
-              >
-                {filter === 'uncertain' ? 'identity uncertain' : filter}
-              </PolicyFilterButton>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="grid gap-3 p-4 xl:grid-cols-2">
-        {visibleItems.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">No policy items match the selected filters.</div>
-        ) : visibleItems.map((item) => {
-          const blockers = item.policyWriteBlockers.length ? item.policyWriteBlockers : item.drsBlockerImpact.policyBlockers
-          return (
-            <article key={`${item.vmIdentityId || item.currentLocator.vmid}`} className="rounded-lg border border-slate-200 bg-white p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="truncate text-base font-semibold text-slate-950">{item.currentLocator.name}</h4>
-                    <StatusPill tone={policyValueTone(item.policy.value)}>{item.policy.value}</StatusPill>
-                    {item.currentDrsCandidate && <StatusPill tone="yellow">DRS candidate</StatusPill>}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">{policyLocation(item)}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onReviewPolicy(item)}
-                  disabled={!canOperate || !item.policyWriteAllowed || savingPolicyId === item.vmIdentityId}
-                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <ClipboardCheck className="h-3.5 w-3.5" />
-                  {savingPolicyId === item.vmIdentityId ? 'Saving' : 'Review'}
-                </button>
-              </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <DetailStatusRow label="Identity" value={item.identityConfidence} tone={item.identityConfidence === 'high' ? 'green' : 'yellow'} />
-                <DetailStatusRow label="Status" value={item.identityStatus} tone={item.identityStatus === 'active' ? 'green' : 'yellow'} />
-                <DetailStatusRow label="Observed" value={item.latestObservation.observedAt || '-'} />
-                <DetailStatusRow label="Source" value={item.policy.source || 'default'} />
-              </div>
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
-                <div className="truncate">fingerprint {item.fingerprint.fingerprintHash || '-'}</div>
-                <div className="mt-1 truncate">reason {item.policy.reason || '-'}</div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                <StatusPill tone={item.policyWriteAllowed ? 'green' : 'yellow'}>policy write {item.policyWriteAllowed ? 'allowed' : 'blocked'}</StatusPill>
-                <StatusPill tone="slate">migration approval unchanged</StatusPill>
-              </div>
-              {blockers.length > 0 && (
-                <div className="mt-3">
-                  <CompactBlockerList blockers={blockers} />
-                </div>
-              )}
-              {!canOperate && (
-                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
-                  DRS policy updates require operator or admin role.
-                </div>
-              )}
-            </article>
-          )
-        })}
       </div>
     </section>
   )
@@ -693,7 +549,7 @@ function ApprovalReadinessPanel({
           <div className="mt-1">Approval packet {approvalResult.approvalPacketId || '-'}</div>
           <div className="mt-1">Job intent {approvalResult.jobId || '-'}</div>
           {approvalResult.jobId && (
-            <Link className="mt-2 inline-flex font-semibold text-emerald-900 underline" to={`/jobs?job=${encodeURIComponent(approvalResult.jobId)}`}>
+            <Link className="mt-2 inline-flex font-semibold text-emerald-900 underline" to={`/operations/jobs?job=${encodeURIComponent(approvalResult.jobId)}`}>
               Jobs/Runs
             </Link>
           )}
@@ -914,35 +770,22 @@ function asCompactDisplay(value, limit = 2) {
 
 function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
   const [model, setModel] = useState(null)
-  const [policyCoverage, setPolicyCoverage] = useState(null)
   const [detail, setDetail] = useState(null)
   const [checkResult, setCheckResult] = useState(null)
   const [approvalResult, setApprovalResult] = useState(null)
-  const [policyReviewItem, setPolicyReviewItem] = useState(null)
-  const [policyUpdateResult, setPolicyUpdateResult] = useState(null)
-  const [policyFilters, setPolicyFilters] = useState({
-    policies: { unknown: true, allowed: true, restricted: true, blocked: true },
-    confidence: 'all',
-  })
   const [warningAcknowledged, setWarningAcknowledged] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(null)
   const [checkingId, setCheckingId] = useState(null)
   const [creatingApproval, setCreatingApproval] = useState(false)
-  const [savingPolicyId, setSavingPolicyId] = useState(null)
-  const [policyError, setPolicyError] = useState(null)
   const [error, setError] = useState(null)
 
   const loadModel = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [nextModel, nextPolicyCoverage] = await Promise.all([
-        loadDrsAdvisorModel(apiV1Client),
-        loadDrsPolicyCoverage(apiV1Client),
-      ])
+      const nextModel = await loadDrsAdvisorModel(apiV1Client)
       setModel(nextModel)
-      setPolicyCoverage(nextPolicyCoverage)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to load DRS Advisor')
     } finally {
@@ -998,46 +841,6 @@ function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
     }
   }, [canOperate, checkResult?.approvalReadiness, checkResult?.recommendationId, warningAcknowledged])
 
-  const togglePolicyFilter = useCallback((policy) => {
-    setPolicyFilters((current) => ({
-      ...current,
-      policies: {
-        ...current.policies,
-        [policy]: !current.policies[policy],
-      },
-    }))
-  }, [])
-
-  const submitPolicyReview = useCallback(async (item, { policy, reason, acknowledged }) => {
-    if (!canOperate || !item?.policyWriteAllowed) return
-    setSavingPolicyId(item.vmIdentityId)
-    setPolicyError(null)
-    try {
-      const result = await submitDrsPolicyUpdate(apiV1Client, item.vmIdentityId, {
-        policy,
-        reason,
-        policyChangeAcknowledged: acknowledged,
-        expectedObservation: item.expectedObservationPayload,
-      })
-      setPolicyUpdateResult(result)
-      setPolicyReviewItem(null)
-      const [nextModel, nextPolicyCoverage] = await Promise.all([
-        loadDrsAdvisorModel(apiV1Client),
-        loadDrsPolicyCoverage(apiV1Client),
-      ])
-      setModel(nextModel)
-      setPolicyCoverage(nextPolicyCoverage)
-      if (result.recommendationImpact) {
-        setDetail(result.recommendationImpact)
-        setCheckResult(null)
-      }
-    } catch (nextError) {
-      setPolicyError(nextError instanceof Error ? nextError.message : 'Unable to update DRS policy')
-    } finally {
-      setSavingPolicyId(null)
-    }
-  }, [canOperate])
-
   useEffect(() => {
     loadModel()
   }, [loadModel])
@@ -1072,14 +875,23 @@ function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
           <h2 className="mt-3 text-3xl font-semibold text-slate-950">DRS Advisor</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">Read-only Proxmox balance candidates with stable blockers and reference checks.</p>
         </div>
-        <button
-          type="button"
-          onClick={loadModel}
-          className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/instances/drs-policies"
+            className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            Manage VM policies
+          </Link>
+          <button
+            type="button"
+            onClick={loadModel}
+            className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -1093,26 +905,6 @@ function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
       </div>
 
       <BalanceOverviewPanel summary={summary} thresholds={thresholds} execution={model?.execution} />
-
-      <PolicyCoveragePanel
-        policyCoverage={policyCoverage}
-        filters={policyFilters}
-        onPolicyFilterToggle={togglePolicyFilter}
-        onConfidenceFilter={(confidence) => setPolicyFilters((current) => ({ ...current, confidence }))}
-        canOperate={canOperate}
-        savingPolicyId={savingPolicyId}
-        onReviewPolicy={(item) => {
-          setPolicyReviewItem(item)
-          setPolicyError(null)
-          setPolicyUpdateResult(null)
-        }}
-      />
-
-      {policyUpdateResult && !policyReviewItem && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-          DRS policy saved for {policyUpdateResult.vmIdentityId}; migration approval remains separate.
-        </div>
-      )}
 
       {loading && !model ? (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading DRS Advisor...</div>
@@ -1138,18 +930,6 @@ function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
             onCreateApprovalPacket={createApprovalPacket}
           />
         </div>
-      )}
-
-      {policyReviewItem && (
-        <PolicyReviewModal
-          key={policyReviewItem.vmIdentityId}
-          item={policyReviewItem}
-          saving={savingPolicyId === policyReviewItem.vmIdentityId}
-          error={policyError}
-          result={policyUpdateResult}
-          onCancel={() => setPolicyReviewItem(null)}
-          onSubmit={submitPolicyReview}
-        />
       )}
     </section>
   )

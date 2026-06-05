@@ -1,10 +1,10 @@
-# Jobs/Runs
+# Operations / Jobs
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
-기준 문서: [영어 Jobs/Runs snapshot](../../../current/top-tabs/06-jobs-runs.md), [영어 Jobs/Runs architecture](../../../architecture/jobs-runs/overview.md), [Current implemented state](../../../current/README.md).
+기준 문서: [영어 Operations / Jobs snapshot](../../../current/top-tabs/06-jobs-runs.md), [영어 Jobs/Runs architecture](../../../architecture/jobs-runs/overview.md), [Current implemented state](../../../current/README.md).
 
-Jobs/Runs는 `/jobs` route의 read-only job/artifact inspection 화면입니다. 목적은 Create VM 같은 작업의 최신 상태와 artifact metadata를 운영자가 확인하게 하는 것입니다.
+Operations / Jobs는 canonical `/operations/jobs` route의 read-only job/artifact inspection 화면이며 legacy `/jobs` deep link도 같은 화면을 렌더링합니다. 목적은 Create VM 같은 작업의 최신 상태와 artifact metadata를 운영자가 확인하게 하는 것입니다.
 
 ## 사용하는 API와 호출 위치
 
@@ -24,8 +24,8 @@ Backend는 [backend/app/jobs/runs.py](../../../../backend/app/jobs/runs.py), [ba
 
 ## 현재 하지 않는 일
 
-Jobs/Runs UI에는 retry, cancel, resume, approve, live-run, VM mutation control이 없습니다. 현재 job store는 immutable append-only audit log가 아니라 latest-state persistence입니다.
+Operations / Jobs UI에는 retry, cancel, resume, approve, live-run, VM mutation control이 없습니다. 현재 job store는 immutable append-only audit log가 아니라 latest-state persistence입니다.
 
 ## Target gap
 
-Current backend에는 DRS local approval/job intent, `drs_migration` execution evidence, UPID/post-check/reconciliation preview/follow-up evidence, approved VMID `140` live DRS smoke evidence, 그리고 Goal 8 `post_create_readiness` job/artifact evidence가 있습니다. 남은 gap은 broad DRS UI, blocker taxonomy 표시, corrective/background reconciliation, 그리고 Jobs/Runs에서의 더 풍부한 DRS 운영 표시입니다.
+Current backend에는 DRS local approval/job intent, `drs_migration` execution evidence, UPID/post-check/reconciliation preview/follow-up evidence, approved VMID `140` live DRS smoke evidence, 그리고 Goal 8 `post_create_readiness` job/artifact evidence가 있습니다. 남은 gap은 broad DRS UI, blocker taxonomy 표시, corrective/background reconciliation, 그리고 Operations / Jobs에서의 더 풍부한 DRS 운영 표시입니다.

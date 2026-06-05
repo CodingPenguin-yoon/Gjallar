@@ -10,9 +10,9 @@
 
 ## Current DRS Advisor status
 
-현재 [frontend/src/utils/drsAdvisor.js](../../../../frontend/src/utils/drsAdvisor.js)는 backend DRS recommendation/check endpoint, manual policy endpoint, local approval packet endpoint를 소비합니다. Node pressure는 CPU/Memory current usage의 max이고, source pressure와 imbalance delta로 candidate를 만듭니다. Red-risk VM은 제외하고 bridge/storage/passthrough/target pressure evidence를 보지만 recommendation/check execution은 `available: false`입니다.
+현재 [frontend/src/utils/drsAdvisor.js](../../../../frontend/src/utils/drsAdvisor.js)는 backend DRS recommendation/check endpoint, InstanceList에서 쓰는 manual policy helper, local approval packet endpoint를 제공합니다. Node pressure는 CPU/Memory current usage의 max이고, source pressure와 imbalance delta로 candidate를 만듭니다. Red-risk VM은 제외하고 bridge/storage/passthrough/target pressure evidence를 보지만 recommendation/check execution은 `available: false`입니다.
 
-현재 `/drs` frontend에는 manual policy configuration과 local approval packet/job intent creation이 있고, backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Recommendation/check output은 계속 execution-closed이고 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Live execute UI와 corrective reconcile UI는 아직 deferred입니다.
+현재 `/drs` frontend에는 compact policy evidence, criteria taxonomy, local approval packet/job intent creation이 있고, manual policy configuration은 Infra Explorer/InstanceList row workflow에 있습니다. Backend에는 identity/policy evidence, operation locks, local approval/job substrate, narrow operator-only migration-job execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. Recommendation/check output은 계속 execution-closed이고 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Live execute UI와 corrective reconcile UI는 아직 deferred입니다.
 
 이 로직은 recommendation/check read model이며 execution authority가 아닙니다. 화면 구현은 [DrsAdvisorScreen.jsx](../../../../frontend/src/components/DrsAdvisorScreen.jsx), 테스트는 [drsAdvisor.test.mjs](../../../../frontend/tests/drsAdvisor.test.mjs)를 봅니다.
 

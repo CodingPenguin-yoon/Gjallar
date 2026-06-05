@@ -2,17 +2,20 @@
 
 ## 1. 현재 UI baseline
 
-현재 frontend는 다음 route를 갖고 있다.
+현재 frontend primary nav와 canonical child routes는 다음과 같다.
 
-- Dashboard: `/`
-- Infra Explorer: `/infra`
-- Networks: `/networks`
-- Create VM: `/create`
+- Overview / Dashboard: `/`
+- VM Instances inventory: `/instances`
+- VM Instances / DRS Policies: `/instances/drs-policies`
+- VM Instances / Create VM: `/instances/create`
+- VM Instances / Network readiness: `/instances/networks`
 - DRS Advisor: `/drs`
-- Jobs/Runs: `/jobs`
-- Risks/Alerts: `/risks`
+- Operations / Jobs: `/operations/jobs`
+- Operations / Risks: `/operations/risks`
+- Settings / Account: `/settings/account`
+- Settings / Admin Users: `/settings/admin/users`
 
-현재 `/drs` route는 recommendation/detail/check, manual VM policy configuration, backend-owned criteria taxonomy display, and local approval packet/job intent creation을 제공한다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`다.
+Legacy `/infra`, `/networks`, `/create`, `/jobs`, `/risks`, `/account`, and `/admin/users` deep links still render the same screens. 현재 `/drs` route는 recommendation/detail/check, compact policy evidence, backend-owned criteria taxonomy display, and local approval packet/job intent creation을 제공한다. Manual VM policy configuration은 VM Instances / DRS Policies(`/instances/drs-policies`)가 제공한다. Recommendation/check output은 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`다.
 
 ## 2. Dashboard
 
@@ -21,7 +24,7 @@
 - cluster/nodes/vms/storage/networks/jobs/risks를 병렬로 읽는다.
 - node row에 CPU current, memory current, VM count, storage free, network bridge를 보여준다.
 - summary tile에 node count, VM count, storage, risk count를 보여준다.
-- Create VM과 Infra Explorer로 이동하는 action이 있다.
+- VM Instances와 Create VM으로 이동하는 action이 있다.
 
 DRS Advisor 목표:
 
@@ -63,13 +66,13 @@ Top recommendation summary:
 현재 구현:
 
 - `DrsAdvisorScreen`은 recommendation/check result가 execution authority가 아니라는 safety notice를 보여준다.
-- `loadDrsAdvisorModel`은 `/api/v1/drs/summary`, `/api/v1/drs/recommendations`, detail/check, `GET/PUT /api/v1/drs/policies*`, and `/approval-packets`를 사용한다.
+- `loadDrsAdvisorModel`은 `/api/v1/drs/summary`, `/api/v1/drs/recommendations`, detail/check, and `/approval-packets`를 사용한다. VM policy review/edit uses VM Instances / DRS Policies with `GET/PUT /api/v1/drs/policies*`.
 - CPU/Memory current usage와 imbalance로 Balanced/Watch/Imbalanced를 계산한다.
 - source pressure >= 70, source-target delta >= 25이면 recommendation 후보를 만든다.
 - bridge/storage/network/passthrough evidence를 backend-owned criteria taxonomy로 표시한다.
 - `blockers`는 hard Gjallar/Proxmox gate subset이고, route/network/local-storage/passthrough는 `advisor_prefilter_signal` advisory evidence다.
 - recommendation/check execution은 `available: false`, `read_only: true`, `executable: false`이고 action list는 비어 있다.
-- manual per-VM migration policy configuration과 local approval packet/job intent creation은 current UI에 있다. Live migration execute UI와 corrective reconcile UI는 없다.
+- manual per-VM migration policy configuration은 VM Instances / DRS Policies(`/instances/drs-policies`)에 있고, `/drs`에는 compact policy evidence와 local approval packet/job intent creation만 있다. Live migration execute UI와 corrective reconcile UI는 없다.
 
 목표:
 
@@ -120,7 +123,7 @@ VM Mobility는 VM 자체의 이동 정책/정체성 상태다.
 
 - Unclassified: warning, metadata 없음 또는 identity unknown, 작업 불가
 - Identity Mismatch: critical, 모든 작업 불가
-- Allowed: final pre-check 통과 시 migration 가능
+- Allowed: migration prerequisite only; final pre-check, local approval packet/job intent, stored execute acknowledgement, fresh gates, and live Proxmox evidence are still required
 - Restricted: metadata는 있지만 일반 DRS 실행 제외
 - Blocked: 이동 금지
 
@@ -170,7 +173,7 @@ Approval/execution review must display:
 - timeout: 30m
 - Proxmox action summary
 
-## 6. Jobs / Runs
+## 6. Operations / Jobs
 
 현재 구현:
 
@@ -209,13 +212,13 @@ DRS job fields:
 - inline log summary
 - artifact links
 
-Jobs/Runs DRS panel must remain inspection-only:
+Operations/Jobs DRS panel must remain inspection-only:
 
 - no frontend execute/reconcile/retry/cleanup/reverse-migration controls
 - no recommendation-level migrate/live-migrate/execute aliases
 - Proxmox task `OK` is historical task evidence only; Gjallar completion still requires post-check and lock/reconciliation evidence
 
-## 7. Risks / Alerts
+## 7. Operations / Risks
 
 현재 구현:
 
@@ -229,7 +232,7 @@ DRS Advisor 목표:
 - DRS blocker와 warning을 별도 risk code로 보여준다.
 - 각 risk가 막는 action을 명시한다.
 - Identity Mismatch는 critical로 가장 위에 보인다.
-- needs_reconciliation과 stale lock은 Dashboard와 Risks에 모두 드러난다.
+- needs_reconciliation과 stale lock은 Dashboard와 Operations/Risks에 모두 드러난다.
 
 DRS risk examples:
 
@@ -255,7 +258,7 @@ DRS risk examples:
 
 ## 8. Create VM as secondary capability
 
-Create VM 화면은 보조 capability로 유지한다.
+Create VM 화면은 VM Instances 아래의 보조 capability로 유지한다.
 현재 구현은 DRS Advisor와 별도 flow지만 다음 substrate를 공유한다.
 
 - approval UX

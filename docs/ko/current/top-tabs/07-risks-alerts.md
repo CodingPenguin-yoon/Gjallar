@@ -1,10 +1,10 @@
-# Risks/Alerts
+# Operations / Risks
 
 > 이 한국어 문서는 설명용입니다. canonical truth는 active code/tests와 영어 기준 문서입니다.
 
-기준 문서: [영어 Risks/Alerts snapshot](../../../current/top-tabs/07-risks-alerts.md), [영어 Risks/Alerts architecture](../../../architecture/risks-alerts/overview.md), [Current implemented state](../../../current/README.md).
+기준 문서: [영어 Operations / Risks snapshot](../../../current/top-tabs/07-risks-alerts.md), [영어 Risks/Alerts architecture](../../../architecture/risks-alerts/overview.md), [Current implemented state](../../../current/README.md).
 
-Risks/Alerts는 `/risks` route의 read-only risk projection 화면입니다. 현재는 job status에 기록된 risks를 펼쳐 보여줍니다.
+Operations / Risks는 canonical `/operations/risks` route의 read-only risk projection 화면이며 legacy `/risks` deep link도 같은 화면을 렌더링합니다. 현재는 job status에 기록된 risks를 펼쳐 보여줍니다.
 
 ## 사용하는 API와 호출 위치
 
@@ -22,7 +22,7 @@ Backend는 job records의 risk dict를 risk summary로 변환합니다. Row에�
 
 ## 현재 하지 않는 일
 
-Risks/Alerts는 standalone alert engine이 아닙니다. Proxmox를 독립 polling하지 않고, DRS policy를 평가하지 않으며, alert lifecycle acknowledge/resolve를 저장하지 않습니다.
+Operations / Risks는 standalone alert engine이 아닙니다. Proxmox를 독립 polling하지 않고, DRS policy를 평가하지 않으며, alert lifecycle acknowledge/resolve를 저장하지 않습니다.
 
 ## Target gap
 
