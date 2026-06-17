@@ -163,9 +163,6 @@ class PreflightResult:
     selected_bridge: dict[str, Any]
     profile_id: str
     profile_hardware_limits: dict[str, Any]
-    iac_root: str
-    iac_ready_for_plan: bool
-    iac_ready_for_execute: bool
     side_effects: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -185,33 +182,6 @@ class PreflightResult:
             "selected_bridge": dict(self.selected_bridge),
             "profile_id": self.profile_id,
             "profile_hardware_limits": dict(self.profile_hardware_limits),
-            "iac_root": self.iac_root,
-            "iac_ready_for_plan": self.iac_ready_for_plan,
-            "iac_ready_for_execute": self.iac_ready_for_execute,
-            "side_effects": list(self.side_effects),
-        }
-
-
-@dataclass(frozen=True)
-class IacReadinessResult:
-    shared_root: str
-    iac_root: str
-    risk_level: str
-    ready_for_plan: bool
-    ready_for_execute: bool
-    checks: list[PreflightCheck]
-    risks: list[RiskItem]
-    side_effects: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "shared_root": self.shared_root,
-            "iac_root": self.iac_root,
-            "risk_level": self.risk_level,
-            "ready_for_plan": self.ready_for_plan,
-            "ready_for_execute": self.ready_for_execute,
-            "checks": [check.to_dict() for check in self.checks],
-            "risks": [risk.to_dict() for risk in self.risks],
             "side_effects": list(self.side_effects),
         }
 

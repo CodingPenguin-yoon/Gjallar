@@ -1,0 +1,341 @@
+# Gjallar MVP Decision Lock
+
+이 문서는 PRD 진행 중 이미 확정된 결정을 한 곳에 잠그기 위한 요약이다.
+새 질문을 만들기 전에 반드시 이 문서를 먼저 확인한다.
+
+## 0. Current decision supersession
+
+2026-05 현재 제품 방향은 `docs/product/drs-advisor/README.md`가 우선한다.
+아래 기존 create-first lock은 역사적 결정과 보조 capability로 보존하지만, 다음 MVP 구현 우선순위는 DRS Advisor다.
+
+현재 lock:
+
+- Gjallar는 백업 제품이 아니라 Proxmox 엔터프라이즈 운영 플랫폼이다.
+- MVP 핵심은 DRS Advisor다.
+- VMware DRS 대체라고 주장하지 않는다.
+- Gjallar는 Proxmox-native migration/HA를 관찰하고, 권고하고, 운영자 승인 후 실행/추적하는 advisor/control tower다.
+- Dashboard는 노드 행 단위 CPU/Memory/Disk/VM 상태와 상위 1~3개 DRS 추천 요약을 보여준다.
+- `/placement`는 route를 유지할 수 있지만 상단 라벨과 의미는 DRS Advisor로 바꾼다.
+- DRS 추천은 CPU/Memory 중심이며 최근 15분 average + peak를 사용한다.
+- resource metrics polling은 1분, inventory/HA/storage polling은 5분이다.
+- MVP에는 Allowed VM 대상 manual approved live migration 실행까지 포함한다.
+- 자동 DRS, 야간 자동 리밸런싱, restricted 예외 승인, node drain은 제외한다.
+- 실행 흐름은 recommendation -> Approve & Migrate -> final pre-check -> confirm modal -> operation lock -> migration job -> Proxmox task/UPID tracking -> Jobs/Runs artifact/log -> success/failed/needs_reconciliation이다.
+- job timeout 기본값은 30분이며 timeout은 needs_reconciliation과 lock stale/reconciliation_required로 처리한다.
+- Reconcile Now는 Proxmox current state와 UPID/task log를 다시 확인해 success/failed/keep_needs_reconciliation을 결정한다.
+
+Identity and metadata lock:
+
+- VMID는 identity가 아니라 locator다.
+- DB metadata/policy는 current fingerprint match 시에만 VM에 attach한다.
+- fingerprint primary는 SMBIOS UUID/vmgenid, MAC address list, disk volume id list다.
+- fingerprint secondary는 VM name, CPU/RAM/disk config hash다.
+- name/tag/IP/owner/profile은 단독 identity 근거가 될 수 없다.
+- same VMID + different fingerprint는 Identity Mismatch이며 metadata 자동 적용 금지, 모든 작업 차단이다.
+- new VMID + known/similar fingerprint는 possible identity move/change이며 operator review가 필요하다.
+- unknown fingerprint는 identity_status unknown이며 Confirm Identity 전 migration 불가다.
+- mismatch resolution은 Confirm Same VM 또는 Treat as New VM이다.
+- Treat as New VM이면 기존 metadata는 retired candidate로 보존하고 새 metadata 입력을 요구한다.
+
+VM policy lock:
+
+- Required metadata는 owner, environment, sensitivity, migration policy, identity_status=confirmed다.
+- sensitivity enum은 normal, sensitive, critical이다.
+- migration policy enum은 allowed, restricted, blocked다.
+- optional metadata는 service name, notes, preferred node다.
+- Unclassified는 warning이지만 작업 불가다.
+- Identity Mismatch는 critical이며 모든 작업 불가다.
+- Restricted는 metadata가 있어도 일반 DRS 실행에서 제외한다.
+- Blocked는 이동 금지다.
+- MVP 실행 가능 policy는 Allowed뿐이다.
+- VM Mobility와 Route Status는 분리한다.
+- Route Status enum은 Feasible, Warning, Blocked, Unknown이다.
+- Unknown은 final pre-check로 확정 전 migration 불가다.
+
+Final pre-check lock:
+
+- final pre-check는 실행 직전의 유일한 권위 있는 gate다.
+- Check Now는 선택적 참고용이다.
+- 이전 pre-check 결과를 실행 허가에 재사용하지 않는다.
+- final pre-check 10개는 identity confirmed, metadata complete, migration policy allowed, no operation lock, VM still on source node, VM running, target node online, cluster health/quorum OK, no active conflicting task, route feasible/warning이다.
+
+Blocker lock:
+
+- identity mismatch
+- unclassified
+- policy blocked/restricted
+- lock active/stale requiring reconciliation
+- VM not found
+- VM not running
+- VM not on source
+- target offline
+- quorum unhealthy
+- active conflicting task
+- config lock
+- passthrough
+- route blocked/unknown
+
+Warning examples:
+
+- sensitivity critical
+- high memory >= 64GB
+- target near threshold after migration
+- recent volatility
+- backup unknown
+- guest agent unavailable
+- route evidence incomplete but not contradicted
+
+Create VM supporting capability target lock:
+
+- Create VM is supporting capability, not the DRS Advisor MVP success line.
+- Profile is a UI-visible creation preset, not a Proxmox template replacement.
+- Profile source of truth target is Gjallar DB seed, initially read-only in UI.
+- Initial seeded enabled profiles are `general-vm`, `runtime-server`, and `development-vm`.
+- Template source of truth is Proxmox live inventory; there is no target Gjallar template catalog or registration window.
+- Create VM network source of truth is selected target node plus active live bridge on that node.
+- Target Create VM removes `network_id`/`server-net`.
+- Static mode requires `static_ip`, `prefix`, and `gateway`; DHCP is allowed with warning.
+- Create VM always completes powered off/stopped by global create policy. Profile has no power policy.
+- VM start is future Infra Explorer row action work with Jobs/Runs audit.
+- Current code uses three enabled read-only `static_seed` profiles. DB seeded
+  profile source remains target/future. Create VM networking uses explicit
+  active live bridge selection and static `static_ip`/`prefix`/`gateway`;
+  incoming `network_id`/`networkId` is ignored during transition compatibility.
+
+## 1. 제품 정체성
+
+- Gjallar는 **Proxmox를 VMware처럼 쓰게 해주는 VM/인프라 운영 콘솔**이다.
+- Terraform/Ansible/IaC는 내부 구현 수단이다.
+- 제품 중심은 사람이 이해하고 승인할 수 있는 VM/노드/리스크/작업 화면이다.
+- Heimdall 보조 플러그인이 아니다. Heimdall은 MVP에서 read-only consumer다.
+
+## 2. MVP 범위
+
+MVP 포함:
+
+- Dashboard / Infra Explorer
+- Nodes / VMs / VM Detail
+- Create VM supporting capability with powered-off native create
+- first power on + guest-agent/IP/SSH/cloud-init smoke는 create-readiness slice로 분리
+- 리스크/경고 표시
+- preflight / plan / Review & Confirm
+- Terraform/Proxmox job/run 이력, Ansible 이력은 Stage B 이후 추가
+- artifact 저장
+
+MVP 제외:
+
+- 기존 VM 대상 독립 power on / graceful shutdown / reboot는 power-action slice로 연기
+- VM 삭제 자동화
+- snapshot / rollback
+- live resource resize
+- template 관리
+- VM console
+- hard stop / reset / kill
+- multi-tenant RBAC
+- Kubernetes/OpenStack 관리
+- 임의 shell 실행
+- Gjallar가 Heimdall registry에 직접 write
+- Runtime Target manifest/API/checkbox는 Runtime Target slice로 연기
+- Runtime Target `active=true` 자동 전환
+
+## 3. Create VM supporting profile target
+
+- Target seeded enabled profile과 화면 선택지는 `general-vm`, `runtime-server`, `development-vm` 세 개다.
+- `general-vm`은 일반 VM 생성용 기본 profile이다.
+- `runtime-server`는 서비스 실행용 VM preset이다.
+- `development-vm`은 개발/테스트용 VM preset이다.
+- Profile은 hardware default/min/max, template requirement, access recommendation만 가진다.
+- Profile에는 target node, storage, network/network_id, bridge, static IP, template VMID/name, power policy, profile version을 넣지 않는다.
+- 목적: template clone + hardware/network/cloud-init config를 powered-off 상태로 안전하게 검증하고, first power on + smoke는 다음 create-readiness slice에서 검증.
+- Docker/Node/Python/uv/gh, DB, app runtime bootstrap은 powered-off create 성공 기준에 넣지 않는다.
+
+Current implementation gap: 현재 code와 UI/API는 아직 `general-vm`만
+create-enabled다. `runtime-server`와 `development-vm`은 target seed profile이다.
+
+## 4. 첫 fixture / live inventory 경계
+
+PRD fixture 후보:
+
+```yaml
+target_node_candidates:
+  - yoonmanserver2
+  - yoonmanserver3
+profile_candidates:
+  - general-vm
+  - runtime-server
+  - development-vm
+network_source: proxmox_live_bridge_inventory
+bridge_selection: selected_target_node_active_bridge
+ip_modes:
+  allowed:
+    - dhcp
+    - static
+  default: static
+template_family: ubuntu
+mvp_create_ip_range: 192.168.2.140-150
+```
+
+구현 직전 live inventory로 확인할 값:
+
+- Proxmox API의 실제 node id
+- node별 실제 bridge 목록
+- storage 이름/여유량
+- Ubuntu template VMID/name/storage/cloud-init/guest-agent capability
+- target node별 실제 active bridge 목록
+- 사용 가능한 IP
+
+## 5. Network / IP 결정
+
+- Target Create VM network source of truth는 Proxmox live bridge inventory다.
+- 사용자는 target node를 고른 뒤 해당 node의 active live bridge를 선택한다.
+- Target Create VM request는 `network_id`/`server-net`에 의존하지 않는다.
+- 선택 target node에 live bridge가 없거나 선택 bridge가 존재하지 않으면 red risk로 실행 차단한다.
+- DHCP/static 둘 다 지원한다.
+- 기본/추천 IP mode는 static이다.
+- static mode에는 `static_ip`, `prefix`, `gateway`가 모두 필요하다.
+- Runtime Target 후보 slice에서는 static IP 또는 안정적 접근 주소가 필요하다. 첫 구현 MVP preflight blocker는 아니다.
+- DHCP 생성은 허용하지만 smoke에서는 guest-agent/IP discovery가 필수 evidence다.
+- IP 충돌 검사의 target evidence는 Proxmox observed state와 future Network tab policy/IP evidence다.
+- DHCP/ARP/router lease 조회는 필요 시 read-only evidence로 추가한다.
+- 별도 IPAM은 MVP 제외다.
+- Network tab policy/subnet/gateway/range integration은 future다. Current/legacy policy route는 남아도 Create VM target source of truth가 아니다.
+
+## 6. IaC / Manifest / State
+
+- IaC repo/source of truth: `/mnt/hermes_data/IaC`
+- Terraform state 후보: `/mnt/hermes_data/IaC-state/gjallar/<manifest_id>/terraform.tfstate`
+- IaC는 Git-backed desired state다.
+- Flow:
+
+```text
+remote IaC repo -> local checkout/job workspace -> manifest/generated change -> schema/preflight/plan -> Review & Confirm -> commit -> push -> apply/create-powered-off -> DB/artifacts
+```
+
+Stage B minimal Ansible verify와 Runtime Target manifest/API는 VM 생성 flow 안정화 후 별도 slice에서 붙인다.
+
+- commit/push는 apply 전에 완료한다.
+- Gjallar write allowlist:
+  - `manifests/vms/**`
+  - `generated/**`
+- 첫 구현 MVP에서는 `manifests/runtime-targets/**` write를 제외한다. Runtime Target manifest/API/checkbox는 VM 생성 flow 안정화 후 Phase 6/2차에서 재검토한다.
+- Gjallar write denylist:
+  - `terraform/modules/**`
+  - `ansible/roles/**`
+  - `ansible/playbooks/**`
+  - `scripts/**`
+- Terraform state는 Git에 넣지 않는다.
+- per-`proxmox_vmid`/per-name/per-IP lock과 Terraform state lock을 사용한다.
+- manifest `proxmox_vmid`/name과 state의 리소스 매핑 불일치는 red risk다.
+
+## 7. Credential / Secret
+
+- Proxmox 접근은 API Token 방식이다.
+- root password / 개인 계정 password 저장은 금지한다.
+- token id/secret 원문은 Git, PRD, manifest, Terraform state, DB, artifact, log, UI/API 응답에 저장/노출하지 않는다.
+- secret은 backend runtime secret으로만 주입한다.
+
+## 8. VM 생성 flow / first boot gate
+
+- clone/hardware/cloud-init/network config는 가능하면 powered-off 상태에서 완료한다.
+- 현재 Terraform/Proxmox apply 승인은 first power on을 포함하지 않는다.
+- first power on은 apply/config 성공 후 별도 create-readiness slice에서 실행한다.
+- apply/config 실패 시 first power on을 생략하고 `provision_failed_not_booted`로 표시한다.
+- first power on 이후 smoke 실패는 `created_but_not_ready`다. Ansible 실패는 Stage B를 붙인 뒤 같은 정책을 적용한다.
+- 실패 VM은 자동 삭제하지 않는다.
+- 자동 reboot / rollback / cleanup도 하지 않는다.
+- cleanup/delete는 2차 typed confirmation 대상이다.
+
+## 9. Smoke / Ansible 단계
+
+Stage A — smoke only:
+
+- cloud-init 완료 확인
+- guest-agent 응답 확인
+- IP 확인
+- SSH 접속 확인
+- 별도 package 설치 없음
+
+Stage B — minimal Ansible verification:
+
+첫 구현 MVP에서는 Stage A smoke 안정화가 완료된 뒤에만 Stage B를 붙인다. 즉, Ansible verify는 초기 완료 기준이 아니라 optional/deferred slice다.
+
+- Ansible inventory 생성 확인
+- Ansible ping/facts 확인
+- 최소 운영 패키지 존재 확인 또는 설치
+- Docker/Node/Python/uv/gh 제외
+
+기본 timeout:
+
+- first power on task: 5m
+- cloud-init: 15m
+- guest-agent: 5m
+- IP discovery: 5m
+- SSH: 5m
+- minimal Ansible verify: 5m, Stage B를 붙인 뒤 사용
+
+## 10. Approval / Safety
+
+- VM 생성은 일반 Confirm 버튼이다.
+- yellow risk는 명시적 경고 체크박스가 필요하다.
+- red risk는 approve/execute disabled이며 승인으로 우회할 수 없다.
+- typed confirmation은 삭제/rollback/disk delete/hard stop/reset 같은 2차 destructive action 전용이다.
+- Review & Confirm 필수 표시 항목:
+  1. VM name
+  2. VMID
+  3. target node
+  4. storage
+  5. live Proxmox template
+  6. CPU/RAM/Disk
+  7. bridge/IP mode/static IP/prefix/gateway
+  8. Terraform state path
+  9. first power on 포함 여부
+  10. smoke timeout summary
+  11. red/yellow risk summary
+  12. plan artifact link
+  13. planned Git diff summary
+
+## 11. Heimdall / Runtime Target 경계
+
+- MVP에서 Gjallar는 VM candidate/readiness/risk를 read-only API로 제공한다.
+- Gjallar는 Heimdall registry에 직접 write하지 않는다.
+- Heimdall deploy target registry ownership은 Heimdall에 있다.
+- Hermes/user가 Gjallar candidate를 보고 Heimdall target 승격 여부를 결정한다.
+- Runtime Target status는 MVP에서 `candidate`, `candidate_ready`, `blocked`까지만 다룬다.
+- `active=true` 자동 전환은 2차다.
+- 첫 구현 MVP에서는 Runtime Target manifest/API/checkbox 구현을 요구하지 않는다. `active=true` 금지와 Heimdall registry write 금지만 테스트로 고정한다.
+
+## 12. 독립 전원 제어 — deferred power-action slice
+
+2차 power-action slice 허용:
+
+- power on
+- graceful shutdown
+- reboot
+
+현재 powered-off create slice에서는 VM 생성 flow 안의 first power on도 실행하지 않는다. 기존 VM에 대한 독립 power on / graceful shutdown / reboot는 `general-vm` 생성과 smoke가 안정화된 뒤 다음 slice로 구현한다.
+
+Profile에는 power policy가 없다. VM start는 future Infra Explorer VM row action으로 분리하고 Jobs/Runs audit를 남긴다.
+
+정책:
+
+- 각 action은 일반 Confirm 필요
+- red risk면 차단
+- yellow risk면 경고 체크박스 필요
+- `expected_current_power_state` guard 사용
+
+MVP 제외:
+
+- hard stop
+- reset
+- kill
+
+## 13. 질문 규칙
+
+앞으로 Drill 질문은 아래 조건을 모두 만족할 때만 한다.
+
+1. 이 Decision Lock과 PRD 검색에서 결정이 없을 것.
+2. 그 결정 없이는 첫 MVP 구현 slice가 막힐 것.
+3. 질문이 PRD product/safety/flow 결정인지, 구현 직전 live inventory 확인값인지 구분될 것.
+4. 한 번에 하나만 물을 것.
+
+이미 결정된 항목은 다시 묻지 않는다.

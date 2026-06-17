@@ -26,17 +26,16 @@
 | 2 | UI normalizes options | filters storage/bridge/template by selected node/profile | none |
 | 3 | Operator edits profile/hardware/node/template/storage/bridge/IP/access | no backend call | none |
 | 4 | Operator clicks review | `loadCreateVmReviewModel()` builds payload | none yet |
-| 5 | Readiness | `GET /vm-create/readiness` | readiness evidence |
-| 6 | Draft | `POST /drafts` builds draft and suggested VMID | job stage `draft` |
-| 7 | Preflight | `POST /preflight` runs read-only checks | job stage `preflight`, risks |
-| 8 | Plan | `POST /plan` builds artifacts | `preflight_report`, `plan`, `vm_instance_manifest`, `planned_git_diff`, `review_summary` |
-| 9 | Review UI | displays risk summary and artifact metadata | no new state |
-| 10 | Approve | `POST /approve` validates exact metadata | approval job state |
-| 11 | Preview | `POST /proxmox-preview` builds native preview | `proxmox_create_preview` |
-| 12 | Final acknowledgement | UI requires checkbox | no backend call |
-| 13 | Native create | `POST /proxmox-create` with ack | job stage `create` |
-| 14 | Proxmox runner | clone, poll UPID, resize if needed, config, post-check | `observed_after` |
-| 15 | Terminal state | job/request/VM records updated | completed, failed, or `needs_reconciliation` |
+| 5 | Draft | `POST /drafts` builds draft and suggested VMID | job stage `draft` |
+| 6 | Preflight | `POST /preflight` runs read-only checks | job stage `preflight`, risks |
+| 7 | Plan | `POST /plan` builds artifacts | `preflight_report`, `plan`, `vm_instance_manifest`, `planned_git_diff`, `review_summary` |
+| 8 | Review UI | displays risk summary and artifact metadata | no new state |
+| 9 | Approve | `POST /approve` validates exact metadata | approval job state |
+| 10 | Preview | `POST /proxmox-preview` builds native preview | `proxmox_create_preview` |
+| 11 | Final acknowledgement | UI requires checkbox | no backend call |
+| 12 | Native create | `POST /proxmox-create` with ack | job stage `create` |
+| 13 | Proxmox runner | clone, poll UPID, resize if needed, config, post-check | `observed_after` |
+| 14 | Terminal state | job/request/VM records updated | completed, failed, or `needs_reconciliation` |
 
 ## Payload and approval boundary
 

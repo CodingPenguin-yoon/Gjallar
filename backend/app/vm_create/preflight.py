@@ -7,7 +7,6 @@ from ipaddress import ip_address
 from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
 from app.proxmox.models import TemplateInventory
-from app.vm_create.iac_readiness import run_iac_readiness
 from app.vm_create.models import PreflightCheck, PreflightResult, RiskItem, VmCreateDraft
 
 
@@ -538,8 +537,6 @@ def run_preflight(
             )
         )
 
-    iac_readiness = run_iac_readiness()
-
     _check(
         checks,
         risks,
@@ -573,9 +570,6 @@ def run_preflight(
         selected_bridge_id=selected_bridge,
         profile_id=draft.profile_id,
         profile_hardware_limits=_profile_limits_dict(profile),
-        iac_root=iac_readiness.iac_root,
-        iac_ready_for_plan=iac_readiness.ready_for_plan,
-        iac_ready_for_execute=iac_readiness.ready_for_execute,
         side_effects=[],
         access=access_evidence,
         selected_template=_template_evidence(template, draft),

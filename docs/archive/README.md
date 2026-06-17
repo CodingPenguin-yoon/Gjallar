@@ -5,6 +5,7 @@ This folder contains historical notes only. Use [current implemented state](../c
 ## Sections
 
 - [Feature notes](features/README.md)
+- [Legacy PRDs](legacy-prd/README.md)
 - [Operations notes](operations/README.md)
 - [Roadmap notes](roadmap/README.md)
 - [Status refreshes](status/README.md)

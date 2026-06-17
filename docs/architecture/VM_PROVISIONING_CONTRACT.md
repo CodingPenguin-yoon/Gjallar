@@ -34,7 +34,6 @@ draft request
 
 ```text
 GET  /api/v1/profiles
-GET  /api/v1/vm-create/readiness
 POST /api/v1/vm-create/drafts
 POST /api/v1/vm-create/{draft_id}/preflight
 POST /api/v1/vm-create/{draft_id}/plan
@@ -197,7 +196,7 @@ floor to the selected template minimum.
 
 ## Preflight Contract
 
-Preflight is read-only. It checks the draft against inventory and IaC readiness
+Preflight is read-only. It checks the draft against inventory
 without creating, committing, pushing, applying, or mutating Proxmox state.
 
 Current checks include:
@@ -215,7 +214,6 @@ Current checks include:
 - VMID uniqueness
 - VM name uniqueness
 - static field validity and observed static IP availability
-- IaC root readiness, Git checkout, and write allowlist availability
 
 Target checks remove `network_id` as the Create VM source of truth and add:
 

@@ -3,8 +3,6 @@
 import json
 import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
 TEST_SSH_PUBLIC_KEY = (
     "ssh-ed25519 "
@@ -15,19 +13,6 @@ TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
 
 
 class ReviewConfirmContractTests(unittest.TestCase):
-    def setUp(self):
-        self._temp_dir = tempfile.TemporaryDirectory()
-        self.shared_root = Path(self._temp_dir.name) / "nfs"
-        (self.shared_root / "IaC" / ".git").mkdir(parents=True)
-        (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
-        (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        self._env = patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(self.shared_root)}, clear=False)
-        self._env.start()
-
-    def tearDown(self):
-        self._env.stop()
-        self._temp_dir.cleanup()
-
     def _green_plan(self, run_dir):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter
         from app.vm_create.drafts import build_default_vm_draft

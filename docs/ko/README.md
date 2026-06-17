@@ -13,7 +13,7 @@
 배경 자료로만 볼 문서:
 
 - `docs/archive/**`
-- `docs/product/legacy-prd/**`
+- `docs/archive/legacy-prd/**`
 
 ## 빠른 읽기
 

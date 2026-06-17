@@ -35,7 +35,7 @@ Key values:
 - `FRONTEND_PORT`: Vite dev server port, default `5173`
 - `BACKEND_PORT`: FastAPI backend port, default `8000`
 - `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
-- `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`: transitional Create VM/IaC readiness paths; Networks does not persist YAML
+- `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64`: optional base64-encoded OpenSSH public key for Create VM cloud-init access defaults; use this for Docker env files when the raw public key's spaces would be awkward
 - `GJALLAR_DATABASE_URL`: PostgreSQL SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; `.env.example` uses the `postgresql+psycopg://` driver URL
 
 For Heimdall-managed PostgreSQL, bind the managed project database URL to
@@ -80,9 +80,6 @@ You can still create the initial admin account as an explicit one-off command:
 ```bash
 docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
 ```
-
-If Create VM/IaC readiness uses host paths from `.env`, mount those paths into
-the container or adjust the environment values for the container filesystem.
 
 ## Product framing
 

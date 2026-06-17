@@ -1,7 +1,7 @@
 # DRS Advisor PRD Source of Truth
 
 이 폴더가 Gjallar의 현재 MVP 방향 source of truth다.
-`../legacy-prd/24_DRS_ADVISOR_MVP_PRD.md`는 숫자형 PRD navigation을 위한 index로만 사용한다.
+Archived legacy PRD files are historical navigation/context only.
 현재 구현 상태는 [`../../current/README.md`](../../current/README.md)를 기준으로 확인한다.
 
 ## 현재 방향

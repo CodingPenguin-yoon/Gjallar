@@ -11,7 +11,6 @@ Create VM은 canonical `/instances/create` route의 supporting capability이며,
 ## 구현 API/endpoints
 
 - `GET /api/v1/profiles`
-- `GET /api/v1/vm-create/readiness`
 - `POST /api/v1/vm-create/drafts`
 - `POST /api/v1/vm-create/{draft_id}/preflight`
 - `POST /api/v1/vm-create/{draft_id}/plan`
@@ -22,7 +21,7 @@ Create VM은 canonical `/instances/create` route의 supporting capability이며,
 ## 관련 파일
 
 - Frontend: [frontend/src/components/CreateInstanceWizard.jsx](../../../frontend/src/components/CreateInstanceWizard.jsx), [frontend/src/utils/createVmFlow.js](../../../frontend/src/utils/createVmFlow.js), [frontend/src/utils/createVmDefaults.js](../../../frontend/src/utils/createVmDefaults.js), [frontend/src/services/apiV1.js](../../../frontend/src/services/apiV1.js)
-- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/vm_create/drafts.py](../../../backend/app/vm_create/drafts.py), [backend/app/vm_create/preflight.py](../../../backend/app/vm_create/preflight.py), [backend/app/vm_create/planner.py](../../../backend/app/vm_create/planner.py), [backend/app/vm_create/approval.py](../../../backend/app/vm_create/approval.py), [backend/app/vm_create/proxmox_runner.py](../../../backend/app/vm_create/proxmox_runner.py), [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py), [backend/app/vm_create/manifest.py](../../../backend/app/vm_create/manifest.py), [backend/app/vm_create/iac_readiness.py](../../../backend/app/vm_create/iac_readiness.py)
+- Backend: [backend/app/api/v1/router.py](../../../backend/app/api/v1/router.py), [backend/app/vm_create/drafts.py](../../../backend/app/vm_create/drafts.py), [backend/app/vm_create/preflight.py](../../../backend/app/vm_create/preflight.py), [backend/app/vm_create/planner.py](../../../backend/app/vm_create/planner.py), [backend/app/vm_create/approval.py](../../../backend/app/vm_create/approval.py), [backend/app/vm_create/proxmox_runner.py](../../../backend/app/vm_create/proxmox_runner.py), [backend/app/proxmox/client.py](../../../backend/app/proxmox/client.py), [backend/app/vm_create/manifest.py](../../../backend/app/vm_create/manifest.py)
 - Shared substrate: [backend/app/jobs/runs.py](../../../backend/app/jobs/runs.py), [backend/app/jobs/artifacts.py](../../../backend/app/jobs/artifacts.py), [backend/app/jobs/models.py](../../../backend/app/jobs/models.py)
 - Tests: [frontend/tests/createVmFlow.test.mjs](../../../frontend/tests/createVmFlow.test.mjs), [frontend/tests/createVmDefaults.test.mjs](../../../frontend/tests/createVmDefaults.test.mjs), [backend/tests/contracts/test_api_v1_vm_create.py](../../../backend/tests/contracts/test_api_v1_vm_create.py), [backend/tests/contracts/test_api_v1_vm_create_approval_execute.py](../../../backend/tests/contracts/test_api_v1_vm_create_approval_execute.py), [backend/tests/vm_create/test_preflight_plan_contract.py](../../../backend/tests/vm_create/test_preflight_plan_contract.py)
 

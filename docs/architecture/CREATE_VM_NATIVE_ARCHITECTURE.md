@@ -126,7 +126,7 @@ All routes are mounted in `backend/app/api/v1/router.py`.
 
 `backend/app/vm_create/preflight.py`
 
-- `run_preflight()` checks template, node, storage, network, VMID/name, IP, IaC readiness, and read-only adapter scope.
+- `run_preflight()` checks template, node, storage, network, VMID/name, IP, access, and read-only adapter scope.
 - It must use the read-only inventory adapter only.
 - Current preflight also red-blocks selected templates that fail
   `require_cloud_init` or `require_qemu_guest_agent`, static network requests

@@ -18,7 +18,7 @@ Backend 구현은 [backend/app/api/v1/router.py](../../../../backend/app/api/v1/
 
 Backend는 job records의 risk dict를 risk summary로 변환합니다. Row에는 `risk_id`, `job_id`, `job_type`, `job_status`, `level`, `code`, `message`, `detail`, `artifacts_url`이 들어갑니다. Frontend는 severity를 red, yellow, unknown, green 순으로 정렬합니다.
 
-현재 주요 risk source는 Create VM preflight/plan입니다. 예: unknown profile, hardware limit 위반, template readiness 부족, storage/bridge/IP 문제, IaC readiness blocker, SSH key 문제 등입니다.
+현재 주요 risk source는 Create VM preflight/plan입니다. 예: unknown profile, hardware limit 위반, template readiness 부족, storage/bridge/IP 문제, SSH key 문제 등입니다.
 
 ## 현재 하지 않는 일
 

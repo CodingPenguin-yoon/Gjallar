@@ -13,14 +13,14 @@ Use this order when current-implementation documents conflict:
 3. Top-tab status pages under [`docs/current/top-tabs/`](../current/top-tabs/README.md).
 4. Current architecture files in this folder.
 5. [`docs/product/drs-advisor/`](../product/drs-advisor/README.md) only for target direction and planned gaps.
-6. [`docs/product/legacy-prd/`](../product/legacy-prd/README.md) and [`docs/archive/`](../archive/) as context only.
+6. [`docs/archive/legacy-prd/`](../archive/legacy-prd/README.md) and [`docs/archive/`](../archive/) as context only.
 
 Use this order when product-target documents conflict:
 
 1. [`docs/product/drs-advisor/`](../product/drs-advisor/README.md).
 2. Target architecture files in this folder.
 3. [`docs/current/README.md`](../current/README.md) and [`docs/current/top-tabs/`](../current/top-tabs/README.md) for current gaps.
-4. [`docs/product/legacy-prd/`](../product/legacy-prd/README.md) as older design context only.
+4. [`docs/archive/legacy-prd/`](../archive/legacy-prd/README.md) as older design context only.
 5. [`docs/archive/`](../archive/) as historical notes only.
 
 Do not copy old PRD statements blindly. Several early PRD slices describe single-profile Create VM, `server-net` as a Create VM gate, Terraform as the active UI path, or DRS execution as if it were already implemented. Those statements are superseded unless a current status page and active code both confirm them.

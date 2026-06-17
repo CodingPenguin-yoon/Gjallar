@@ -3,9 +3,7 @@
 import contextlib
 import io
 import asyncio
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import yaml
@@ -21,20 +19,6 @@ TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
 class ApiV1VmCreateRoutesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._temp_dir = tempfile.TemporaryDirectory()
-        cls.shared_root = Path(cls._temp_dir.name) / "nfs"
-        (cls.shared_root / "IaC" / ".git").mkdir(parents=True)
-        (cls.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
-        (cls.shared_root / "IaC" / "generated").mkdir(parents=True)
-        cls._env = patch.dict(
-            "os.environ",
-            {
-                "GJALLAR_SHARED_ROOT": str(cls.shared_root),
-                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
-            },
-            clear=False,
-        )
-        cls._env.start()
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -43,14 +27,8 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         cls.paths = {getattr(route, "path", "") for route in app.routes}
         cls.api_v1_router = api_v1_router
 
-    @classmethod
-    def tearDownClass(cls):
-        cls._env.stop()
-        cls._temp_dir.cleanup()
-
     def test_create_draft_preflight_plan_routes_exist_under_api_v1(self):
         expected = {
-            "/api/v1/vm-create/readiness",
             "/api/v1/vm-create/drafts",
             "/api/v1/vm-create/{draft_id}/preflight",
             "/api/v1/vm-create/{draft_id}/plan",

@@ -21,7 +21,7 @@ Use this section for active product direction and older PRD context.
 
 - [Product docs](product/README.md)
 - [DRS Advisor target direction](product/drs-advisor/README.md)
-- [Legacy PRD index](product/legacy-prd/README.md)
+- [Archived legacy PRD index](archive/legacy-prd/README.md)
 
 ## Architecture
 
@@ -57,6 +57,7 @@ Use this section for older implementation notes, planning records, refresh notes
 - [Archived feature notes](archive/features/)
 - [Archived operations notes](archive/operations/)
 - [Archived roadmap notes](archive/roadmap/)
+- [Archived legacy PRDs](archive/legacy-prd/README.md)
 - [Archived status refreshes](archive/status/)
 
 ## Source Of Truth Order
@@ -68,14 +69,14 @@ Current implemented behavior:
 3. [`docs/current/top-tabs/`](current/top-tabs/README.md).
 4. [`docs/architecture/`](architecture/README.md) current-architecture docs.
 5. [`docs/product/drs-advisor/`](product/drs-advisor/README.md) only for target direction and planned gaps.
-6. [`docs/product/legacy-prd/`](product/legacy-prd/README.md) and [`docs/archive/`](archive/) as context only.
+6. [`docs/archive/legacy-prd/`](archive/legacy-prd/README.md) and [`docs/archive/`](archive/) as context only.
 
 Product target / MVP direction:
 
 1. [`docs/product/drs-advisor/`](product/drs-advisor/README.md).
 2. [`docs/architecture/`](architecture/README.md) target architecture docs.
 3. [`docs/current/README.md`](current/README.md) and [`docs/current/top-tabs/`](current/top-tabs/README.md) for current gaps.
-4. [`docs/product/legacy-prd/`](product/legacy-prd/README.md) as older design context only.
+4. [`docs/archive/legacy-prd/`](archive/legacy-prd/README.md) as older design context only.
 5. [`docs/archive/`](archive/) as historical notes only.
 
 Workflow / execution:

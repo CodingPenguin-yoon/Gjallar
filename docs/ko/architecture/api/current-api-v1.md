@@ -52,12 +52,11 @@ Frontend client는 [frontend/src/services/apiV1.js](../../../../frontend/src/ser
 | `GET /api/v1/storage` | `list_storage()` | storage candidates를 inventory에서 반환합니다. | `listStorage()`; Dashboard, Create VM | Read-only. Create VM UI는 selected node, `images` content, free capacity로 필터링합니다. |
 | `GET /api/v1/networks` | `list_networks()` | bridge inventory를 반환합니다. | `listNetworks()`; Dashboard, Create VM, Networks readiness | Read-only. Create VM은 selected target node의 active bridge를 사용합니다. Networks는 nodes/vms/networks를 frontend에서 조합해 selected-source target network comparison, CIDR-verified exact bridge match evidence, bridge-name-only review evidence, CIDR remap candidate evidence를 표시합니다. |
 
-## Create VM option/readiness APIs
+## Create VM option APIs
 
 | Endpoint | Backend handler | 구현 방식 | Frontend client/caller | Side effect와 주의 |
 |---|---|---|---|---|
 | `GET /api/v1/profiles` | `list_profiles()` | `GJALLAR_DATABASE_URL`의 active DB-seeded profile rows를 반환합니다. | `listProfiles()`; `CreateInstanceWizard` | Read-only. Current profiles는 `general-vm`, `runtime-server`, `development-vm`입니다. Disabled/archived rows는 숨깁니다. |
-| `GET /api/v1/vm-create/readiness` | `get_vm_create_readiness()` | `run_iac_readiness()`로 shared root, IaC root, write allowlist, Git repo readiness를 확인합니다. | `getVmCreateReadiness()`; `loadCreateVmReviewModel()` | Read-only. Proxmox mutation 없음. |
 
 ## Network readiness boundary
 
@@ -111,7 +110,7 @@ Networks는 별도 backend readiness endpoint 없이 `GET /api/v1/nodes`, `/vms`
 
 ## Frontend API client coverage
 
-[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 auth/admin users, inventory, VM start, post-create readiness evidence, network readiness, jobs, risks, DRS Advisor recommendation/check, DRS policy read/update, DRS local approval packet creation, DRS reconcile-preview helper, Create VM readiness, draft/preflight/plan/approve, native preview, native create를 expose합니다. DRS live execute helper/UI는 아직 없습니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
+[frontend/src/services/apiV1.js](../../../../frontend/src/services/apiV1.js)는 auth/admin users, inventory, VM start, post-create readiness evidence, network readiness, jobs, risks, DRS Advisor recommendation/check, DRS policy read/update, DRS local approval packet creation, DRS reconcile-preview helper, Create VM draft/preflight/plan/approve, native preview, native create를 expose합니다. DRS live execute helper/UI는 아직 없습니다. Legacy GitOps execute/archive helper와 route는 active API에서 제거됐습니다.
 
 ## 현재 없는 DRS API/UI
 

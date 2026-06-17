@@ -25,18 +25,17 @@ This is the current implemented frontend/API/backend flow from options load thro
 | 2 | UI normalizes options and picks defaults. | Frontend filters storage/bridge by selected node and templates by selected profile requirements. | None. | None. |
 | 3 | Operator edits profile, hardware, node, template, storage, bridge, IP mode, static fields. | No backend call until review. | None. | None. |
 | 4 | Operator clicks review. | `loadCreateVmReviewModel()` builds payload. | None yet. | None yet. |
-| 5 | Frontend gets readiness. | `GET /api/v1/vm-create/readiness` runs read-only IaC readiness. | None. | None. |
-| 6 | Frontend creates draft. | `POST /api/v1/vm-create/drafts` builds draft with selected profile defaults/overrides and suggested VMID. | None from planner yet. | `vm_create`, status `in_progress`, stage `draft`. |
-| 7 | Frontend runs preflight. | `POST /api/v1/vm-create/{draft_id}/preflight` checks profile, template, node, storage, bridge, IP, VMID/name, and read-only inventory scope. | None from planner yet. | `blocked` on red, otherwise `in_progress`, stage `preflight`, risks recorded. |
-| 8 | Frontend builds plan. | `POST /api/v1/vm-create/{draft_id}/plan` builds plan from draft/preflight. | `preflight_report`, `plan`, `vm_instance_manifest`, `planned_git_diff`, `review_summary`. | `blocked` on red, otherwise `in_progress`, stage `plan`, artifacts and risks recorded. |
-| 9 | UI renders review. | Frontend reads `review_confirm`, risk summary, readiness, artifact ids/checksum. | Existing artifacts displayed by metadata/path. | No new state. |
-| 10 | Operator acknowledges yellow risks if needed. | Frontend stores local checkbox state. | None. | None. |
-| 11 | Operator approves review. | `POST /approve` validates exact `plan_artifact_id`, `review_summary_checksum`, and yellow acknowledgement. | Approval evidence may be included in job details. | `in_progress` stage `approval` if valid; `blocked` if invalid. |
-| 12 | Operator checks mutation acknowledgement. | UI requires final checkbox before enabling native create. | None. | None. |
-| 13 | Operator clicks native create. | Frontend calls `POST /proxmox-create` with approval metadata and `proxmox_mutation_acknowledged=true`, then navigates to `/jobs?job=<job_id>`. | None immediately. | `running`, stage `create`, before Proxmox call. |
-| 14 | Backend creates internal preview artifact. | `build_proxmox_create_preview()` records clone/config/post-check payload without mutation. | `proxmox_create_preview`. | Still `running`, stage `create`. |
-| 15 | Backend runs native create. | Clone, poll UPID, inspect config, resize if needed, set config, run selected power-policy post-check. | `observed_after` on post-check path. | Updated after result. |
-| 16 | UI reads Jobs/Runs. | `/jobs?job=<job_id>` polls selected live job. | Artifact metadata visible. | Operator sees step progress and artifacts. |
+| 5 | Frontend creates draft. | `POST /api/v1/vm-create/drafts` builds draft with selected profile defaults/overrides and suggested VMID. | None from planner yet. | `vm_create`, status `in_progress`, stage `draft`. |
+| 6 | Frontend runs preflight. | `POST /api/v1/vm-create/{draft_id}/preflight` checks profile, template, node, storage, bridge, IP, VMID/name, access, and read-only inventory scope. | None from planner yet. | `blocked` on red, otherwise `in_progress`, stage `preflight`, risks recorded. |
+| 7 | Frontend builds plan. | `POST /api/v1/vm-create/{draft_id}/plan` builds plan from draft/preflight. | `preflight_report`, `plan`, `vm_instance_manifest`, `planned_git_diff`, `review_summary`. | `blocked` on red, otherwise `in_progress`, stage `plan`, artifacts and risks recorded. |
+| 8 | UI renders review. | Frontend reads `review_confirm`, risk summary, artifact ids/checksum. | Existing artifacts displayed by metadata/path. | No new state. |
+| 9 | Operator acknowledges yellow risks if needed. | Frontend stores local checkbox state. | None. | None. |
+| 10 | Operator approves review. | `POST /approve` validates exact `plan_artifact_id`, `review_summary_checksum`, and yellow acknowledgement. | Approval evidence may be included in job details. | `in_progress` stage `approval` if valid; `blocked` if invalid. |
+| 11 | Operator checks mutation acknowledgement. | UI requires final checkbox before enabling native create. | None. | None. |
+| 12 | Operator clicks native create. | Frontend calls `POST /proxmox-create` with approval metadata and `proxmox_mutation_acknowledged=true`, then navigates to `/jobs?job=<job_id>`. | None immediately. | `running`, stage `create`, before Proxmox call. |
+| 13 | Backend creates internal preview artifact. | `build_proxmox_create_preview()` records clone/config/post-check payload without mutation. | `proxmox_create_preview`. | Still `running`, stage `create`. |
+| 14 | Backend runs native create. | Clone, poll UPID, inspect config, resize if needed, set config, run selected power-policy post-check. | `observed_after` on post-check path. | Updated after result. |
+| 15 | UI reads Jobs/Runs. | `/jobs?job=<job_id>` polls selected live job. | Artifact metadata visible. | Operator sees step progress and artifacts. |
 
 ## Payload Boundary
 

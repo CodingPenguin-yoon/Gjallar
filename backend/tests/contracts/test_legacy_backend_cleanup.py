@@ -55,6 +55,99 @@ def test_legacy_bootstrap_playbooks_are_removed_from_active_tree():
     assert offenders == [], f"Legacy Ansible bootstrap files must stay removed: {offenders}"
 
 
+def test_legacy_create_vm_iac_readiness_is_removed_from_active_tree():
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = backend_root.parent
+
+    removed_paths = [
+        backend_root / "app/vm_create/iac_readiness.py",
+        backend_root / "app/vm_create/paths.py",
+    ]
+    missing_path_offenders = [str(path.relative_to(repo_root)) for path in removed_paths if path.exists()]
+
+    active_roots = [
+        backend_root / "app",
+        backend_root / "tests",
+        repo_root / "frontend/src",
+        repo_root / "frontend/tests",
+        repo_root / "docs/current",
+        repo_root / "docs/architecture",
+        repo_root / "docs/engineering",
+        repo_root / "docs/ko",
+        repo_root / "README.md",
+        repo_root / ".env.example",
+    ]
+    forbidden_patterns = [
+        r"run_iac_readiness",
+        r"iac_readiness",
+        r"IacReadiness",
+        r"vm-create/readiness",
+        r"getVmCreateReadiness",
+        r"GJALLAR_SHARED_ROOT",
+        r"GJALLAR_IAC_ROOT",
+        r"HERMES_DATA_ROOT",
+        r"\biac_root\b",
+        r"\biac_ready_for_plan\b",
+        r"\biac_ready_for_execute\b",
+        r"shared_root_available",
+        r"iac_root_available",
+        r"iac_git_repo_available",
+        r"iac_write_allowlist_ready",
+    ]
+    combined = re.compile("|".join(forbidden_patterns))
+    text_suffixes = {
+        ".css",
+        ".html",
+        ".js",
+        ".json",
+        ".jsx",
+        ".md",
+        ".mjs",
+        ".py",
+        ".toml",
+        ".txt",
+        ".yaml",
+        ".yml",
+    }
+    excluded_parts = {
+        ".git",
+        ".pytest_cache",
+        "__pycache__",
+        "dist",
+        "legacy-prd",
+        "node_modules",
+    }
+    symbol_offenders: list[str] = []
+    self_path = Path(__file__).resolve()
+
+    for root in active_roots:
+        if not root.exists():
+            continue
+        paths = [root] if root.is_file() else root.rglob("*")
+        for path in paths:
+            if path.resolve() == self_path:
+                continue
+            if not path.is_file() or path.suffix not in text_suffixes:
+                continue
+            relative = path.relative_to(repo_root)
+            if excluded_parts & set(relative.parts):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                match = combined.search(line)
+                if match:
+                    symbol_offenders.append(f"{relative}:{line_number}: {match.group(0)}")
+
+    assert missing_path_offenders == [], (
+        "Legacy Create VM IaC readiness modules must stay removed: "
+        + repr(missing_path_offenders)
+    )
+    assert symbol_offenders == [], (
+        "Legacy Create VM IaC readiness symbols remain active: "
+        + repr(symbol_offenders)
+    )
+
+
 def test_env_example_does_not_advertise_legacy_integrations():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent

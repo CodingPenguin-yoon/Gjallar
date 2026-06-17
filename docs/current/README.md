@@ -188,6 +188,6 @@ Development smoke and test results recorded for this refresh:
 - Use [`../engineering/GJALLAR_CURRENT_WORK_PLAN.md`](../engineering/GJALLAR_CURRENT_WORK_PLAN.md) for the living current-work checklist.
 - Use [../operations/runbook.md](../operations/runbook.md) for current verification steps.
 - Use [../product/drs-advisor/README.md](../product/drs-advisor/README.md) for active product target direction.
-- Use [../product/legacy-prd/README.md](../product/legacy-prd/README.md) for older PRD context.
+- Use [../archive/legacy-prd/README.md](../archive/legacy-prd/README.md) for older PRD context.
 - Use [`../architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md`](../architecture/CREATE_VM_PROFILE_TEMPLATE_NETWORK_DESIGN.md) for the Create VM target profile/template/network model.
 - Use [`../architecture/`](../architecture/) for current code-oriented architecture notes; treat [`../archive/features/`](../archive/features/), [`../archive/operations/`](../archive/operations/), and [`../archive/roadmap/`](../archive/roadmap/) as historical context unless a file says otherwise.

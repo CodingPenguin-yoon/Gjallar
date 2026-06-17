@@ -11,7 +11,6 @@ Create VM은 canonical `/instances/create` route의 operator-reviewed VM 생성 
 | 단계 | Endpoint | Frontend 함수 |
 |---|---|---|
 | Option load | `GET /api/v1/nodes`, `templates`, `storage`, `networks`, `profiles` | [CreateInstanceWizard.jsx](../../../../frontend/src/components/CreateInstanceWizard.jsx) |
-| Readiness | `GET /api/v1/vm-create/readiness` | `loadCreateVmReviewModel()` in [createVmFlow.js](../../../../frontend/src/utils/createVmFlow.js) |
 | Draft | `POST /api/v1/vm-create/drafts` | `createVmDraft()` via [apiV1.js](../../../../frontend/src/services/apiV1.js) |
 | Preflight | `POST /api/v1/vm-create/{draft_id}/preflight` | `preflightVmDraft()` |
 | Plan | `POST /api/v1/vm-create/{draft_id}/plan` | `planVmDraft()` |

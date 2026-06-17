@@ -299,13 +299,9 @@ Non-goals:
   visualization composed from live inventory. It has no Proxmox network
   mutation, API write path, YAML persistence, DB migration, or DRS execution
   authority.
-- `GJALLAR_SHARED_ROOT` and `GJALLAR_IAC_ROOT` remain transitional settings for
-  Create VM/IaC readiness only. They are not used for Jobs/Runs, artifacts, or
-  Networks readiness.
 - Shared-folder/NFS usage originally came from Terraform-era IaC/state needs.
   Profiles, Jobs/Runs, artifacts, and native Create VM records are now
-  DB-backed; retire the remaining shared-folder dependency once Create VM/IaC
-  readiness no longer needs it.
+  DB-backed.
 
 ## Next Slice Candidate
 

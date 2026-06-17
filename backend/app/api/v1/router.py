@@ -34,7 +34,6 @@ from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutatio
 from app.proxmox.drs_migration import get_default_drs_proxmox_migration_client
 from app.proxmox.inventory import get_default_inventory_adapter
 from app.vm_create.drafts import build_default_vm_draft, list_create_profile_options
-from app.vm_create.iac_readiness import run_iac_readiness
 from app.vm_create.planner import build_vm_create_plan
 from app.vm_create.preflight import run_preflight
 from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
@@ -433,12 +432,6 @@ def get_vm(vmid: int) -> dict:
 async def list_profiles() -> dict:
     """Return active DB-backed VM creation profile defaults."""
     return success_response([profile.to_dict() for profile in list_create_profile_options()])
-
-
-@router.get("/vm-create/readiness")
-async def get_vm_create_readiness() -> dict:
-    """Return read-only IaC workspace readiness for the Create VM flow."""
-    return success_response(run_iac_readiness().to_dict(), meta={"mode": "read_only_iac_readiness"})
 
 
 @router.get("/templates")

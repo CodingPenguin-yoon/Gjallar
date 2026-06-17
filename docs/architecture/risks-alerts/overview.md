@@ -65,7 +65,6 @@ Examples of current Create VM risk sources:
 - static IP/prefix/gateway missing or invalid
 - static IP already observed
 - DHCP discovery warning
-- IaC readiness blockers
 
 ## Not A Standalone Risk Engine
 

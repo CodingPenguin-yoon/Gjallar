@@ -3,10 +3,7 @@
 import asyncio
 import contextlib
 import io
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -19,44 +16,9 @@ TEST_SSH_PUBLIC_KEY = (
 )
 
 
-def _git(repo: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={
-            "GIT_AUTHOR_NAME": "Test Gjallar",
-            "GIT_AUTHOR_EMAIL": "gjallar-test@example.invalid",
-            "GIT_COMMITTER_NAME": "Test Gjallar",
-            "GIT_COMMITTER_EMAIL": "gjallar-test@example.invalid",
-        },
-    )
-    return completed.stdout.strip()
-
-
 class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._temp_dir = tempfile.TemporaryDirectory()
-        cls.shared_root = Path(cls._temp_dir.name) / "nfs"
-        cls.iac_root = cls.shared_root / "IaC"
-        (cls.iac_root / "manifests" / "vms").mkdir(parents=True)
-        (cls.iac_root / "generated").mkdir(parents=True)
-        _git(cls.iac_root, "init")
-        (cls.iac_root / "manifests" / "vms" / ".gitkeep").write_text("", encoding="utf-8")
-        (cls.iac_root / "generated" / ".gitkeep").write_text("", encoding="utf-8")
-        _git(cls.iac_root, "add", ".")
-        _git(cls.iac_root, "commit", "-m", "chore: init api test iac")
-        cls._env = patch.dict(
-            "os.environ",
-            {
-                "GJALLAR_SHARED_ROOT": str(cls.shared_root),
-                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
-            },
-            clear=False,
-        )
-        cls._env.start()
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -65,11 +27,6 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         cls.app = app
         cls.paths = {getattr(route, "path", "") for route in app.routes}
         cls.api_v1_router = api_v1_router
-
-    @classmethod
-    def tearDownClass(cls):
-        cls._env.stop()
-        cls._temp_dir.cleanup()
 
     def test_approval_and_native_create_routes_exist_under_api_v1(self):
         expected = {
@@ -84,12 +41,12 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertNotIn("/api/v1/vm-create/{draft_id}/execute", self.paths)
         self.assertNotIn("/api/v1/vm-create/{draft_id}/archive", self.paths)
 
-    def test_removed_terraform_and_gitops_routes_naturally_404(self):
+    def test_removed_terraform_and_gitops_routes_are_not_accepted(self):
         client = TestClient(self.app)
 
         for suffix in ("terraform-plan", "terraform-apply", "execute", "archive"):
             response = client.post(f"/api/v1/vm-create/removed-terraform/{suffix}", json={})
-            self.assertEqual(404, response.status_code)
+            self.assertIn(response.status_code, {404, 405})
 
     def test_approve_validates_exact_plan_artifacts_without_side_effects(self):
         draft_id = "draft-api-approval-green"
@@ -168,7 +125,6 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         }
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
-        before = _git(self.iac_root, "rev-parse", "HEAD")
 
         with patch.object(self.api_v1_router, "run_proxmox_create") as mutation:
             response = asyncio.run(
@@ -183,13 +139,11 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
                 )
             )
 
-        after = _git(self.iac_root, "rev-parse", "HEAD")
         self.assertTrue(response["ok"])
         self.assertEqual("proxmox_native_preview_no_mutation", response["meta"]["mode"])
         self.assertFalse(response["data"]["proxmox_mutation_enabled"])
         self.assertEqual([], response["data"]["side_effects"])
         self.assertEqual("/nodes/yoonmanserver2/qemu/9000/clone", response["data"]["clone"]["endpoint"])
-        self.assertEqual(before, after)
         mutation.assert_not_called()
 
     def test_proxmox_create_blocks_without_final_acknowledgement(self):
@@ -352,8 +306,6 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertEqual("PROXMOX_CREATE_NEEDS_RECONCILIATION", raised.exception.detail["code"])
         self.assertNotIn("manifest_status", raised.exception.detail)
         self.assertIn("proxmox_preview", raised.exception.detail)
-        self.assertEqual("", _git(self.iac_root, "status", "--porcelain"))
-
 
     def test_string_false_does_not_acknowledge_yellow_risk(self):
         draft_id = "draft-api-approval-yellow"

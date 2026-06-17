@@ -44,11 +44,6 @@ const CHECK_LABELS = {
   vmid_available: 'VMID',
   name_available: 'VM 이름',
   static_ip_available: '고정 IP',
-  shared_root_available: '공유 폴더',
-  iac_root_available: '코드 저장소',
-  iac_root_writable: '코드 저장소 쓰기',
-  iac_git_repo_available: 'Git 저장소',
-  iac_write_allowlist_ready: '쓰기 경로',
   destroy_delete_plan_absent: '삭제 계획 없음',
   credential_scope_read_only: '인증 범위',
 }

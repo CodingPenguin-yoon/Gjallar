@@ -24,7 +24,6 @@ draft request
 | Endpoint | 핵심 의미 |
 |---|---|
 | `GET /api/v1/profiles` | Current DB-seeded creation profiles. |
-| `GET /api/v1/vm-create/readiness` | IaC readiness evidence. |
 | `POST /api/v1/vm-create/drafts` | Non-mutating server-side draft. |
 | `POST /api/v1/vm-create/{draft_id}/preflight` | Read-only checks. |
 | `POST /api/v1/vm-create/{draft_id}/plan` | Artifact-backed dry-run plan. |
@@ -52,7 +51,7 @@ Profiles do not contain target node, storage, network, bridge, static IP, templa
 
 ## Preflight contract
 
-Preflight는 read-only입니다. 주요 check는 profile availability, hardware min/max, template readiness, template disk floor, target node online, storage availability/capacity, selected bridge active on target node, VMID/name uniqueness, static field validity, observed IP conflict, IaC readiness, SSH key requirement, password login disabled rule입니다.
+Preflight는 read-only입니다. 주요 check는 profile availability, hardware min/max, template readiness, template disk floor, target node online, storage availability/capacity, selected bridge active on target node, VMID/name uniqueness, static field validity, observed IP conflict, SSH key requirement, password login disabled rule입니다.
 
 Red risks block approval and execution. Yellow risks require acknowledgement where allowed.
 

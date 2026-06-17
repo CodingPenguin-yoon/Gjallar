@@ -54,7 +54,7 @@ Inventory/read-mostly: `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templat
 
 Local DRS writes: `PUT drs/policies/{vm_identity_id}` updates manual VM migration policy/audit evidence and `POST drs/recommendations/{recommendation_id}/approval-packets` creates local approval/job intent state without Proxmox mutation.
 
-Create VM: `profiles`, `vm-create/readiness`, `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create`.
+Create VM: `profiles`, `drafts`, `preflight`, `plan`, `approve`, `proxmox-preview`, `proxmox-create`.
 
 Networks는 live bridge readiness와 migration pre-check evidence를 read-only로 보여줍니다. Network YAML/file/DB/API write path나 DRS 실행 권한은 없습니다.
 

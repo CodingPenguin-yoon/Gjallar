@@ -7,7 +7,7 @@ This product tree is focused on product direction. Current implemented status, o
 ## Start Here
 
 - [DRS Advisor target direction](drs-advisor/README.md)
-- [Legacy PRD index](legacy-prd/README.md)
+- [Archived legacy PRD index](../archive/legacy-prd/README.md)
 - [Current implemented state](../current/README.md)
 - [Architecture index](../architecture/README.md)
 

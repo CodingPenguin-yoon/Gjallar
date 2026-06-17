@@ -14,7 +14,7 @@
 |---|---|---|
 | Health/root | `GET /`, `GET /health` | 앱/서비스 상태 확인. |
 | Inventory | `cluster/summary`, `nodes`, `vms`, `vms/{vmid}`, `templates`, `storage`, `networks` | Proxmox read-only inventory. |
-| Profiles/readiness | `profiles`, `vm-create/readiness` | Create VM option/readiness source. |
+| Profiles | `profiles` | Create VM option source. |
 | Network readiness | `GET /nodes`, `/vms`, `/networks` | Frontend-composed read-only migration pre-check evidence. Proxmox bridge mutation, API write path, YAML persistence 없음. |
 | Jobs/Risks | `jobs`, `jobs/{job_id}`, `jobs/{job_id}/artifacts`, `risks` | DB-backed job status와 job-derived risks. |
 | DRS Advisor | `drs/summary`, `drs/recommendations`, detail, `check`, `approval-packets`, `drs/policies*`, `migration-jobs/{job_id}/execute`, `migration-jobs/{job_id}/reconcile-preview` | Recommendation/check result는 계속 `read_only=true`, `executable=false`, `allowed_actions=[]`입니다. Frontend에는 manual policy configuration과 local approval packet/job intent creation이 있고, live execute/corrective reconcile UI는 없습니다. Backend에는 narrow operator-only execute route, UPID/task tracking, verified post-check, read-only reconcile preview가 있습니다. |

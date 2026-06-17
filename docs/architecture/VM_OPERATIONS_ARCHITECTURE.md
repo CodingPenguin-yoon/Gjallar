@@ -110,7 +110,7 @@ Active backend modules:
 | `app/proxmox/client.py` | Explicit native Proxmox mutation client for Create VM clone/resize/config/status and VM start calls. Reuses the inventory env but is imported only by gated mutation paths. |
 | `app/proxmox/models.py` | Inventory dataclasses for nodes, VMs, templates, storage, and networks. |
 | `app/manifests/*` | Built-in VM profile and manifest schema defaults. |
-| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest evidence, IaC readiness, and native Proxmox runner helpers. |
+| `app/vm_create/*` | Create VM draft, preflight, plan, approval, manifest evidence, and native Proxmox runner helpers. |
 | `app/vm_actions/*` | Existing-VM action helpers that remain separate from Create VM and read-only inventory. |
 | `app/jobs/*` | DB-backed job status, artifacts, approval records, and risk source data. |
 | `app/core/redaction.py` | Secret redaction for responses, artifacts, and persisted job details. |
@@ -138,7 +138,6 @@ Create VM:
 
 ```text
 GET  /api/v1/profiles
-GET  /api/v1/vm-create/readiness
 POST /api/v1/vm-create/drafts
 POST /api/v1/vm-create/{draft_id}/preflight
 POST /api/v1/vm-create/{draft_id}/plan
@@ -317,8 +316,6 @@ Important environment variables:
 | `PROXMOX_TASK_POLL_INTERVAL_SECONDS` / `GJALLAR_PROXMOX_TASK_POLL_INTERVAL_SECONDS` | Native Proxmox task polling interval for Create VM and VM start. |
 | `PROXMOX_TASK_TIMEOUT_SECONDS` / `GJALLAR_PROXMOX_TASK_TIMEOUT_SECONDS` | Native Proxmox task timeout for Create VM and VM start. |
 | `GJALLAR_DATABASE_URL` | SQLAlchemy/Alembic DB URL for profiles, jobs, artifacts, Create VM requests, and created VM records. |
-| `GJALLAR_SHARED_ROOT` | Transitional shared root for Create VM/IaC readiness. |
-| `GJALLAR_IAC_ROOT` | Transitional IaC root override for Create VM/IaC readiness. |
 
 ## Verification
 

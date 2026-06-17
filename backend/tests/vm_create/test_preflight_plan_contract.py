@@ -1,8 +1,8 @@
 """RED tests for Set 6 create draft/preflight/plan contract."""
 
+import base64
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 TEST_SSH_PUBLIC_KEY = (
@@ -14,19 +14,6 @@ TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
 
 
 class VmCreatePreflightPlanContractTests(unittest.TestCase):
-    def setUp(self):
-        self._temp_dir = tempfile.TemporaryDirectory()
-        self.shared_root = Path(self._temp_dir.name) / "nfs"
-        (self.shared_root / "IaC" / ".git").mkdir(parents=True)
-        (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
-        (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        self._env = patch.dict("os.environ", {"GJALLAR_SHARED_ROOT": str(self.shared_root)}, clear=False)
-        self._env.start()
-
-    def tearDown(self):
-        self._env.stop()
-        self._temp_dir.cleanup()
-
     def _default_draft(self, **kwargs):
         try:
             from app.vm_create.drafts import build_default_vm_draft
@@ -107,7 +94,11 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
     def test_preflight_red_blocks_missing_required_ssh_key(self):
         with patch.dict(
             "os.environ",
-            {"GJALLAR_DEFAULT_SSH_PUBLIC_KEY": "", "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE": ""},
+            {
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": "",
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64": "",
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE": "",
+            },
             clear=False,
         ):
             draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
@@ -121,6 +112,27 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
         self.assertIn("ssh_public_key_missing", red_codes)
         self.assertFalse(result.access["ssh_key_present"])
         self.assertIsNone(result.access["fingerprint"])
+
+    def test_preflight_accepts_base64_default_ssh_key_env(self):
+        encoded_key = base64.b64encode(TEST_SSH_PUBLIC_KEY.encode("utf-8")).decode("ascii")
+        with patch.dict(
+            "os.environ",
+            {
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": "",
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64": encoded_key,
+                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE": "",
+            },
+            clear=False,
+        ):
+            draft = self._default_draft(target_node_id="yoonmanserver2", static_ip="192.168.2.142")
+
+        result = self._preflight(draft)
+
+        self.assertEqual("green", result.risk_level)
+        self.assertEqual("backend_default_env_b64", result.access["source"])
+        self.assertTrue(result.access["ssh_key_present"])
+        self.assertTrue(result.access["ssh_key_valid"])
+        self.assertEqual(TEST_SSH_FINGERPRINT, result.access["fingerprint"])
 
     def test_preflight_red_blocks_private_or_malformed_ssh_public_key(self):
         cases = {
@@ -581,9 +593,6 @@ class VmCreatePreflightPlanContractTests(unittest.TestCase):
         self.assertNotIn("network_id", rendered)
         self.assertNotIn("server-net", rendered)
         self.assertNotIn("profile_id:", manifest_text.split("network:", 1)[1])
-        self.assertEqual(str(self.shared_root / "IaC"), plan.review_confirm["iac_root"])
-        self.assertTrue(plan.review_confirm["iac_ready_for_plan"])
-        self.assertTrue(plan.review_confirm["iac_ready_for_execute"])
         self.assertFalse(plan.first_power_on_included)
         self.assertFalse(plan.review_confirm["first_power_on_included"])
         self.assertEqual("stopped", plan.power_policy)

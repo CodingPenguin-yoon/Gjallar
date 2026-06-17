@@ -188,19 +188,6 @@ assert.match(allInvalidTemplateGuard.reason, /요구사항|템플릿/)
 
 const calls = []
 const fakeClient = {
-  async getVmCreateReadiness() {
-    calls.push(['getVmCreateReadiness'])
-    return {
-      shared_root: '/Users/yoon/mnt/nfs',
-      iac_root: '/Users/yoon/mnt/nfs/IaC',
-      ready_for_plan: true,
-      ready_for_execute: false,
-      risk_level: 'yellow',
-      checks: [{ code: 'iac_git_repo_available', status: 'fail', level: 'yellow', message: 'IaC root is not a Git checkout yet' }],
-      risks: [{ level: 'yellow', code: 'iac_git_repo_missing', message: 'IaC root is not a Git checkout yet' }],
-      side_effects: [],
-    }
-  },
   async createVmDraft(payload) {
     calls.push(['createVmDraft', payload])
     return {
@@ -338,9 +325,6 @@ const fakeClient = {
         },
         selected_template: { template_id: payload.template_id, vmid: payload.template_vmid, node_id: payload.template_node_id },
         selected_bridge: { bridge_id: payload.bridge_id, node_id: payload.target_node_id, active: true },
-        iac_root: '/Users/yoon/mnt/nfs/IaC',
-        iac_ready_for_plan: true,
-        iac_ready_for_execute: false,
         first_power_on_included: payload.first_power_on_included,
         power_policy: payload.power_policy,
         smoke_timeout_summary: { cloud_init_minutes: 15, guest_agent_minutes: 5, ip_discovery_minutes: 5, ssh_minutes: 5 },
@@ -411,10 +395,7 @@ const fakeClient = {
 }
 
 const model = await loadCreateVmReviewModel(fakeClient, input)
-assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft'])
-assert.equal(model.readiness.iacRoot, '/Users/yoon/mnt/nfs/IaC')
-assert.equal(model.readiness.readyForPlan, true)
-assert.equal(model.readiness.readyForExecute, false)
+assert.deepEqual(calls.map((call) => call[0]), ['createVmDraft', 'preflightVmDraft', 'planVmDraft'])
 assert.equal(model.draft.id, 'draft-job-ui-create')
 assert.equal(model.draft.profileId, 'general-vm')
 assert.equal(model.draft.storageId, 'nas-server')
@@ -454,7 +435,7 @@ assert.equal(model.artifacts[0].id, 'artifact-plan')
 assert.deepEqual(model.sideEffects, [])
 
 const approval = await approveCreateVmReview(fakeClient, model, { yellowRiskAcknowledged: false })
-assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft'])
+assert.deepEqual(calls.map((call) => call[0]), ['createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft'])
 assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
 assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
 assert.equal(approval.canApprove, true)
@@ -463,7 +444,7 @@ assert.equal(approval.executeDisabledReason, '실제 VM 생성은 승인과 최�
 assert.deepEqual(approval.sideEffects, [])
 
 const preview = await previewCreateVmProxmox(fakeClient, model, { yellowRiskAcknowledged: false })
-assert.deepEqual(calls.map((call) => call[0]), ['getVmCreateReadiness', 'createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft', 'previewVmDraftProxmox'])
+assert.deepEqual(calls.map((call) => call[0]), ['createVmDraft', 'preflightVmDraft', 'planVmDraft', 'approveVmDraft', 'previewVmDraftProxmox'])
 assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
 assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
 assert.ok(!('run_terraform_plan' in calls.at(-1)[2]))

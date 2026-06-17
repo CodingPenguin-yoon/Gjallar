@@ -34,6 +34,10 @@ exactly one detailed document, listed below.
 - `docs/goal/goal-check-current-implementation-validation.md`: completed
   non-numbered validation gate that established the code/docs/test baseline
   before Goal 9 polish.
+- `docs/goal/docs-renewal/`: separate documentation-renewal workspace. This is
+  not part of the numbered DRS/productization goal sequence and must not be
+  treated as a new source of truth for implemented behavior; it only plans and
+  tracks the documentation refactor.
 
 ## Canonical Goal Map
 

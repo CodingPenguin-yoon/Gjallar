@@ -641,8 +641,7 @@ def _assert_job_status_actor(job_id: str, *, username: str, role: str, forbidden
         assert status_details["actor_username"] != forbidden_username
 
 
-def test_operator_create_vm_prelive_routes_record_unredacted_session_actor(monkeypatch, tmp_path):
-    monkeypatch.setenv("GJALLAR_SHARED_ROOT", str(tmp_path / "nfs"))
+def test_operator_create_vm_prelive_routes_record_unredacted_session_actor(monkeypatch):
     _create_user(monkeypatch, username="secret-admin", role="operator")
     client = _client()
     _login(client, username="secret-admin")
@@ -781,8 +780,7 @@ def test_vm_start_job_and_artifact_include_flat_actor_fields(monkeypatch):
     assert observed_payload["actor_username"] != "payload-spoof"
 
 
-def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypatch, tmp_path):
-    monkeypatch.setenv("GJALLAR_SHARED_ROOT", str(tmp_path / "nfs"))
+def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypatch):
     _create_user(monkeypatch, username="creator", role="operator")
     client = _client()
     _login(client, username="creator")

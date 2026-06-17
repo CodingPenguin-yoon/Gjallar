@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_SSH_PUBLIC_KEY_ENV = "GJALLAR_DEFAULT_SSH_PUBLIC_KEY"
+DEFAULT_SSH_PUBLIC_KEY_B64_ENV = "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64"
 DEFAULT_SSH_PUBLIC_KEY_FILE_ENV = "GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE"
 
 _PRIVATE_KEY_MARKERS = (
@@ -168,6 +169,13 @@ def validate_ssh_public_key(value: object) -> SshPublicKeyValidation:
     )
 
 
+def _decode_public_key_b64(value: str) -> str | None:
+    try:
+        return base64.b64decode(value.encode("ascii"), validate=True).decode("utf-8").strip()
+    except (binascii.Error, UnicodeDecodeError, UnicodeEncodeError, ValueError):
+        return None
+
+
 def resolve_ssh_public_key(request_value: object = None) -> ResolvedSshPublicKey:
     """Resolve a request key or backend default without exposing raw key material."""
     request_text = str(request_value or "").strip()
@@ -182,6 +190,22 @@ def resolve_ssh_public_key(request_value: object = None) -> ResolvedSshPublicKey
         return ResolvedSshPublicKey(
             source="backend_default_env",
             validation=validate_ssh_public_key(env_text),
+        )
+
+    env_b64_text = os.getenv(DEFAULT_SSH_PUBLIC_KEY_B64_ENV, "").strip()
+    if env_b64_text:
+        decoded = _decode_public_key_b64(env_b64_text)
+        if decoded:
+            return ResolvedSshPublicKey(
+                source="backend_default_env_b64",
+                validation=validate_ssh_public_key(decoded),
+            )
+        return ResolvedSshPublicKey(
+            source="backend_default_env_b64",
+            validation=_invalid_validation(
+                code="ssh_public_key_b64_malformed",
+                message="Configured base64 SSH public key is malformed",
+            ),
         )
 
     key_path = os.getenv(DEFAULT_SSH_PUBLIC_KEY_FILE_ENV, "").strip()

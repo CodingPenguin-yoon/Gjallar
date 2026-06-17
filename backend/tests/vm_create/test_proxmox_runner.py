@@ -3,7 +3,6 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 from urllib.parse import quote
 
 TEST_SSH_PUBLIC_KEY = (
@@ -115,22 +114,8 @@ class ProxmoxRunnerTests(unittest.TestCase):
     def setUp(self):
         self._temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self._temp_dir.name)
-        self.shared_root = self.root / "nfs"
-        (self.shared_root / "IaC" / ".git").mkdir(parents=True)
-        (self.shared_root / "IaC" / "manifests" / "vms").mkdir(parents=True)
-        (self.shared_root / "IaC" / "generated").mkdir(parents=True)
-        self._env = patch.dict(
-            "os.environ",
-            {
-                "GJALLAR_SHARED_ROOT": str(self.shared_root),
-                "GJALLAR_DEFAULT_SSH_PUBLIC_KEY": TEST_SSH_PUBLIC_KEY,
-            },
-            clear=False,
-        )
-        self._env.start()
 
     def tearDown(self):
-        self._env.stop()
         self._temp_dir.cleanup()
 
     def _plan(self, *, job_id="job-proxmox-runner", hardware_overrides=None, power_policy=None, ip_mode="static"):

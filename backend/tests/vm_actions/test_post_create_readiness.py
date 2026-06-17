@@ -226,9 +226,7 @@ def test_route_records_local_evidence_without_calling_live_capable_router_functi
         v1_router, "execute_drs_migration_job", side_effect=AssertionError(live_call_message)
     ) as execute_drs, patch.object(
         v1_router, "run_preflight", side_effect=AssertionError(live_call_message)
-    ) as run_preflight, patch.object(
-        v1_router, "run_iac_readiness", side_effect=AssertionError(live_call_message)
-    ) as run_iac_readiness:
+    ) as run_preflight:
         response = asyncio.run(
             v1_router.post_create_readiness_evidence_action(
                 "node-a",
@@ -250,6 +248,5 @@ def test_route_records_local_evidence_without_calling_live_capable_router_functi
         build_drs_check_result,
         execute_drs,
         run_preflight,
-        run_iac_readiness,
     ]:
         mocked.assert_not_called()

@@ -87,19 +87,6 @@ function summarizeSmokeTimeouts(summary = {}) {
     .join(', ')
 }
 
-function normalizeReadiness(readiness = {}) {
-  return {
-    sharedRoot: readiness.shared_root || '',
-    iacRoot: readiness.iac_root || '',
-    riskLevel: readiness.risk_level || 'unknown',
-    readyForPlan: readiness.ready_for_plan === true,
-    readyForExecute: readiness.ready_for_execute === true,
-    checks: Array.isArray(readiness.checks) ? readiness.checks : [],
-    risks: Array.isArray(readiness.risks) ? readiness.risks : [],
-    sideEffects: Array.isArray(readiness.side_effects) ? readiness.side_effects : [],
-  }
-}
-
 function risksFromPlan(plan = {}) {
   const riskSummary = plan.risk_summary || {}
   const red = Array.isArray(riskSummary.red) ? riskSummary.red : []
@@ -256,9 +243,6 @@ export function buildCreateVmInputFromConfig(config = {}, fallback = {}) {
 
 export async function loadCreateVmReviewModel(client, input = {}) {
   const payload = buildCreateVmPayload(input)
-  const readiness = typeof client.getVmCreateReadiness === 'function'
-    ? normalizeReadiness(await client.getVmCreateReadiness())
-    : normalizeReadiness()
   const draft = await client.createVmDraft(payload)
   const draftId = draft.draft_id || draft.id
   const preflight = await client.preflightVmDraft(draftId, payload)
@@ -310,9 +294,6 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       profileHardwareLimits: review.profile_hardware_limits || plan.profile_hardware_limits || {},
       network: review.network || plan.network || draft.network || {},
       access: accessEvidence,
-      iacRoot: review.iac_root || plan.iac_root || preflight.iac_root || readiness.iacRoot,
-      iacReadyForPlan: review.iac_ready_for_plan ?? plan.iac_ready_for_plan ?? preflight.iac_ready_for_plan ?? readiness.readyForPlan,
-      iacReadyForExecute: review.iac_ready_for_execute ?? plan.iac_ready_for_execute ?? preflight.iac_ready_for_execute ?? readiness.readyForExecute,
       firstPowerOnIncluded: Boolean(review.first_power_on_included ?? plan.first_power_on_included ?? draft.first_power_on_included),
       powerPolicy,
       smokeTimeoutSummary: summarizeSmokeTimeouts(review.smoke_timeout_summary || plan.smoke_timeout_summary),
@@ -330,9 +311,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       executeDisabledReason: LIVE_RUN_DISABLED_REASON,
     },
     artifacts,
-    readiness,
     sideEffects: [
-      ...readiness.sideEffects,
       ...(Array.isArray(draft.side_effects) ? draft.side_effects : []),
       ...(Array.isArray(preflight.side_effects) ? preflight.side_effects : []),
       ...(Array.isArray(plan.side_effects) ? plan.side_effects : []),
