@@ -38,6 +38,10 @@ Key values:
 - `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`: transitional Create VM/IaC readiness paths; Networks does not persist YAML
 - `GJALLAR_DATABASE_URL`: SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; default local SQLite in `.env.example`
 
+For Heimdall-managed PostgreSQL, bind the managed project database URL to
+`GJALLAR_DATABASE_URL`. The Docker entrypoint uses that same URL for startup
+migrations and initial profile seeding.
+
 Initialize the backend DB before first local Create VM use:
 
 ```bash
@@ -62,11 +66,14 @@ docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:lo
 ```
 
 The image does not bake in `.env`, local databases, virtualenvs, `node_modules`,
-or docs. Run database/bootstrap tasks as explicit one-off commands:
+or docs. On container startup, the entrypoint runs Alembic migrations and the
+idempotent Create VM profile seed before starting Uvicorn. Set
+`GJALLAR_SKIP_STARTUP_INIT=1` only for special one-off/debug runs that must skip
+startup database initialization.
+
+Create the initial admin account as an explicit one-off command:
 
 ```bash
-docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local alembic -c /app/backend/alembic.ini upgrade head
-docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.db.seed_create_vm_profiles
 docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
 ```
 

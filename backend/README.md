@@ -64,6 +64,9 @@ pnpm run backend
 
 The backend loads the repo root `.env`. `BACKEND_PORT` controls the local uvicorn port, and `FRONTEND_PORT` controls the CORS origin allowed for the Vite dev server.
 `GJALLAR_DATABASE_URL` controls the SQLAlchemy/Alembic connection. Local SQLite is supported, and PostgreSQL can be used by changing the same URL.
+For Heimdall-managed PostgreSQL, bind the managed project database URL to
+`GJALLAR_DATABASE_URL`; the Docker entrypoint uses that same URL for migrations
+and Create VM profile seeding.
 There is no public signup flow. Local accounts are managed with the backend CLI,
 which prompts for passwords unless `--password-env` is used.
 
@@ -89,12 +92,13 @@ docker build -t gjallar:local .
 docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:local
 ```
 
-The Docker CMD only starts Uvicorn. Run migrations, seed data, and admin user
-creation explicitly:
+The Docker entrypoint runs Alembic migrations and the idempotent Create VM
+profile seed before starting Uvicorn. Set `GJALLAR_SKIP_STARTUP_INIT=1` only for
+special one-off/debug runs that must skip startup database initialization.
+
+Create the initial admin account explicitly:
 
 ```bash
-docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local alembic -c /app/backend/alembic.ini upgrade head
-docker run --rm --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.db.seed_create_vm_profiles
 docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
 ```
 
