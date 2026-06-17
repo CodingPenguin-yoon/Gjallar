@@ -19,6 +19,8 @@ from app.db.models import SessionRecord, UserRecord
 from app.db.session import session_scope
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{1,80}$")
+BOOTSTRAP_ADMIN_USERNAME_ENV = "GJALLAR_BOOTSTRAP_ADMIN_USERNAME"
+BOOTSTRAP_ADMIN_PASSWORD_ENV = "GJALLAR_BOOTSTRAP_ADMIN_PASSWORD"
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,13 @@ class UserOperationResult:
     user: AuthenticatedUser
     revoked_sessions: int = 0
     current_session_preserved: bool = False
+
+
+@dataclass(frozen=True)
+class BootstrapAdminResult:
+    username: str | None
+    status: str
+    created: bool = False
 
 
 class UserNotFoundError(ValueError):
@@ -189,6 +198,49 @@ def create_user(*, username: str, password: str, role: str, enabled: bool = True
 
 def create_admin(*, username: str, password: str) -> AuthenticatedUser:
     return create_user(username=username, password=password, role="admin", enabled=True)
+
+
+def _bootstrap_admin_credentials_from_env() -> tuple[str, str] | None:
+    username = os.getenv(BOOTSTRAP_ADMIN_USERNAME_ENV)
+    password = os.getenv(BOOTSTRAP_ADMIN_PASSWORD_ENV)
+    username_configured = username is not None and bool(str(username).strip())
+    password_configured = password is not None and bool(str(password))
+    if not username_configured and not password_configured:
+        return None
+    if not username_configured:
+        raise ValueError(f"{BOOTSTRAP_ADMIN_USERNAME_ENV} is required when {BOOTSTRAP_ADMIN_PASSWORD_ENV} is set")
+    if not password_configured:
+        raise ValueError(f"{BOOTSTRAP_ADMIN_PASSWORD_ENV} is required when {BOOTSTRAP_ADMIN_USERNAME_ENV} is set")
+    return normalize_username(str(username)), _validated_password(str(password))
+
+
+def bootstrap_admin_from_env() -> BootstrapAdminResult:
+    """Create the first configured admin account without changing existing users."""
+    credentials = _bootstrap_admin_credentials_from_env()
+    if credentials is None:
+        return BootstrapAdminResult(username=None, status="not_configured")
+    username, password = credentials
+    now = _now()
+    with session_scope() as session:
+        existing = session.scalar(select(UserRecord).where(UserRecord.username == username))
+        if existing is not None:
+            if _is_enabled_admin(existing):
+                return BootstrapAdminResult(username=username, status="already_exists")
+            raise ValueError(
+                f"{BOOTSTRAP_ADMIN_USERNAME_ENV} targets an existing user that is not an enabled admin: {username}"
+            )
+        row = UserRecord(
+            user_id=f"user_{uuid.uuid4().hex}",
+            username=username,
+            password_hash=hash_password(password),
+            role="admin",
+            enabled=True,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(row)
+        session.flush()
+        return BootstrapAdminResult(username=username, status="created", created=True)
 
 
 def list_users() -> list[UserSummary]:
@@ -350,6 +402,11 @@ def _build_parser() -> argparse.ArgumentParser:
     reset_password_parser.add_argument("--username", required=True)
     reset_password_parser.add_argument("--password", help=argparse.SUPPRESS)
     reset_password_parser.add_argument("--password-env", help="Environment variable containing the password")
+
+    subcommands.add_parser(
+        "bootstrap-admin-from-env",
+        help="Create the configured bootstrap admin if it does not already exist",
+    )
     return parser
 
 
@@ -360,6 +417,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "create-admin":
             actor = create_admin(username=args.username, password=_password_from_args(args))
             print(f"created admin user {actor.username} ({actor.user_id})")
+            return 0
+        if args.command == "bootstrap-admin-from-env":
+            result = bootstrap_admin_from_env()
+            if result.status == "not_configured":
+                print(
+                    f"bootstrap admin not configured; set {BOOTSTRAP_ADMIN_USERNAME_ENV} and "
+                    f"{BOOTSTRAP_ADMIN_PASSWORD_ENV} to enable"
+                )
+                return 0
+            if result.status == "already_exists":
+                print(f"bootstrap admin user {result.username} already exists")
+                return 0
+            print(f"created bootstrap admin user {result.username}")
             return 0
         if args.command == "create-user":
             actor = create_user(username=args.username, password=_password_from_args(args), role=args.role)

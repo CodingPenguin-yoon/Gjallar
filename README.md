@@ -36,13 +36,15 @@ Key values:
 - `BACKEND_PORT`: FastAPI backend port, default `8000`
 - `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
 - `GJALLAR_SHARED_ROOT`, `GJALLAR_IAC_ROOT`: transitional Create VM/IaC readiness paths; Networks does not persist YAML
-- `GJALLAR_DATABASE_URL`: SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; default local SQLite in `.env.example`
+- `GJALLAR_DATABASE_URL`: PostgreSQL SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; `.env.example` uses the `postgresql+psycopg://` driver URL
 
 For Heimdall-managed PostgreSQL, bind the managed project database URL to
 `GJALLAR_DATABASE_URL`. The Docker entrypoint uses that same URL for startup
-migrations and initial profile seeding.
+migrations and initial profile seeding. Gjallar normalizes `postgresql://` and
+`postgres://` URLs to `postgresql+psycopg://` at runtime. SQLite is not a runtime
+database; it is allowed only for tests with `GJALLAR_ALLOW_SQLITE_FOR_TESTS=1`.
 
-Initialize the backend DB before first local Create VM use:
+Initialize the PostgreSQL-backed backend DB before first local Create VM use:
 
 ```bash
 cd backend
@@ -67,11 +69,13 @@ docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:lo
 
 The image does not bake in `.env`, local databases, virtualenvs, `node_modules`,
 or docs. On container startup, the entrypoint runs Alembic migrations and the
-idempotent Create VM profile seed before starting Uvicorn. Set
-`GJALLAR_SKIP_STARTUP_INIT=1` only for special one-off/debug runs that must skip
-startup database initialization.
+idempotent Create VM profile seed, then creates a bootstrap admin only when
+`GJALLAR_BOOTSTRAP_ADMIN_USERNAME` and `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD` are
+both set, before starting Uvicorn. Existing enabled admin users are left
+unchanged. Set `GJALLAR_SKIP_STARTUP_INIT=1` only for special one-off/debug runs
+that must skip startup database initialization.
 
-Create the initial admin account as an explicit one-off command:
+You can still create the initial admin account as an explicit one-off command:
 
 ```bash
 docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon

@@ -23,11 +23,12 @@ def test_entrypoint_runs_migration_seed_then_requested_command():
 
     migration_index = entrypoint.index("alembic -c /app/backend/alembic.ini upgrade head")
     seed_index = entrypoint.index("python -m app.db.seed_create_vm_profiles")
+    bootstrap_index = entrypoint.index("python -m app.auth.users bootstrap-admin-from-env")
     exec_index = entrypoint.index('exec "$@"')
 
     assert 'set -eu' in entrypoint
     assert "GJALLAR_SKIP_STARTUP_INIT" in entrypoint
-    assert migration_index < seed_index < exec_index
+    assert migration_index < seed_index < bootstrap_index < exec_index
 
 
 def test_entrypoint_is_valid_sh_syntax():

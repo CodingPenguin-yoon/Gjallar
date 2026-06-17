@@ -1,0 +1,47 @@
+"""Tests for Gjallar database URL policy."""
+
+from __future__ import annotations
+
+from app.db.config import DATABASE_URL_ENV, SQLITE_TEST_ALLOW_ENV, get_database_url
+
+
+def test_database_url_normalizes_postgresql_to_psycopg(monkeypatch):
+    monkeypatch.setenv(DATABASE_URL_ENV, "postgresql://gjallar:pw@postgres:5432/gjallar")
+
+    assert get_database_url() == "postgresql+psycopg://gjallar:pw@postgres:5432/gjallar"
+
+
+def test_database_url_normalizes_postgres_alias_to_psycopg(monkeypatch):
+    monkeypatch.setenv(DATABASE_URL_ENV, "postgres://gjallar:pw@postgres:5432/gjallar")
+
+    assert get_database_url() == "postgresql+psycopg://gjallar:pw@postgres:5432/gjallar"
+
+
+def test_database_url_rejects_sqlite_without_test_opt_in(monkeypatch):
+    monkeypatch.setenv(DATABASE_URL_ENV, "sqlite:///tmp/gjallar.db")
+    monkeypatch.delenv(SQLITE_TEST_ALLOW_ENV, raising=False)
+
+    try:
+        get_database_url()
+    except RuntimeError as exc:
+        assert "must use PostgreSQL" in str(exc)
+    else:  # pragma: no cover - defensive assertion branch.
+        raise AssertionError("SQLite URL should be rejected without test opt-in")
+
+
+def test_database_url_allows_sqlite_only_with_test_opt_in(monkeypatch):
+    monkeypatch.setenv(DATABASE_URL_ENV, "sqlite:///tmp/gjallar.db")
+    monkeypatch.setenv(SQLITE_TEST_ALLOW_ENV, "1")
+
+    assert get_database_url() == "sqlite:///tmp/gjallar.db"
+
+
+def test_database_url_rejects_unknown_scheme(monkeypatch):
+    monkeypatch.setenv(DATABASE_URL_ENV, "mysql://gjallar:pw@db/gjallar")
+
+    try:
+        get_database_url()
+    except RuntimeError as exc:
+        assert "must use postgresql+psycopg://" in str(exc)
+    else:  # pragma: no cover - defensive assertion branch.
+        raise AssertionError("Non-PostgreSQL URL should be rejected")
