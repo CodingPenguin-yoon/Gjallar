@@ -1,7 +1,8 @@
 """Database helpers for Gjallar runtime state."""
 
 from app.db.config import get_database_url
-from app.db.models import Base, CreateVmProfile
+from app.db.base import Base
+from app.db.models import CreateVmProfile
 from app.db.session import get_engine, reset_session_cache, session_scope
 
 __all__ = [

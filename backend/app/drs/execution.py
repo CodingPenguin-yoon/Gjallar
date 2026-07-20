@@ -743,6 +743,82 @@ def _stored_lock_result(job: DrsMigrationJobRecord) -> dict[str, Any]:
     return lock_result
 
 
+def _dispatch_attempt_evidence(
+    *,
+    job: DrsMigrationJobRecord,
+    actor: dict[str, str],
+    prepared_at: datetime,
+) -> dict[str, Any]:
+    return {
+        "state": "prepared",
+        "prepared_at": prepared_at.isoformat(),
+        "target": {
+            "source_node_id": job.source_node_id,
+            "target_node_id": job.target_node_id,
+            "vmid": job.vmid,
+        },
+        "task_node": job.source_node_id,
+        "actor": {
+            "user_id": actor["user_id"],
+            "username": actor["username"],
+            "role": actor["role"],
+        },
+    }
+
+
+def _prepared_dispatch_without_upid(job: DrsMigrationJobRecord) -> bool:
+    evidence = job.execution_evidence if isinstance(job.execution_evidence, dict) else {}
+    dispatch_attempt = evidence.get("dispatch_attempt") if isinstance(evidence.get("dispatch_attempt"), dict) else {}
+    return (
+        not _as_text(job.proxmox_upid)
+        and dispatch_attempt.get("state") == "prepared"
+        and (
+            job.status == "running"
+            or (job.status == "needs_reconciliation" and job.reconciliation_reason == "dispatch_prepared_without_upid")
+        )
+    )
+
+
+def _raise_prepared_dispatch_reentry(
+    job: DrsMigrationJobRecord,
+    packet: DrsApprovalPacketRecord,
+    *,
+    actor: dict[str, str],
+) -> None:
+    result = _project_prepared_dispatch_reconciliation(
+        job=job,
+        packet=packet,
+        actor=actor,
+        evidence_source="drs_execution_reentry",
+    )
+    job_record = result["job"]
+    evidence = job_record.get("execution_evidence") if isinstance(job_record.get("execution_evidence"), dict) else {}
+    dispatch_attempt = evidence.get("dispatch_attempt") if isinstance(evidence.get("dispatch_attempt"), dict) else {}
+    raise DrsMigrationExecutionError(
+        code="DRS_EXECUTION_DISPATCH_RECONCILIATION_REQUIRED",
+        message="DRS migration dispatch was prepared but no Proxmox UPID was durably stored; reconcile before retrying execution",
+        detail={
+            "job_id": job.job_id,
+            "approval_packet_id": packet.approval_packet_id,
+            "status": result["status"],
+            "actual_status": result["status"],
+            "blockers": ["drs_dispatch_prepared_without_upid"],
+            "dispatch_attempt": dict(dispatch_attempt),
+            "operation_lock": result["operation_lock"],
+            "proxmox_mutation_enabled": False,
+            "proxmox_mutation_may_have_run_previously": True,
+            "corrective_mutation_enabled": False,
+            "side_effects": result["side_effects"],
+            "needs_reconciliation": True,
+            "reconciliation_reason": "dispatch_prepared_without_upid",
+            "job": job_record,
+            "job_run": result["job_run"],
+            "artifact": result["artifact"],
+            "reconciliation_events": result["reconciliation_events"],
+        },
+    )
+
+
 def _record_blocked_attempt(
     *,
     job: DrsMigrationJobRecord,
@@ -838,6 +914,98 @@ def _write_execution_artifact(job_id: str, payload: dict[str, Any]) -> dict[str,
         payload=payload,
     )
     return artifact.to_dict()
+
+
+def _mark_dispatch_prepared(
+    *,
+    job: DrsMigrationJobRecord,
+    actor: dict[str, str],
+    final_check: dict[str, Any],
+    live_precheck: dict[str, Any],
+    lock_result: dict[str, Any],
+) -> dict[str, Any]:
+    prepared_at = _now()
+    dispatch_attempt = _dispatch_attempt_evidence(job=job, actor=actor, prepared_at=prepared_at)
+    side_effects = ["drs_operation_locks_acquired"]
+    with session_scope() as session:
+        row = session.get(DrsMigrationJobRecord, job.job_id)
+        if row is None:
+            raise DrsMigrationExecutionError(
+                code="DRS_JOB_NOT_FOUND_AFTER_LOCK",
+                message="DRS migration job disappeared after operation locks were acquired",
+                status_code=500,
+                detail={"job_id": job.job_id, "side_effects": side_effects},
+            )
+        row.status = "running"
+        row.runnable = False
+        row.proxmox_mutation_enabled = False
+        row.side_effects = side_effects
+        row.proxmox_task_node = job.source_node_id
+        row.migration_started_at = prepared_at
+        row.execution_evidence = {
+            **dict(row.execution_evidence or {}),
+            "final_precheck_summary": final_precheck_summary(final_check),
+            "live_precheck": live_precheck,
+            "operation_lock": lock_result,
+            "dispatch_attempt": dispatch_attempt,
+        }
+        row.operation_lock_ids = list(lock_result.get("lock_ids") or [])
+        row.lock_evidence = lock_result
+        row.updated_at = prepared_at
+        session.flush()
+        return _row_dict(row)
+
+
+def _mark_dispatch_accepted(
+    *,
+    job: DrsMigrationJobRecord,
+    upid: str,
+    final_check: dict[str, Any],
+    live_precheck: dict[str, Any],
+    lock_result: dict[str, Any],
+    side_effects: list[str],
+) -> dict[str, Any]:
+    accepted_at = _now()
+    with session_scope() as session:
+        row = session.get(DrsMigrationJobRecord, job.job_id)
+        if row is None:
+            raise DrsMigrationExecutionError(
+                code="DRS_JOB_NOT_FOUND_AFTER_MUTATION",
+                message="DRS migration job disappeared while storing execution evidence",
+                status_code=500,
+                detail={"job_id": job.job_id, "proxmox_upid": upid, "side_effects": side_effects},
+            )
+        execution_evidence = dict(row.execution_evidence or {})
+        dispatch_attempt = dict(execution_evidence.get("dispatch_attempt") or {})
+        dispatch_attempt.update(
+            {
+                "state": "accepted",
+                "accepted_at": accepted_at.isoformat(),
+                "upid_stored_at": accepted_at.isoformat(),
+                "proxmox_upid": upid,
+                "task_node": job.source_node_id,
+            }
+        )
+        row.status = "accepted"
+        row.runnable = False
+        row.proxmox_mutation_enabled = True
+        row.side_effects = side_effects
+        row.proxmox_upid = upid
+        row.proxmox_task_node = job.source_node_id
+        row.migration_started_at = row.migration_started_at or accepted_at
+        row.execution_evidence = {
+            **execution_evidence,
+            "final_precheck_summary": final_precheck_summary(final_check),
+            "live_precheck": live_precheck,
+            "operation_lock": lock_result,
+            "dispatch_attempt": dispatch_attempt,
+            "upid_stored_at": accepted_at.isoformat(),
+        }
+        row.operation_lock_ids = list(lock_result.get("lock_ids") or [])
+        row.lock_evidence = lock_result
+        row.updated_at = accepted_at
+        session.flush()
+        return _row_dict(row)
 
 
 def _update_after_upid(
@@ -999,6 +1167,8 @@ def _record_execution_run(
     actor: dict[str, str],
     artifact: dict[str, Any],
     step_status: str,
+    response_proxmox_mutation_enabled: bool = True,
+    proxmox_mutation_may_have_run_previously: bool = False,
 ) -> dict[str, Any]:
     status = _as_text(job_record.get("status"))
     post_check = job_record.get("post_check_evidence") if isinstance(job_record.get("post_check_evidence"), dict) else {}
@@ -1067,12 +1237,171 @@ def _record_execution_run(
             "reconciliation_required": status == "needs_reconciliation",
             "reconciliation_events": reconciliation_events,
             "operation_lock_ids": list(job_record.get("operation_lock_ids") or []),
-            "proxmox_mutation_enabled": True,
+            "proxmox_mutation_enabled": response_proxmox_mutation_enabled,
+            "proxmox_mutation_may_have_run_previously": proxmox_mutation_may_have_run_previously,
             "side_effects": list(job_record.get("side_effects") or []),
             "drs_evidence": drs_evidence,
             **actor_detail_fields(actor),
         },
     )
+
+
+def _project_prepared_dispatch_reconciliation(
+    *,
+    job: DrsMigrationJobRecord,
+    packet: DrsApprovalPacketRecord,
+    actor: dict[str, str],
+    evidence_source: str,
+    post_check: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist an unknown dispatch outcome without issuing another Proxmox mutation."""
+    now = _now()
+    reason = "dispatch_prepared_without_upid"
+    task_result = "dispatch_outcome_unknown"
+    observed_post_check = dict(post_check or {})
+    stored_lock_result = _stored_lock_result(job)
+    historical_side_effects = [
+        effect
+        for effect in list(job.side_effects or [])
+        if effect != "proxmox_migrate_invoked"
+    ]
+    side_effects = _dedupe(
+        [
+            *historical_side_effects,
+            "proxmox_migrate_invocation_outcome_unknown",
+            *(["proxmox_drs_post_check_observed"] if observed_post_check else []),
+        ]
+    )
+    with session_scope() as session:
+        row = session.get(DrsMigrationJobRecord, job.job_id)
+        if row is None:
+            raise DrsMigrationExecutionError(
+                code="DRS_JOB_NOT_FOUND_DURING_RECONCILIATION",
+                message="DRS migration job disappeared while recording dispatch reconciliation",
+                status_code=500,
+                detail={"job_id": job.job_id, "proxmox_mutation_enabled": False, "side_effects": []},
+            )
+        execution_evidence = dict(row.execution_evidence or {})
+        dispatch_attempt = dict(execution_evidence.get("dispatch_attempt") or {})
+        dispatch_attempt.update(
+            {
+                "outcome": "unknown",
+                "reconciliation_required_at": now.isoformat(),
+                "proxmox_upid_stored": False,
+            }
+        )
+        locks = mark_locks_reconciliation_required(
+            session,
+            lock_ids=list(row.operation_lock_ids or stored_lock_result.get("lock_ids") or []),
+            reason=reason,
+            evidence={
+                "source": evidence_source,
+                "job_id": row.job_id,
+                "task_result": task_result,
+                "proxmox_upid_stored": False,
+                "proxmox_mutation_may_have_run_previously": True,
+            },
+        )
+        lock_result = {
+            **stored_lock_result,
+            "locks": locks,
+            "lock_ids": [lock["operation_lock_id"] for lock in locks],
+        }
+        reconciliation_event = _record_reconciliation_event(
+            session,
+            job_id=row.job_id,
+            reason=reason,
+            evidence={
+                "source": evidence_source,
+                "task_result": task_result,
+                "dispatch_attempt": dispatch_attempt,
+                "post_check": observed_post_check,
+                "proxmox_upid_stored": False,
+                "proxmox_mutation_may_have_run_previously": True,
+                **actor_detail_fields(actor),
+            },
+        )
+        row.status = "needs_reconciliation"
+        row.runnable = False
+        row.proxmox_mutation_enabled = False
+        row.side_effects = side_effects
+        row.task_status = None
+        row.task_exitstatus = None
+        row.task_result = task_result
+        row.task_metadata = {
+            "result": task_result,
+            "proxmox_upid_stored": False,
+            "proxmox_mutation_may_have_run_previously": True,
+        }
+        row.task_log_excerpt = []
+        row.post_check_status = "needs_reconciliation" if observed_post_check else None
+        row.post_check_evidence = observed_post_check
+        row.post_check_completed_at = None
+        row.execution_evidence = {
+            **execution_evidence,
+            "operation_lock": lock_result,
+            "dispatch_attempt": dispatch_attempt,
+            "task": dict(row.task_metadata),
+            "post_check": observed_post_check,
+            "reconciliation_reason": reason,
+            "proxmox_mutation_may_have_run_previously": True,
+            "last_reconciliation_source": evidence_source,
+            "last_reconciled_at": now.isoformat(),
+        }
+        row.operation_lock_ids = list(lock_result["lock_ids"])
+        row.lock_evidence = lock_result
+        row.reconciliation_reason = reason
+        row.runnable_blockers = [reason]
+        row.updated_at = now
+        session.flush()
+        job_record = _row_dict(row)
+
+    reconciliation_events = _list_reconciliation_events(job.job_id)
+    artifact = _write_execution_artifact(
+        job.job_id,
+        {
+            "job": job_record,
+            "approval_packet": {
+                "approval_packet_id": packet.approval_packet_id,
+                "recommendation_id": packet.recommendation_id,
+                "vm_identity_id": packet.vm_identity_id,
+            },
+            "dispatch_attempt": dict((job_record.get("execution_evidence") or {}).get("dispatch_attempt") or {}),
+            "post_check": observed_post_check,
+            "reconciliation_reason": reason,
+            "reconciliation_event": reconciliation_event,
+            "reconciliation_events": reconciliation_events,
+            "proxmox_mutation_enabled": False,
+            "proxmox_mutation_may_have_run_previously": True,
+            "source": evidence_source,
+        },
+    )
+    job_run = _record_execution_run(
+        job_record=job_record,
+        packet=packet,
+        actor=actor,
+        artifact=artifact,
+        step_status="blocked",
+        response_proxmox_mutation_enabled=False,
+        proxmox_mutation_may_have_run_previously=True,
+    )
+    return {
+        "job": job_record,
+        "job_run": job_run,
+        "artifact": artifact,
+        "status": "needs_reconciliation",
+        "post_check_status": job_record.get("post_check_status"),
+        "post_check": observed_post_check,
+        "reconciliation_reason": reason,
+        "operation_lock": job_record.get("lock_evidence") or lock_result,
+        "proxmox_mutation_enabled": False,
+        "proxmox_mutation_may_have_run_previously": True,
+        "corrective_mutation_enabled": False,
+        "side_effects": side_effects,
+        "needs_reconciliation": True,
+        "reconciliation_events": reconciliation_events,
+        "read_only_proxmox_observation": bool(observed_post_check),
+    }
 
 
 def _finish_drs_task_follow_up(
@@ -1229,6 +1558,8 @@ def _finish_drs_task_follow_up(
         actor=actor,
         artifact=artifact,
         step_status=step_status,
+        response_proxmox_mutation_enabled=response_proxmox_mutation_enabled,
+        proxmox_mutation_may_have_run_previously=not response_proxmox_mutation_enabled and bool(side_effects),
     )
     return {
         "job": job_record,
@@ -1246,6 +1577,7 @@ def _finish_drs_task_follow_up(
         "live_precheck": live_precheck,
         "operation_lock": job_record.get("lock_evidence") or lock_result,
         "proxmox_mutation_enabled": response_proxmox_mutation_enabled,
+        "proxmox_mutation_may_have_run_previously": not response_proxmox_mutation_enabled and bool(side_effects),
         "corrective_mutation_enabled": False,
         "side_effects": side_effects,
         "needs_reconciliation": status == "needs_reconciliation",
@@ -1267,6 +1599,8 @@ def execute_drs_migration_job(
     trusted_actor = _trusted_operator(actor)
     require_drs_live_migration_ack(job_id, payload)
     job, packet = _load_job_and_packet(job_id)
+    if _prepared_dispatch_without_upid(job):
+        _raise_prepared_dispatch_reentry(job, packet, actor=trusted_actor)
 
     approval_blockers = _approval_binding_blockers(job, packet)
     if approval_blockers:
@@ -1385,6 +1719,13 @@ def execute_drs_migration_job(
             detail=blocked,
         )
 
+    _mark_dispatch_prepared(
+        job=job,
+        actor=trusted_actor,
+        final_check=final_check,
+        live_precheck=live_precheck,
+        lock_result=lock_result,
+    )
     accepted_side_effects = ["drs_operation_locks_acquired", "proxmox_migrate_invoked"]
     try:
         upid = client.migrate_vm(source_node=job.source_node_id, target_node=job.target_node_id, vmid=job.vmid)
@@ -1421,26 +1762,14 @@ def execute_drs_migration_job(
             "side_effects": job_record["side_effects"],
         }
 
-    accepted_at = _now()
-    with session_scope() as session:
-        row = session.get(DrsMigrationJobRecord, job.job_id)
-        if row is not None:
-            row.status = "accepted"
-            row.runnable = False
-            row.proxmox_mutation_enabled = True
-            row.side_effects = accepted_side_effects
-            row.proxmox_upid = upid
-            row.proxmox_task_node = job.source_node_id
-            row.migration_started_at = accepted_at
-            row.execution_evidence = {
-                "final_precheck_summary": final_precheck_summary(final_check),
-                "live_precheck": live_precheck,
-                "operation_lock": lock_result,
-                "upid_stored_at": accepted_at.isoformat(),
-            }
-            row.operation_lock_ids = list(lock_result.get("lock_ids") or [])
-            row.lock_evidence = lock_result
-            row.updated_at = accepted_at
+    _mark_dispatch_accepted(
+        job=job,
+        upid=upid,
+        final_check=final_check,
+        live_precheck=live_precheck,
+        lock_result=lock_result,
+        side_effects=accepted_side_effects,
+    )
 
     task_payload: dict[str, Any]
     try:
@@ -1478,12 +1807,27 @@ def reconcile_drs_migration_job(
     payload: dict[str, Any] | None = None,
     client_factory: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
-    """Poll a stored DRS migration UPID and update local reconciliation state."""
+    """Collect read-only Proxmox evidence and update local DRS reconciliation state."""
     require_drs_reconciliation_ack(job_id, payload)
     trusted_actor = _trusted_operator(actor)
     job, packet = _load_job_and_packet(job_id)
     upid = _as_text(job.proxmox_upid)
     task_node = _as_text(job.proxmox_task_node)
+    if _prepared_dispatch_without_upid(job):
+        client = client_factory() if client_factory is not None else get_default_drs_proxmox_migration_client()
+        post_check = _collect_direct_drs_post_check(
+            client=client,
+            job=job,
+            packet=packet,
+            final_check=None,
+        )
+        return _project_prepared_dispatch_reconciliation(
+            job=job,
+            packet=packet,
+            actor=trusted_actor,
+            evidence_source="drs_reconciliation_prepared_without_upid",
+            post_check=post_check,
+        )
     if not upid or not task_node:
         raise DrsMigrationExecutionError(
             code="DRS_RECONCILIATION_UPID_REQUIRED",
@@ -1492,6 +1836,7 @@ def reconcile_drs_migration_job(
             detail={
                 "job_id": job_id,
                 "proxmox_mutation_enabled": False,
+                "proxmox_mutation_may_have_run_previously": False,
                 "corrective_mutation_enabled": False,
                 "side_effects": [],
             },

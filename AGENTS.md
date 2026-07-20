@@ -1,38 +1,121 @@
-# AGENTS.md
+# Codex 프로젝트 작업 계약
 
-## Heimdall operating mode
-- The main session is the coordinator.
-- For non-trivial tasks, delegate to explorer, reviewer, docs_researcher, then worker.
-- Only worker is allowed to edit code.
-- Do not start worker until explorer and reviewer have returned.
-- Prefer concise summaries over raw logs and long command dumps.
-- Keep the main thread focused on requirements, decisions, and final output.
+> 이 파일과 `.agent-harness/`, `.agents/skills/`는 공통 하네스 관리 영역이다. 프로젝트별 규칙과 결정은 `project-docs/`에 기록한다.
 
-## Multi-agent model policy
-- When model control is required, do not use built-in `explorer`, `reviewer`, `docs_researcher`, or `worker` agent types because their model settings may be runtime-fixed.
-- Spawn `default` agents with `model: gpt-5.5` and `reasoning_effort: xhigh`.
-- Assign the intended role in the prompt text instead: explorer, reviewer, docs_researcher, or worker.
-- Preserve the same delegation order and edit restrictions even when roles are assigned by prompt text.
+## 1. 기본 언어와 적용 범위
 
-## When to skip multi-agent
-- Single-file trivial edits
-- Known typo fixes
-- Mechanical updates with already-known file targets
+- 응답과 공동 문서 본문은 한국어로 작성한다.
+- 코드 식별자, API, 명령, 파일명, 환경 변수, DB 이름은 실제 영문 표기를 유지한다.
+- 상위 Codex 지침의 우선순위를 따르며, 저장소 안에서는 현재 작업 경로에 가까운 `AGENTS.md`가 더 구체적인 범위를 정의한다.
+- 확인하지 않은 구조, 명령, 기술 버전, 프로젝트 관례를 추측하지 않는다.
 
-## Delegation order
-1. explorer scopes code paths, impacted files, symbols, configs, migrations, and likely tests
-2. reviewer checks correctness, regressions, security, and missing coverage
-3. docs_researcher verifies framework/API/config assumptions
-4. worker makes the smallest coherent change
+## 2. 작업 시작 라우팅
 
-## Definition of done
-- Scope is clear
-- Change is minimal and targeted
-- Relevant validation ran
-- Remaining risk is explicitly stated
+작업 전에 `project-docs/project-profile.md`의 존재와 상태를 확인한다.
 
-## Avoid
-- broad scans when targeted reads are enough
-- speculative refactors
-- style-only review comments
-- silent changes to behavior or contracts
+- 사용자가 `AGENTS.md`, `.agent-harness/`, `.agents/skills/`로 구성된 공통 하네스 자체의 변경을 명시하면 하네스 유지보수로 먼저 라우팅한다. 이 경우 프로필이 없다는 이유만으로 `$project-bootstrap`을 시작하거나 `project-docs/`를 만들지 않는다.
+- 새 프로젝트이거나 프로필이 없는 빈 저장소: `$project-bootstrap`을 사용한다.
+- 코드가 존재하는 기존 프로젝트에 처음 적용하는 경우: `$legacy-adoption`을 사용한다.
+- 프로필이 있으면 선택된 preset과 작업에 직접 관련된 명세·아키텍처·코드·테스트만 확인한다.
+- 아키텍처 변경은 사용자가 명시적으로 요청하거나 승인한 경우에만 `$architecture-evolution`을 사용한다.
+
+하네스 유지보수에서는 세 공통 관리 영역의 호환성을 함께 검토하고, 공개할 변경이면 Semantic Versioning에 따라 `manifest.toml`과 `.agent-harness/CHANGELOG.md`를 함께 갱신한다. 프로젝트 소유 파일과 실제 `project-docs/`는 하네스 업데이트로 덮어쓰지 않는다.
+
+항상 모든 문서를 읽지 않는다. 필요한 문서는 [.agent-harness/core/documentation.md](.agent-harness/core/documentation.md)의 라우팅 규칙에 따라 선택한다.
+
+## 3. 구현 전 확인
+
+코드를 변경하기 전에 다음을 확인한다.
+
+1. 사용자 목표, 현재 동작, 목표 동작, 범위, 비범위, 완료 조건
+2. 관련 진입점, 인접 코드, 공개 계약, 테스트, 설정
+3. 승인된 아키텍처, 도메인 경계, 데이터 소유권, 의존성 방향
+4. 재사용할 기존 구현과 프로젝트 관례
+5. 실행할 실제 검증 명령
+
+프로젝트 문서와 코드가 충돌하면 한쪽을 임의로 정답으로 선택하지 않는다. 의도된 명세와 실제 동작의 차이를 사용자에게 설명한다.
+
+## 4. 위험도와 공유 Plan
+
+다음 중 하나라도 해당하면 고위험 작업으로 본다.
+
+- DB 스키마, migration, 데이터 소유권, 트랜잭션 또는 정합성 변경
+- 인증, 권한, 개인정보, 시크릿 처리 변경
+- 외부 소비자가 의존하는 공개 계약의 호환성 변경
+- 새로운 외부 시스템, 메시지, 캐시, 스케줄러 또는 운영 의존성
+- 도메인 경계, 의존성 방향, 주요 기술 또는 아키텍처 변경
+- 동시성, 비동기 처리, 재시도, 멱등성, 보상 처리
+- 실패 시 데이터 손실, 중복 처리, 광범위한 장애 가능성
+- 되돌리기 어려운 데이터 변환이나 대규모 레거시 분해
+
+불명확한 요구사항, 부족한 테스트, 여러 도메인 영향, 불분명한 롤백이 겹치면 고위험으로 올린다.
+
+고위험 작업은 구현 전에 `$task-planning`으로 `project-docs/plans/`의 공유 Plan을 만들고 사용자 승인을 받는다. 작업 기간이나 파일 수만으로 공유 Plan을 강제하지 않는다. 일반 작업은 별도 공유 Plan을 만들지 않는다.
+
+상세 기준은 [.agent-harness/core/workflow.md](.agent-harness/core/workflow.md)를 따른다.
+
+## 5. 승인 경계
+
+다음 결정은 구현 전에 사용자 승인을 받는다.
+
+- 최초 기술 스택, 주요 버전, 아키텍처, 도메인
+- 데이터 소유권과 트랜잭션 경계
+- 호환성을 깨는 공개 계약
+- 파괴적 DB 변경과 대규모 데이터 이동
+- 인증·권한·보안 구조
+- 새로운 운영 의존성, 외부 시스템, 배포 구조
+- 기존 프로젝트의 아키텍처 전환
+
+승인된 구조 안의 일반 구현, 테스트, 버그 수정, 호환 가능한 내부 리팩터링, 관련 문서 동기화는 반복 승인 없이 진행한다.
+
+## 6. 코드 작성 원칙
+
+- 요구사항을 만족하는 가장 작은 일관된 변경을 만든다.
+- 이름, 책임, 데이터와 오류 흐름이 코드를 읽는 사람에게 명확해야 한다.
+- 도메인 규칙, HTTP/UI, DB, 외부 연동을 한 책임에 혼합하지 않는다.
+- 기존 패턴을 먼저 찾고 불필요한 추상화, 계층, 의존성을 추가하지 않는다.
+- 코드 줄 수는 품질 판정이 아니라 책임 집중을 발견하는 신호로만 사용한다.
+- 오류, 타입 문제, 실패 테스트를 suppression이나 silent fallback으로 숨기지 않는다.
+- 시크릿, 토큰, 비밀번호, 개인정보를 코드·로그·문서에 기록하지 않는다.
+
+상세 원칙은 [.agent-harness/core/principles.md](.agent-harness/core/principles.md)를 따른다.
+
+## 7. 문서 규율
+
+- 공동 문서는 `project-docs/`에 두고 Git으로 관리한다.
+- 개인 학습, 조사, 초안은 `.agent-local/`에 두며 공동 의사결정의 근거로 사용하지 않는다.
+- 모든 코드 변경에 문서를 강제하지 않는다.
+- 프로젝트 명세, 아키텍처, ADR, 도메인, 주요 흐름, API, DB의 현재 설명이 실제로 바뀐 경우에만 갱신한다.
+- 일반 변경 이력은 Git과 PR이 담당하며 `changes/` 문서를 만들지 않는다.
+- 문서는 전체 소스코드를 복제하지 않고 책임, 계약, 흐름, 결정 이유를 설명한다.
+
+## 8. 테스트와 검증
+
+- Project Profile에 기록된 프로젝트 환경과 명령을 사용한다.
+- 동작 변경에는 위험에 맞는 테스트를 추가하거나 식별한다.
+- 버그 수정은 가능하면 실패 재현 테스트를 우선한다.
+- 관련 formatter, Lint, 타입 검사, 테스트, 빌드를 실제로 실행한다.
+- 실행하지 못한 검사는 성공으로 표현하지 않고 이유와 남은 위험을 보고한다.
+- 고위험 구현은 완료 전에 `$quality-review`로 독립 검토한다.
+
+상세 원칙은 [.agent-harness/core/verification.md](.agent-harness/core/verification.md)를 따른다.
+
+## 9. 안전과 Git
+
+- 사용자의 기존 변경을 되돌리거나 범위 밖 파일을 정리하지 않는다.
+- 파괴적 명령, 데이터 삭제, 저장소 외부 수정, 새 운영 의존성은 명시적 승인 없이 수행하지 않는다.
+- `git commit`, `git push`, 강제 push, rebase, hard reset은 사용자가 요청한 경우에만 수행한다.
+- 생성 파일은 생성 원본을 수정하고, 적용된 migration 이력을 덮어쓰지 않는다.
+
+## 10. 완료 정의
+
+완료 전에 다음을 확인한다.
+
+- 요구사항과 완료 조건이 충족되었다.
+- 승인된 아키텍처와 공개 계약을 지켰다.
+- 최종 diff에 범위 밖 변경, 중복, 임시 코드, 디버깅 산출물이 없다.
+- 필요한 검증을 실행하고 성공·실패·미실행을 구분했다.
+- 실제로 영향을 받은 공동 문서만 동기화했다.
+- 남은 위험과 후속 과제를 숨기지 않았다.
+
+최종 응답에는 작업 결과, 주요 결정, 변경 파일의 역할, 검증 결과, 문서 변경, 남은 위험을 간결하게 포함한다.

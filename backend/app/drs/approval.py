@@ -528,7 +528,12 @@ def build_drs_run_evidence(
     if not task:
         task = execution_evidence.get("task") if isinstance(execution_evidence.get("task"), dict) else {}
     side_effects = list(_field(job, "side_effects", []) or [])
-    historical_mutation = _field(job, "proxmox_mutation_enabled") is True or bool(side_effects)
+    mutation_outcome_unknown = "proxmox_migrate_invocation_outcome_unknown" in side_effects
+    known_mutation_evidence = _field(job, "proxmox_mutation_enabled") is True or any(
+        effect in {"proxmox_migrate_invoked", "proxmox_upid_stored"}
+        for effect in side_effects
+    )
+    historical_mutation = known_mutation_evidence or (bool(side_effects) and not mutation_outcome_unknown)
     acknowledgement = None
     if acknowledgement_field:
         acknowledgement = {"field": acknowledgement_field, "value": acknowledgement_value is True}
@@ -585,6 +590,7 @@ def build_drs_run_evidence(
         },
         "historical_execution": {
             "proxmox_mutation_recorded": historical_mutation,
+            "proxmox_mutation_may_have_run_previously": mutation_outcome_unknown and not known_mutation_evidence,
             "side_effects": side_effects,
         },
     }

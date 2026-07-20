@@ -1,97 +1,100 @@
 # Gjallar
 
-Gjallar is a human-facing Proxmox Operations & Risk Console.
+Gjallar는 Proxmox를 위한 **Verified Operations Control Plane**을 지향합니다.
 
-The active repo-local documentation lives under [`docs/`](docs/README.md). Start there for product docs, current engineering notes, and historical material.
+Proxmox는 VM·node·task의 actual state와 low-level execution을 소유하고, Gjallar는 workload 운영 의도, 정책, 승인, 실행 검증, evidence와 reconciliation을 소유합니다. 최초 연결과 break-glass를 제외한 day-2 운영을 Gjallar에서 시작하고 결과 확인까지 끝내는 것이 목표입니다.
 
-## Current product direction
+## 현재 상태와 목표
 
-- Current MVP product source of truth is [`docs/product/drs-advisor/`](docs/product/drs-advisor/README.md). If this document conflicts with that folder, `drs-advisor/` wins.
-- DRS Advisor is the next MVP success line: Proxmox-native migration recommendations, approval-gated live migration, Proxmox task tracking, audit, and reconciliation.
-- DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
-- Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
-- PBS/Veeam references are backup evidence or future integration context only.
+현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 feature-oriented monolith입니다. 인증, inventory, Create VM, VM Start, DRS, Jobs/Risks 기능이 이미 있지만 목표 domain/operation 구조로의 전환은 진행 중입니다.
 
-## Current state at a glance
+- 목표 제품 정의: [`project-docs/specifications/project-specification.md`](project-docs/specifications/project-specification.md)
+- 현재 코드 기준선: [`project-docs/architecture/overview.md`](project-docs/architecture/overview.md)
+- 승인된 아키텍처 결정: [`ADR-001`](project-docs/decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](project-docs/decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](project-docs/decisions/adr-003-production-inventory-connection-truth.md)
+- 전환 순서: [`project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md`](project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md)
 
-- The active frontend contract remains `/api/v1`.
-- Inventory is live read-only Proxmox data with a fake fallback when live inventory is unavailable.
-- The current primary UI nav is Overview, VM Instances, DRS Advisor, Operations, and Settings. VM Instances contains inventory, DRS Policies, Create VM, and Network readiness; Operations contains Jobs and Risks; Settings contains Account and admin-only Users.
-- Current code has DRS identity/fingerprint policy, read-only final pre-check,
-  local approval/job substrate, narrow approval-gated migration execution, UPID
-  tracking, verified post-check, read-only reconciliation preview, and approved
-  VMID `140` live DRS migration evidence. Live execute/corrective reconcile UI
-  remains pending.
-- Create VM mutations are approval-gated Proxmox API native. The legacy Terraform executor route surface and helper code have been removed.
-- Native Create VM creates/configures a VM, polls the Proxmox clone UPID, records request/VM DB rows, and requires post-check `observed_after` evidence before marking the create applied. The default policy leaves the VM stopped; the optional `boot_and_verify` policy starts it and verifies guest-agent IP plus cloud-init completion.
-- VM Instances inventory exposes only a gated Start action for stopped non-template VMs; stop/reset/shutdown/reboot/delete/terminate controls are absent.
+기존 DRS 중심 문서는 폐기했습니다. DRS는 앞으로 제품의 중심이 아니라 placement/capacity insight와 제한된 기존 operation으로 다룹니다.
 
-## Local Runtime Env
+## 현재 제공 기능
 
-Copy `.env.example` to `.env` and adjust local paths or ports as needed. The root `pnpm run dev` scripts and the Vite dev proxy both read this file.
+- local user/session과 `viewer < operator < admin` RBAC
+- Proxmox node, VM, template, storage, network inventory
+- approval-gated native Create VM
+- acknowledgement/idempotency-gated VM Start
+- Jobs/Artifacts/Risks 조회
+- DRS recommendation, policy, approval packet, 제한된 migration/reconciliation backend
+- same-origin production SPA/API Docker image
 
-Key values:
+Proxmox 연결은 `unconfigured`/`live`/`degraded`로 표시됩니다. product runtime은 mock/demo inventory로 fallback하지 않으며, `live`가 아니면 VM/Create/Network/DRS 화면을 닫고 Jobs/Risks/Account/Admin만 유지합니다.
 
-- `FRONTEND_PORT`: Vite dev server port, default `5173`
-- `BACKEND_PORT`: FastAPI backend port, default `8000`
-- `VITE_BACKEND_URL`: frontend dev proxy target, default `http://127.0.0.1:8000`
-- `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64`: optional base64-encoded OpenSSH public key for Create VM cloud-init access defaults; use this for Docker env files when the raw public key's spaces would be awkward
-- `GJALLAR_DATABASE_URL`: PostgreSQL SQLAlchemy/Alembic database URL for profiles, jobs, artifacts, Create VM requests, and created VM records; `.env.example` uses the `postgresql+psycopg://` driver URL
+현재 기능과 목표 기능을 혼동하지 않습니다. 목표 operation lifecycle은 승인됐지만 아직 모든 workflow에 구현되지 않았습니다.
 
-For Heimdall-managed PostgreSQL, bind the managed project database URL to
-`GJALLAR_DATABASE_URL`. The Docker entrypoint uses that same URL for startup
-migrations and initial profile seeding. Gjallar normalizes `postgresql://` and
-`postgres://` URLs to `postgresql+psycopg://` at runtime. SQLite is not a runtime
-database; it is allowed only for tests with `GJALLAR_ALLOW_SQLITE_FOR_TESTS=1`.
+## 로컬 실행
 
-Initialize the PostgreSQL-backed backend DB before first local Create VM use:
+기준 runtime은 Dockerfile의 Python 3.13, Node.js 24, pnpm 10입니다. PostgreSQL과 실행 가능한 `python3.13` binary 또는 동일한 Python 3.13 경로가 필요합니다.
 
 ```bash
-cd backend
-alembic upgrade head
-python -m app.db.seed_create_vm_profiles
+cp .env.example .env
+nvm use
+npm install --global pnpm@10.34.5
+python3.13 -m venv backend/venv
+backend/venv/bin/pip install -r backend/requirements-dev.lock
+pnpm --dir frontend install --frozen-lockfile
 ```
 
-## Docker Runtime
+`.env`의 `GJALLAR_DATABASE_URL`을 실제 PostgreSQL에 맞춘 뒤 초기화합니다.
 
-Build the single runtime image from the repo root:
+```bash
+set -a
+. ./.env
+set +a
+PYTHONPATH=backend backend/venv/bin/alembic -c backend/alembic.ini upgrade head
+PYTHONPATH=backend backend/venv/bin/python -m app.db.seed_create_vm_profiles
+PYTHONPATH=backend backend/venv/bin/python -m app.auth.users create-admin --username admin
+pnpm run dev
+```
+
+- frontend: `http://127.0.0.1:5173`
+- backend: `http://127.0.0.1:8000`
+- health: `http://127.0.0.1:8000/health`
+
+`.python-version`, `.nvmrc`, package engines, `packageManager`와 lockfile이 local 기준을 명시합니다. 생성되는 venv와 `node_modules`는 Git에 포함하지 않습니다. Python direct dependency를 바꿀 때는 `requirements*.txt`와 Python 3.13/Linux에서 해석한 `requirements*.lock`을 함께 갱신합니다.
+
+## Docker
 
 ```bash
 docker build -t gjallar:local .
+docker run --rm --env-file .env -p 8000:8000 gjallar:local
 ```
 
-Run FastAPI/Uvicorn on port `8000`; the backend serves the built React app from
-the same origin:
+container startup은 Alembic migration, Create VM profile seed, 선택적 bootstrap admin을 수행한 뒤 Uvicorn을 시작합니다. bootstrap admin은 `GJALLAR_BOOTSTRAP_ADMIN_USERNAME`과 `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD`가 모두 있을 때만 생성됩니다.
+
+## 안전 원칙
+
+- live Proxmox mutation과 smoke test는 target과 side effect를 확인한 별도 승인이 필요합니다.
+- API 결과가 불확실할 때 `qm`으로 자동 fallback하거나 같은 mutation을 재호출하지 않습니다.
+- arbitrary shell/SSH executor는 제품 범위가 아닙니다.
+- `.env`, password, API token, session token과 private key를 commit·log·artifact에 남기지 않습니다.
+- 적용된 Alembic migration을 수정하거나 삭제하지 않습니다.
+
+## 검증
 
 ```bash
-docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:local
+git diff --check
+pnpm run verify
+pnpm run verify:container
 ```
 
-The image does not bake in `.env`, local databases, virtualenvs, `node_modules`,
-or docs. On container startup, the entrypoint runs Alembic migrations and the
-idempotent Create VM profile seed, then creates a bootstrap admin only when
-`GJALLAR_BOOTSTRAP_ADMIN_USERNAME` and `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD` are
-both set, before starting Uvicorn. Existing enabled admin users are left
-unchanged. Set `GJALLAR_SKIP_STARTUP_INIT=1` only for special one-off/debug runs
-that must skip startup database initialization.
+`verify`는 local backend test → frontend test → frontend lint → frontend build 순서로 실행합니다. `verify:container`는 Python 3.13 backend test stage와 Node 24/pnpm 10 frontend 검증을 포함한 production image build를 실행합니다.
 
-You can still create the initial admin account as an explicit one-off command:
+## 문서
 
-```bash
-docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
-```
+공동 source of truth는 `project-docs/` 하나입니다.
 
-## Product framing
+- [`project-docs/project-profile.md`](project-docs/project-profile.md): 기술·검증·저장소 기준
+- [`project-docs/api/current-api-v1.md`](project-docs/api/current-api-v1.md): 현재 API
+- [`project-docs/database/current-schema-and-ownership.md`](project-docs/database/current-schema-and-ownership.md): 현재 DB와 목표 ownership
+- [`project-docs/flows/verified-operation-lifecycle.md`](project-docs/flows/verified-operation-lifecycle.md): 승인된 operation 흐름
+- [`project-docs/operations/runbook.md`](project-docs/operations/runbook.md): 실행·장애 대응
 
-- Gjallar owns safe human-facing visibility and operational control for Proxmox.
-- Hermes, AI, and agent workflows are supporting control plumbing, not the product identity.
-- Read-only inventory is the safe baseline.
-
-## Where to read next
-
-- [Docs index](docs/README.md)
-- [Goal map and next gate](docs/goal/README.md)
-- [Current implemented state](docs/current/README.md)
-- [Create VM native architecture](docs/architecture/CREATE_VM_NATIVE_ARCHITECTURE.md)
-- [Current runbook](docs/operations/runbook.md)
-- [Product docs](docs/product/README.md)
+역사적 live-smoke 자료는 `project-docs/evidence/legacy-live-smoke/`, 과거 rewrite raw artifact는 `artifacts/rewrite-baseline/`에 보존하지만 active 요구사항의 근거로 사용하지 않습니다.

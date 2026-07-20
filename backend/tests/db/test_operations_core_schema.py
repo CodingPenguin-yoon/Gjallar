@@ -1,0 +1,86 @@
+"""Schema and migration contracts for common Operations persistence."""
+
+from pathlib import Path
+
+from sqlalchemy import create_engine, inspect
+
+
+def test_operations_models_register_owned_tables_and_constraints():
+    from app.db.metadata import Base
+
+    operations = Base.metadata.tables["operations"]
+    events = Base.metadata.tables["operation_events"]
+
+    assert {
+        "operation_id",
+        "operation_type",
+        "execution_mode",
+        "status",
+        "target_type",
+        "target_id",
+        "idempotency_key",
+        "intent_digest",
+        "plan_digest",
+        "current_stage",
+        "details",
+        "expires_at",
+        "version",
+        "last_event_checksum",
+    } <= set(operations.columns.keys())
+    assert {
+        "event_id",
+        "operation_id",
+        "sequence",
+        "event_type",
+        "from_status",
+        "to_status",
+        "stage",
+        "payload",
+        "previous_checksum",
+        "checksum",
+    } <= set(events.columns.keys())
+    assert {
+        "ck_operations_execution_mode",
+        "ck_operations_status",
+        "uq_operations_scoped_idempotency",
+    } <= {constraint.name for constraint in operations.constraints}
+    assert "uq_operation_events_operation_sequence" in {constraint.name for constraint in events.constraints}
+
+
+def test_alembic_head_adds_operations_projection_and_event_tables(tmp_path, monkeypatch):
+    from alembic.command import upgrade
+    from alembic.config import Config
+
+    from app.db.session import reset_session_cache
+
+    db_path = tmp_path / "alembic-operations.db"
+    database_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("GJALLAR_DATABASE_URL", database_url)
+    reset_session_cache()
+
+    config = Config(str(Path("backend/alembic.ini").resolve()))
+    upgrade(config, "head")
+
+    engine = create_engine(database_url, future=True)
+    inspector = inspect(engine)
+    try:
+        assert inspector.has_table("operations")
+        assert inspector.has_table("operation_events")
+        assert "uq_operations_scoped_idempotency" in {
+            constraint["name"] for constraint in inspector.get_unique_constraints("operations")
+        }
+        assert "uq_operation_events_operation_sequence" in {
+            constraint["name"] for constraint in inspector.get_unique_constraints("operation_events")
+        }
+        assert {
+            "ix_operations_status_updated",
+            "ix_operations_target_status",
+            "ix_operations_actor_created",
+        } <= {index["name"] for index in inspector.get_indexes("operations")}
+        assert {
+            "ix_operation_events_operation_created",
+            "ix_operation_events_type_created",
+        } <= {index["name"] for index in inspector.get_indexes("operation_events")}
+    finally:
+        engine.dispose()
+        reset_session_cache()

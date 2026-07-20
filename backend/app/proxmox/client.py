@@ -269,6 +269,20 @@ class ProxmoxMutationClient:
         data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/config")
         return dict(data) if isinstance(data, dict) else {}
 
+    def list_active_vm_tasks(self, *, node: str, vmid: int) -> list[dict[str, Any]]:
+        data = self._request_json("GET", f"/nodes/{node}/tasks?source=active&vmid={int(vmid)}")
+        if not isinstance(data, list):
+            return []
+        return [dict(item) for item in data if isinstance(item, dict)]
+
+    def has_node_task_audit(self, *, node: str) -> bool:
+        path = f"/nodes/{node}"
+        data = self._request_json("GET", f"/access/permissions?path={path}")
+        if not isinstance(data, dict):
+            return False
+        permissions = data.get(path)
+        return isinstance(permissions, dict) and "Sys.Audit" in permissions
+
     def get_guest_network_interfaces(self, *, node: str, vmid: int) -> dict[str, Any]:
         data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/agent/network-get-interfaces")
         return dict(data) if isinstance(data, dict) else {"result": data}

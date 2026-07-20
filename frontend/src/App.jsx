@@ -7,16 +7,18 @@ import DrsPoliciesScreen from './components/DrsPoliciesScreen'
 import InstanceList from './components/InstanceList'
 import NetworkReadinessScreen from './components/NetworkReadinessScreen'
 import OperationalRiskDashboard from './components/OperationalRiskDashboard'
+import ProxmoxConnectionBoundary from './components/ProxmoxConnectionBoundary'
 import DrsAdvisorScreen from './components/DrsAdvisorScreen'
 import TaskBoard from './components/TaskBoard'
 import { apiV1Client } from './services/apiV1'
 import { authFailureMessage, canAdmin, canOperate } from './utils/auth'
+import { isProxmoxOperational, proxmoxConnectionBadge } from './utils/proxmoxConnection'
 import middlepiaStackLogo from './assets/middlepia-stack.svg'
 
 const primaryNavItems = [
   { label: 'Overview', path: '/', icon: LayoutDashboard },
-  { label: 'VM Instances', path: '/instances', icon: List, activePrefixes: ['/instances'], aliasPaths: ['/infra', '/create', '/networks'] },
-  { label: 'DRS Advisor', path: '/drs', icon: Activity, activePrefixes: ['/drs'] },
+  { label: 'VM Instances', path: '/instances', icon: List, activePrefixes: ['/instances'], aliasPaths: ['/infra', '/create', '/networks'], requiresProxmox: true },
+  { label: 'DRS Advisor', path: '/drs', icon: Activity, activePrefixes: ['/drs'], requiresProxmox: true },
   { label: 'Operations', path: '/operations/jobs', icon: Clock3, activePrefixes: ['/operations'], aliasPaths: ['/jobs', '/risks'] },
   { label: 'Settings', path: '/settings/account', icon: SettingsIcon, activePrefixes: ['/settings'], aliasPaths: ['/account', '/admin/users'] },
 ]
@@ -638,6 +640,7 @@ function App() {
   const navigate = useNavigate()
   const location = useLocation()
   const [authState, setAuthState] = useState({ status: 'loading', user: null })
+  const [proxmoxConnectionState, setProxmoxConnectionState] = useState({ status: 'idle', data: null })
 
   useEffect(() => {
     let cancelled = false
@@ -657,6 +660,38 @@ function App() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated') {
+      setProxmoxConnectionState({ status: 'idle', data: null })
+      return undefined
+    }
+
+    let cancelled = false
+    async function loadProxmoxConnection() {
+      setProxmoxConnectionState({ status: 'loading', data: null })
+      try {
+        const data = await apiV1Client.proxmoxConnection()
+        if (!cancelled) setProxmoxConnectionState({ status: 'ready', data })
+      } catch {
+        if (!cancelled) setProxmoxConnectionState({ status: 'error', data: null })
+      }
+    }
+    loadProxmoxConnection()
+    return () => {
+      cancelled = true
+    }
+  }, [authState.status])
+
+  const refreshProxmoxConnection = async () => {
+    setProxmoxConnectionState({ status: 'loading', data: null })
+    try {
+      const data = await apiV1Client.proxmoxConnection()
+      setProxmoxConnectionState({ status: 'ready', data })
+    } catch {
+      setProxmoxConnectionState({ status: 'error', data: null })
+    }
+  }
 
   const handleLogin = async ({ username, password }) => {
     const response = await apiV1Client.login(username, password)
@@ -682,6 +717,7 @@ function App() {
       await apiV1Client.logout()
     } finally {
       setAuthState({ status: 'anonymous', user: null })
+      setProxmoxConnectionState({ status: 'idle', data: null })
       navigate('/login', { replace: true })
     }
   }
@@ -704,27 +740,45 @@ function App() {
   }
 
   const currentUser = authState.user
-  const canMutate = canOperate(currentUser)
+  const proxmoxOperational = proxmoxConnectionState.status === 'ready'
+    && isProxmoxOperational(proxmoxConnectionState.data)
+  const canMutate = canOperate(currentUser) && proxmoxOperational
   const isAdmin = canAdmin(currentUser)
+  const connectionBoundaryProps = {
+    requestStatus: proxmoxConnectionState.status,
+    connection: proxmoxConnectionState.data,
+    onRetry: refreshProxmoxConnection,
+  }
+  const operationalRoute = (children) => (
+    <ProxmoxConnectionBoundary {...connectionBoundaryProps}>{children}</ProxmoxConnectionBoundary>
+  )
   const vmInventoryRoute = (
-    <VmInstancesShell>
-      <InstanceList currentUser={currentUser} canStartVms={canMutate} />
-    </VmInstancesShell>
+    operationalRoute(
+      <VmInstancesShell>
+        <InstanceList currentUser={currentUser} canStartVms={canMutate} />
+      </VmInstancesShell>,
+    )
   )
   const drsPoliciesRoute = (
-    <VmInstancesShell>
-      <DrsPoliciesScreen currentUser={currentUser} canManageDrsPolicies={canMutate} />
-    </VmInstancesShell>
+    operationalRoute(
+      <VmInstancesShell>
+        <DrsPoliciesScreen currentUser={currentUser} canManageDrsPolicies={canMutate} />
+      </VmInstancesShell>,
+    )
   )
   const createVmRoute = (
-    <VmInstancesShell>
-      <CreateInstanceWizard currentUser={currentUser} canExecuteLiveMutation={canMutate} />
-    </VmInstancesShell>
+    operationalRoute(
+      <VmInstancesShell>
+        <CreateInstanceWizard currentUser={currentUser} canExecuteLiveMutation={canMutate} />
+      </VmInstancesShell>,
+    )
   )
   const networkReadinessRoute = (
-    <VmInstancesShell>
-      <NetworkReadinessScreen />
-    </VmInstancesShell>
+    operationalRoute(
+      <VmInstancesShell>
+        <NetworkReadinessScreen />
+      </VmInstancesShell>,
+    )
   )
   const jobsRoute = (
     <OperationsShell>
@@ -748,6 +802,8 @@ function App() {
       </AdminGuard>
     </SettingsShell>
   )
+  const connectionBadge = proxmoxConnectionBadge(proxmoxConnectionState.status, proxmoxConnectionState.data)
+  const visiblePrimaryNavItems = primaryNavItems.filter((item) => !item.requiresProxmox || proxmoxOperational)
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -762,6 +818,9 @@ function App() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-4">
+              <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-semibold sm:inline-flex ${toneClasses(connectionBadge.tone)}`}>
+                Proxmox {connectionBadge.label}
+              </span>
               <div className="hidden items-center gap-2 text-sm text-slate-600 sm:flex">
                 <UserCircle className="h-4 w-4" />
                 <span className="font-medium text-slate-900">{currentUser?.username}</span>
@@ -780,7 +839,7 @@ function App() {
       <nav className="bg-white border-b border-gray-200 shadow-sm" aria-label="Gjallar primary navigation">
         <div className={appShellClass}>
           <div className="flex overflow-x-auto">
-            {primaryNavItems.map(({ label, path, icon: Icon, activePrefixes, aliasPaths }) => (
+            {visiblePrimaryNavItems.map(({ label, path, icon: Icon, activePrefixes, aliasPaths }) => (
               <NavLink key={path} to={path} className={() => navClass({ isActive: navItemActive({ path, activePrefixes, aliasPaths }, location.pathname) })}>
                 <Icon className="w-5 h-5" />
                 {label}
@@ -792,16 +851,16 @@ function App() {
 
       <main className={`${appShellClass} py-8`}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={operationalRoute(<Dashboard />)} />
           <Route path="/instances" element={vmInventoryRoute} />
           <Route path="/instances/drs-policies" element={drsPoliciesRoute} />
           <Route path="/instances/create" element={createVmRoute} />
           <Route path="/instances/networks" element={networkReadinessRoute} />
           <Route
             path="/drs"
-            element={
+            element={operationalRoute(
               <DrsAdvisorScreen currentUser={currentUser} canOperate={canMutate} />
-            }
+            )}
           />
           <Route path="/operations" element={<Navigate to="/operations/jobs" replace />} />
           <Route path="/operations/jobs" element={jobsRoute} />

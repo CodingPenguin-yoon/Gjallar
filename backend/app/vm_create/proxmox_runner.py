@@ -615,6 +615,20 @@ def _observed_after_payload(
     }
 
 
+def _error_details(exc: ProxmoxMutationError) -> dict[str, Any]:
+    return _sanitize_public_key_material(getattr(exc, "details", {}) or {})
+
+
+def _is_http_4xx_rejection(exc: ProxmoxMutationError) -> bool:
+    clear_rejection_statuses = {400, 401, 403, 404, 405, 409, 422}
+    details = getattr(exc, "details", {}) or {}
+    try:
+        status_code = int(details.get("status_code") or 0)
+    except (TypeError, ValueError):
+        return False
+    return status_code in clear_rejection_statuses
+
+
 def run_proxmox_create(
     plan: VmCreatePlan,
     *,
@@ -636,21 +650,51 @@ def run_proxmox_create(
             target=str(clone["target"]),
             storage=str(clone["storage"]),
         )
-        side_effects.append("proxmox_clone_invoked")
-        task_result = client.wait_for_task(node=clone["template_node"], upid=upid)
-        side_effects.append("proxmox_task_polled")
     except ProxmoxMutationError as exc:
+        details = _error_details(exc)
+        if _is_http_4xx_rejection(exc):
+            status = "failed"
+            side_effects.append("proxmox_clone_rejected")
+            message = str(exc)
+        else:
+            status = "needs_reconciliation"
+            side_effects.append("proxmox_clone_state_unknown")
+            message = f"Proxmox clone request state is unknown and requires reconciliation: {exc}"
         return {
             "job_id": plan.job_id,
             "manifest_id": plan.manifest_id,
             "vmid": plan.vmid,
             "target_node_id": plan.target_node_id,
             "success": False,
-            "status": "failed",
-            "message": str(exc),
+            "status": status,
+            "message": message,
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
-            "task": task_result or getattr(exc, "details", {}),
+            "details": details,
+            "task": {"status": "unknown"},
+            "artifacts": [],
+            "side_effects": side_effects,
+        }
+    side_effects.append("proxmox_clone_invoked")
+    task_result = {"node": clone["template_node"], "upid": upid, "status": "unknown"}
+    try:
+        task_result = client.wait_for_task(node=clone["template_node"], upid=upid)
+        side_effects.append("proxmox_task_polled")
+    except ProxmoxMutationError as exc:
+        details = _error_details(exc)
+        side_effects.append("proxmox_task_poll_state_unknown")
+        return {
+            "job_id": plan.job_id,
+            "manifest_id": plan.manifest_id,
+            "vmid": plan.vmid,
+            "target_node_id": plan.target_node_id,
+            "success": False,
+            "status": "needs_reconciliation",
+            "message": f"Proxmox clone task polling is unknown after UPID acquisition and requires reconciliation: {exc}",
+            "clone": clone,
+            "config": _sanitize_public_key_material(config_payload),
+            "details": details,
+            "task": {**task_result, "status": "unknown", "error": str(exc)},
             "artifacts": [],
             "side_effects": side_effects,
         }

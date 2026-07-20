@@ -36,7 +36,7 @@ _ENV_LOADED = False
 _ENV_LOCK = threading.Lock()
 _DEFAULT_ADAPTER_LOCK = threading.Lock()
 _DEFAULT_ADAPTER_SIGNATURE: tuple[Any, ...] | None = None
-_DEFAULT_ADAPTER: FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter | None = None
+_DEFAULT_ADAPTER: FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter | UnavailableProxmoxInventoryAdapter | None = None
 _DEFAULT_CLUSTER_ID = "gjallar-mvp"
 _DISK_SIZE_PATTERN = re.compile(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGTP]?)", re.IGNORECASE)
 _DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
@@ -757,10 +757,88 @@ def _template_family(name: str) -> str:
     return "generic"
 
 
+class ProxmoxInventoryUnavailableError(RuntimeError):
+    """Raised when authoritative Proxmox inventory cannot be provided."""
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        connection_state: str,
+        missing_configuration: tuple[str, ...] = (),
+    ) -> None:
+        self.reason = str(reason or "proxmox_inventory_unavailable")
+        self.connection_state = str(connection_state or "degraded")
+        self.missing_configuration = tuple(missing_configuration)
+        super().__init__(self.reason)
+
+
+class UnavailableProxmoxInventoryAdapter:
+    """Non-data adapter used when product runtime has no authoritative source."""
+
+    source = "unavailable"
+    is_test_fixture = False
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        requested_mode: str,
+        missing_configuration: tuple[str, ...] = (),
+        cluster_id: str = _DEFAULT_CLUSTER_ID,
+    ) -> None:
+        self.reason = str(reason or "proxmox_inventory_unconfigured")
+        self.requested_mode = str(requested_mode or "live")
+        self.missing_configuration = tuple(missing_configuration)
+        self.cluster_id = str(cluster_id or _DEFAULT_CLUSTER_ID).strip() or _DEFAULT_CLUSTER_ID
+
+    def redacted_connection_context(self) -> dict[str, Any]:
+        return {
+            "state": "unconfigured",
+            "source": self.source,
+            "reason": self.reason,
+            "requested_mode": self.requested_mode,
+            "cluster_id": self.cluster_id,
+            "missing_configuration": list(self.missing_configuration),
+        }
+
+    def _raise(self) -> None:
+        raise ProxmoxInventoryUnavailableError(
+            reason=self.reason,
+            connection_state="unconfigured",
+            missing_configuration=self.missing_configuration,
+        )
+
+    def snapshot(self) -> InventorySnapshot:
+        self._raise()
+
+    def list_nodes(self) -> list[NodeInventory]:
+        self._raise()
+
+    def list_vms(self) -> list[VmInventory]:
+        self._raise()
+
+    def get_vm(self, vmid: int) -> VmInventory | None:
+        self._raise()
+
+    def list_templates(self) -> list[TemplateInventory]:
+        self._raise()
+
+    def list_storage(self, node_id: str | None = None) -> list[StorageInventory]:
+        self._raise()
+
+    def list_networks(self, node_id: str | None = None) -> list[NetworkInventory]:
+        self._raise()
+
+    def suggest_next_vmid(self) -> int:
+        self._raise()
+
+
 class FakeProxmoxInventoryAdapter:
-    """Fixture-backed read-only inventory adapter for tests and dev mode."""
+    """Fixture-backed read-only inventory adapter for direct test injection."""
 
     source = "fake_read_only"
+    is_test_fixture = True
 
     def __init__(
         self,
@@ -958,6 +1036,7 @@ class LiveProxmoxInventoryAdapter:
     """Read-only live Proxmox inventory adapter with short TTL caching."""
 
     source = "live_read_only"
+    is_test_fixture = False
 
     def __init__(
         self,
@@ -1328,10 +1407,10 @@ class LiveProxmoxInventoryAdapter:
         return _first_unused_vmid(used)
 
 
-def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter:
+def _build_adapter_from_env() -> LiveProxmoxInventoryAdapter | UnavailableProxmoxInventoryAdapter:
     _load_project_env()
 
-    mode = str(os.getenv("GJALLAR_INVENTORY_MODE", "auto") or "auto").strip().lower()
+    mode = str(os.getenv("GJALLAR_INVENTORY_MODE", "live") or "live").strip().lower()
     api_url = str(os.getenv("PROXMOX_API_URL", "")).strip()
     token_id = str(os.getenv("PROXMOX_API_TOKEN_ID", "")).strip()
     token_secret = str(os.getenv("PROXMOX_API_TOKEN_SECRET", "")).strip()
@@ -1347,15 +1426,24 @@ def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInvent
     guest_agent_timeout_seconds = _read_float_env("PROXMOX_GUEST_AGENT_TIMEOUT_SECONDS", 3.0, minimum=0.5)
     cluster_id = _read_text_env("GJALLAR_CLUSTER_ID", _DEFAULT_CLUSTER_ID)
 
-    if mode == "fake" or not (api_url and token_id and token_secret):
-        return FakeProxmoxInventoryAdapter(
-            source_config={
-                "mode": "fake" if mode == "fake" else "fallback_fake_read_only",
-                "api_url": api_url,
-                "token_id": token_id,
-                "token_secret": token_secret,
-                "tls_insecure": tls_insecure,
-            },
+    if mode not in {"auto", "live"}:
+        return UnavailableProxmoxInventoryAdapter(
+            reason="proxmox_inventory_mode_invalid",
+            requested_mode=mode,
+            cluster_id=cluster_id,
+        )
+
+    required_configuration = {
+        "PROXMOX_API_URL": api_url,
+        "PROXMOX_API_TOKEN_ID": token_id,
+        "PROXMOX_API_TOKEN_SECRET": token_secret,
+    }
+    missing_configuration = tuple(name for name, value in required_configuration.items() if not value)
+    if missing_configuration:
+        return UnavailableProxmoxInventoryAdapter(
+            reason="proxmox_inventory_configuration_missing",
+            requested_mode=mode,
+            missing_configuration=missing_configuration,
             cluster_id=cluster_id,
         )
 
@@ -1373,13 +1461,13 @@ def _build_adapter_from_env() -> FakeProxmoxInventoryAdapter | LiveProxmoxInvent
     )
 
 
-def get_default_inventory_adapter() -> FakeProxmoxInventoryAdapter | LiveProxmoxInventoryAdapter:
-    """Return the current non-mutating inventory adapter for /api/v1."""
+def get_default_inventory_adapter() -> LiveProxmoxInventoryAdapter | UnavailableProxmoxInventoryAdapter:
+    """Return live inventory or an explicit non-data unconfigured adapter."""
     global _DEFAULT_ADAPTER_SIGNATURE, _DEFAULT_ADAPTER
 
     _load_project_env()
     signature = (
-        os.getenv("GJALLAR_INVENTORY_MODE", "auto"),
+        os.getenv("GJALLAR_INVENTORY_MODE", "live"),
         os.getenv("PROXMOX_API_URL", ""),
         os.getenv("PROXMOX_API_TOKEN_ID", ""),
         os.getenv("PROXMOX_API_TOKEN_SECRET", ""),

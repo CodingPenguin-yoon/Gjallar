@@ -42,6 +42,60 @@ class ProxmoxMutationClientTests(unittest.TestCase):
         with self.assertRaises(ProxmoxMutationError):
             client.start_vm(node="node-a", vmid=306)
 
+    def test_list_active_vm_tasks_uses_node_task_filter(self):
+        from app.proxmox.client import ProxmoxMutationClient
+
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            return [{"upid": "UPID:node-a:0001:vzdump", "status": "RUNNING"}, "ignored"]
+
+        client = ProxmoxMutationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!gjallar",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.list_active_vm_tasks(node="node-a", vmid=306)
+
+        self.assertEqual([{"upid": "UPID:node-a:0001:vzdump", "status": "RUNNING"}], result)
+        self.assertEqual(
+            [("GET", "/nodes/node-a/tasks?source=active&vmid=306", None, None)],
+            calls,
+        )
+
+    def test_node_task_audit_requires_sys_audit_in_effective_permissions(self):
+        from app.proxmox.client import ProxmoxMutationClient
+
+        responses = [
+            {"/nodes/node-a": {"Sys.Audit": 0, "VM.Audit": 1}},
+            {"/nodes/node-a": {"VM.Audit": 1}},
+        ]
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            return responses.pop(0)
+
+        client = ProxmoxMutationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!gjallar",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        self.assertTrue(client.has_node_task_audit(node="node-a"))
+        self.assertFalse(client.has_node_task_audit(node="node-a"))
+        self.assertEqual(
+            [
+                ("GET", "/access/permissions?path=/nodes/node-a", None, None),
+                ("GET", "/access/permissions?path=/nodes/node-a", None, None),
+            ],
+            calls,
+        )
+
     def test_resize_vm_disk_uses_qemu_resize_endpoint_payload(self):
         from app.proxmox.client import ProxmoxMutationClient
 

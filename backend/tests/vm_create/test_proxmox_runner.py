@@ -390,6 +390,105 @@ class ProxmoxRunnerTests(unittest.TestCase):
         self.assertEqual(["clone_vm", "wait_for_task"], [call[0] for call in client.calls])
         self.assertEqual([], result["artifacts"])
 
+    def test_clone_without_upid_requires_reconciliation_because_clone_may_have_started(self):
+        from app.proxmox.client import ProxmoxMutationError
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        class MissingUpidCloneClient(RecordingProxmoxClient):
+            def clone_vm(self, **kwargs):
+                self.calls.append(("clone_vm", kwargs))
+                raise ProxmoxMutationError("Proxmox clone did not return a UPID", details={"payload": kwargs})
+
+        client = MissingUpidCloneClient()
+        result = run_proxmox_create(
+            self._plan(job_id="job-proxmox-missing-upid"),
+            run_dir=self.root / "missing-upid",
+            client=client,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("needs_reconciliation", result["status"])
+        self.assertEqual([], result["artifacts"])
+        self.assertEqual(["clone_vm"], [call[0] for call in client.calls])
+        self.assertIn("proxmox_clone_state_unknown", result["side_effects"])
+        self.assertEqual({"payload": client.calls[0][1]}, result["details"])
+        self.assertEqual("unknown", result["task"]["status"])
+
+    def test_clone_http_4xx_rejection_can_fail_without_reconciliation(self):
+        from app.proxmox.client import ProxmoxMutationError
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        class RejectedCloneClient(RecordingProxmoxClient):
+            def clone_vm(self, **kwargs):
+                self.calls.append(("clone_vm", kwargs))
+                raise ProxmoxMutationError(
+                    "Proxmox API HTTP 400: POST /nodes/yoonmanserver2/qemu/9000/clone",
+                    details={"status_code": 400, "response_json": {"errors": {"newid": "already exists"}}},
+                )
+
+        result = run_proxmox_create(
+            self._plan(job_id="job-proxmox-clone-4xx-rejected"),
+            run_dir=self.root / "clone-4xx-rejected",
+            client=RejectedCloneClient(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("failed", result["status"])
+        self.assertIn("proxmox_clone_rejected", result["side_effects"])
+        self.assertEqual([], result["artifacts"])
+
+    def test_clone_http_408_timeout_requires_reconciliation(self):
+        from app.proxmox.client import ProxmoxMutationError
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        class TimeoutCloneClient(RecordingProxmoxClient):
+            def clone_vm(self, **kwargs):
+                self.calls.append(("clone_vm", kwargs))
+                raise ProxmoxMutationError(
+                    "Proxmox API HTTP 408: POST /nodes/yoonmanserver2/qemu/9000/clone",
+                    details={"status_code": 408, "reason": "Request Timeout"},
+                )
+
+        result = run_proxmox_create(
+            self._plan(job_id="job-proxmox-clone-408-timeout"),
+            run_dir=self.root / "clone-408-timeout",
+            client=TimeoutCloneClient(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("needs_reconciliation", result["status"])
+        self.assertIn("proxmox_clone_state_unknown", result["side_effects"])
+        self.assertNotIn("proxmox_clone_rejected", result["side_effects"])
+        self.assertEqual(408, result["details"]["status_code"])
+
+    def test_task_poll_exception_after_upid_requires_reconciliation_with_upid_evidence(self):
+        from app.proxmox.client import ProxmoxMutationError
+        from app.vm_create.proxmox_runner import run_proxmox_create
+
+        class AmbiguousTaskPollClient(RecordingProxmoxClient):
+            def wait_for_task(self, **kwargs):
+                self.calls.append(("wait_for_task", kwargs))
+                raise ProxmoxMutationError(
+                    "Proxmox API request failed: GET /nodes/yoonmanserver2/tasks/UPID:yoonmanserver2:0001:test/status",
+                    details={"node": kwargs["node"], "upid": kwargs["upid"], "error": "connection reset"},
+                )
+
+        client = AmbiguousTaskPollClient()
+        result = run_proxmox_create(
+            self._plan(job_id="job-proxmox-task-poll-unknown"),
+            run_dir=self.root / "task-poll-unknown",
+            client=client,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("needs_reconciliation", result["status"])
+        self.assertEqual(["clone_vm", "wait_for_task"], [call[0] for call in client.calls])
+        self.assertEqual("UPID:yoonmanserver2:0001:test", result["task"]["upid"])
+        self.assertEqual("unknown", result["task"]["status"])
+        self.assertEqual("connection reset", result["details"]["error"])
+        self.assertIn("proxmox_clone_invoked", result["side_effects"])
+        self.assertIn("proxmox_task_poll_state_unknown", result["side_effects"])
+
     def test_powered_on_or_missing_post_check_needs_reconciliation(self):
         from app.vm_create.proxmox_runner import run_proxmox_create
 

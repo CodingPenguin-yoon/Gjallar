@@ -150,6 +150,10 @@ class FakeDrsMigrationClient:
         self.raise_active_tasks = raise_active_tasks
         self.migrate_error = migrate_error
         self.migrate_calls = []
+        self.poll_calls = []
+        self.vm_status_calls = []
+        self.vm_config_calls = []
+        self.active_task_calls = []
         self.preview_mutation_calls = []
 
     def collect_live_precheck(self, *, source_node, target_node, vmid):
@@ -167,6 +171,7 @@ class FakeDrsMigrationClient:
         return self.upid
 
     def poll_task_status(self, *, node, upid):
+        self.poll_calls.append({"node": node, "upid": upid})
         if self.task_result == "running":
             return {
                 "result": "running",
@@ -194,6 +199,7 @@ class FakeDrsMigrationClient:
         }
 
     def get_vm_status(self, *, node, vmid):
+        self.vm_status_calls.append({"node": node, "vmid": vmid})
         if self.raise_status:
             from app.proxmox.drs_migration import DrsProxmoxMigrationError
 
@@ -201,6 +207,7 @@ class FakeDrsMigrationClient:
         return dict(self.vm_status)
 
     def get_vm_config(self, *, node, vmid):
+        self.vm_config_calls.append({"node": node, "vmid": vmid})
         if self.raise_config:
             from app.proxmox.drs_migration import DrsProxmoxMigrationError
 
@@ -208,6 +215,7 @@ class FakeDrsMigrationClient:
         return dict(self.vm_config)
 
     def list_active_tasks(self, *, node, vmid):
+        self.active_task_calls.append({"node": node, "vmid": vmid})
         if self.raise_active_tasks:
             from app.proxmox.drs_migration import DrsProxmoxMigrationError
 
@@ -575,9 +583,160 @@ def test_task_ok_with_matching_postcheck_completes_and_releases_locks():
         assert job.status == "completed"
         assert job.proxmox_upid == "UPID:node-a:0001:migrate"
         assert job.post_check_status == "completed"
+        dispatch_attempt = job.execution_evidence["dispatch_attempt"]
+        assert dispatch_attempt["state"] == "accepted"
+        assert dispatch_attempt["target"] == {"source_node_id": "node-a", "target_node_id": "node-b", "vmid": 101}
+        assert dispatch_attempt["actor"] == {"user_id": "operator-1", "username": "operator", "role": "operator"}
+        assert dispatch_attempt["proxmox_upid"] == "UPID:node-a:0001:migrate"
+        assert dispatch_attempt["prepared_at"]
+        assert dispatch_attempt["accepted_at"]
         locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
         assert len(locks) == 3
         assert {lock.status for lock in locks} == {"released"}
+
+
+def test_upid_store_failure_projects_reconciliation_and_allows_read_only_reconcile(monkeypatch):
+    import json
+
+    from app.db.models import DrsMigrationJobRecord, DrsReconciliationEventRecord, JobRunRecord, OperationLockRecord
+    from app.db.session import session_scope
+    from app.drs import execution as execution_module
+    from app.drs.execution import DrsMigrationExecutionError, reconcile_drs_migration_job
+    from app.jobs.artifacts import read_artifact_text
+
+    adapter = ExecutionDrsAdapter()
+    job_id, _ = _approved_job(adapter)
+    client = FakeDrsMigrationClient(task_result="running")
+
+    def fail_after_upid(**_kwargs):
+        raise RuntimeError("accepted store failed")
+
+    monkeypatch.setattr(execution_module, "_mark_dispatch_accepted", fail_after_upid)
+    with pytest.raises(RuntimeError, match="accepted store failed"):
+        execution_module.execute_drs_migration_job(
+            job_id,
+            actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+            inventory_adapter=adapter,
+            payload=VALID_EXECUTE_PAYLOAD,
+            risks=[],
+            client_factory=lambda: client,
+        )
+
+    assert client.migrate_calls == [{"source_node": "node-a", "target_node": "node-b", "vmid": 101}]
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "running"
+        assert job.runnable is False
+        assert job.proxmox_mutation_enabled is False
+        assert job.side_effects == ["drs_operation_locks_acquired"]
+        assert job.proxmox_upid is None
+        assert job.proxmox_task_node == "node-a"
+        assert job.migration_started_at is not None
+        assert len(job.operation_lock_ids) == 3
+        dispatch_attempt = job.execution_evidence["dispatch_attempt"]
+        assert dispatch_attempt["state"] == "prepared"
+        assert dispatch_attempt["target"] == {"source_node_id": "node-a", "target_node_id": "node-b", "vmid": 101}
+        assert dispatch_attempt["actor"] == {"user_id": "operator-1", "username": "operator", "role": "operator"}
+        assert dispatch_attempt["prepared_at"]
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert len(locks) == 3
+        assert {lock.status for lock in locks} == {"active"}
+
+    called = False
+
+    def fail_factory():
+        nonlocal called
+        called = True
+        raise AssertionError("client factory must not be called for prepared dispatch re-entry")
+
+    with pytest.raises(DrsMigrationExecutionError) as raised:
+        execution_module.execute_drs_migration_job(
+            job_id,
+            actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+            inventory_adapter=adapter,
+            payload=VALID_EXECUTE_PAYLOAD,
+            risks=[],
+            client_factory=fail_factory,
+        )
+
+    assert called is False
+    assert client.migrate_calls == [{"source_node": "node-a", "target_node": "node-b", "vmid": 101}]
+    assert raised.value.code == "DRS_EXECUTION_DISPATCH_RECONCILIATION_REQUIRED"
+    assert raised.value.detail["status"] == "needs_reconciliation"
+    assert raised.value.detail["needs_reconciliation"] is True
+    assert raised.value.detail["dispatch_attempt"]["state"] == "prepared"
+    assert raised.value.detail["dispatch_attempt"]["outcome"] == "unknown"
+    assert raised.value.detail["proxmox_mutation_enabled"] is False
+    assert raised.value.detail["proxmox_mutation_may_have_run_previously"] is True
+    assert "proxmox_migrate_invocation_outcome_unknown" in raised.value.detail["side_effects"]
+    assert "proxmox_migrate_invoked" not in raised.value.detail["side_effects"]
+    assert raised.value.detail["job_run"]["status"] == "needs_reconciliation"
+    assert raised.value.detail["job_run"]["details"]["proxmox_mutation_enabled"] is False
+    assert raised.value.detail["job_run"]["details"]["proxmox_mutation_may_have_run_previously"] is True
+    historical_execution = raised.value.detail["job_run"]["details"]["drs_evidence"]["historical_execution"]
+    assert historical_execution["proxmox_mutation_recorded"] is False
+    assert historical_execution["proxmox_mutation_may_have_run_previously"] is True
+    assert raised.value.detail["artifact"]["type"] == "drs_migration_execution"
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "needs_reconciliation"
+        assert job.proxmox_mutation_enabled is False
+        assert job.task_result == "dispatch_outcome_unknown"
+        assert job.reconciliation_reason == "dispatch_prepared_without_upid"
+        assert job.execution_evidence["dispatch_attempt"]["state"] == "prepared"
+        assert job.execution_evidence["dispatch_attempt"]["outcome"] == "unknown"
+        assert job.execution_evidence["proxmox_mutation_may_have_run_previously"] is True
+        assert "proxmox_migrate_invocation_outcome_unknown" in job.side_effects
+        assert "proxmox_migrate_invoked" not in job.side_effects
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"reconciliation_required"}
+        events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
+        assert len(events) == 1
+        assert events[0].reason == "dispatch_prepared_without_upid"
+        assert events[0].evidence["proxmox_mutation_may_have_run_previously"] is True
+        job_run = session.get(JobRunRecord, job_id)
+        assert job_run.status == "needs_reconciliation"
+        assert job_run.details["proxmox_mutation_enabled"] is False
+
+    followup_client = FakeDrsMigrationClient(task_result="ok")
+    result = reconcile_drs_migration_job(
+        job_id,
+        actor={"user_id": "operator-1", "username": "operator", "role": "operator"},
+        payload={"drs_reconciliation_acknowledged": True},
+        client_factory=lambda: followup_client,
+    )
+
+    assert result["status"] == "needs_reconciliation"
+    assert result["needs_reconciliation"] is True
+    assert result["reconciliation_reason"] == "dispatch_prepared_without_upid"
+    assert result["proxmox_mutation_enabled"] is False
+    assert result["proxmox_mutation_may_have_run_previously"] is True
+    assert result["read_only_proxmox_observation"] is True
+    assert result["post_check"]["read_only"] is True
+    assert result["post_check"]["status"] == "pass"
+    assert followup_client.migrate_calls == []
+    assert followup_client.poll_calls == []
+    assert followup_client.vm_status_calls == [{"node": "node-b", "vmid": 101}]
+    assert followup_client.vm_config_calls == [{"node": "node-b", "vmid": 101}]
+    assert followup_client.active_task_calls == [
+        {"node": "node-a", "vmid": 101},
+        {"node": "node-b", "vmid": 101},
+    ]
+    artifact_payload = json.loads(read_artifact_text(result["artifact"]))
+    assert artifact_payload["source"] == "drs_reconciliation_prepared_without_upid"
+    assert artifact_payload["proxmox_mutation_enabled"] is False
+    assert artifact_payload["proxmox_mutation_may_have_run_previously"] is True
+    assert artifact_payload["post_check"]["read_only"] is True
+    with session_scope() as session:
+        job = session.get(DrsMigrationJobRecord, job_id)
+        assert job.status == "needs_reconciliation"
+        assert job.post_check_status == "needs_reconciliation"
+        assert job.post_check_evidence["status"] == "pass"
+        locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
+        assert {lock.status for lock in locks} == {"reconciliation_required"}
+        events = session.query(DrsReconciliationEventRecord).filter_by(job_id=job_id).all()
+        assert len(events) == 2
+        assert events[-1].evidence["post_check"]["read_only"] is True
 
 
 def test_task_ok_postcheck_ignores_cloudinit_cdrom_volume_for_identity_fingerprint():
@@ -978,6 +1137,9 @@ def test_missing_upid_becomes_needs_reconciliation_and_marks_locks():
         assert job.status == "needs_reconciliation"
         assert job.proxmox_upid is None
         assert job.task_result == "missing_upid"
+        dispatch_attempt = job.execution_evidence["dispatch_attempt"]
+        assert dispatch_attempt["state"] == "prepared"
+        assert dispatch_attempt["target"] == {"source_node_id": "node-a", "target_node_id": "node-b", "vmid": 101}
         locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
         assert len(locks) == 3
         assert {lock.status for lock in locks} == {"reconciliation_required"}
@@ -1016,6 +1178,9 @@ def test_migration_request_failure_after_locks_needs_reconciliation_without_rele
         assert job.proxmox_upid is None
         assert job.task_result == "mutation_failed"
         assert job.reconciliation_reason == "migration_request_failed"
+        dispatch_attempt = job.execution_evidence["dispatch_attempt"]
+        assert dispatch_attempt["state"] == "prepared"
+        assert dispatch_attempt["target"] == {"source_node_id": "node-a", "target_node_id": "node-b", "vmid": 101}
         locks = session.query(OperationLockRecord).filter(OperationLockRecord.owner_id == "operator-1").all()
         assert len(locks) == 3
         assert {lock.status for lock in locks} == {"reconciliation_required"}

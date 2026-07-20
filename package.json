@@ -1,9 +1,21 @@
 {
   "name": "proxmox-web",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=10 <11"
+  },
   "scripts": {
     "frontend": "sh -c 'set -a; [ -f .env ] && . ./.env; set +a; exec pnpm --dir frontend dev -- --host 0.0.0.0 --port ${FRONTEND_PORT:-5173}'",
     "backend": "sh -c 'set -a; [ -f .env ] && . ./.env; set +a; cd backend && . venv/bin/activate && exec uvicorn app.main:app --reload --host 0.0.0.0 --port ${BACKEND_PORT:-8000}'",
-    "dev": "sh -c 'trap \"kill 0\" EXIT INT TERM; pnpm run backend & pnpm run frontend & wait'"
+    "dev": "sh -c 'trap \"kill 0\" EXIT INT TERM; pnpm run backend & pnpm run frontend & wait'",
+    "test:backend": "PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests",
+    "test:frontend": "pnpm --dir frontend test",
+    "lint:frontend": "pnpm --dir frontend lint",
+    "build:frontend": "pnpm --dir frontend build",
+    "test:backend:container": "docker build --target backend-test -t gjallar-backend-test:local .",
+    "verify": "pnpm run test:backend && pnpm run test:frontend && pnpm run lint:frontend && pnpm run build:frontend",
+    "verify:container": "pnpm run test:backend:container && docker build -t gjallar:local ."
   }
 }

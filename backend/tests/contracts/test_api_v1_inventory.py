@@ -7,6 +7,9 @@ import inspect
 import unittest
 from unittest.mock import patch
 
+import requests
+from fastapi import HTTPException
+
 
 class ApiV1InventoryPayloadTests(unittest.TestCase):
     @classmethod
@@ -28,6 +31,73 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
             self.paths,
             "Set 5 read-only inventory must expose storage candidates under /api/v1.",
         )
+        self.assertIn("/api/v1/setup/proxmox/connection", self.paths)
+
+    def test_connection_status_reports_unconfigured_without_returning_fixture_inventory(self):
+        from app.proxmox.inventory import UnavailableProxmoxInventoryAdapter
+        from app.workloads.inventory import WorkloadInventoryQuery
+        from app.api.v1 import router as v1_router
+
+        query = WorkloadInventoryQuery(
+            UnavailableProxmoxInventoryAdapter(
+                reason="proxmox_inventory_configuration_missing",
+                requested_mode="live",
+                missing_configuration=("PROXMOX_API_TOKEN_SECRET",),
+            )
+        )
+        with patch.object(v1_router, "_inventory_query", return_value=query):
+            status_response = self._run(v1_router.get_proxmox_connection_status())
+            with self.assertRaises(HTTPException) as raised:
+                self._run(v1_router.list_nodes())
+
+        self.assertEqual("unconfigured", status_response["data"]["state"])
+        self.assertFalse(status_response["data"]["inventory_available"])
+        self.assertEqual(["PROXMOX_API_TOKEN_SECRET"], status_response["data"]["missing_configuration"])
+        self.assertEqual(503, raised.exception.status_code)
+        self.assertEqual("PROXMOX_INVENTORY_UNCONFIGURED", raised.exception.detail["code"])
+        self.assertEqual([], raised.exception.detail["side_effects"])
+
+    def test_connection_status_reports_degraded_with_safe_reason(self):
+        from app.workloads.inventory import WorkloadInventoryQuery
+        from app.api.v1 import router as v1_router
+
+        class BrokenLiveAdapter:
+            source = "live_read_only"
+            cluster_id = "cluster-a"
+            is_test_fixture = False
+
+            def snapshot(self):
+                raise requests.exceptions.ConnectionError("secret-bearing upstream detail")
+
+        with patch.object(v1_router, "_inventory_query", return_value=WorkloadInventoryQuery(BrokenLiveAdapter())):
+            status_response = self._run(v1_router.get_proxmox_connection_status())
+            with self.assertRaises(HTTPException) as raised:
+                self._run(v1_router.list_vms())
+
+        self.assertEqual("degraded", status_response["data"]["state"])
+        self.assertEqual("proxmox_connection_unreachable", status_response["data"]["reason"])
+        self.assertNotIn("secret-bearing", str(status_response))
+        self.assertEqual("PROXMOX_INVENTORY_DEGRADED", raised.exception.detail["code"])
+
+    def test_jobs_and_risks_remain_available_when_proxmox_is_unconfigured(self):
+        from app.proxmox.inventory import UnavailableProxmoxInventoryAdapter
+        from app.workloads.inventory import WorkloadInventoryQuery
+        from app.api.v1 import router as v1_router
+
+        query = WorkloadInventoryQuery(
+            UnavailableProxmoxInventoryAdapter(
+                reason="proxmox_inventory_configuration_missing",
+                requested_mode="live",
+            )
+        )
+        with patch.object(v1_router, "_inventory_query", return_value=query):
+            jobs_response = self._run(v1_router.list_jobs())
+            risks_response = self._run(v1_router.list_risks())
+
+        self.assertTrue(jobs_response["ok"])
+        self.assertTrue(risks_response["ok"])
+        self.assertEqual("unavailable", jobs_response["meta"]["source"])
+        self.assertEqual("unavailable", risks_response["meta"]["source"])
 
     def test_nodes_vms_templates_networks_use_read_only_inventory_payloads(self):
         try:
@@ -35,17 +105,17 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         except ModuleNotFoundError as exc:
             self.fail(f"Expected app.api.v1.router for Set 5 inventory API: {exc}")
 
-        with patch.dict("os.environ", {"GJALLAR_INVENTORY_MODE": "fake"}, clear=False):
-            nodes_response = self._run(v1_router.list_nodes())
-            vms_response = self._run(v1_router.list_vms())
-            vm_response = self._run(v1_router.get_vm(101))
-            templates_response = self._run(v1_router.list_templates())
-            networks_response = self._run(v1_router.list_networks())
+        nodes_response = self._run(v1_router.list_nodes())
+        vms_response = self._run(v1_router.list_vms())
+        vm_response = self._run(v1_router.get_vm(101))
+        templates_response = self._run(v1_router.list_templates())
+        networks_response = self._run(v1_router.list_networks())
 
         for response in (nodes_response, vms_response, vm_response, templates_response, networks_response):
             self.assertTrue(response["ok"])
             self.assertIn("meta", response)
             self.assertEqual("fake_read_only", response["meta"]["source"])
+            self.assertEqual("test_fixture", response["meta"]["connection"]["state"])
 
         self.assertIn("yoonmanserver2", {node["node_id"] for node in nodes_response["data"]})
         vm = vm_response["data"]
@@ -202,6 +272,9 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
 
         self.assertTrue(cluster_response["ok"])
         self.assertEqual("live_read_only", cluster_response["meta"]["source"])
+        self.assertEqual("live", cluster_response["meta"]["connection"]["state"])
+        self.assertEqual("2026-05-09T10:00:00+09:00", cluster_response["meta"]["observed_at"])
+        self.assertEqual("fresh", cluster_response["meta"]["freshness"])
         self.assertEqual(1, cluster_response["data"]["vm_count"])
         self.assertEqual("live-app-01", vm_response["data"]["name"])
         self.assertEqual(["192.168.2.301"], vm_response["data"]["ip_addresses"])

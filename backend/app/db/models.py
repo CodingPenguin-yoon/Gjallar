@@ -5,12 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-
-class Base(DeclarativeBase):
-    """Base class for Alembic metadata discovery."""
-
+from app.db.base import Base
 
 class CreateVmProfile(Base):
     """DB row for a Create VM profile preset."""

@@ -1,60 +1,92 @@
 # Gjallar Frontend
 
-React + Vite operator UI for Gjallar.
+Gjallar의 React + Vite operator UI입니다. backend `/api/v1`만 사용합니다.
 
-## Product Direction vs Current UI
+## 현재 화면
 
-Current MVP product source of truth is `docs/product/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
+| 영역 | canonical route | 현재 기능 |
+|---|---|---|
+| Overview | `/` | cluster summary와 dashboard |
+| VM Instances | `/instances` | VM inventory와 gated Start |
+| DRS Policies | `/instances/drs-policies` | VM migration policy 조회·변경 |
+| Create VM | `/instances/create` | draft부터 native create까지의 wizard |
+| Networks | `/instances/networks` | read-only network readiness |
+| DRS | `/drs` | recommendation/check와 local approval intent |
+| Jobs | `/operations/jobs` | job projection 조회 |
+| Risks | `/operations/risks` | job-derived risk 조회 |
+| Account | `/settings/account` | current account와 password 변경 |
+| Users | `/settings/admin/users` | admin-only user/session 관리 |
 
-The target direction is DRS Advisor. The current frontend exposes a `/drs` read/check screen and a Create VM wizard as supporting capability. DRS shows backend identity, policy, and final-check evidence when returned, but it has no approval, execute, UPID tracking, or reconcile controls.
+일부 legacy deep-link alias가 남아 있으며 별도 deprecation 전 유지합니다.
 
-DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
+Overview, VM Instances, DRS Policies, Create VM, Networks, DRS는 backend connection state가 authoritative `live`일 때만 실제 화면을 엽니다. `unconfigured`/`degraded`에서는 VM Instances와 DRS navigation을 숨기고 direct route에 연결 안내를 표시합니다. Jobs, Risks, Account, Users는 계속 사용할 수 있으며 내장 mock/demo inventory는 없습니다.
 
-## Main Screens
+## 목표 UI 방향
 
-- Dashboard
-- Infra Explorer
-- Networks
-- Create VM
-- DRS Advisor
-- Jobs/Runs
-- Risks/Alerts
+제품 중심은 DRS 화면이 아니라 Workload Cockpit과 verified operation입니다.
 
-The frontend talks to the backend through `/api/v1` only.
+- workload state, metadata, capability, freshness, recent operation을 한 컨텍스트에 표시
+- `managed_api`, `guided_manual`, `observe_only` mode를 명시
+- plan, approval, task, verification, evidence와 recovery action을 timeline으로 표시
+- stale/unknown/unavailable을 성공이나 실행 가능으로 추론하지 않음
 
-## Run
+승인된 목표는 [`../project-docs/specifications/project-specification.md`](../project-docs/specifications/project-specification.md)에 있으며 아직 모든 화면에 구현되지 않았습니다.
+
+## 로컬 실행
+
+Node.js는 저장소 `.nvmrc`, pnpm은 package의 `packageManager`에 기록된 버전을 사용합니다.
 
 ```bash
-cd frontend
+nvm use
+npm install --global pnpm@10.34.5
+pnpm install --frozen-lockfile
 pnpm dev -- --host 0.0.0.0 --port 5173
 ```
 
-The Vite proxy reads runtime values from the repo root `.env` and optional `frontend/.env`.
+또는 저장소 root에서:
 
 ```bash
+pnpm run frontend
+```
+
+Vite는 repo root와 `frontend/`의 env를 읽습니다.
+
+```dotenv
 FRONTEND_PORT=5173
 BACKEND_PORT=8000
 VITE_BACKEND_URL=http://127.0.0.1:8000
 ```
 
-## Docker Build
+`/api` request는 `VITE_BACKEND_URL` 또는 `BACKEND_PORT` 기반 local backend로 proxy됩니다. Cookie-based auth를 사용하므로 frontend API client는 credentials를 포함합니다.
 
-The root Dockerfile runs `pnpm install --frozen-lockfile` and `pnpm build` for
-this frontend, then copies the generated `dist` into the FastAPI runtime image.
-In that image, the backend serves the React app from the same `:8000` origin;
-the local Vite dev workflow above is unchanged.
+## 검증
 
-## Validate
+`frontend` directory에서:
 
 ```bash
+pnpm test
 pnpm lint
 pnpm build
 ```
 
-From the repo root, the contract tests can be run with:
+저장소 root에서는 공통 wrapper를 사용합니다.
 
 ```bash
-for test_file in frontend/tests/*.mjs; do
-  node "$test_file"
-done
+pnpm run test:frontend
+pnpm run lint:frontend
+pnpm run build:frontend
 ```
+
+`pnpm test`는 기존 executable `.mjs` 파일을 순서대로 실행하고 첫 실패에서 중단합니다. 일부 test는 source text/regex에 의존하므로 구조 리팩터링 전에 behavior contract를 보강합니다.
+
+## Docker build
+
+root Dockerfile은 Node 24와 pnpm 10으로 `pnpm install --frozen-lockfile`, `pnpm build`를 수행합니다. 생성된 `dist`는 Python runtime image에 복사되고 FastAPI가 same-origin으로 제공합니다.
+
+## 변경 시 지켜야 할 경계
+
+- frontend가 role, policy, freshness, executability를 자체 추론하지 않습니다.
+- backend가 제공한 operation/evidence 의미를 표시합니다.
+- 다른 feature의 private module을 직접 import하지 않습니다.
+- canonical route와 `/api/v1` compatibility는 명시적 폐기 결정 전 유지합니다.
+- secret, token, raw command output을 browser storage나 debug log에 남기지 않습니다.

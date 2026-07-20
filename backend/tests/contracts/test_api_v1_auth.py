@@ -409,27 +409,66 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
 
     create_payload = {"proxmox_mutation_acknowledged": True}
     start_payload = {"vm_start_acknowledged": True, "idempotency_key": "authz"}
+    guided_payload = {
+        "node_id": "node-a",
+        "vmid": 306,
+        "idempotency_key": "authz-guided",
+        "qm_unlock_risk_acknowledged": True,
+    }
 
     with patch("app.api.v1.router.get_default_proxmox_mutation_client") as client_factory, patch(
         "app.api.v1.router.run_proxmox_create"
     ) as create_mutation, patch("app.api.v1.router.record_vm_create_request") as create_record, patch(
         "app.api.v1.router.run_vm_start"
-    ) as start_mutation:
+    ) as start_mutation, patch(
+        "app.api.v1.router.plan_guided_qm_unlock"
+    ) as guided_plan, patch(
+        "app.api.v1.router.attest_guided_qm_operation"
+    ) as guided_attest, patch(
+        "app.api.v1.router.verify_guided_qm_operation"
+    ) as guided_verify:
         create_unauth = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        guided_plan_unauth = client.post("/api/v1/operations/guided-qm/vm-unlock", json=guided_payload)
+        guided_attest_unauth = client.post(
+            "/api/v1/operations/guided-authz/operator-attestation",
+            json={"plan_digest": "sha256:" + "0" * 64, "command_executed": True},
+        )
+        guided_verify_unauth = client.post(
+            "/api/v1/operations/guided-authz/verification",
+            json={"plan_digest": "sha256:" + "0" * 64},
+        )
         assert create_unauth.status_code == 401
         assert start_unauth.status_code == 401
+        assert guided_plan_unauth.status_code == 401
+        assert guided_attest_unauth.status_code == 401
+        assert guided_verify_unauth.status_code == 401
 
         _login(client, username="viewer-only")
         create_viewer = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_viewer = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        guided_plan_viewer = client.post("/api/v1/operations/guided-qm/vm-unlock", json=guided_payload)
+        guided_attest_viewer = client.post(
+            "/api/v1/operations/guided-authz/operator-attestation",
+            json={"plan_digest": "sha256:" + "0" * 64, "command_executed": True},
+        )
+        guided_verify_viewer = client.post(
+            "/api/v1/operations/guided-authz/verification",
+            json={"plan_digest": "sha256:" + "0" * 64},
+        )
         assert create_viewer.status_code == 403
         assert start_viewer.status_code == 403
+        assert guided_plan_viewer.status_code == 403
+        assert guided_attest_viewer.status_code == 403
+        assert guided_verify_viewer.status_code == 403
 
         client_factory.assert_not_called()
         create_mutation.assert_not_called()
         create_record.assert_not_called()
         start_mutation.assert_not_called()
+        guided_plan.assert_not_called()
+        guided_attest.assert_not_called()
+        guided_verify.assert_not_called()
 
 
 def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_work(monkeypatch):
@@ -614,6 +653,32 @@ def test_vm_start_route_passes_authenticated_actor_from_session(monkeypatch):
 
     assert response.status_code == 200, response.text
     assert captured["actor"]["username"] == "starter"
+    assert captured["actor"]["role"] == "operator"
+
+
+def test_guided_qm_plan_route_passes_authenticated_actor_from_session(monkeypatch):
+    _create_user(monkeypatch, username="qm-operator", role="operator")
+    client = _client()
+    _login(client, username="qm-operator")
+    captured = {}
+
+    def fake_plan(**kwargs):
+        captured.update(kwargs)
+        return {"operation": {"operation_id": "guided-session-actor"}}
+
+    with patch("app.api.v1.router.plan_guided_qm_unlock", side_effect=fake_plan):
+        response = client.post(
+            "/api/v1/operations/guided-qm/vm-unlock",
+            json={
+                "node_id": "node-a",
+                "vmid": 306,
+                "idempotency_key": "guided-session-actor",
+                "qm_unlock_risk_acknowledged": True,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert captured["actor"]["username"] == "qm-operator"
     assert captured["actor"]["role"] == "operator"
 
 

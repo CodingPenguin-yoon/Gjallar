@@ -40,6 +40,9 @@ assert.match(app, /memory_usage_percent/, 'Dashboard must prefer live Proxmox no
 assert.doesNotMatch(app, /cpuAllocated|memoryAllocatedGb|CPU alloc|Memory alloc/, 'Dashboard must not fall back to old allocated CPU or memory totals')
 assert.match(app, /Promise\.allSettled/, 'Dashboard must keep rendering available inventory when jobs or risks fail')
 assert.match(app, /사용 가능한 inventory 데이터는 계속 표시합니다/, 'Dashboard must show partial-failure copy instead of blanking the first screen')
+assert.match(app, /visiblePrimaryNavItems/, 'Unavailable Proxmox navigation must be hidden from the product shell')
+assert.match(app, /operationalRoute\(<Dashboard \/>\)/, 'Dashboard must be gated by authoritative Proxmox connection truth')
+assert.match(app, /canOperate\(currentUser\) && proxmoxOperational/, 'Mutation affordances must require role and live connection truth')
 assert.match(app, /const appShellClass = 'mx-auto w-full max-w-7xl px-8'/, 'Authenticated layout must define one shared app shell width')
 assert.ok(app.includes('<div className={`${appShellClass} py-5`}>'), 'Authenticated header inner container must use the shared shell with header padding')
 assert.ok(app.includes('<div className={appShellClass}>'), 'Primary navigation inner container must use the shared shell')
@@ -82,6 +85,7 @@ assert.deepEqual(
     './components/InstanceList',
     './components/NetworkReadinessScreen',
     './components/OperationalRiskDashboard',
+    './components/ProxmoxConnectionBoundary',
     './components/TaskBoard',
   ].sort(),
   'Only PRD MVP screen components should be actively routed from App',

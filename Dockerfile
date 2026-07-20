@@ -4,17 +4,20 @@ FROM node:24-slim AS frontend-build
 
 WORKDIR /app/frontend
 
-RUN npm install -g pnpm@10
+RUN npm install -g pnpm@10.34.5
 
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-COPY frontend/index.html frontend/postcss.config.js frontend/tailwind.config.js frontend/vite.config.js ./
+COPY frontend/index.html frontend/postcss.config.js frontend/tailwind.config.js frontend/vite.config.js frontend/.eslintrc.cjs ./
 COPY frontend/src ./src
-RUN pnpm build
+COPY frontend/tests ./tests
+RUN pnpm test \
+    && pnpm lint \
+    && pnpm build
 
 
-FROM python:3.13-slim AS runtime
+FROM python:3.13-slim AS backend-base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -27,9 +30,25 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt /app/backend/requirements.txt
+COPY backend/requirements.lock /app/backend/requirements.lock
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r /app/backend/requirements.txt
+    && pip install --no-cache-dir -r /app/backend/requirements.lock
+
+
+FROM backend-base AS backend-test
+
+COPY backend/requirements-dev.lock /app/backend/requirements-dev.lock
+RUN pip install --no-cache-dir -r /app/backend/requirements-dev.lock
+
+COPY . /workspace
+WORKDIR /workspace
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace/backend \
+    python -m pytest -q -p no:cacheprovider /workspace/backend/tests
+
+
+FROM backend-base AS runtime
+
+WORKDIR /app
 
 COPY backend/app /app/backend/app
 COPY backend/alembic /app/backend/alembic

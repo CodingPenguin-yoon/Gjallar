@@ -1,4 +1,3 @@
-model = "gpt-5.5"
 personality = "pragmatic"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"

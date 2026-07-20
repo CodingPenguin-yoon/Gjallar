@@ -24,8 +24,7 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
-def _default_backend_inventory_mode(request, tmp_path):
-    previous_mode = os.environ.get("GJALLAR_INVENTORY_MODE")
+def _default_backend_inventory_mode(request, tmp_path, monkeypatch):
     previous_ssh_env = {key: os.environ.get(key) for key in SSH_ENV_KEYS}
     previous_database_url = os.environ.get(DB_ENV_KEY)
     previous_sqlite_test_allow = os.environ.get(DB_SQLITE_TEST_ALLOW_KEY)
@@ -34,12 +33,33 @@ def _default_backend_inventory_mode(request, tmp_path):
 
     should_force_fake = request.node.get_closest_marker("live_inventory") is None
     if should_force_fake:
-        os.environ["GJALLAR_INVENTORY_MODE"] = "fake"
+        from app.proxmox import inventory as inventory_module
+        from app.vm_create import preflight as preflight_module
+
+        fake_adapter = inventory_module.FakeProxmoxInventoryAdapter()
+        monkeypatch.setattr(inventory_module, "get_default_inventory_adapter", lambda: fake_adapter)
+        monkeypatch.setattr(preflight_module, "get_default_inventory_adapter", lambda: fake_adapter)
     os.environ["GJALLAR_DEFAULT_SSH_PUBLIC_KEY"] = TEST_SSH_PUBLIC_KEY
     os.environ[DB_ENV_KEY] = f"sqlite:///{tmp_path / 'gjallar-test.db'}"
     os.environ[DB_SQLITE_TEST_ALLOW_KEY] = "1"
 
-    from app.db.models import Base
+    # Target operation locks intentionally survive ambiguous mutations. Keep
+    # every test in its own lock namespace so one fault-injection case cannot
+    # block a later test or collide with a developer's local runtime lock.
+    from app.operations import target_lock as target_lock_module
+
+    original_target_lock_path = target_lock_module._target_operation_lock_path
+    isolated_lock_root = tmp_path / "target-operation-locks"
+
+    def isolated_target_lock_path(*, target_type: str, target_id: str):
+        return isolated_lock_root / original_target_lock_path(
+            target_type=target_type,
+            target_id=target_id,
+        ).name
+
+    monkeypatch.setattr(target_lock_module, "_target_operation_lock_path", isolated_target_lock_path)
+
+    from app.db.metadata import Base
     from app.db.seed_create_vm_profiles import seed_create_vm_profiles
     from app.db.session import get_engine, reset_session_cache
 
@@ -56,12 +76,6 @@ def _default_backend_inventory_mode(request, tmp_path):
             reset_session_cache = None
         if reset_session_cache is not None:
             reset_session_cache()
-
-        if should_force_fake:
-            if previous_mode is None:
-                os.environ.pop("GJALLAR_INVENTORY_MODE", None)
-            else:
-                os.environ["GJALLAR_INVENTORY_MODE"] = previous_mode
 
         for key, value in previous_ssh_env.items():
             if value is None:
@@ -80,7 +94,8 @@ def _default_backend_inventory_mode(request, tmp_path):
         try:
             from app.proxmox import inventory as inventory_module
         except ModuleNotFoundError:
-            return
+            inventory_module = None
 
-        inventory_module._DEFAULT_ADAPTER = None
-        inventory_module._DEFAULT_ADAPTER_SIGNATURE = None
+        if inventory_module is not None:
+            inventory_module._DEFAULT_ADAPTER = None
+            inventory_module._DEFAULT_ADAPTER_SIGNATURE = None

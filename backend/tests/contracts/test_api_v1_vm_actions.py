@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
+from app.proxmox.client import ProxmoxMutationError
 from app.proxmox.models import VmInventory
 
 
@@ -27,9 +28,22 @@ class StubInventoryAdapter:
 
 
 class RecordingStartClient:
-    def __init__(self, *, task_exitstatus="OK", post_status="running"):
+    def __init__(
+        self,
+        *,
+        task_exitstatus="OK",
+        post_status="running",
+        start_upid=None,
+        start_error=None,
+        wait_error=None,
+        post_error=None,
+    ):
         self.task_exitstatus = task_exitstatus
         self.post_status = post_status
+        self.start_upid = start_upid
+        self.start_error = start_error
+        self.wait_error = wait_error
+        self.post_error = post_error
         self.calls = []
 
     def redacted_connection_context(self):
@@ -42,10 +56,16 @@ class RecordingStartClient:
 
     def start_vm(self, *, node, vmid):
         self.calls.append(("start_vm", {"node": node, "vmid": vmid}))
+        if self.start_error is not None:
+            raise self.start_error
+        if self.start_upid is not None:
+            return self.start_upid
         return f"UPID:{node}:0001:start"
 
     def wait_for_task(self, *, node, upid):
         self.calls.append(("wait_for_task", {"node": node, "upid": upid}))
+        if self.wait_error is not None:
+            raise self.wait_error
         return {
             "node": node,
             "upid": upid,
@@ -56,6 +76,8 @@ class RecordingStartClient:
 
     def get_vm_status(self, *, node, vmid):
         self.calls.append(("get_vm_status", {"node": node, "vmid": vmid}))
+        if self.post_error is not None:
+            raise self.post_error
         return {"vmid": vmid, "name": "stopped-app", "status": self.post_status}
 
 
@@ -101,6 +123,23 @@ class ApiV1VmActionsTests(unittest.TestCase):
                         },
                     )
                 )
+
+    def _cleanup_retained_target_lock(self, job_id):
+        from app.jobs.runs import get_job_run
+        from app.operations.target_lock import _target_operation_lock_path
+
+        job = get_job_run(job_id)
+        details = job.get("details") if isinstance(job, dict) and isinstance(job.get("details"), dict) else {}
+        result = details.get("vm_start_result") if isinstance(details.get("vm_start_result"), dict) else {}
+        lock = result.get("target_operation_lock") if isinstance(result.get("target_operation_lock"), dict) else {}
+        target_type = str(lock.get("target_type") or "proxmox_vm")
+        target_id = str(lock.get("target_id") or f"{result.get('target', {}).get('node_id', 'node-a')}:{result.get('target', {}).get('vmid', 306)}")
+        _target_operation_lock_path(target_type=target_type, target_id=target_id).unlink(missing_ok=True)
+
+    def _cleanup_target_lock(self, *, target_type="proxmox_vm", target_id="vmid:306"):
+        from app.operations.target_lock import _target_operation_lock_path
+
+        _target_operation_lock_path(target_type=target_type, target_id=target_id).unlink(missing_ok=True)
 
     def test_start_route_exists_without_legacy_instance_action_routes(self):
         self.assertIn("/api/v1/nodes/{node_id}/vms/{vmid}/actions/start", self.paths)
@@ -226,6 +265,8 @@ class ApiV1VmActionsTests(unittest.TestCase):
     def test_start_success_writes_job_artifact_and_calls_proxmox_once(self):
         from app.jobs.artifacts import read_artifact_text
         from app.jobs.runs import get_job_run
+        from app.operations.core.domain import verify_event_chain
+        from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
 
         client = RecordingStartClient()
         response = self._run_start(client=client)
@@ -236,6 +277,7 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertTrue(result["proxmox_mutation_enabled"])
         self.assertFalse(result["idempotent_replay"])
         self.assertEqual("completed", result["status"])
+        self.assertNotIn("path", result["target_operation_lock"])
         self.assertEqual("running", result["observed_after"]["status"])
         self.assertEqual(["start_vm", "wait_for_task", "get_vm_status"], [call[0] for call in client.calls])
         self.assertTrue(result["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
@@ -247,7 +289,27 @@ class ApiV1VmActionsTests(unittest.TestCase):
         job = get_job_run(result["job_id"])
         self.assertEqual("vm_start", job["job_type"])
         self.assertEqual("completed", job["status"])
+        self.assertNotIn("path", job["details"]["target_operation_lock"])
+        self.assertEqual(
+            {
+                "schema": "vm_start_intent.v1",
+                "operation": "vm_start",
+                "target": {"node_id": "node-a", "vmid": 306},
+                "expected": {"expected_name": "stopped-app", "expected_status": "stopped"},
+            },
+            job["details"]["vm_start_intent"],
+        )
         self.assertTrue(any(artifact["type"] == "vm_start_observed_after" for artifact in job["artifacts"]))
+        operation_store = SqlAlchemyOperationStore()
+        operation = operation_store.get(result["job_id"])
+        operation_events = operation_store.list_events(result["job_id"])
+        self.assertEqual("succeeded", operation.status)
+        self.assertEqual("managed_api", operation.execution_mode)
+        self.assertEqual(
+            ["operation_created", "dispatch_prepared", "dispatch_accepted", "task_and_state_observed", "verification_succeeded"],
+            [event.event_type for event in operation_events],
+        )
+        self.assertTrue(verify_event_chain(operation_events))
 
     def test_duplicate_idempotency_key_returns_existing_job_without_second_start(self):
         client = RecordingStartClient()
@@ -266,6 +328,91 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertFalse(second["data"]["proxmox_mutation_enabled"])
         self.assertTrue(second["data"]["idempotent_replay"])
         self.assertEqual(1, len([call for call in client.calls if call[0] == "start_vm"]))
+
+    def test_duplicate_idempotency_key_with_different_intent_is_conflict(self):
+        client = RecordingStartClient()
+        payload = {
+            "vm_start_acknowledged": True,
+            "idempotency_key": "same-key-different-intent",
+            "expected_name": "stopped-app",
+            "expected_status": "stopped",
+        }
+
+        first = self._run_start(client=client, payload=payload)
+        with self.assertRaises(HTTPException) as raised:
+            self._run_start(
+                client=client,
+                payload={**payload, "expected_status": "running"},
+            )
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("VM_START_IDEMPOTENCY_CONFLICT", raised.exception.detail["code"])
+        self.assertEqual(first["data"]["job_id"], raised.exception.detail["job_id"])
+        self.assertEqual(1, len([call for call in client.calls if call[0] == "start_vm"]))
+
+    def test_legacy_duplicate_without_stored_intent_keeps_replay_compatibility(self):
+        from app.jobs.runs import record_job_run
+        from app.vm_actions.start import build_vm_start_job_id
+
+        job_id = build_vm_start_job_id(node_id="node-a", vmid=306, idempotency_key="legacy-idem")
+        record_job_run(
+            job_id=job_id,
+            job_type="vm_start",
+            status="completed",
+            target_id="node-a:306:stopped-app",
+            risk_level="unknown",
+            stage="post_check",
+            step_status="completed",
+            message="Legacy VM start job",
+            details={
+                "target": {"node_id": "node-a", "vmid": 306, "name": "stopped-app"},
+                "vm_start_result": {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "target": {"node_id": "node-a", "vmid": 306, "name": "stopped-app"},
+                    "proxmox_mutation_enabled": True,
+                },
+            },
+        )
+        client = RecordingStartClient()
+
+        response = self._run_start(
+            client=client,
+            payload={
+                "vm_start_acknowledged": True,
+                "idempotency_key": "legacy-idem",
+                "expected_name": "stopped-app",
+                "expected_status": "running",
+            },
+        )
+
+        self.assertTrue(response["data"]["idempotent_replay"])
+        self.assertEqual([], [call for call in client.calls if call[0] == "start_vm"])
+
+    def test_target_lock_blocks_different_idempotency_key_for_same_vm(self):
+        from app.operations.target_lock import acquire_target_operation_lock, release_target_operation_lock
+
+        handle = acquire_target_operation_lock("proxmox_vm", "vmid:306", "other-job")
+        client = RecordingStartClient()
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                self._run_start(
+                    client=client,
+                    payload={
+                        "vm_start_acknowledged": True,
+                        "idempotency_key": "different-idem-while-target-busy",
+                        "expected_name": "stopped-app",
+                        "expected_status": "stopped",
+                    },
+                )
+        finally:
+            release_target_operation_lock(handle)
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("VM_START_TARGET_LOCK_BUSY", raised.exception.detail["code"])
+        self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
+        self.assertNotIn("path", raised.exception.detail["target_operation_lock"])
+        self.assertEqual([], [call for call in client.calls if call[0] == "start_vm"])
 
     def test_task_failure_returns_409_with_artifact_and_failed_job(self):
         from app.jobs.runs import get_job_run
@@ -287,26 +434,219 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertEqual("failed", job["status"])
         self.assertEqual("task_poll", job["current_stage"])
 
-    def test_post_check_non_running_returns_409_with_artifact_and_failed_job(self):
+    def test_definitive_4xx_start_rejection_releases_target_lock(self):
         from app.jobs.runs import get_job_run
 
-        client = RecordingStartClient(post_status="stopped")
+        rejecting_client = RecordingStartClient(
+            start_error=ProxmoxMutationError("bad request", details={"status_code": 400})
+        )
         with self.assertRaises(HTTPException) as raised:
-            self._run_start(client=client, payload={
+            self._run_start(client=rejecting_client, payload={
                 "vm_start_acknowledged": True,
-                "idempotency_key": "idem-post-check-failed",
+                "idempotency_key": "idem-definitive-4xx",
                 "expected_name": "stopped-app",
                 "expected_status": "stopped",
             })
 
         self.assertEqual(409, raised.exception.status_code)
-        self.assertEqual("VM_START_POST_CHECK_FAILED", raised.exception.detail["code"])
-        self.assertTrue(raised.exception.detail["proxmox_mutation_enabled"])
-        self.assertEqual("stopped", raised.exception.detail["observed_after"]["status"])
-        self.assertTrue(raised.exception.detail["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
+        self.assertEqual("VM_START_REQUEST_FAILED", raised.exception.detail["code"])
+        self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
+        self.assertNotIn("path", raised.exception.detail["target_operation_lock"])
         job = get_job_run(raised.exception.detail["job_id"])
         self.assertEqual("failed", job["status"])
-        self.assertEqual("post_check", job["current_stage"])
+        self.assertNotIn("path", job["details"]["target_operation_lock"])
+
+        allowed_client = RecordingStartClient()
+        response = self._run_start(client=allowed_client, payload={
+            "vm_start_acknowledged": True,
+            "idempotency_key": "idem-after-definitive-4xx",
+            "expected_name": "stopped-app",
+            "expected_status": "stopped",
+        })
+        self.assertEqual("completed", response["data"]["status"])
+        self.assertEqual(1, len([call for call in allowed_client.calls if call[0] == "start_vm"]))
+
+    def test_ambiguous_408_start_error_preserves_needs_reconciliation_and_lock(self):
+        from app.jobs.runs import get_job_run
+        from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+
+        client = RecordingStartClient(
+            start_error=ProxmoxMutationError("request timeout", details={"status_code": 408}),
+            post_status="stopped",
+        )
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-ambiguous-408",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+
+            self.assertEqual(409, raised.exception.status_code)
+            self.assertEqual("VM_START_REQUEST_RECONCILIATION_REQUIRED", raised.exception.detail["code"])
+            self.assertTrue(raised.exception.detail["proxmox_mutation_enabled"])
+            self.assertNotIn("path", raised.exception.detail["target_operation_lock"])
+            job = get_job_run(raised.exception.detail["job_id"])
+            self.assertEqual("needs_reconciliation", job["status"])
+            self.assertNotIn("path", job["details"]["target_operation_lock"])
+            operation = SqlAlchemyOperationStore().get(raised.exception.detail["job_id"])
+            self.assertEqual("needs_reconciliation", operation.status)
+
+            with self.assertRaises(HTTPException) as blocked:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-after-ambiguous-408",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+            self.assertEqual("VM_START_TARGET_LOCK_BUSY", blocked.exception.detail["code"])
+        finally:
+            if "raised" in locals() and raised.exception.detail.get("job_id"):
+                self._cleanup_retained_target_lock(raised.exception.detail["job_id"])
+
+    def test_post_check_non_running_returns_409_with_artifact_and_needs_reconciliation_job(self):
+        from app.jobs.runs import get_job_run
+
+        client = RecordingStartClient(post_status="stopped")
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-post-check-needs-reconciliation",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+
+            self.assertEqual(409, raised.exception.status_code)
+            self.assertEqual("VM_START_POST_CHECK_RECONCILIATION_REQUIRED", raised.exception.detail["code"])
+            self.assertTrue(raised.exception.detail["proxmox_mutation_enabled"])
+            self.assertEqual("stopped", raised.exception.detail["observed_after"]["status"])
+            self.assertTrue(raised.exception.detail["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
+            self.assertNotIn("path", raised.exception.detail["target_operation_lock"])
+            job = get_job_run(raised.exception.detail["job_id"])
+            self.assertEqual("needs_reconciliation", job["status"])
+            self.assertEqual("post_check", job["current_stage"])
+            self.assertTrue(job["details"]["vm_start_result"]["reconciliation_required"])
+            self.assertNotIn("path", job["details"]["target_operation_lock"])
+        finally:
+            if "raised" in locals() and raised.exception.detail.get("job_id"):
+                self._cleanup_retained_target_lock(raised.exception.detail["job_id"])
+
+    def test_missing_upid_preserves_needs_reconciliation_and_blocks_second_mutation(self):
+        from app.jobs.runs import get_job_run
+
+        client = RecordingStartClient(start_upid="", post_status="stopped")
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-missing-upid",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+
+            self.assertEqual(409, raised.exception.status_code)
+            self.assertEqual("VM_START_REQUEST_RECONCILIATION_REQUIRED", raised.exception.detail["code"])
+            job_id = raised.exception.detail["job_id"]
+            job = get_job_run(job_id)
+            self.assertEqual("needs_reconciliation", job["status"])
+            self.assertNotIn("path", raised.exception.detail["target_operation_lock"])
+            self.assertNotIn("path", job["details"]["target_operation_lock"])
+
+            replay = self._run_start(client=client, payload={
+                "vm_start_acknowledged": True,
+                "idempotency_key": "idem-missing-upid",
+                "expected_name": "stopped-app",
+                "expected_status": "stopped",
+            })
+            self.assertTrue(replay["data"]["idempotent_replay"])
+            self.assertFalse(replay["data"]["proxmox_mutation_enabled"])
+
+            with self.assertRaises(HTTPException) as blocked:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-after-retained-lock",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+            self.assertEqual("VM_START_TARGET_LOCK_BUSY", blocked.exception.detail["code"])
+            self.assertEqual(1, len([call for call in client.calls if call[0] == "start_vm"]))
+        finally:
+            if "raised" in locals() and raised.exception.detail.get("job_id"):
+                self._cleanup_retained_target_lock(raised.exception.detail["job_id"])
+
+    def test_task_poll_timeout_preserves_needs_reconciliation(self):
+        from app.jobs.runs import get_job_run
+
+        client = RecordingStartClient(
+            wait_error=ProxmoxMutationError(
+                "Timed out waiting for Proxmox task",
+                details={"node": "node-a", "upid": "UPID:node-a:0001:start"},
+            ),
+            post_status="stopped",
+        )
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-task-timeout",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+
+            self.assertEqual(409, raised.exception.status_code)
+            self.assertEqual("VM_START_TASK_RECONCILIATION_REQUIRED", raised.exception.detail["code"])
+            job = get_job_run(raised.exception.detail["job_id"])
+            self.assertEqual("needs_reconciliation", job["status"])
+            self.assertEqual("task_poll", job["current_stage"])
+        finally:
+            if "raised" in locals() and raised.exception.detail.get("job_id"):
+                self._cleanup_retained_target_lock(raised.exception.detail["job_id"])
+
+    def test_artifact_write_failure_after_start_retains_target_lock(self):
+        client = RecordingStartClient()
+        try:
+            with patch("app.vm_actions.start.write_json_artifact", side_effect=RuntimeError("artifact write failed")):
+                with self.assertRaises(RuntimeError):
+                    self._run_start(client=client, payload={
+                        "vm_start_acknowledged": True,
+                        "idempotency_key": "idem-artifact-write-failed",
+                        "expected_name": "stopped-app",
+                        "expected_status": "stopped",
+                    })
+
+            with self.assertRaises(HTTPException) as blocked:
+                self._run_start(client=client, payload={
+                    "vm_start_acknowledged": True,
+                    "idempotency_key": "idem-after-artifact-write-failed",
+                    "expected_name": "stopped-app",
+                    "expected_status": "stopped",
+                })
+            self.assertEqual("VM_START_TARGET_LOCK_BUSY", blocked.exception.detail["code"])
+            self.assertEqual(1, len([call for call in client.calls if call[0] == "start_vm"]))
+        finally:
+            self._cleanup_target_lock(target_id="vmid:306")
+
+    def test_operation_persistence_failure_blocks_before_proxmox_dispatch(self):
+        client = RecordingStartClient()
+
+        with patch(
+            "app.vm_actions.start.SqlAlchemyOperationStore.create",
+            side_effect=RuntimeError("operation persistence failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._run_start(
+                    client=client,
+                    payload={
+                        "vm_start_acknowledged": True,
+                        "idempotency_key": "idem-operation-persistence-failed",
+                        "expected_name": "stopped-app",
+                        "expected_status": "stopped",
+                    },
+                )
+
+        self.assertEqual([], client.calls)
 
 
 if __name__ == "__main__":

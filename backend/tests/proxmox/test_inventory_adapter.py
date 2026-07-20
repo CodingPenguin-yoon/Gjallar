@@ -96,8 +96,13 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(40, vm["disks"][0]["size_gb"])
         self.assertEqual(102, adapter.suggest_next_vmid())
 
-    def test_default_adapter_stays_fake_without_live_config_or_in_fake_mode(self):
-        from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
+    @pytest.mark.live_inventory
+    def test_default_adapter_never_selects_fixture_for_product_runtime(self):
+        from app.proxmox.inventory import (
+            LiveProxmoxInventoryAdapter,
+            UnavailableProxmoxInventoryAdapter,
+            get_default_inventory_adapter,
+        )
 
         with patch.dict(
             "os.environ",
@@ -111,14 +116,42 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         ):
             adapter = get_default_inventory_adapter()
 
-        self.assertIsInstance(adapter, FakeProxmoxInventoryAdapter)
-        self.assertEqual("fake_read_only", adapter.source)
+        self.assertIsInstance(adapter, UnavailableProxmoxInventoryAdapter)
+        self.assertEqual("proxmox_inventory_mode_invalid", adapter.reason)
 
-        with patch.dict("os.environ", {"GJALLAR_INVENTORY_MODE": "", "PROXMOX_API_URL": ""}, clear=False):
+        with patch.dict(
+            "os.environ",
+            {
+                "GJALLAR_INVENTORY_MODE": "live",
+                "PROXMOX_API_URL": "",
+                "PROXMOX_API_TOKEN_ID": "",
+                "PROXMOX_API_TOKEN_SECRET": "",
+            },
+            clear=False,
+        ):
             adapter = get_default_inventory_adapter()
 
-        self.assertIsInstance(adapter, FakeProxmoxInventoryAdapter)
-        self.assertEqual("fake_read_only", adapter.source)
+        self.assertIsInstance(adapter, UnavailableProxmoxInventoryAdapter)
+        self.assertEqual("proxmox_inventory_configuration_missing", adapter.reason)
+        self.assertEqual(
+            ("PROXMOX_API_URL", "PROXMOX_API_TOKEN_ID", "PROXMOX_API_TOKEN_SECRET"),
+            adapter.missing_configuration,
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GJALLAR_INVENTORY_MODE": "auto",
+                "PROXMOX_API_URL": "https://pve.example.invalid:8006/api2/json",
+                "PROXMOX_API_TOKEN_ID": "root@pam!token",
+                "PROXMOX_API_TOKEN_SECRET": "token-secret",
+            },
+            clear=False,
+        ):
+            adapter = get_default_inventory_adapter()
+
+        self.assertIsInstance(adapter, LiveProxmoxInventoryAdapter)
+        self.assertEqual("live_read_only", adapter.source)
 
     def test_live_adapter_aggregates_multi_node_inventory_and_caches_details(self):
         try:

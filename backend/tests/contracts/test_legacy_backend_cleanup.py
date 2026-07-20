@@ -70,11 +70,10 @@ def test_legacy_create_vm_iac_readiness_is_removed_from_active_tree():
         backend_root / "tests",
         repo_root / "frontend/src",
         repo_root / "frontend/tests",
-        repo_root / "docs/current",
-        repo_root / "docs/architecture",
-        repo_root / "docs/engineering",
-        repo_root / "docs/ko",
+        repo_root / "project-docs",
         repo_root / "README.md",
+        repo_root / "backend/README.md",
+        repo_root / "frontend/README.md",
         repo_root / ".env.example",
     ]
     forbidden_patterns = [
@@ -178,11 +177,10 @@ def test_removed_state_metadata_symbols_are_absent_from_active_tree():
         backend_root / "tests",
         repo_root / "frontend/src",
         repo_root / "frontend/tests",
-        repo_root / "docs/current",
-        repo_root / "docs/architecture",
-        repo_root / "docs/engineering",
-        repo_root / "docs/ko",
-        repo_root / "docs/product",
+        repo_root / "project-docs",
+        repo_root / "README.md",
+        repo_root / "backend/README.md",
+        repo_root / "frontend/README.md",
     ]
     forbidden_patterns = [
         "".join(parts)
@@ -241,21 +239,27 @@ def test_removed_state_metadata_symbols_are_absent_from_active_tree():
     assert offenders == [], "Removed Terraform state/API symbols remain active: " + repr(offenders)
 
 
-def test_korean_non_index_docs_declare_source_documents():
+def test_project_docs_are_the_only_active_documentation_tree():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent
-    ko_docs_root = repo_root / "docs/ko"
-    pages = sorted(path for path in ko_docs_root.rglob("*.md") if path.name != "README.md")
-
-    assert pages, "Expected Korean reader-facing docs under docs/ko"
-
-    offenders = [
-        str(path.relative_to(repo_root))
-        for path in pages
-        if "기준 문서:" not in path.read_text(encoding="utf-8")
+    docs_root = repo_root / "docs"
+    project_docs_root = repo_root / "project-docs"
+    required_paths = [
+        project_docs_root / "project-profile.md",
+        project_docs_root / "specifications/project-specification.md",
+        project_docs_root / "architecture/overview.md",
+        project_docs_root / "decisions/adr-001-proxmox-gjallar-authority-boundary.md",
+        project_docs_root / "decisions/adr-002-modular-monolith-domain-boundaries.md",
+        project_docs_root / "domains/domain-map.md",
+        project_docs_root / "flows/verified-operation-lifecycle.md",
+        project_docs_root / "api/current-api-v1.md",
+        project_docs_root / "database/current-schema-and-ownership.md",
+        project_docs_root / "operations/runbook.md",
     ]
+    missing = [str(path.relative_to(repo_root)) for path in required_paths if not path.is_file()]
 
-    assert offenders == [], "Korean docs must declare 기준 문서: " + repr(offenders)
+    assert not docs_root.exists(), "Legacy docs/ tree must stay removed after the project-docs reset"
+    assert missing == [], "Required project-docs files are missing: " + repr(missing)
 
 
 def _markdown_link_targets(text: str) -> list[str]:
@@ -290,14 +294,6 @@ def _is_external_link(target: str) -> bool:
     )
 
 
-def _contains_nested_docs_ko(path: Path) -> bool:
-    parts = path.parts
-    for index in range(len(parts) - 3):
-        if parts[index : index + 4] == ("docs", "ko", "docs", "ko"):
-            return True
-    return False
-
-
 def _heading_slugs(markdown: str) -> set[str]:
     slugs: set[str] = set()
     counts: dict[str, int] = {}
@@ -318,53 +314,47 @@ def _heading_slugs(markdown: str) -> set[str]:
     return slugs
 
 
-def test_korean_docs_do_not_nest_docs_ko_paths_or_links():
+def test_active_readmes_point_to_project_docs_instead_of_legacy_docs():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent
-    ko_docs_root = repo_root / "docs/ko"
-
-    nested_paths = [
-        str(path.relative_to(repo_root))
-        for path in ko_docs_root.rglob("*")
-        if _contains_nested_docs_ko(path.relative_to(repo_root))
+    readmes = [
+        repo_root / "README.md",
+        repo_root / "backend/README.md",
+        repo_root / "frontend/README.md",
     ]
+    offenders: list[str] = []
 
-    assert nested_paths == [], "Korean docs must not contain nested docs/ko paths: " + repr(nested_paths)
-
-    nested_links: list[str] = []
-    for path in sorted(ko_docs_root.rglob("*.md")):
+    for path in readmes:
         text = path.read_text(encoding="utf-8")
-        for target in _markdown_link_targets(text):
-            if _is_external_link(target) or target.startswith("#"):
-                continue
-            href, _, _fragment = target.partition("#")
-            href = unquote(href)
-            if not href:
-                resolved = path
-            elif href.startswith("/"):
-                resolved = repo_root / href.lstrip("/")
-            else:
-                resolved = (path.parent / href).resolve()
-            try:
-                relative = resolved.relative_to(repo_root)
-            except ValueError:
-                continue
-            if _contains_nested_docs_ko(relative):
-                nested_links.append(f"{path.relative_to(repo_root)} -> {target}")
+        if "project-docs/" not in text and "../project-docs/" not in text:
+            offenders.append(str(path.relative_to(repo_root)))
 
-    assert nested_links == [], "Korean docs must not link to nested docs/ko paths: " + repr(nested_links)
+    assert offenders == [], "Active READMEs must point readers to project-docs: " + repr(offenders)
 
 
-def test_korean_docs_relative_markdown_links_resolve_locally():
+def test_active_project_docs_relative_markdown_links_resolve_locally():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent
-    ko_docs_root = repo_root / "docs/ko"
+    project_docs_root = repo_root / "project-docs"
+    evidence_root = project_docs_root / "evidence"
+    pages = [
+        path
+        for path in sorted(project_docs_root.rglob("*.md"))
+        if evidence_root not in path.parents or path == evidence_root / "legacy-live-smoke/README.md"
+    ]
+    pages.extend(
+        [
+            repo_root / "README.md",
+            repo_root / "backend/README.md",
+            repo_root / "frontend/README.md",
+        ]
+    )
 
     missing: list[str] = []
     bad_anchors: list[str] = []
     outside_repo: list[str] = []
 
-    for path in sorted(ko_docs_root.rglob("*.md")):
+    for path in pages:
         text = path.read_text(encoding="utf-8")
         for target in _markdown_link_targets(text):
             if _is_external_link(target):
@@ -393,6 +383,6 @@ def test_korean_docs_relative_markdown_links_resolve_locally():
                 if unquote(fragment).lower() not in slugs:
                     bad_anchors.append(f"{path.relative_to(repo_root)} -> {target}")
 
-    assert outside_repo == [], "Korean docs relative links must stay in repo: " + repr(outside_repo)
-    assert missing == [], "Korean docs relative links must resolve: " + repr(missing)
-    assert bad_anchors == [], "Korean docs markdown anchors must resolve: " + repr(bad_anchors)
+    assert outside_repo == [], "Active docs relative links must stay in repo: " + repr(outside_repo)
+    assert missing == [], "Active docs relative links must resolve: " + repr(missing)
+    assert bad_anchors == [], "Active docs markdown anchors must resolve: " + repr(bad_anchors)

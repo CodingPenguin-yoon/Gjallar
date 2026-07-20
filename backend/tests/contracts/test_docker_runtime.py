@@ -18,6 +18,18 @@ def test_dockerfile_uses_startup_entrypoint_before_uvicorn():
     assert 'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]' in dockerfile
 
 
+def test_dockerfile_uses_locked_python_dependencies_and_canonical_test_stages():
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY backend/requirements.lock /app/backend/requirements.lock" in dockerfile
+    assert "pip install --no-cache-dir -r /app/backend/requirements.lock" in dockerfile
+    assert "FROM backend-base AS backend-test" in dockerfile
+    assert "COPY backend/requirements-dev.lock /app/backend/requirements-dev.lock" in dockerfile
+    assert "python -m pytest -q -p no:cacheprovider /workspace/backend/tests" in dockerfile
+    assert "pnpm test" in dockerfile
+    assert "pnpm lint" in dockerfile
+
+
 def test_entrypoint_runs_migration_seed_then_requested_command():
     entrypoint = (REPO_ROOT / "docker" / "entrypoint.sh").read_text(encoding="utf-8")
 

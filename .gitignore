@@ -71,6 +71,7 @@ data/*.db-wal
 
 # 문서 로컬 워크스페이스 상태
 docs/.obsidian/
+.agent-local/
 
 # Infra 로컬 운영값
 infra/**/inventory.yml
@@ -100,3 +101,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+
+# Node/pnpm local dependencies and build output
+node_modules/
+*/node_modules/
+.pnpm-store/
+*/.pnpm-store/
+frontend/dist/
+frontend/.vite/

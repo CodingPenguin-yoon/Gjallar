@@ -1,163 +1,117 @@
 # Gjallar Backend
 
-FastAPI backend for the Gjallar Proxmox operations console.
+Gjallar의 FastAPI backend입니다. 현재 `/api/v1`과 local auth/admin API를 제공하고 PostgreSQL과 Proxmox VE API를 사용합니다.
 
-## Product Direction vs Current Backend
+## 현재 책임
 
-Current MVP product source of truth is `docs/product/drs-advisor/`. If this document conflicts with that folder, `drs-advisor/` wins.
+- local user, server-side session, `viewer < operator < admin` 권한
+- read-only Proxmox inventory와 normalization
+- Create VM draft/preflight/plan/approval/native create
+- VM Start와 post-create readiness evidence
+- DRS recommendation/policy/approval/migration/reconciliation
+- DB-backed jobs, artifacts, risks
+- production React SPA serving
 
-The target direction is DRS Advisor. The current backend provides Gjallar login,
-server-side sessions, role-based API protection, read-only Proxmox inventory,
-admin-only local user management, gated VM start from Infra Explorer,
-Jobs/Runs, Risks, read-only DRS Advisor surfaces, and approval-gated Create VM
-support. Create VM's active mutation path is native Proxmox API
-clone/config/post-check; the legacy Terraform executor route surface and helper
-code are removed. The backend also provides the first DRS live migration
-execution slice: DB-backed identity/fingerprint and migration policy evidence,
-approval packet/job intent records, DRS operation locks, a dedicated DRS
-Proxmox migration client, exact live migration acknowledgement, UPID/task
-evidence persistence, and conservative `needs_reconciliation` handling. DRS
-post-check/reconciliation is implemented
-for the narrow execution path: completion requires Proxmox task `OK` plus
-direct target-node status/config evidence, expected power state, matching DRS
-fingerprint, and no conflicting active task; locks release only after verified
-post-check, ambiguous outcomes stay `needs_reconciliation`, and a read-only
-Reconcile preview exists. Corrective reconciliation mutation, automatic DRS,
-bulk migration, and live DRS smoke evidence remain out of scope.
+목표 backend 구조는 Workloads, Operations, Policy/Approval, Evidence/Audit, Insights domain을 사용하는 modular monolith입니다. 현재 package가 이미 그 경계를 구현했다는 의미는 아닙니다.
 
-Proxmox is the source of truth for actual VM/node/task/HA/storage state. Gjallar stores operational intent, policy, approvals, fingerprints, jobs, artifacts, Create VM request/VM records, audit, and reconciliation state.
+- 현재 구조: [`../project-docs/architecture/overview.md`](../project-docs/architecture/overview.md)
+- 현재 API: [`../project-docs/api/current-api-v1.md`](../project-docs/api/current-api-v1.md)
+- DB 기준선: [`../project-docs/database/current-schema-and-ownership.md`](../project-docs/database/current-schema-and-ownership.md)
 
-DRS Advisor is not a VMware DRS replacement, VMware DRS compatible layer, or automatic DRS for Proxmox.
+## 로컬 준비
 
-## Active Surface
-
-- Public API contract: `/api/v1`
-- Auth: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and
-  `GET /api/v1/auth/me`
-- Admin user management: `GET/POST /api/v1/admin/users`,
-  `PATCH /api/v1/admin/users/{username}/role`,
-  `POST /api/v1/admin/users/{username}/disable`, and
-  `POST /api/v1/admin/users/{username}/reset-password`
-- Inventory: read-only Proxmox nodes, VMs, templates, storage, and networks
-- Infra Explorer VM start: acknowledgement/idempotency-gated QEMU start for stopped non-template VMs, with Proxmox task polling and `vm_start` job/artifact evidence
-- Create VM: draft, preflight, plan, approval, Proxmox native preview/create, optional boot-and-verify, and DB request/VM records
-- DRS Advisor: read-only recommendations/final pre-check, local approval packets, one narrow operator-only `POST /api/v1/drs/migration-jobs/{job_id}/execute` path for approved live migration jobs with exact `drs_live_migration_acknowledged=true`, and read-only `POST /api/v1/drs/migration-jobs/{job_id}/reconcile-preview`
-- Legacy Terraform Create VM executor: removed; old plan/apply URLs naturally 404
-- Jobs/Runs and Risks: read-only MVP summaries
-
-Legacy `/api` deploy/provision/task/log/LLM routes are not part of the active backend.
-
-## Run
+저장소 root에서 실행합니다. `python3.13`이 다른 이름·경로에 설치됐다면 첫 명령의 실행 파일만 해당 Python 3.13 경로로 바꿉니다.
 
 ```bash
 cp .env.example .env
-cd backend
+python3.13 -m venv backend/venv
+backend/venv/bin/pip install -r backend/requirements-dev.lock
 set -a
-. ../.env
+. ./.env
 set +a
-venv/bin/alembic upgrade head
-PYTHONPATH=. venv/bin/python -m app.db.seed_create_vm_profiles
-PYTHONPATH=. venv/bin/python -m app.auth.users create-admin --username yoon
-cd ..
+PYTHONPATH=backend backend/venv/bin/alembic -c backend/alembic.ini upgrade head
+PYTHONPATH=backend backend/venv/bin/python -m app.db.seed_create_vm_profiles
+PYTHONPATH=backend backend/venv/bin/python -m app.auth.users create-admin --username admin
+```
+
+`create-admin`은 password를 터미널에서 두 번 입력받습니다. CLI 인자에 평문 password를 넣지 마십시오.
+
+## 실행
+
+저장소 root의 script가 `.env`를 읽고 `backend/venv`를 사용합니다.
+
+```bash
 pnpm run backend
 ```
 
-The backend loads the repo root `.env`. `BACKEND_PORT` controls the local uvicorn port, and `FRONTEND_PORT` controls the CORS origin allowed for the Vite dev server.
-`GJALLAR_DATABASE_URL` controls the SQLAlchemy/Alembic connection and must point
-at PostgreSQL for runtime use. Gjallar normalizes `postgresql://` and
-`postgres://` URLs to the installed `postgresql+psycopg://` driver URL. SQLite is
-only allowed for tests with `GJALLAR_ALLOW_SQLITE_FOR_TESTS=1`.
-For Heimdall-managed PostgreSQL, bind the managed project database URL to
-`GJALLAR_DATABASE_URL`; the Docker entrypoint uses that same URL for migrations
-and Create VM profile seeding.
-There is no public signup flow. Local accounts are managed with the backend CLI,
-which prompts for passwords unless `--password-env` is used.
-
-For one-off backend CLI commands, load the repo root `.env` in the backend shell
-first:
+직접 실행하려면:
 
 ```bash
-cd backend
 set -a
-. ../.env
+. ./.env
 set +a
+cd backend
+PYTHONPATH=. venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port "${BACKEND_PORT:-8000}"
 ```
 
-## Docker
+## 주요 환경
 
-The root Dockerfile builds the Vite frontend, copies the built `dist` into the
-Python runtime image, and sets `GJALLAR_FRONTEND_DIST=/app/frontend-dist`.
-FastAPI serves `/health` and `/api/v1/*` as backend routes and serves the React
-SPA for extensionless frontend routes from the same origin.
+- 필수 runtime: `GJALLAR_DATABASE_URL` PostgreSQL URL. `postgresql://`과 `postgres://`는 psycopg driver URL로 normalize된다.
+- local dev: `FRONTEND_PORT`, `BACKEND_PORT`, `VITE_BACKEND_URL`.
+- connection: `GJALLAR_INVENTORY_MODE`, `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, `PROXMOX_TLS_INSECURE`.
+- inventory/mutation tuning: `PROXMOX_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_API_READ_TIMEOUT_SECONDS`, legacy fallback `PROXMOX_API_TIMEOUT_SECONDS`, `PROXMOX_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_TASK_TIMEOUT_SECONDS`와 `GJALLAR_PROXMOX_TASK_*` alias.
+- auth/cookie: `GJALLAR_ENV`, `GJALLAR_ALLOWED_ORIGINS`, `GJALLAR_SESSION_COOKIE_NAME`, `GJALLAR_SESSION_TTL_SECONDS`, `GJALLAR_SESSION_COOKIE_SECURE`, `GJALLAR_SESSION_COOKIE_SAMESITE`.
+- Create VM access default: `GJALLAR_DEFAULT_SSH_PUBLIC_KEY`, `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64`, `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE`.
+- existing DRS backend: `PROXMOX_DRS_API_URL`, `PROXMOX_DRS_API_TOKEN_ID`, `PROXMOX_DRS_API_TOKEN_SECRET`, `PROXMOX_DRS_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_DRS_API_READ_TIMEOUT_SECONDS`, `PROXMOX_DRS_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_DRS_TASK_TIMEOUT_SECONDS`.
 
-```bash
-docker build -t gjallar:local .
-docker run --rm --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" gjallar:local
-```
+product inventory는 authoritative Proxmox API만 사용합니다. `GJALLAR_INVENTORY_MODE=live`가 기본이며 `auto`는 live-only 호환 alias입니다. 필수 connection 설정이 빠지면 `unconfigured`, 설정 후 read가 실패하면 `degraded`를 반환하고 fixture inventory로 fallback하지 않습니다. 상태는 authenticated `GET /api/v1/setup/proxmox/connection`에서 확인합니다.
 
-The Docker entrypoint runs Alembic migrations, the idempotent Create VM profile
-seed, and an optional bootstrap admin step before starting Uvicorn. The admin
-bootstrap only runs when `GJALLAR_BOOTSTRAP_ADMIN_USERNAME` and
-`GJALLAR_BOOTSTRAP_ADMIN_PASSWORD` are both set. Existing enabled admin users
-are left unchanged. Set `GJALLAR_SKIP_STARTUP_INIT=1` only for special
-one-off/debug runs that must skip startup database initialization.
+전체 기본값과 현재 지원 여부는 `.env.example`과 각 config/client 코드가 우선합니다. optional tuning 값을 이유 없이 설정하지 않습니다.
 
-You can still create the initial admin account explicitly:
+SQLite는 runtime DB가 아닙니다. `GJALLAR_ALLOW_SQLITE_FOR_TESTS=1`인 test에서만 허용됩니다.
 
-```bash
-docker run --rm -it --env-file .env -v "$PWD/data:/app/data" gjallar:local python -m app.auth.users create-admin --username yoon
-```
+## 계정 관리
 
-Do not bake secrets into the image. Pass runtime values with `--env-file` or
-orchestrator secrets, and mount any host data/IaC paths referenced by `.env`.
-
-Account operations:
+`backend` directory에서 `.env`를 load한 뒤 실행합니다.
 
 ```bash
-PYTHONPATH=. venv/bin/python -m app.auth.users create-admin --username yoon
-PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username kim --role viewer
-PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username park --role operator
+PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username viewer1 --role viewer
+PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username operator1 --role operator
 PYTHONPATH=. venv/bin/python -m app.auth.users list-users
-PYTHONPATH=. venv/bin/python -m app.auth.users set-role --username kim --role operator
-PYTHONPATH=. venv/bin/python -m app.auth.users disable-user --username kim
-PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username park
+PYTHONPATH=. venv/bin/python -m app.auth.users set-role --username viewer1 --role operator
+PYTHONPATH=. venv/bin/python -m app.auth.users disable-user --username viewer1
+PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username operator1
 ```
 
-`disable-user` and `reset-password` revoke existing sessions for the target user.
-`set-role` does not revoke sessions; existing sessions pick up the role on their
-next request. `disable-user` rejects disabling the last enabled admin, and
-`set-role` rejects demoting the last enabled admin away from `admin`. Disabled
-admin rows do not count toward that protection. `reset-password` is not blocked
-by last-admin protection.
+disable과 password reset은 해당 사용자의 session을 revoke합니다. 마지막 enabled admin은 disable하거나 admin role에서 내릴 수 없습니다.
 
-Admins can also use the browser UI at `/admin/users` or the admin API endpoints
-listed above. Admin API responses return only safe user summaries and revoked
-session counts; they never return password hashes, session token hashes, raw
-secrets, or plaintext passwords.
+## 검증
 
-## Validate
-
-From the repo root:
+저장소 root에서:
 
 ```bash
-PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
+pnpm run test:backend
+pnpm run test:backend:container
 ```
 
-## Notes
+`backend/requirements.txt`와 `backend/requirements-dev.txt`는 직접 dependency 선언입니다. 실제 runtime과 개발 설치는 Python 3.13/Linux에서 해석한 `requirements.lock`과 `requirements-dev.lock`을 사용합니다.
 
-- The app loads the repo root `.env`.
-- Successful login creates a server-side session row and sends an opaque
-  `HttpOnly`, `SameSite=Lax` cookie. Only a hash of the cookie token is stored.
-- Roles are ordered `viewer < operator < admin`.
-- Read-only `/api/v1` APIs require `viewer` or above. Create VM workflow POSTs,
-  Create VM live create, and VM Start require `operator` or `admin`. Admin user
-  management requires `admin`.
-- Create VM profiles are schema-managed by Alembic and seeded by the Docker entrypoint. For local/manual setup, run `cd backend && PYTHONPATH=. venv/bin/python -m app.db.seed_create_vm_profiles`. The seed is idempotent and no-ops when any profile row already exists.
-- Jobs/Runs progress and artifacts are stored through `GJALLAR_DATABASE_URL` in `job_runs` and `job_artifacts`.
-- Do not commit `.env`, tokens, secrets, `data/`, or local runtime artifacts.
-- Live VM creation remains gated behind exact approval metadata, fresh red-risk checks, and `proxmox_mutation_acknowledged=true`. The default power policy leaves the new VM stopped; `boot_and_verify` starts it and verifies guest-agent IP plus cloud-init completion.
-- Create VM and VM Start job/request evidence records authenticated actor fields
-  from the session, not payload `operator_id`.
-- Native creation and VM start reuse `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, and `PROXMOX_TLS_INSECURE`; the mutation client is separate from the read-only inventory adapter.
-- DRS live migration does not reuse the Create VM/VM Start mutation client. It requires `PROXMOX_DRS_API_URL`, `PROXMOX_DRS_API_TOKEN_ID`, `PROXMOX_DRS_API_TOKEN_SECRET`, and optional `PROXMOX_DRS_TLS_INSECURE`, `PROXMOX_DRS_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_DRS_TASK_TIMEOUT_SECONDS`.
-- DRS live migration execute rejects missing or malformed `drs_live_migration_acknowledged=true` before DRS service/client/lock/migration work; ack failures return `409` / `DRS_EXECUTION_ACK_REQUIRED`, `proxmox_mutation_enabled=false`, and `side_effects=[]`.
+## Docker runtime
+
+root Dockerfile은 frontend를 build한 뒤 FastAPI runtime에 포함합니다. entrypoint는 기본적으로 다음 순서를 실행합니다.
+
+1. `alembic upgrade head`
+2. Create VM profile seed
+3. configured bootstrap admin 생성
+4. Uvicorn 실행
+
+`GJALLAR_SKIP_STARTUP_INIT=1`은 migration/seed/bootstrap을 모두 건너뛰므로 일반 운영 시작에 사용하지 않습니다.
+
+## 변경 시 지켜야 할 경계
+
+- trusted actor는 request payload가 아니라 server-side session에서 얻습니다.
+- inventory read adapter와 mutation client를 합치지 않습니다.
+- task 접수만으로 operation 성공을 선언하지 않습니다.
+- ambiguous external result를 자동 재시도하지 않습니다.
+- applied Alembic revision을 수정하지 않습니다.
+- DB schema, auth, public API, Proxmox mutation 변경은 승인된 Plan과 검증을 먼저 확인합니다.
