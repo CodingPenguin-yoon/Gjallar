@@ -34,7 +34,7 @@ flowchart LR
 - 구조: 단일 FastAPI application과 React SPA를 유지하며 feature-oriented layered monolith에서 domain-oriented modular monolith로 점진 전환 중이다.
 - 선택 배경: 기능별 package와 단일 배포를 유지하며 빠르게 운영 기능을 확장해 왔다.
 - 현재 장점: deployment가 단순하고 feature code와 contract test가 이미 존재하며 test-only fake adapter injection으로 주요 흐름을 검증할 수 있다.
-- 현재 단점: VM Start·Guided `qm`은 Operations 경계로 이동했지만 큰 router·screen과 Create VM·DRS workflow는 여전히 DB, jobs, Proxmox 구현을 직접 조정한다. 전환되지 않은 기능의 책임과 transaction 의미도 아직 분산돼 있다.
+- 현재 단점: VM Start·Create VM·Guided `qm`은 Operations 경계와 공통 lifecycle을 사용하지만 큰 router·screen과 Create VM compatibility workflow·DRS workflow는 여전히 DB, jobs, Proxmox 구현을 직접 조정한다. dual record transaction 의미와 전환되지 않은 기능의 책임도 아직 분산돼 있다.
 - 재검토 이유: 제품을 Verified Operations Control Plane으로 전환하려면 operation, policy, evidence의 공통 경계가 필요하다.
 
 ## 4. 구성 요소와 책임
@@ -47,9 +47,10 @@ flowchart LR
 | `workloads` | authoritative inventory availability application boundary | `WorkloadInventoryQuery` | actual state는 Proxmox 소유 | Setup/Integration, Proxmox adapter |
 | `operations/core` | 공통 Operation 상태 전이, digest, projection/event repository 계약 | `OperationSpec`, `OperationSnapshot`, `OperationStore` | `operations`, `operation_events` | domain과 SQLAlchemy infrastructure adapter |
 | `operations/vm_start` | VM Start command·stable intent, application use case, 검증 workflow와 외부 port 계약 | `VmStartCommand`, `VmStartUseCase`, `VmStartExecutionPorts` | 공통 operation/event와 기존 job/artifact dual record | 추상 Workloads/Mutation/Jobs/Evidence/Lock port |
+| `operations/vm_create` | Create VM stable intent, plan·approval·preview·dispatch·result·replay tracking과 common lifecycle mapping | `VmCreateOperationTracker`, facade functions | 공통 operation/event와 기존 request/job/artifact dual record | Operations core store; HTTP facade가 compatibility workflow와 조립 |
 | `operations/guided_qm` | 고정 `qm unlock` 계획, operator handoff, attestation, API verification | `GuidedQmUnlockUseCase`, typed command DTO | 공통 operation/event | Proxmox observation port, shared target lock |
 | `proxmox` | read inventory와 mutation client | Python dataclass/client methods | actual state는 Proxmox 소유 | Proxmox VE API |
-| `vm_create` | draft/preflight/plan/approval/native create | workflow functions, `/vm-create/*` | profile, request, instance linkage, job/artifact | DB, jobs, Proxmox |
+| `vm_create` | draft/preflight/plan/approval/native create compatibility 정책·runner | workflow functions, `/vm-create/*` | profile, request, instance linkage, job/artifact | Operations Create VM tracking, DB, jobs, Proxmox |
 | `vm_actions` | VM Start compatibility facade·infrastructure adapter와 post-create readiness | `run_vm_start`, action endpoint | 전용 table 없음; job/artifact compatibility 유지 | Operations VM Start, inventory, jobs, Proxmox |
 | `drs` | identity, policy, recommendation, approval, migration, reconciliation | workflow functions, `/drs/*` | DRS identity/policy/approval/job/lock/reconciliation | DB, inventory, jobs, DRS client |
 | `jobs` | job projection과 artifact metadata/content | helper functions, `/jobs`, `/risks` | `job_runs`, `job_artifacts` | DB |
@@ -65,7 +66,8 @@ flowchart LR
 - product environment mode는 live-only이고 test fixture는 direct injection으로만 연결된다.
 - inventory-dependent route는 Workloads query boundary에서 non-live 상태를 `503`으로 차단한다.
 - VM Start HTTP path는 compatibility facade를 통해 infrastructure-free command와 application use case로 진입한다. use case가 사용하는 Workloads, mutation, Jobs, Evidence, lock 의존성은 명시적 port로 전달된다.
-- VM Start workflow와 Guided `qm unlock`은 공통 Operation projection과 checksum-linked event repository를 사용한다. projection 전이와 event append는 한 DB transaction으로 저장한다.
+- VM Start, Create VM tracking과 Guided `qm unlock`은 공통 Operation projection과 checksum-linked event repository를 사용한다. projection 전이와 event append는 한 DB transaction으로 저장한다.
+- Create VM plan은 `operation_id=job_id`인 `vm_create` operation을 만들고 approval·preview·dispatch·running·verifying·success/reconciliation을 event로 기록한다. 기존 request/workload/job/artifact는 별도 transaction의 compatibility record로 유지한다.
 - Guided `qm`은 fixed template과 typed parameter만 받으며 backend shell/SSH executor가 없다. operator attestation만으로 성공하지 않고 Proxmox API의 config lock·active task를 다시 확인한다.
 - DRS migration은 일반 Proxmox mutation client와 다른 전용 client를 사용한다.
 - browser가 제출한 actor가 아니라 server-side session actor를 사용한다.
@@ -74,10 +76,10 @@ flowchart LR
 
 ### 일관되게 보호되지 않는 관계
 
-- Create VM·DRS와 일부 route/workflow는 아직 DB session, ORM model, job/artifact helper, Proxmox concrete implementation을 직접 알 수 있다.
+- Create VM HTTP compatibility facade·DRS와 일부 route/workflow는 아직 DB session, ORM model, job/artifact helper, Proxmox concrete implementation을 직접 알 수 있다.
 - 미전환 backend domain과 legacy frontend screen에는 public contract와 private implementation 경계가 일관되게 적용되지 않았다.
 - Create VM·DRS·Jobs·Risks·Admin frontend 내부는 page adapter 아래 기존 component/utils 구조를 유지한다.
-- Create VM·DRS는 공통 operation state machine이나 event repository를 아직 사용하지 않는다. 기존 jobs/artifacts도 compatibility 모델로 남아 있다.
+- DRS는 공통 operation state machine이나 event repository를 아직 사용하지 않는다. Create VM은 공통 lifecycle을 dual record하지만 기존 request/jobs/artifacts도 compatibility 모델로 남아 있다.
 
 ## 6. 현재 책임과 데이터
 
@@ -87,7 +89,7 @@ flowchart LR
 | Inventory | Proxmox state read/normalization | actual state는 Proxmox; adapter cache는 transient | nodes/VMs/templates/storage/networks model |
 | VM Create | profile, request, create workflow | `create_vm_profiles`, `vm_create_requests`, `vm_instances` 및 job/artifact | `/vm-create/*`, Proxmox client |
 | VM Actions | existing VM action/readiness | 전용 table 없이 `job_runs`, `job_artifacts` | action endpoint, inventory, Proxmox client |
-| Operations | operation current projection와 append-only event | `operations`, `operation_events` | VM Start, Guided `qm`, additive operation API |
+| Operations | operation current projection와 append-only event | `operations`, `operation_events` | VM Start, Create VM, Guided `qm`, additive operation API |
 | DRS | identity, policy, recommendation, execution/reconciliation | DRS 관련 8개 table과 job/artifact | `/drs/*`, inventory, DRS client |
 | Jobs/Risks | 최신 job projection, artifact, derived risk | `job_runs`, `job_artifacts` | `/jobs`, `/risks`, producer helper |
 
@@ -100,7 +102,7 @@ flowchart LR
 - 강한 정합성: 단일 DB transaction 안의 unique/foreign-key/checksum/last-admin 같은 local invariant.
 - 최종 정합성: Proxmox mutation, UPID/task, post-check와 Gjallar job/DRS state. 외부 API와 PostgreSQL은 원자적이지 않다.
 - 멱등성·동시성: VM Start, Create VM, Guided `qm unlock`은 현재 한 configured cluster의 VMID를 기준으로 같은 local target file lock helper를 사용한다. DRS는 DB `operation_locks`를 사용하며 네 workflow가 공통 lock contract를 모두 공유하지는 않는다.
-- 실패 처리: VM Start와 Guided `qm`은 공통 `needs_reconciliation` taxonomy와 Operation event를 사용한다. Create VM의 covered ambiguity도 retained lock과 reconciliation 상태로 보존하고, DRS는 dispatch 전 `prepared` attempt와 prepared/no-UPID crash window를 자체 상태로 보존한다.
+- 실패 처리: VM Start, Create VM과 Guided `qm`은 공통 `needs_reconciliation` taxonomy와 Operation event를 사용한다. Create VM은 외부 effect 뒤 compatibility/evidence 저장 실패에서도 success를 공표하지 않고 `verifying` 또는 `needs_reconciliation`과 retained lock으로 보존한다. DRS는 dispatch 전 `prepared` attempt와 prepared/no-UPID crash window를 자체 상태로 보존한다.
 
 ## 8. 외부 시스템
 
@@ -115,11 +117,11 @@ Queue, scheduler, cache, background worker는 현재 active dependency가 아니
 
 ## 9. 현재 주요 실행 흐름
 
-- Create VM: draft → preflight → plan → approve → preview → replay/VMID guard → target lock → native create → optional boot/post-check → DB/job/artifact → clear result에서만 lock 해제.
+- Create VM: draft → preflight → plan과 common operation 준비 → approve/preview event → replay/VMID guard → target lock → common dispatch 기록 → native create → running/verifying event → compatibility request/workload/job/artifact → common success → clear result에서만 lock 해제.
 - VM Start: API facade → Operations command/use case → explicit execution ports → `operations/vm_start/workflow.py` 순으로 진입한다. acknowledgement/idempotency → operation intent/event → VMID target lock → fresh pre-check → start → task poll → running post-check → operation event + 기존 job/artifact → clear result에서만 lock 해제 순서를 유지한다.
 - Guided `qm unlock`: Workload Cockpit 또는 Operations UI → typed input/ack → shared target lock → `Sys.Audit` 권한·active task·config lock pre-check → 5분 instruction bundle과 operation/event 저장 → 외부 node shell 실행 → trusted attestation → Proxmox API verification → lock 해제 또는 reconciliation 순서다. backend는 명령을 실행하지 않으며 UI는 만료·reconciliation instruction의 신규 실행을 경고한다.
 - DRS: recommendation/check → identity/policy → approval packet/job → final pre-check/DB operation lock → durable prepared attempt → migrate → accepted UPID → task/post-check → completion 또는 reconciliation.
-- 목표 공통 lifecycle 중 projection/event core, VM Start·Guided `qm unlock`, Workload Cockpit·Operations list/detail/timeline UI가 구현됐다. Create VM·DRS의 공통 Operation 통합은 남아 있다.
+- 목표 공통 lifecycle 중 projection/event core, VM Start·Create VM·Guided `qm unlock`, Workload Cockpit·Operations list/detail/timeline UI가 구현됐다. DRS의 공통 Operation 통합은 남아 있다.
 
 ## 10. 런타임과 배포 제약
 
@@ -133,12 +135,12 @@ Queue, scheduler, cache, background worker는 현재 active dependency가 아니
 - 단위: DRS 판단, identity, preflight, view model, normalization 등 순수·준순수 로직.
 - 통합·계약: FastAPI `/api/v1`, auth/RBAC, SQLAlchemy/Alembic, jobs/artifacts, static SPA, frontend client/route.
 - 외부 대역: test에서 직접 주입한 fake inventory/mutation client와 test-only SQLite를 기본 사용한다. product runtime environment에는 fake inventory mode가 없다.
-- canonical Python 3.13 container의 이전 기준선은 backend 전체 `425 passed`다. 2026-07-21 local Python 3.14 venv에서 backend 전체 `436 passed`, local Node 24에서 frontend test 16개·ESLint·Vite production build 통과를 확인했다. 이번 slice의 container build와 live Proxmox 실행은 수행하지 않았다.
+- canonical Python 3.13 container에서 backend 전체 `443 passed`, canonical Node 24/pnpm 10에서 frontend test 16개·ESLint·Vite production build와 production image build를 확인했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.
 
 ## 12. 알려진 위험과 기술 부채
 
 - `api/v1/router.py`, DRS/Create VM workflow와 미전환 큰 screen/view-model에 책임이 집중돼 있다. root `App.jsx` 집중은 해소됐지만 page adapter 아래 legacy component는 남아 있다.
-- VM Start workflow는 Operations로 이동했지만 기존 `job_runs`/`job_artifacts` dual record와 `run_vm_start` facade가 남아 있다. 어느 시점에 compatibility projection을 종료할지는 미결정이다.
+- VM Start와 Create VM lifecycle은 Operations로 이동했지만 기존 `job_runs`/`job_artifacts`, Create VM request/workload linkage와 compatibility facade가 남아 있다. 어느 시점에 compatibility projection을 종료할지는 미결정이다.
 - `list_job_runs()`의 DB exception → empty list fallback은 장애를 빈 데이터처럼 보이게 할 수 있다.
 - `job_runs`는 최신 projection, `job_artifacts`는 upsert 성격이라 immutable operation audit가 아니다.
 - 장기 operation의 durable runner, lease, restart recovery가 없다.

@@ -5,6 +5,7 @@ const {
   GUIDED_QM_UNLOCK_OPERATION_TYPE,
   normalizeOperation,
   normalizeOperationDetail,
+  operationTypeLabel,
   operationStatusTone,
 } = await import('../src/entities/operation/model.js')
 const {
@@ -25,6 +26,7 @@ const operation = normalizeOperation({
 })
 assert.equal(operation.id, 'guided-1')
 assert.equal(operation.actor.username, 'operator')
+assert.equal(operationTypeLabel('vm_create'), 'Create VM')
 assert.deepEqual(guidedQmActionState(operation), { guided: true, canAttest: true, canVerify: false, lateAttestation: false })
 assert.equal(guidedQmActionState({ ...operation, status: 'awaiting_verification' }).canVerify, true)
 assert.equal(guidedQmActionState({

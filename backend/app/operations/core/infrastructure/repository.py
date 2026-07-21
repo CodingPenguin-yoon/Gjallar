@@ -168,6 +168,8 @@ class SqlAlchemyOperationStore:
         except IntegrityError:
             existing = self._get_by_scope(spec)
             if existing is None:
+                existing = self.get(spec.operation_id)
+            if existing is None:
                 raise
             return self._resolve_existing(existing, spec)
         return OperationCreateResult(operation=result, created=True)
@@ -356,7 +358,16 @@ class SqlAlchemyOperationStore:
 
     @staticmethod
     def _resolve_existing(existing: OperationSnapshot, spec: OperationSpec) -> OperationCreateResult:
-        if existing.intent_digest != spec.intent_digest or existing.plan_digest != spec.plan_digest:
+        same_identity = (
+            existing.operation_type == spec.operation_type
+            and existing.execution_mode == spec.execution_mode
+            and existing.target_type == spec.target_type
+            and existing.target_id == spec.target_id
+            and existing.idempotency_key == spec.idempotency_key
+            and existing.intent_digest == spec.intent_digest
+            and existing.plan_digest == spec.plan_digest
+        )
+        if not same_identity:
             raise OperationIntentConflict(existing.operation_id)
         return OperationCreateResult(operation=existing, created=False)
 

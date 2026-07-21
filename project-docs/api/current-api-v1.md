@@ -5,7 +5,7 @@
 - 소비자: `frontend/src/shared/api/apiV1.js`, compatibility export `frontend/src/services/apiV1.js`, React SPA, 승인된 외부 consumer
 - 관련 요구사항·ADR: [`Project Specification`](../specifications/project-specification.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
 
-이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회와 첫 Guided Manual mutation은 additive public contract로 추가됐고 기존 endpoint는 유지된다.
+이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회, Create VM linkage와 첫 Guided Manual mutation은 additive public contract로 추가됐고 기존 endpoint는 유지된다.
 
 ## 계약 개요
 
@@ -123,7 +123,9 @@ Plan request는 다음 네 field만 허용한다.
 | `POST` | `/api/v1/vm-create/{draft_id}/proxmox-preview` | operator | local/read only | Proxmox create preview |
 | `POST` | `/api/v1/vm-create/{draft_id}/proxmox-create` | operator | Proxmox clone/config/optional boot | approval binding, acknowledgement, native create, optional verification |
 
-이 다단계 endpoint는 standardized Create VM operation으로 통합하되 전환 동안 호환 facade로 유지한다. final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하고, 같은 job의 다른 intent와 같은 VMID를 소유한 다른 active/reconciliation/completed request를 `409`로 차단한다. VM Start와 같은 VMID target file lock을 사용하며, 명확한 side-effect-free 거절만 `failed`로 종료·해제하고 partial/unknown result는 `apply_failed` 또는 `needs_reconciliation`과 retained lock으로 남긴다.
+이 다단계 endpoint는 전환 동안 호환 facade를 유지하면서 `vm_create` common Operation을 함께 기록한다. `plan`, `approve`, `proxmox-preview`, 성공·replay된 `proxmox-create`의 `data`에는 additive `operation_id`와 `operation` link가 포함된다. operation은 plan에서 `awaiting_approval` 또는 red risk의 `blocked`로 준비되고 exact approval, preview, dispatch, running, verifying, success/reconciliation event를 기록한다.
+
+final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하고, 같은 job의 다른 intent와 같은 VMID를 소유한 다른 active/reconciliation/completed request를 `409`로 차단한다. VM Start와 같은 VMID target file lock을 사용하며, 명확한 side-effect-free 거절만 common `failed`로 종료·해제하고 partial/unknown result는 common `needs_reconciliation`과 기존 `apply_failed`/`needs_reconciliation` compatibility 상태 및 retained lock으로 남긴다. 외부 effect 뒤 request/workload/job/artifact 또는 common evidence 저장이 실패하면 success를 공표하거나 lock을 해제하지 않는다.
 
 ### DRS
 
@@ -152,7 +154,7 @@ DRS recommendation은 향후 Insights로 이동한다. 기존 live execution/his
 - Create VM, VM Start, Guided `qm unlock`은 현재 한 configured cluster의 VMID를 `proxmox_vm/vmid:{vmid}`로 표현하는 동일한 single-container file lock namespace를 사용한다.
 - DRS는 별도 DB `operation_locks`를 사용하므로 Create/Start와 공통 lock 또는 공통 operation resource를 아직 공유하지 않는다.
 - 네 mutation slice는 서로 다른 idempotency/approval/error contract를 일부 유지하지만, covered ambiguity를 terminal failure로 축소하거나 자동 재호출하지 않는다.
-- VM Start와 Guided `qm`은 공통 operation resource/event를 기록한다. Create VM과 DRS는 아직 자체 projection/evidence를 유지한다.
+- VM Start, Create VM과 Guided `qm`은 공통 operation resource/event를 기록한다. Create VM은 기존 request/job/artifact/workload linkage도 dual record하며 DRS는 아직 자체 projection/evidence만 유지한다.
 - secret, token, password와 unsafe evidence field를 저장·응답하지 않아야 한다.
 
 ## 호환성 정책
@@ -168,4 +170,4 @@ DRS recommendation은 향후 Insights로 이동한다. 기존 live execution/his
 - success helper: `backend/app/api/v1/responses.py`.
 - frontend consumer: `frontend/src/shared/api/apiV1.js`; 기존 `frontend/src/services/apiV1.js`는 compatibility export다.
 - contract test: `backend/tests/contracts/`, frontend `apiV1Client`, auth, navigation과 feature tests.
-- Python 3.13 container backend의 이전 기준선은 `425 passed`다. 2026-07-21 local Python 3.14 backend 전체 `436 passed`, local Node 24 frontend test 16개·ESLint·Vite production build가 통과했다. container build와 live Proxmox 실행은 이번 slice에서 수행하지 않았다.
+- Python 3.13 container backend 전체 `443 passed`, canonical Node 24/pnpm 10 frontend test 16개·ESLint·Vite production build와 production image build가 통과했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.

@@ -93,6 +93,8 @@ def test_command_owns_request_values_and_builds_stable_legacy_contracts():
     __import__("app.operations.guided_qm.domain", fromlist=["*"]),
     __import__("app.operations.guided_qm.ports", fromlist=["*"]),
     __import__("app.operations.guided_qm.application", fromlist=["*"]),
+    __import__("app.operations.vm_create.domain", fromlist=["*"]),
+    __import__("app.operations.vm_create.application", fromlist=["*"]),
 ])
 def test_application_slice_does_not_import_concrete_infrastructure(module):
     tree = ast.parse(inspect.getsource(module))

@@ -1,7 +1,7 @@
 # 데이터베이스 기준선: 현재 Schema와 목표 Logical Ownership
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-20`
+- 최종 검토일: `2026-07-21`
 - 관련 migration·ADR: `backend/alembic/versions/`, [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md)
 
 ## 목적과 범위
@@ -65,7 +65,7 @@ erDiagram
 ## 목표 변화 원칙
 
 - logical ownership과 repository contract를 먼저 도입하고 table rename/move는 나중에 한다.
-- VM Start는 기존 `job_runs`/`job_artifacts` compatibility와 공통 operation/event를 dual record한다. Guided `qm unlock`은 공통 저장 구조를 사용한다.
+- VM Start는 기존 `job_runs`/`job_artifacts` compatibility와 공통 operation/event를 dual record한다. Create VM은 신규 plan부터 common operation/event와 기존 `vm_create_requests`/`vm_instances`/job/artifact를 dual record하며 기존 row backfill은 하지 않는다. Guided `qm unlock`은 공통 저장 구조를 사용한다.
 - migration `20260720_0026`은 기존 table을 수정하지 않고 `operations`, `operation_events`를 additive하게 추가한다.
 - projection과 immutable evidence를 분리한다.
 - external call 전체를 DB transaction 안에 두지 않는다.
@@ -109,4 +109,4 @@ erDiagram
 - mapping: ORM repository, relationship, constraint tests.
 - 정합성: duplicate idempotency, same target/different key concurrency, crash-window, approval digest, append-only evidence tests.
 - failure: DB unavailable이 empty success가 아니라 degraded/error로 표현되는 contract test.
-- 현재 상태: migration head에 `20260720_0026`을 포함한 Alembic schema test와 canonical Python 3.13 container backend 전체 `425 passed`를 확인했다. jobs DB failure semantics 변경은 공개 오류 계약 승인이 필요해 계속 보류한다.
+- 현재 상태: migration head에 `20260720_0026`을 포함한 Alembic schema test와 canonical Python 3.13 container backend 전체 `443 passed`를 확인했다. Create VM 통합에는 migration을 추가하지 않았으며 jobs DB failure semantics 변경은 공개 오류 계약 승인이 필요해 계속 보류한다.

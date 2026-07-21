@@ -593,11 +593,14 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
     setCreating(true)
     setError(null)
     const jobId = model?.draft?.jobId || form.jobId
+    const operationId = model?.operation?.id || ''
     const createPromise = createVmWithProxmox(apiV1Client, model, {
       yellowRiskAcknowledged,
       proxmoxMutationAcknowledged,
     })
-    navigate(`/operations/jobs?job=${encodeURIComponent(jobId)}`)
+    navigate(operationId
+      ? `/operations/${encodeURIComponent(operationId)}`
+      : `/operations/jobs?job=${encodeURIComponent(jobId)}`)
     try {
       const result = await createPromise
       setCreateResult(result)

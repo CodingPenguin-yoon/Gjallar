@@ -70,6 +70,7 @@ export function normalizeOperationDetail(value = {}) {
 export function operationTypeLabel(type) {
   const labels = {
     vm_start: 'VM Start',
+    vm_create: 'Create VM',
     [GUIDED_QM_UNLOCK_OPERATION_TYPE]: 'Guided qm unlock',
   }
   return labels[type] || String(type || 'Unknown operation').replaceAll('_', ' ')

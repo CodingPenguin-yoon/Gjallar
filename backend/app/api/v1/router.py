@@ -17,7 +17,6 @@ from app.db.vm_runtime import (
     get_vm_instance_record,
     record_vm_create_request,
     record_vm_instance_from_create,
-    vm_create_plan_intent,
 )
 from app.drs.advisor import (
     build_drs_advisor_model,
@@ -42,8 +41,21 @@ from app.operations.guided_qm.facade import (
     plan_guided_qm_unlock,
     verify_guided_qm_operation,
 )
+from app.operations.core.domain import OperationIntentConflict, OperationStateConflict
 from app.operations.facade import InvalidOperationQuery, OperationQueryNotFound, get_operation, list_operations
 from app.operations.target_lock import TargetOperationLockBusy, acquire_target_operation_lock, release_target_operation_lock
+from app.operations.vm_create.domain import vm_create_plan_intent
+from app.operations.vm_create.facade import (
+    prepare_vm_create_operation,
+    record_vm_create_approval,
+    record_vm_create_compatibility_replay,
+    record_vm_create_dispatch_prepared,
+    record_vm_create_guard_blocked,
+    record_vm_create_preview,
+    record_vm_create_result,
+    record_vm_create_succeeded,
+    vm_create_operation_link,
+)
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
 from app.proxmox.drs_migration import get_default_drs_proxmox_migration_client
@@ -278,6 +290,69 @@ def _native_error_summary(result: dict[str, Any] | None, fallback: str) -> str:
         if exitstatus:
             return f"Proxmox task exitstatus: {exitstatus}"[:1000]
     return str(fallback or "Native Proxmox create failed")[:1000]
+
+
+def _vm_create_operation_conflict(
+    exc: OperationIntentConflict | OperationStateConflict,
+    *,
+    draft_id: str,
+) -> HTTPException:
+    if isinstance(exc, OperationIntentConflict):
+        code = "PROXMOX_CREATE_IDEMPOTENCY_CONFLICT"
+        message = "same Create VM job_id already belongs to a different creation intent or exact plan"
+        status = ""
+    else:
+        status = str(exc.current_status)
+        if status in {"dispatching", "running", "verifying", "needs_reconciliation"}:
+            code = "PROXMOX_CREATE_RECONCILIATION_REQUIRED"
+        elif status == "failed":
+            code = "PROXMOX_CREATE_IDEMPOTENCY_CONFLICT"
+        else:
+            code = "PROXMOX_CREATE_OPERATION_STATE_CONFLICT"
+        message = f"Create VM operation cannot continue from status {status}"
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": code,
+            "message": message,
+            "draft_id": draft_id,
+            "operation_id": exc.operation_id,
+            "operation_status": status,
+            "side_effects": [],
+        },
+    )
+
+
+def _prepare_vm_create_operation(plan: Any, *, actor: AuthenticatedUser | dict | None = None):
+    try:
+        return prepare_vm_create_operation(plan, actor=actor).operation
+    except OperationIntentConflict as exc:
+        raise _vm_create_operation_conflict(exc, draft_id=str(plan.draft_id)) from exc
+
+
+def _record_vm_create_approval_or_conflict(
+    plan: Any,
+    decision: Any,
+    *,
+    actor: AuthenticatedUser | dict | None = None,
+):
+    try:
+        return record_vm_create_approval(plan.job_id, decision.to_dict(), actor=actor)
+    except OperationStateConflict as exc:
+        raise _vm_create_operation_conflict(exc, draft_id=str(plan.draft_id)) from exc
+
+
+def _with_vm_create_operation(payload: dict[str, Any], operation: Any) -> dict[str, Any]:
+    return {
+        **payload,
+        "operation_id": operation.operation_id,
+        "operation": vm_create_operation_link(operation),
+    }
+
+
+def _with_vm_create_operation_response(response: dict[str, Any], operation: Any) -> dict[str, Any]:
+    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    return {**response, "data": _with_vm_create_operation(dict(data), operation)}
 
 
 def _public_vm_create_request(record: dict[str, Any]) -> dict[str, Any]:
@@ -1306,6 +1381,7 @@ async def plan_vm_draft(
     draft = _api_draft_from_payload(draft_id, payload)
     preflight = run_preflight(draft, inventory_adapter=_inventory_adapter())
     plan = build_vm_create_plan(draft, preflight, run_dir=_api_preview_run_dir(draft.job_id))
+    operation = _prepare_vm_create_operation(plan, actor=actor)
     _record_plan_job(
         plan,
         status="blocked" if plan.risk_summary.get("level") == "red" else "in_progress",
@@ -1314,7 +1390,10 @@ async def plan_vm_draft(
         message="생성 계획과 검토 패킷이 준비되었습니다.",
         actor=actor,
     )
-    return success_response(plan.to_dict(), meta={"mode": "dry_run_plan_only"})
+    return success_response(
+        _with_vm_create_operation(plan.to_dict(), operation),
+        meta={"mode": "dry_run_plan_only"},
+    )
 
 
 @router.post("/vm-create/{draft_id}/plan")
@@ -1341,6 +1420,8 @@ async def approve_vm_draft(
         yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
         run_dir=_api_preview_run_dir(plan.job_id),
     )
+    _prepare_vm_create_operation(plan, actor=actor)
+    operation = _record_vm_create_approval_or_conflict(plan, decision, actor=actor)
     _record_plan_job(
         plan,
         status="in_progress" if decision.can_execute else "blocked",
@@ -1350,7 +1431,10 @@ async def approve_vm_draft(
         details={"approval": decision.to_dict()},
         actor=actor,
     )
-    return success_response(decision.to_dict(), meta={"mode": "approval_validation_only"})
+    return success_response(
+        _with_vm_create_operation(decision.to_dict(), operation),
+        meta={"mode": "approval_validation_only"},
+    )
 
 
 @router.post("/vm-create/{draft_id}/approve")
@@ -1377,6 +1461,8 @@ async def preview_vm_draft_proxmox_create(
         yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
         run_dir=_api_preview_run_dir(plan.job_id),
     )
+    _prepare_vm_create_operation(plan, actor=actor)
+    operation = _record_vm_create_approval_or_conflict(plan, decision, actor=actor)
     if not decision.can_execute:
         _record_plan_job(
             plan,
@@ -1398,6 +1484,10 @@ async def preview_vm_draft_proxmox_create(
         )
 
     preview = build_proxmox_create_preview(plan, run_dir=_api_preview_run_dir(plan.job_id))
+    try:
+        operation = record_vm_create_preview(plan.job_id, preview, actor=actor)
+    except OperationStateConflict as exc:
+        raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
     _record_plan_job(
         plan,
         status="in_progress",
@@ -1409,12 +1499,12 @@ async def preview_vm_draft_proxmox_create(
         actor=actor,
     )
     return success_response(
-        {
+        _with_vm_create_operation({
             **preview,
             "approval": decision.to_dict(),
             "proxmox_create_enabled": False,
             "proxmox_mutation_enabled": False,
-        },
+        }, operation),
         meta={"mode": "proxmox_native_preview_no_mutation"},
     )
 
@@ -1444,6 +1534,8 @@ async def create_vm_draft_proxmox_native(
         yellow_risk_acknowledged=payload.get("yellow_risk_acknowledged") is True,
         run_dir=_api_preview_run_dir(plan.job_id),
     )
+    _prepare_vm_create_operation(plan, actor=actor)
+    operation = _record_vm_create_approval_or_conflict(plan, decision, actor=actor)
     if not decision.can_execute:
         raise HTTPException(
             status_code=409,
@@ -1451,6 +1543,7 @@ async def create_vm_draft_proxmox_native(
                 "code": "PROXMOX_CREATE_APPROVAL_GATE_BLOCKED",
                 "message": decision.reason,
                 "draft_id": draft_id,
+                "operation_id": operation.operation_id,
                 "side_effects": [],
             },
         )
@@ -1461,6 +1554,7 @@ async def create_vm_draft_proxmox_native(
                 "code": "PROXMOX_CREATE_ACK_REQUIRED",
                 "message": "proxmox_mutation_acknowledged=true is required before native Proxmox create",
                 "draft_id": draft_id,
+                "operation_id": operation.operation_id,
                 "side_effects": [],
             },
         )
@@ -1479,19 +1573,49 @@ async def create_vm_draft_proxmox_native(
                 "code": "PROXMOX_CREATE_PREFLIGHT_RED_RISK",
                 "message": "red risk blocks native Proxmox create",
                 "draft_id": draft_id,
+                "operation_id": operation.operation_id,
                 "side_effects": [],
             },
         )
 
     preview = build_proxmox_create_preview(plan, run_dir=_api_preview_run_dir(plan.job_id))
-    existing_response = _existing_vm_create_response_if_blocked(
-        draft_id=draft_id,
-        plan=plan,
-        decision=decision,
-        preview=preview,
-    )
+    try:
+        existing_response = _existing_vm_create_response_if_blocked(
+            draft_id=draft_id,
+            plan=plan,
+            decision=decision,
+            preview=preview,
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+        record_vm_create_guard_blocked(plan.job_id, detail, actor=actor)
+        raise
     if existing_response is not None:
-        return existing_response
+        existing_data = existing_response.get("data") if isinstance(existing_response.get("data"), dict) else {}
+        stored_workload = get_vm_instance_record(plan.target_node_id, plan.vmid)
+        if stored_workload is None:
+            operation = record_vm_create_guard_blocked(
+                plan.job_id,
+                {
+                    "code": "PROXMOX_CREATE_WORKLOAD_LINKAGE_MISSING",
+                    "message": "completed Create VM evidence exists without persisted workload linkage",
+                    "existing_status": "completed",
+                    "request_id": plan.job_id,
+                },
+                actor=actor,
+            )
+        else:
+            try:
+                operation = record_vm_create_compatibility_replay(
+                    plan.job_id,
+                    result=dict(existing_data),
+                    request=dict(existing_data.get("vm_create_request") or {}),
+                    workload=stored_workload,
+                    actor=actor,
+                )
+            except OperationStateConflict as exc:
+                raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
+        return _with_vm_create_operation_response(existing_response, operation)
 
     target_id = f"vmid:{int(plan.vmid)}"
     owner_id = plan.job_id
@@ -1502,7 +1626,9 @@ async def create_vm_draft_proxmox_native(
             owner_id=owner_id,
         )
     except TargetOperationLockBusy as exc:
-        raise HTTPException(status_code=409, detail=_target_lock_busy_detail(exc, target_id=target_id, owner_id=owner_id)) from exc
+        detail = _target_lock_busy_detail(exc, target_id=target_id, owner_id=owner_id)
+        record_vm_create_guard_blocked(plan.job_id, detail, actor=actor)
+        raise HTTPException(status_code=409, detail={**detail, "operation_id": plan.job_id}) from exc
 
     retain_target_lock = False
     try:
@@ -1530,6 +1656,16 @@ async def create_vm_draft_proxmox_native(
         )
 
         try:
+            operation = record_vm_create_dispatch_prepared(
+                plan.job_id,
+                preview=preview,
+                target_lock=target_lock_evidence,
+                actor=actor,
+            )
+        except OperationStateConflict as exc:
+            raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
+
+        try:
             client = get_default_proxmox_mutation_client()
             retain_target_lock = True
             create_result = redact_secrets(
@@ -1551,6 +1687,15 @@ async def create_vm_draft_proxmox_native(
                 phase = "failed"
             else:
                 phase = "apply_failed"
+            try:
+                operation = record_vm_create_result(
+                    plan.job_id,
+                    create_result,
+                    side_effect_free_failure=side_effect_free_failure,
+                    actor=actor,
+                )
+            except OperationStateConflict as exc:
+                raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
             record_vm_create_request(
                 plan,
                 status=phase,
@@ -1579,12 +1724,23 @@ async def create_vm_draft_proxmox_native(
                     "code": "PROXMOX_CREATE_NEEDS_RECONCILIATION" if phase == "needs_reconciliation" else "PROXMOX_CREATE_FAILED",
                     "message": _native_error_summary(create_result, "native Proxmox create failed"),
                     "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
                     "side_effects": list(create_result.get("side_effects") or []),
                     "proxmox_create": create_result,
                     "proxmox_preview": preview,
                 },
             )
 
+        try:
+            operation = record_vm_create_result(
+                plan.job_id,
+                create_result,
+                side_effect_free_failure=False,
+                actor=actor,
+            )
+        except OperationStateConflict as exc:
+            raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
         request_record = record_vm_create_request(
             plan,
             status="completed",
@@ -1606,8 +1762,18 @@ async def create_vm_draft_proxmox_native(
                 "target_lock": target_lock_evidence,
             }, actor_payload),
         )
+        try:
+            operation = record_vm_create_succeeded(
+                plan.job_id,
+                result=create_result,
+                request=request_record,
+                workload=vm_instance,
+                actor=actor,
+            )
+        except OperationStateConflict as exc:
+            raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
         response = success_response(
-            {
+            _with_vm_create_operation({
                 **create_result,
                 "approval": decision.to_dict(),
                 "proxmox_preview": preview,
@@ -1619,7 +1785,7 @@ async def create_vm_draft_proxmox_native(
                 "proxmox_mutation_enabled": True,
                 "side_effects": list(create_result.get("side_effects") or []),
                 "idempotency": {"replayed": False, "request_id": plan.job_id},
-            },
+            }, operation),
             meta={"mode": "proxmox_native_create_live_mutation"},
         )
         retain_target_lock = False

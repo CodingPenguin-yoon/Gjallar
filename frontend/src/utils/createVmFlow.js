@@ -255,6 +255,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
   const risks = risksFromPlan(plan)
   const hasReviewMetadata = present(review.plan_artifact_id) && present(review.review_summary_checksum)
   const canApprove = hasReviewMetadata && (plan.risk_summary?.level || preflight.risk_level) !== 'red'
+  const operation = plan.operation && typeof plan.operation === 'object' ? plan.operation : {}
 
   return {
     payload,
@@ -282,6 +283,12 @@ export async function loadCreateVmReviewModel(client, input = {}) {
     plan: {
       executionIntent: plan.execution_intent || 'dry_run_plan_only',
       raw: plan,
+    },
+    operation: {
+      id: String(plan.operation_id || operation.operation_id || ''),
+      type: String(operation.operation_type || 'vm_create'),
+      status: String(operation.status || 'awaiting_approval'),
+      targetId: String(operation.target_id || ''),
     },
     review: {
       profileId: review.profile_id || plan.profile_id || draft.profile_id || payload.profile_id,
@@ -336,6 +343,7 @@ export async function approveCreateVmReview(client, model, options = {}) {
   const operatorMessage = canApprove
     ? '승인되었습니다.'
     : `승인할 수 없습니다: ${reason}`
+  const operation = response.operation && typeof response.operation === 'object' ? response.operation : {}
 
   return {
     canApprove,
@@ -346,6 +354,8 @@ export async function approveCreateVmReview(client, model, options = {}) {
     tone,
     operatorMessage,
     approvalRecord: response.approval_record || null,
+    operationId: String(response.operation_id || operation.operation_id || model.operation?.id || ''),
+    operation,
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
     executeDisabledReason: LIVE_RUN_DISABLED_REASON,
   }
@@ -359,6 +369,7 @@ export async function previewCreateVmProxmox(client, model, options = {}) {
     yellow_risk_acknowledged: options.yellowRiskAcknowledged === true,
   }
   const response = await client.previewVmDraftProxmox(model.draft.id, payload)
+  const operation = response.operation && typeof response.operation === 'object' ? response.operation : {}
   return {
     status: 'previewed',
     tone: 'blue',
@@ -370,6 +381,8 @@ export async function previewCreateVmProxmox(client, model, options = {}) {
     proxmoxMutationEnabled: response.proxmox_mutation_enabled === true,
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
     operatorMessage: 'Proxmox native 생성 미리보기가 준비되었습니다.',
+    operationId: String(response.operation_id || operation.operation_id || model.operation?.id || ''),
+    operation,
     raw: response,
   }
 }
@@ -383,6 +396,7 @@ export async function createVmWithProxmox(client, model, options = {}) {
     proxmox_mutation_acknowledged: options.proxmoxMutationAcknowledged === true,
   }
   const response = await client.createVmDraftProxmox(model.draft.id, payload)
+  const operation = response.operation && typeof response.operation === 'object' ? response.operation : {}
   const created = response.proxmox_create_ran === true && response.proxmox_create_status === 'applied'
   const observedAfterArtifact = response.observed_after_artifact || null
   const bootVerified = response.boot_verification?.success === true || response.observed_after?.boot_verification?.success === true
@@ -400,6 +414,8 @@ export async function createVmWithProxmox(client, model, options = {}) {
     bootVerification: response.boot_verification || response.observed_after?.boot_verification || null,
     primaryIp,
     fingerprintHash: response.observed_after?.fingerprint?.hash || '',
+    operationId: String(response.operation_id || operation.operation_id || model.operation?.id || ''),
+    operation,
     sideEffects: Array.isArray(response.side_effects) ? response.side_effects : [],
     operatorMessage: created
       ? (bootVerified || observedStatus === 'running'

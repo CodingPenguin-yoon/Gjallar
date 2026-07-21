@@ -1,5 +1,6 @@
 """Repository tests for atomic Operation projection and event persistence."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -94,6 +95,24 @@ def test_same_scope_idempotency_with_different_intent_is_conflict():
 
     assert raised.value.operation_id == "operation-vm-start-306"
     assert len(store.list_events("operation-vm-start-306")) == 1
+
+
+def test_same_operation_id_with_different_scope_is_domain_conflict_not_raw_integrity_error():
+    store = SqlAlchemyOperationStore(clock=lambda: FIXED_NOW)
+    original = operation_spec()
+    store.create(original)
+
+    with pytest.raises(OperationIntentConflict) as raised:
+        store.create(
+            replace(
+                original,
+                target_id="vmid:307",
+                intent_digest=operation_digest({"operation": "vm_start", "target": {"vmid": 307}}),
+            )
+        )
+
+    assert raised.value.operation_id == original.operation_id
+    assert len(store.list_events(original.operation_id)) == 1
 
 
 def test_invalid_or_stale_transition_does_not_append_event():

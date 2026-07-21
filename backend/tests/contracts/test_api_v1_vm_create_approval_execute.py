@@ -324,6 +324,26 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertEqual("stopped", response["data"]["observed_after"]["status"])
         self.assertTrue(response["data"]["observed_after_artifact"]["path"].startswith("db://job-artifacts/"))
         self.assertEqual("stopped", response["data"]["vm_instance"]["status"])
+        self.assertEqual(payload["job_id"], response["data"]["operation_id"])
+        self.assertEqual("vm_create", response["data"]["operation"]["operation_type"])
+        self.assertEqual("succeeded", response["data"]["operation"]["status"])
+
+        from app.operations.facade import get_operation
+
+        detail = get_operation(payload["job_id"])
+        self.assertEqual("succeeded", detail["operation"]["status"])
+        self.assertEqual(
+            [
+                "operation_created",
+                "approval_granted",
+                "dispatch_prepared",
+                "dispatch_result_observed",
+                "task_and_state_observed",
+                "verification_succeeded",
+            ],
+            [event["event_type"] for event in detail["events"]],
+        )
+        self.assertEqual("yoonmanserver2:102", detail["operation"]["details"]["workload"]["vm_instance_id"])
 
     def test_proxmox_create_success_releases_target_lock_after_all_persistence(self):
         draft_id = "draft-api-proxmox-create-success-release-lock"
@@ -400,6 +420,18 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertEqual("failed", stored["status"])
         self.assertIsNone(find_vm_create_request_for_target(vmid=102))
 
+        with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as retry_mutation:
+            with self.assertRaises(HTTPException) as retry:
+                asyncio.run(
+                    self.api_v1_router.create_vm_draft_proxmox_native(
+                        draft_id,
+                        self._approved_payload(draft_id, payload),
+                    )
+                )
+
+        self.assertEqual("PROXMOX_CREATE_IDEMPOTENCY_CONFLICT", retry.exception.detail["code"])
+        retry_mutation.assert_not_called()
+
     def test_proxmox_create_ambiguous_result_retains_target_lock(self):
         draft_id = "draft-api-proxmox-create-ambiguous-retain-lock"
         payload = {
@@ -438,7 +470,15 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
                             )
 
         self.assertEqual("PROXMOX_CREATE_NEEDS_RECONCILIATION", raised.exception.detail["code"])
+        self.assertEqual(payload["job_id"], raised.exception.detail["operation_id"])
+        self.assertEqual("needs_reconciliation", raised.exception.detail["operation_status"])
         release_lock.assert_not_called()
+
+        from app.operations.facade import get_operation
+
+        detail = get_operation(payload["job_id"])
+        self.assertEqual("needs_reconciliation", detail["operation"]["status"])
+        self.assertEqual("reconciliation_required", detail["events"][-1]["event_type"])
 
     def test_proxmox_create_persistence_fault_after_mutation_retains_target_lock(self):
         draft_id = "draft-api-proxmox-create-persistence-fault-retain-lock"
@@ -469,6 +509,28 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
 
         self.assertEqual(1, mutation.call_count)
         release_lock.assert_not_called()
+
+        from app.operations.facade import get_operation
+
+        detail = get_operation(payload["job_id"])
+        self.assertEqual("verifying", detail["operation"]["status"])
+        self.assertEqual("task_and_state_observed", detail["events"][-1]["event_type"])
+
+        with patch.object(self.api_v1_router, "acquire_target_operation_lock", create=True) as acquire_lock:
+            with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as retry_mutation:
+                replay = asyncio.run(
+                    self.api_v1_router.create_vm_draft_proxmox_native(
+                        draft_id,
+                        self._approved_payload(draft_id, payload),
+                    )
+                )
+
+        self.assertTrue(replay["data"]["idempotent_replay"])
+        self.assertEqual("verifying", replay["data"]["operation"]["status"])
+        acquire_lock.assert_not_called()
+        retry_mutation.assert_not_called()
+        detail = get_operation(payload["job_id"])
+        self.assertEqual("compatibility_guard_blocked", detail["events"][-1]["event_type"])
 
     def test_proxmox_create_target_lock_busy_blocks_before_mutation_or_request_record(self):
         class Busy(Exception):
@@ -513,6 +575,34 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
 
         with session_scope() as session:
             self.assertIsNone(session.get(VmCreateRequestRecord, "job-api-proxmox-create-lock-busy"))
+
+    def test_common_dispatch_persistence_failure_blocks_before_proxmox_mutation(self):
+        draft_id = "draft-api-proxmox-create-operation-persistence-failure"
+        payload = {
+            "operator_id": "api-proxmox-test",
+            "job_id": "job-api-proxmox-create-operation-persistence-failure",
+            "bridge_id": "vmbr0",
+            "static_ip": "192.168.2.158",
+            "prefix": 24,
+            "gateway": "192.168.2.1",
+        }
+        approved_payload = self._approved_payload(draft_id, payload)
+        handle = {"handle": "operation-persistence-failure-lock"}
+
+        with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value=handle, create=True):
+            with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
+                with patch.object(self.api_v1_router, "record_vm_create_dispatch_prepared", side_effect=RuntimeError("operation store unavailable")):
+                    with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as mutation:
+                        with self.assertRaises(RuntimeError):
+                            asyncio.run(
+                                self.api_v1_router.create_vm_draft_proxmox_native(
+                                    draft_id,
+                                    approved_payload,
+                                )
+                            )
+
+        mutation.assert_not_called()
+        release_lock.assert_called_once_with(handle)
 
     def test_proxmox_create_replays_completed_same_intent_without_second_mutation(self):
         draft_id = "draft-api-proxmox-create-replay"
@@ -562,6 +652,13 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertEqual("job-api-proxmox-create-replay", second["data"]["idempotency"]["request_id"])
         self.assertEqual("completed", second["data"]["vm_create_request"]["status"])
         self.assertEqual("stopped", second["data"]["vm_instance"]["status"])
+        self.assertEqual(first["data"]["operation_id"], second["data"]["operation_id"])
+        self.assertEqual("succeeded", second["data"]["operation"]["status"])
+
+        from app.operations.facade import get_operation
+
+        detail = get_operation(payload["job_id"])
+        self.assertEqual("idempotent_replay_returned", detail["events"][-1]["event_type"])
 
     def test_proxmox_create_blocks_different_request_when_same_target_is_running(self):
         self._assert_existing_target_status_blocks_new_request(

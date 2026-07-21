@@ -253,6 +253,13 @@ const fakeClient = {
     return {
       draft_id: draftId,
       job_id: payload.job_id,
+      operation_id: payload.job_id,
+      operation: {
+        operation_id: payload.job_id,
+        operation_type: 'vm_create',
+        status: 'awaiting_approval',
+        target_id: 'vmid:120',
+      },
       execution_intent: 'dry_run_plan_only',
       profile_id: payload.profile_id,
       vm_name: 'gjallar-vm-job-ui-create',
@@ -346,12 +353,16 @@ const fakeClient = {
       reason: 'approved',
       side_effects: [],
       approval_record: { decision: 'approved' },
+      operation_id: payload.job_id,
+      operation: { operation_id: payload.job_id, operation_type: 'vm_create', status: 'approved' },
     }
   },
   async previewVmDraftProxmox(draftId, payload) {
     calls.push(['previewVmDraftProxmox', draftId, payload])
     return {
       job_id: payload.job_id,
+      operation_id: payload.job_id,
+      operation: { operation_id: payload.job_id, operation_type: 'vm_create', status: 'approved' },
       manifest_id: 'vm-job-ui-create',
       clone: {
         endpoint: '/nodes/yoonmanserver2/qemu/9000/clone',
@@ -375,6 +386,8 @@ const fakeClient = {
     calls.push(['createVmDraftProxmox', draftId, payload])
     return {
       job_id: payload.job_id,
+      operation_id: payload.job_id,
+      operation: { operation_id: payload.job_id, operation_type: 'vm_create', status: 'succeeded' },
       manifest_id: 'vm-job-ui-create',
       proxmox_preview: {
         clone: { endpoint: '/nodes/yoonmanserver2/qemu/9000/clone' },
@@ -402,6 +415,9 @@ assert.equal(model.draft.storageId, 'nas-server')
 assert.equal(model.draft.templateVmid, 9000)
 assert.equal(model.preflight.level, 'green')
 assert.equal(model.plan.executionIntent, 'dry_run_plan_only')
+assert.equal(model.operation.id, 'job-ui-create')
+assert.equal(model.operation.type, 'vm_create')
+assert.equal(model.operation.status, 'awaiting_approval')
 assert.equal(model.review.vmName, 'gjallar-vm-job-ui-create')
 assert.equal(model.review.profileId, 'general-vm')
 assert.equal(model.review.profileHardwareLimits.disk_gb.max, 500)
@@ -440,6 +456,7 @@ assert.equal(calls.at(-1)[2].plan_artifact_id, 'artifact-plan')
 assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')
 assert.equal(approval.canApprove, true)
 assert.equal(approval.canExecute, false)
+assert.equal(approval.operationId, 'job-ui-create')
 assert.equal(approval.executeDisabledReason, '실제 VM 생성은 승인과 최종 체크 후 Proxmox native create에서만 실행됩니다.')
 assert.deepEqual(approval.sideEffects, [])
 
@@ -452,6 +469,7 @@ assert.ok(!('terraform_plan_acknowledged' in calls.at(-1)[2]))
 assert.equal(preview.status, 'previewed')
 assert.equal(preview.clone.endpoint, '/nodes/yoonmanserver2/qemu/9000/clone')
 assert.equal(preview.proxmoxMutationEnabled, false)
+assert.equal(preview.operationId, 'job-ui-create')
 assert.deepEqual(preview.sideEffects, [])
 
 model.review.canCreateProxmox = true
@@ -472,6 +490,8 @@ assert.equal(created.observedAfter.status, 'stopped')
 assert.equal(created.observedAfterPath, '')
 assert.equal(created.observedAfterArtifactId, 'artifact-observed')
 assert.equal(created.fingerprintHash, 'sha256:abc456')
+assert.equal(created.operationId, 'job-ui-create')
+assert.equal(created.operation.status, 'succeeded')
 
 const deniedApproval = await approveCreateVmReview(
   {
@@ -507,6 +527,8 @@ assert.ok(wizardSource.includes('!profilesReady'), 'Create VM wizard must block 
 assert.ok(wizardSource.includes('profileError'), 'Create VM wizard must surface profile API failure or empty state')
 assert.ok(wizardSource.includes('sshPublicKey'), 'Create VM wizard must expose SSH public key input')
 assert.ok(wizardSource.includes('cloudInitUser'), 'Create VM wizard must expose cloud-init user input')
+assert.ok(wizardSource.includes('/operations/${encodeURIComponent(operationId)}'), 'Create VM must open the common Operation timeline when linkage exists')
+assert.ok(wizardSource.includes('/operations/jobs?job=${encodeURIComponent(jobId)}'), 'Create VM must retain the legacy Jobs fallback')
 assert.ok(!wizardSource.includes(['apiV1Client.getNetwork', 'Policy()'].join('')), 'Create VM wizard must use live bridge inventory as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')

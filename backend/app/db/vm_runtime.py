@@ -11,50 +11,8 @@ from app.auth.roles import actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.models import VmCreateRequestRecord, VmInstanceRecord
 from app.db.session import session_scope
+from app.operations.vm_create.domain import vm_create_plan_intent
 from app.vm_create.models import VmCreatePlan
-
-_PLAN_INTENT_KEYS = (
-    "draft_id",
-    "job_id",
-    "manifest_id",
-    "profile_id",
-    "vm_name",
-    "vmid",
-    "target_node_id",
-    "storage_id",
-    "template_id",
-    "hardware",
-    "profile_hardware_limits",
-    "network",
-    "access",
-    "selected_template",
-    "selected_bridge",
-    "first_power_on_included",
-    "power_policy",
-    "smoke_timeout_summary",
-    "risk_summary",
-)
-_REVIEW_INTENT_KEYS = (
-    "profile_id",
-    "vm_name",
-    "vmid",
-    "target_node_id",
-    "storage_id",
-    "template_id",
-    "template_vmid",
-    "template_node_id",
-    "hardware",
-    "profile_hardware_limits",
-    "network",
-    "access",
-    "selected_template",
-    "selected_bridge",
-    "first_power_on_included",
-    "power_policy",
-    "smoke_timeout_summary",
-    "risk_summary",
-    "planned_git_diff_summary",
-)
 TARGET_BLOCKING_VM_CREATE_STATUSES = ("running", "needs_reconciliation", "apply_failed", "completed")
 _TARGET_STATUS_PRIORITY = {
     "running": 0,
@@ -71,22 +29,6 @@ def _now_iso() -> str:
 def _template_vmid(plan: VmCreatePlan) -> str:
     value = dict(plan.review_confirm or {}).get("template_vmid")
     return str(value or "")
-
-
-def vm_create_plan_intent(payload: VmCreatePlan | dict[str, Any]) -> dict[str, Any]:
-    """Return the stable Create VM intent used for idempotency comparisons.
-
-    Plan artifacts and review checksum fields are deliberately excluded because
-    they are execution evidence, not the Proxmox VM creation intent.
-    """
-
-    raw_payload = payload.to_dict() if isinstance(payload, VmCreatePlan) else dict(payload or {})
-    redacted_payload = redact_secrets(raw_payload)
-    intent = {key: redacted_payload.get(key) for key in _PLAN_INTENT_KEYS if key in redacted_payload}
-    review = redacted_payload.get("review_confirm")
-    if isinstance(review, dict):
-        intent["review_confirm"] = {key: review.get(key) for key in _REVIEW_INTENT_KEYS if key in review}
-    return intent
 
 
 def _row_to_request_response(row: VmCreateRequestRecord) -> dict[str, Any]:

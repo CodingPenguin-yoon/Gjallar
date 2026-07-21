@@ -1,10 +1,10 @@
 # 목표 도메인 지도
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-20`
+- 최종 검토일: `2026-07-21`
 - 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
 
-이 문서는 승인된 logical ownership과 현재 구현 범위를 함께 설명한다. Operations core와 두 vertical slice만 이 경계를 물리적으로 적용했으며 나머지 package/table 전환이나 추가 data migration을 승인하는 문서는 아니다.
+이 문서는 승인된 logical ownership과 현재 구현 범위를 함께 설명한다. Operations core와 VM Start·Create VM·Guided `qm unlock` vertical slice가 이 경계를 적용했으며 나머지 package/table 전환이나 추가 data migration을 승인하는 문서는 아니다.
 
 ## 도메인 목록
 
@@ -128,5 +128,6 @@ flowchart LR
 
 - `backend/app/operations/core/`가 infrastructure-free 상태 전이·digest와 `OperationStore` 계약을 소유하고, SQLAlchemy adapter가 `operations` projection과 `operation_events` append를 한 transaction으로 기록한다.
 - VM Start는 common Operation을 기존 `job_runs`/`job_artifacts`와 함께 기록한다. 기존 API와 Jobs 화면의 compatibility 의미는 유지한다.
+- Create VM은 plan부터 common Operation을 만들고 approval·preview·dispatch·result·workload linkage를 event로 기록한다. 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact는 migration 없이 compatibility record로 병행한다.
 - Guided `qm unlock`은 common Operation만 사용하며 `guided_manual` mode, expiry, trusted attestation, API verification과 reconciliation을 상태/event로 남긴다.
-- Create VM과 DRS는 아직 common Operation repository로 전환되지 않았다. DRS의 DB lock도 shared file lock과 통합되지 않았다.
+- DRS는 아직 common Operation repository로 전환되지 않았다. DRS의 DB lock도 shared file lock과 통합되지 않았다.

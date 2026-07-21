@@ -8,7 +8,7 @@
 
 이 Plan은 2026-07-20 사용자 승인을 받았다. 한 번에 전면 rewrite하지 않고 검증 가능한 vertical slice로 전환한다.
 
-- 진행 상태: `단계 0~7 완료; 다음은 단계 8 Create VM common operation 통합, jobs DB 공개 오류 의미는 승인 전 보류`
+- 진행 상태: `단계 0~8 완료; 다음은 단계 9 Insights 제품화, jobs DB 공개 오류 의미는 승인 전 보류`
 
 ## 1. 위험도
 
@@ -336,3 +336,12 @@
 - 기존 `/instances`, `/operations/jobs`, `/operations/risks`와 alias route, legacy screen/API consumer는 compatibility adapter로 유지했다. DB schema, dependency, Proxmox mutation은 변경하지 않았다.
 - 품질 검토에서 expired instruction 신규 실행 오인과 managed operation detail의 Guided 전용 facade 결합을 발견해 수정했다.
 - 검증 결과: local Python 3.14 backend 전체 `436 passed`, local Node 24 frontend test 16개·ESLint·Vite production build 통과. container build, browser 수동 a11y/navigation, live Proxmox 실행은 수행하지 않았다.
+
+### 단계 8: Create VM Common Operation 통합 결과
+
+- 사용자 승인 상세 Plan [`Create VM Common Operation 통합`](2026-07-21-create-vm-common-operation-integration.md)에 따라 migration 없이 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact 계약을 유지했다.
+- `operations/vm_create`가 stable redacted intent와 plan·approval·preview·dispatch·running·verifying·success/reconciliation event mapping을 소유한다. 신규 plan부터 `operation_id=job_id`인 `vm_create` projection/event를 compatibility record와 dual record한다.
+- API response에 additive operation link를 제공하고 frontend Create VM flow가 이를 보존해 final create 직후 `/operations/{operationId}`로 이동한다. operation ID가 없으면 기존 Jobs route로 fallback한다.
+- 명확한 side-effect-free 실패만 common `failed`로 종료하며 partial/unknown 결과와 외부 effect 뒤 persistence failure는 success로 축소하지 않고 lock을 유지한다. completed replay는 workload linkage가 확인될 때만 common success로 채택한다.
+- 독립 검토에서 failed retry 공개 오류 drift, same operation ID/different scope repository 충돌, dispatch 전 common persistence failure 검증 누락을 발견해 오류 mapping·repository identity 비교·fault-injection contract test를 보강했다.
+- 검증 결과: Create VM·Operations focused `32 passed`; canonical Python 3.13 container backend 전체 `443 passed`; canonical Node 24/pnpm 10 frontend test 16개·ESLint·Vite production build와 production image build 통과; `git diff --check` 통과. DB migration, browser 수동 확인, live Proxmox mutation은 수행하지 않았다.

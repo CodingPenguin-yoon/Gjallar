@@ -4,18 +4,18 @@
 - 최종 검토일: `2026-07-21`
 - 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md)
 
-이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start와 Guided `qm unlock`은 공통 Operation core를 사용하지만 Create VM과 DRS는 아직 자체 상태기계를 유지한다.
+이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용하지만 DRS는 아직 자체 상태기계를 유지한다.
 
 ## 현재 구현 범위
 
 - VM Start, Create VM, Guided `qm unlock`은 현재 한 개의 configured Proxmox cluster를 전제로 `proxmox_vm/vmid:{vmid}` target file lock을 공유한다. 같은 VMID의 다른 node 표기는 별도 target으로 취급하지 않는다.
 - VM Start는 same-key replay/intent conflict와 ambiguous dispatch·task·post-check의 `needs_reconciliation` 보존을 구현했다.
-- Create VM은 completed replay, same-key intent conflict, VMID owner guard와 명확한 실패/불명확한 결과의 구분을 구현했다.
+- Create VM은 plan에서 common Operation을 준비하고 exact approval, preview, dispatch, task/result, workload linkage를 event로 기록한다. completed replay, same-key intent conflict, VMID owner guard와 명확한 실패/불명확한 결과의 구분을 유지한다.
 - DRS는 mutation 직전 durable `prepared` attempt와 lock을 저장하고 UPID 수락 후 `accepted`로 전환한다. prepared/no-UPID 재진입과 reconciliation은 mutation을 반복하지 않는다.
 - VM Start는 API compatibility facade에서 infrastructure-free `VmStartCommand`와 `VmStartUseCase`로 진입하고 Workloads, mutation, Jobs, Evidence, lock을 명시적 port로 받는다. 검증 workflow는 `operations/vm_start/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
 - Workload Cockpit에서 VM context를 Guided plan에 전달하고, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
-- VM Start와 Guided `qm`만 이 문서의 공통 Operation aggregate를 사용한다. Create/Start/Guided file lock과 DRS DB lock은 서로 직렬화하지 않는다.
+- VM Start, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다. Create/Start/Guided file lock과 DRS DB lock은 서로 직렬화하지 않는다.
 - retained file lock의 generic recovery API와 durable recovery worker는 아직 없다. 파일 age나 process restart만으로 side effect가 없다고 판단하지 않는다.
 
 ## 목적과 진입점
@@ -154,6 +154,8 @@ HTTP payload
 | Operation core | `backend/app/operations/core/` | 상태 전이, digest, projection/event port와 SQLAlchemy adapter |
 | VM Start application | `backend/app/operations/vm_start/` | command·stable intent, use case, 외부 port 계약 |
 | VM Start compatibility | `backend/app/vm_actions/start.py` | 기존 공개 facade와 현재 infrastructure adapter 조립 |
+| Create VM tracking | `backend/app/operations/vm_create/` | stable redacted intent, plan·approval·dispatch·result·replay 상태/event mapping |
+| Create VM compatibility | `backend/app/api/v1/router.py`, `backend/app/vm_create/` | 기존 `/vm-create/*`, runner, request/workload/job/artifact dual record 조립 |
 | Guided `qm` | `backend/app/operations/guided_qm/` | fixed template, typed validation, handoff, attestation, API verification |
 | workload observation | `backend/app/proxmox/inventory.py` | Workloads query + Integration read port |
 | managed dispatch | `backend/app/proxmox/client.py` | Integration mutation adapter |
