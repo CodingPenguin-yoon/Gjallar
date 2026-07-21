@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { accountNavItem, adminNavItem, navItemActive, operationsNavItems, workloadNavItems } from './navigationModel'
+import { accountNavItem, adminNavItem, insightsNavItems, navItemActive, operationsNavItems, workloadNavItems } from './navigationModel'
 
 function subnavClass({ isActive }) {
   return `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -32,6 +32,10 @@ export function WorkloadsShell({ children }) {
 export function OperationsShell({ canExecute = false, children }) {
   const visibleItems = operationsNavItems.filter((item) => !item.requiresOperator || canExecute)
   return <section className="space-y-4"><SectionSubnav items={visibleItems} ariaLabel="Operations navigation" />{children}</section>
+}
+
+export function InsightsShell({ children }) {
+  return <section className="space-y-4"><SectionSubnav items={insightsNavItems} ariaLabel="Insights navigation" />{children}</section>
 }
 
 export function SettingsShell({ isAdmin, children }) {

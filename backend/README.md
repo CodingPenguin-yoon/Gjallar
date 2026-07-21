@@ -10,9 +10,10 @@ Gjallar의 FastAPI backend입니다. 현재 `/api/v1`과 local auth/admin API를
 - VM Start와 post-create readiness evidence
 - DRS recommendation/policy/approval/migration/reconciliation
 - DB-backed jobs, artifacts, risks
+- risk/readiness/capacity/placement의 observe-only Insights aggregate
 - production React SPA serving
 
-목표 backend 구조는 Workloads, Operations, Policy/Approval, Evidence/Audit, Insights domain을 사용하는 modular monolith입니다. 현재 package가 이미 그 경계를 구현했다는 의미는 아닙니다.
+목표 backend 구조는 Workloads, Operations, Policy/Approval, Evidence/Audit, Insights domain을 사용하는 modular monolith입니다. Workloads/Operations 일부와 Insights read slice는 이 경계를 구현했지만 모든 기존 package/table이 전환된 것은 아닙니다.
 
 - 현재 구조: [`../project-docs/architecture/overview.md`](../project-docs/architecture/overview.md)
 - 현재 API: [`../project-docs/api/current-api-v1.md`](../project-docs/api/current-api-v1.md)

@@ -5,7 +5,7 @@
 - 소비자: `frontend/src/shared/api/apiV1.js`, compatibility export `frontend/src/services/apiV1.js`, React SPA, 승인된 외부 consumer
 - 관련 요구사항·ADR: [`Project Specification`](../specifications/project-specification.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
 
-이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회, Create VM linkage와 첫 Guided Manual mutation은 additive public contract로 추가됐고 기존 endpoint는 유지된다.
+이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회, Create VM linkage, 첫 Guided Manual mutation, observe-only Insights는 additive public contract로 추가됐고 기존 endpoint는 유지된다.
 
 ## 계약 개요
 
@@ -55,7 +55,7 @@ connection status의 `data`는 `state`, `source`, `cluster_id`, `observed_at`, `
 - `cluster/summary`, nodes, VMs, templates, storage, networks와 inventory-dependent Create/DRS path는 non-live에서 `503`을 반환한다.
 - `503 detail.code`는 `PROXMOX_INVENTORY_UNCONFIGURED` 또는 `PROXMOX_INVENTORY_DEGRADED`이며 mutation을 호출하지 않는다.
 - inventory endpoint meta에는 기존 `source`, `mode`와 함께 `observed_at`, `freshness`, nested `connection`을 additive field로 제공한다.
-- `profiles`, Jobs, Risks, auth/account/admin은 Proxmox inventory가 non-live여도 자체 책임 범위에서 계속 사용할 수 있다.
+- `profiles`, Jobs, Risks, Insights의 stored risk section, auth/account/admin은 Proxmox inventory가 non-live여도 자체 책임 범위에서 계속 사용할 수 있다.
 
 ### Jobs·artifacts·risks
 
@@ -67,6 +67,19 @@ connection status의 `data`는 `state`, `source`, `cluster_id`, `observed_at`, `
 | `GET` | `/api/v1/risks` | viewer | job record에서 파생한 risk 목록 |
 
 `job_runs`/`job_artifacts`는 목표 append-only operation/evidence 계약이 아니다. DB error를 empty list로 숨기는 현재 경로는 보존할 제품 behavior가 아니라 수정 대상이다.
+
+### Insights
+
+| Method | Path | 권한 | side effect | 현재 책임 |
+|---|---|---|---|---|
+| `GET` | `/api/v1/insights` | viewer | 없음 | risk/readiness/capacity/placement의 availability-aware aggregate |
+
+응답 `data`는 `execution_mode=observe_only`, `read_only=true`, `allowed_actions=[]`를 고정하고 `risk`, `readiness`, `capacity`, `placement` 네 section을 반환한다. 각 section과 finding은 `source`, `observed_at`, `freshness`, `rule_version`, redacted `evidence`와 실행 불가 계약을 가진다. finding은 section당 최대 200개를 반환하고 `finding_count`, `returned_finding_count`, `truncated`로 잘림 여부를 공개한다.
+
+- 기존 `/api/v1/risks`는 compatibility 의미를 유지한다. Insights만 `list_job_runs_strict()`를 사용해 DB read failure를 빈 정상 목록이 아닌 risk `unavailable`로 표시한다.
+- Proxmox가 `unconfigured`/`degraded`이면 stored risk는 독립 조회하고 readiness/capacity/placement는 source reason을 포함한 `unavailable`로 반환한다. fake나 stale snapshot으로 대체하지 않는다.
+- live observation에서도 CPU/memory/storage evidence가 일부 없거나 node inventory가 비어 있으면 capacity와 영향받는 placement를 `ready`로 축소하지 않는다.
+- Placement는 기존 execution-closed DRS advisor 계산을 adapter로 재사용한다. `/insights`에는 check, approval packet, operation, execute, reconciliation action이나 link가 없다.
 
 ### VM action
 
@@ -145,7 +158,7 @@ final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하�
 | `POST` | `/api/v1/drs/migration-jobs/{job_id}/reconcile` | operator | local/Proxmox read | ack 후 reconciliation |
 | `POST` | `/api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | operator | 없음 | read-only reconciliation preview |
 
-DRS recommendation은 향후 Insights로 이동한다. 기존 live execution/history의 유지·폐기는 별도 승인 전 변경하지 않는다. migration execute는 Proxmox POST 전에 DB에 `running`과 `dispatch_attempt.state=prepared`, active operation lock을 저장하고, UPID를 받으면 `accepted` evidence로 전환한다. prepared 이후 UPID 저장이 확인되지 않는 crash window에서 execute 재진입은 second mutation 없이 `needs_reconciliation`으로 전환한다. 해당 no-UPID reconcile은 direct read-only post-check만 허용하며 UPID 없이 자동 완료하거나 lock을 해제하지 않는다.
+Placement recommendation의 canonical product surface는 `/insights/placement`로 이동했고 기존 `/drs`와 `/api/v1/drs/*`는 maintenance compatibility surface다. 기존 live execution/history의 유지·폐기는 별도 승인 전 변경하지 않는다. migration execute는 Proxmox POST 전에 DB에 `running`과 `dispatch_attempt.state=prepared`, active operation lock을 저장하고, UPID를 받으면 `accepted` evidence로 전환한다. prepared 이후 UPID 저장이 확인되지 않는 crash window에서 execute 재진입은 second mutation 없이 `needs_reconciliation`으로 전환한다. 해당 no-UPID reconcile은 direct read-only post-check만 허용하며 UPID 없이 자동 완료하거나 lock을 해제하지 않는다.
 
 ## 공통 mutation 계약 기준선
 
@@ -162,6 +175,7 @@ DRS recommendation은 향후 Insights로 이동한다. 기존 live execution/his
 - additive endpoint와 optional response field를 우선한다.
 - 기존 endpoint를 application use case facade로 바꾸더라도 status, response/error shape, actor, acknowledgement, job/artifact 의미를 characterization test로 먼저 고정한다.
 - frontend canonical route와 legacy alias는 별도 폐기 결정 전 유지한다.
+- Insights canonical route는 `/insights`, `/insights/risks`, `/insights/readiness`, `/insights/capacity`, `/insights/placement`다. 기존 `/operations/risks`, `/risks`, `/drs`는 compatibility route로 유지한다.
 - operation API가 확장되고 모든 internal consumer가 전환된 뒤에만 기존 workflow endpoint deprecation을 제안한다.
 
 ## 구현과 검증
@@ -170,4 +184,4 @@ DRS recommendation은 향후 Insights로 이동한다. 기존 live execution/his
 - success helper: `backend/app/api/v1/responses.py`.
 - frontend consumer: `frontend/src/shared/api/apiV1.js`; 기존 `frontend/src/services/apiV1.js`는 compatibility export다.
 - contract test: `backend/tests/contracts/`, frontend `apiV1Client`, auth, navigation과 feature tests.
-- Python 3.13 container backend 전체 `443 passed`, canonical Node 24/pnpm 10 frontend test 16개·ESLint·Vite production build와 production image build가 통과했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.
+- Python 3.13 container backend 전체 `457 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.

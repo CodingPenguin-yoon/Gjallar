@@ -8,7 +8,7 @@
 
 이 Plan은 2026-07-20 사용자 승인을 받았다. 한 번에 전면 rewrite하지 않고 검증 가능한 vertical slice로 전환한다.
 
-- 진행 상태: `단계 0~8 완료; 다음은 단계 9 Insights 제품화, jobs DB 공개 오류 의미는 승인 전 보류`
+- 진행 상태: `단계 0~9 완료; 다음 단계 10은 runner/lease/action/runtime별 별도 승인 필요, 기존 jobs DB 공개 오류 의미는 보류`
 
 ## 1. 위험도
 
@@ -117,6 +117,7 @@
 6. application-level append-only/checksum audit를 1차 목표로 하고 external WORM은 비범위.
 7. existing `/api/v1`을 compatibility facade로 유지하는 additive migration.
 8. 위 문서 초기화 매니페스트, 특히 live evidence와 `artifacts/` 보존 여부.
+9. 단계 9는 additive Insights aggregate와 primary navigation을 추가하고 기존 DRS API/UI/data/execution을 maintenance compatibility surface로 보존.
 
 - 사용자 결정: `추천안 승인 — 새 방향 우선, 기존 docs 제거, live-smoke evidence와 artifacts 보존, compatibility facade 기반 점진 전환`
 - 승인일: `2026-07-20`
@@ -345,3 +346,12 @@
 - 명확한 side-effect-free 실패만 common `failed`로 종료하며 partial/unknown 결과와 외부 effect 뒤 persistence failure는 success로 축소하지 않고 lock을 유지한다. completed replay는 workload linkage가 확인될 때만 common success로 채택한다.
 - 독립 검토에서 failed retry 공개 오류 drift, same operation ID/different scope repository 충돌, dispatch 전 common persistence failure 검증 누락을 발견해 오류 mapping·repository identity 비교·fault-injection contract test를 보강했다.
 - 검증 결과: Create VM·Operations focused `32 passed`; canonical Python 3.13 container backend 전체 `443 passed`; canonical Node 24/pnpm 10 frontend test 16개·ESLint·Vite production build와 production image build 통과; `git diff --check` 통과. DB migration, browser 수동 확인, live Proxmox mutation은 수행하지 않았다.
+
+### 단계 9: Insights 제품화와 DRS Maintenance 전환 결과
+
+- 사용자 승인 상세 Plan [`Insights 제품화와 DRS Maintenance 전환`](2026-07-21-insights-productization-and-drs-maintenance.md)에 따라 `risk`, `readiness`, `capacity`, `placement`를 공통 source·observed time·freshness·rule version·redacted evidence 계약으로 조회하는 `GET /api/v1/insights`를 추가했다.
+- `backend/app/insights/`는 command port 없이 read application과 pure rule을 소유한다. stored job risk와 current Workloads observation을 독립 수집하고 기존 DRS advisor를 placement compatibility adapter로 재사용한다.
+- 기존 Jobs/Risks의 DB exception → empty list 의미는 유지하되 Insights는 strict read로 장애를 risk `unavailable`로 드러낸다. non-live inventory에서는 stored risk만 유지하고 readiness/capacity/placement는 `unavailable`이며 fake/stale fallback이 없다.
+- frontend primary navigation을 Insights로 전환하고 `/insights`와 category route를 추가했다. `/drs`, `/api/v1/drs/*`, DRS policy/approval/execution/data, `/operations/risks`, `/risks`는 유지하고 `/drs`를 maintenance compatibility surface로 표시한다.
+- 독립 품질 검토에서 partial capacity metric과 unknown placement가 `ready`로 축소되는 문제, bounded finding의 total truncation 미표시를 발견해 보수적 unknown 판정과 `returned_finding_count`/`truncated` metadata로 수정했다.
+- DB schema/migration, scheduler/cache/worker/dependency, Proxmox mutation은 추가하지 않았다. canonical Python 3.13 backend 전체 `457 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다.

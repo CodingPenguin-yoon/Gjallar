@@ -15,12 +15,13 @@ const workloadPage = readFileSync(new URL('../src/pages/workloads/WorkloadCockpi
 
 assert.match(appFacade, /from ['"]\.\/app\/App['"]/, 'Root App must be a compatibility entrypoint into the app layer')
 
-for (const label of ['Overview', 'Workloads', 'DRS Advisor', 'Operations', 'Settings']) {
+for (const label of ['Overview', 'Workloads', 'Insights', 'Operations', 'Settings']) {
   assert.ok(navigation.includes(`label: '${label}'`), `Primary navigation must expose ${label}`)
 }
-for (const label of ['Inventory', 'DRS Policies', 'Create VM', 'Network readiness', 'Jobs', 'Risks', 'Guided qm', 'Account', 'Admin Users']) {
+for (const label of ['Inventory', 'DRS Policies', 'Create VM', 'Network readiness', 'Jobs', 'Risks', 'Readiness', 'Capacity', 'Placement', 'Guided qm', 'Account', 'Admin Users']) {
   assert.ok(navigation.includes(label), `Section navigation must expose ${label}`)
 }
+assert.doesNotMatch(navigation, /label: 'DRS Advisor'/, 'DRS must not remain a primary product navigation item')
 
 for (const route of [
   'path="/"',
@@ -29,6 +30,11 @@ for (const route of [
   'path="/instances/create"',
   'path="/instances/networks"',
   'path="/drs"',
+  'path="/insights"',
+  'path="/insights/risks"',
+  'path="/insights/readiness"',
+  'path="/insights/capacity"',
+  'path="/insights/placement"',
   'path="/operations"',
   'path="/operations/guided-qm/vm-unlock"',
   'path="/operations/:operationId"',
@@ -48,6 +54,8 @@ assert.match(navigation, /!item\.requiresOperator \|\| canExecute/, 'Guided qm n
 assert.match(app, /function AdminGuard/, 'Direct admin route access must be guarded')
 assert.match(app, /path="\/jobs"\s+element=\{jobsRoute\}/, 'Legacy Jobs alias must direct-render so query strings are preserved')
 assert.match(app, /visiblePrimaryNavItems/, 'Unavailable Proxmox navigation must be hidden')
+assert.match(app, /<InsightsPage category=\{category\}/, 'Insights routes must compose the dedicated page boundary')
+assert.doesNotMatch(app, /operationalRoute\(\s*insightsRoute/, 'Insights must remain visible for partial source availability')
 assert.match(app, /operationalRoute\(<Dashboard \/>\)/, 'Dashboard must require authoritative Proxmox connection truth')
 assert.match(app, /canOperate\(currentUser\) && proxmoxOperational/, 'Mutation affordances must require role and live connection truth')
 assert.doesNotMatch(app, /from ['"]\.\.\/components\//, 'App layer must compose pages rather than legacy screen components')

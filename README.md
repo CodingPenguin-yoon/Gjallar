@@ -6,7 +6,7 @@ Proxmox는 VM·node·task의 actual state와 low-level execution을 소유하고
 
 ## 현재 상태와 목표
 
-현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 feature-oriented monolith입니다. 인증, inventory, Create VM, VM Start, DRS, Jobs/Risks 기능이 이미 있지만 목표 domain/operation 구조로의 전환은 진행 중입니다.
+현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 점진 전환 중인 modular monolith입니다. 인증, inventory, Create VM, VM Start, Operations/Guided `qm unlock`, observe-only Insights, DRS maintenance, Jobs/Risks를 제공하지만 모든 workflow가 목표 domain 구조로 이동한 것은 아닙니다.
 
 - 목표 제품 정의: [`project-docs/specifications/project-specification.md`](project-docs/specifications/project-specification.md)
 - 현재 코드 기준선: [`project-docs/architecture/overview.md`](project-docs/architecture/overview.md)
@@ -22,10 +22,11 @@ Proxmox는 VM·node·task의 actual state와 low-level execution을 소유하고
 - approval-gated native Create VM
 - acknowledgement/idempotency-gated VM Start
 - Jobs/Artifacts/Risks 조회
-- DRS recommendation, policy, approval packet, 제한된 migration/reconciliation backend
+- source·freshness·rule·evidence를 제공하는 observe-only Insights
+- maintenance DRS recommendation, policy, approval packet, 제한된 migration/reconciliation backend
 - same-origin production SPA/API Docker image
 
-Proxmox 연결은 `unconfigured`/`live`/`degraded`로 표시됩니다. product runtime은 mock/demo inventory로 fallback하지 않으며, `live`가 아니면 VM/Create/Network/DRS 화면을 닫고 Jobs/Risks/Account/Admin만 유지합니다.
+Proxmox 연결은 `unconfigured`/`live`/`degraded`로 표시됩니다. product runtime은 mock/demo inventory로 fallback하지 않으며, `live`가 아니면 inventory-dependent 화면과 DRS maintenance route를 닫습니다. Insights는 stored risk를 유지하고 readiness/capacity/placement를 `unavailable`로 표시하며 Jobs/Risks/Account/Admin도 계속 사용할 수 있습니다.
 
 현재 기능과 목표 기능을 혼동하지 않습니다. 목표 operation lifecycle은 승인됐지만 아직 모든 workflow에 구현되지 않았습니다.
 

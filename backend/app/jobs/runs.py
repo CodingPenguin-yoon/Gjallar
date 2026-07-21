@@ -348,11 +348,16 @@ def record_job_run(
     return payload
 
 
+def list_job_runs_strict() -> list[dict[str, Any]]:
+    """Return job runs while preserving source failures for availability-aware callers."""
+    with session_scope() as session:
+        rows = session.scalars(select(JobRunRecord).order_by(JobRunRecord.updated_at.desc())).all()
+        return [_row_to_payload(row) for row in rows]
+
+
 def list_job_runs() -> list[dict[str, Any]]:
     try:
-        with session_scope() as session:
-            rows = session.scalars(select(JobRunRecord).order_by(JobRunRecord.updated_at.desc())).all()
-            return [_row_to_payload(row) for row in rows]
+        return list_job_runs_strict()
     except Exception:
         return []
 

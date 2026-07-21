@@ -894,6 +894,21 @@ function DrsAdvisorScreen({ currentUser = null, canOperate = false }) {
         </div>
       </header>
 
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="font-semibold">Maintenance compatibility surface</div>
+            <div className="mt-1">이 화면은 기존 DRS check와 operator approval packet 흐름을 유지합니다. 제품의 canonical placement 관찰 화면은 Insights입니다.</div>
+          </div>
+          <Link
+            to="/insights/placement"
+            className="inline-flex shrink-0 items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            Placement Insights
+          </Link>
+        </div>
+      </div>
+
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">

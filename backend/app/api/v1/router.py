@@ -34,6 +34,7 @@ from app.drs.execution import (
     require_drs_live_migration_ack,
 )
 from app.drs.policies import DrsPolicyServiceError, get_drs_policy_item, list_drs_policy_items, update_drs_policy
+from app.insights.facade import get_insights
 from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.operations.guided_qm.facade import (
     GuidedQmError,
@@ -997,6 +998,12 @@ async def list_risks() -> dict:
             if isinstance(risk, dict):
                 risks.append(_risk_summary(job, risk))
     return success_response(risks, meta=_jobs_meta())
+
+
+@router.get("/insights")
+def get_insights_route() -> dict:
+    """Return availability-aware, observe-only operational Insights."""
+    return success_response(get_insights(), meta={"mode": "observe_only"})
 
 
 @router.get("/drs/summary")

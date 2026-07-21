@@ -8,7 +8,7 @@
 
 ## 1. 시스템 목적과 경계
 
-- 현재 해결 범위: 인증된 운영자에게 Workload Cockpit, 공통 Operations 목록·evidence timeline, Create VM, VM Start, 첫 Guided `qm unlock`, DRS advisor/policy/제한된 migration, jobs/risks를 제공한다.
+- 현재 해결 범위: 인증된 운영자에게 Workload Cockpit, 공통 Operations 목록·evidence timeline, Create VM, VM Start, 첫 Guided `qm unlock`, observe-only Insights, DRS maintenance/policy/제한된 migration, jobs/legacy risks를 제공한다.
 - 현재 시스템 책임: local user/session, Gjallar-owned operational records, `/api/v1`, React operator UI, Proxmox API 연동.
 - 외부 책임: VM/node/task/config actual state와 실제 hypervisor mutation은 Proxmox가 소유한다.
 - 현재 비범위: generic shell/SSH execution, broad lifecycle parity, background reconciliation worker, multi-cluster control.
@@ -54,8 +54,9 @@ flowchart LR
 | `vm_actions` | VM Start compatibility facade·infrastructure adapter와 post-create readiness | `run_vm_start`, action endpoint | 전용 table 없음; job/artifact compatibility 유지 | Operations VM Start, inventory, jobs, Proxmox |
 | `drs` | identity, policy, recommendation, approval, migration, reconciliation | workflow functions, `/drs/*` | DRS identity/policy/approval/job/lock/reconciliation | DB, inventory, jobs, DRS client |
 | `jobs` | job projection과 artifact metadata/content | helper functions, `/jobs`, `/risks` | `job_runs`, `job_artifacts` | DB |
+| `insights` | risk/readiness/capacity/placement의 availability-aware derived read model | `InsightsQueryService`, `/insights` | persistent data 없음 | Workloads observation, strict job read, DRS advisor adapter |
 | `frontend/src/app` | auth/session, connection-aware route gate, shell, navigation composition | canonical route와 legacy alias | browser-local transient state | pages, shared |
-| `frontend/src/pages`, `features`, `entities`, `shared` | route composition, Workload inventory, Operations·Guided `qm` 흐름, Operation read model, API/auth/connection 공통 계약 | `/instances`, `/operations*`, `/api/v1` consumer | browser-local transient state | backend API; 미전환 page adapter는 기존 components/utils |
+| `frontend/src/pages`, `features`, `entities`, `shared` | route composition, Workload inventory, Operations·Guided `qm` 흐름, observe-only Insights, Operation·Insight read model, API/auth/connection 공통 계약 | `/instances`, `/operations*`, `/insights*`, `/api/v1` consumer | browser-local transient state | backend API; 미전환 page adapter는 기존 components/utils |
 
 ## 5. 현재 의존성 규칙
 
@@ -72,13 +73,14 @@ flowchart LR
 - DRS migration은 일반 Proxmox mutation client와 다른 전용 client를 사용한다.
 - browser가 제출한 actor가 아니라 server-side session actor를 사용한다.
 - secret-like field를 API와 evidence에서 거부·redact하는 경로가 있다.
-- frontend 전환 영역은 `app → pages/features → entities/shared` 방향을 source contract로 검사한다. app은 legacy component를 직접 import하지 않고, Workload inventory와 Guided `qm`은 feature public boundary를 사용한다.
+- Insights는 `api facade → application → domain/read ports` 방향으로 risk와 inventory source를 독립 수집한다. source 실패는 section별 `unavailable`로 격리하고 어떤 approval·operation·mutation port도 제공하지 않는다.
+- frontend 전환 영역은 `app → pages/features → entities/shared` 방향을 source contract로 검사한다. app은 legacy component를 직접 import하지 않고, Workload inventory, Guided `qm`, Insights는 feature public boundary를 사용한다.
 
 ### 일관되게 보호되지 않는 관계
 
 - Create VM HTTP compatibility facade·DRS와 일부 route/workflow는 아직 DB session, ORM model, job/artifact helper, Proxmox concrete implementation을 직접 알 수 있다.
 - 미전환 backend domain과 legacy frontend screen에는 public contract와 private implementation 경계가 일관되게 적용되지 않았다.
-- Create VM·DRS·Jobs·Risks·Admin frontend 내부는 page adapter 아래 기존 component/utils 구조를 유지한다.
+- Create VM·DRS maintenance·Jobs·legacy Risks·Admin frontend 내부는 page adapter 아래 기존 component/utils 구조를 유지한다.
 - DRS는 공통 operation state machine이나 event repository를 아직 사용하지 않는다. Create VM은 공통 lifecycle을 dual record하지만 기존 request/jobs/artifacts도 compatibility 모델로 남아 있다.
 
 ## 6. 현재 책임과 데이터
@@ -92,6 +94,7 @@ flowchart LR
 | Operations | operation current projection와 append-only event | `operations`, `operation_events` | VM Start, Create VM, Guided `qm`, additive operation API |
 | DRS | identity, policy, recommendation, execution/reconciliation | DRS 관련 8개 table과 job/artifact | `/drs/*`, inventory, DRS client |
 | Jobs/Risks | 최신 job projection, artifact, derived risk | `job_runs`, `job_artifacts` | `/jobs`, `/risks`, producer helper |
+| Insights | source별 derived finding과 availability | persistent state 없음; request-time projection | `/insights`, Workloads observation, Jobs risk, DRS recommendation |
 
 물리적인 ORM model은 대부분 `backend/app/db/models.py`에 함께 있다. Operations core의 두 model은 `backend/app/operations/core/infrastructure/models.py`로 분리됐지만 Create VM·DRS 등 나머지 repository ownership은 아직 분리되지 않았다. 목표 logical ownership은 [`domains/domain-map.md`](../domains/domain-map.md)에 제안한다.
 
@@ -121,6 +124,7 @@ Queue, scheduler, cache, background worker는 현재 active dependency가 아니
 - VM Start: API facade → Operations command/use case → explicit execution ports → `operations/vm_start/workflow.py` 순으로 진입한다. acknowledgement/idempotency → operation intent/event → VMID target lock → fresh pre-check → start → task poll → running post-check → operation event + 기존 job/artifact → clear result에서만 lock 해제 순서를 유지한다.
 - Guided `qm unlock`: Workload Cockpit 또는 Operations UI → typed input/ack → shared target lock → `Sys.Audit` 권한·active task·config lock pre-check → 5분 instruction bundle과 operation/event 저장 → 외부 node shell 실행 → trusted attestation → Proxmox API verification → lock 해제 또는 reconciliation 순서다. backend는 명령을 실행하지 않으며 UI는 만료·reconciliation instruction의 신규 실행을 경고한다.
 - DRS: recommendation/check → identity/policy → approval packet/job → final pre-check/DB operation lock → durable prepared attempt → migrate → accepted UPID → task/post-check → completion 또는 reconciliation.
+- Insights: authenticated read → strict Jobs risk와 Proxmox connection observation 독립 수집 → live이면 readiness/capacity와 DRS placement 계산 → source별 provenance·version·freshness·bounded finding 조합. non-live에서는 stored risk만 유지하고 inventory section은 `unavailable`이며 실행 경로는 없다.
 - 목표 공통 lifecycle 중 projection/event core, VM Start·Create VM·Guided `qm unlock`, Workload Cockpit·Operations list/detail/timeline UI가 구현됐다. DRS의 공통 Operation 통합은 남아 있다.
 
 ## 10. 런타임과 배포 제약
@@ -135,13 +139,13 @@ Queue, scheduler, cache, background worker는 현재 active dependency가 아니
 - 단위: DRS 판단, identity, preflight, view model, normalization 등 순수·준순수 로직.
 - 통합·계약: FastAPI `/api/v1`, auth/RBAC, SQLAlchemy/Alembic, jobs/artifacts, static SPA, frontend client/route.
 - 외부 대역: test에서 직접 주입한 fake inventory/mutation client와 test-only SQLite를 기본 사용한다. product runtime environment에는 fake inventory mode가 없다.
-- canonical Python 3.13 container에서 backend 전체 `443 passed`, canonical Node 24/pnpm 10에서 frontend test 16개·ESLint·Vite production build와 production image build를 확인했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.
+- canonical Python 3.13 container backend 전체 `457 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build를 확인했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.
 
 ## 12. 알려진 위험과 기술 부채
 
 - `api/v1/router.py`, DRS/Create VM workflow와 미전환 큰 screen/view-model에 책임이 집중돼 있다. root `App.jsx` 집중은 해소됐지만 page adapter 아래 legacy component는 남아 있다.
 - VM Start와 Create VM lifecycle은 Operations로 이동했지만 기존 `job_runs`/`job_artifacts`, Create VM request/workload linkage와 compatibility facade가 남아 있다. 어느 시점에 compatibility projection을 종료할지는 미결정이다.
-- `list_job_runs()`의 DB exception → empty list fallback은 장애를 빈 데이터처럼 보이게 할 수 있다.
+- 기존 `/jobs`·`/risks`가 사용하는 `list_job_runs()`의 DB exception → empty list fallback은 호환성 때문에 남아 있다. `/insights`는 `list_job_runs_strict()`로 risk source 장애를 `unavailable`로 표시한다.
 - `job_runs`는 최신 projection, `job_artifacts`는 upsert 성격이라 immutable operation audit가 아니다.
 - 장기 operation의 durable runner, lease, restart recovery가 없다.
 - Create/Start/Guided file lock은 single-container 임시 파일이므로 multi-replica에서 공유되지 않고 runtime storage 초기화 시 retained lock이 유실될 수 있다. generic operator lock recovery API도 없다.

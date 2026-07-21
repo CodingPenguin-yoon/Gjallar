@@ -18,7 +18,7 @@ export const APP_SHELL_CLASS = 'mx-auto w-full max-w-7xl px-8'
 export const primaryNavItems = Object.freeze([
   { label: 'Overview', path: '/', icon: LayoutDashboard },
   { label: 'Workloads', path: '/instances', icon: List, activePrefixes: ['/instances'], aliasPaths: ['/infra', '/create', '/networks'], requiresProxmox: true },
-  { label: 'DRS Advisor', path: '/drs', icon: Activity, activePrefixes: ['/drs'], requiresProxmox: true },
+  { label: 'Insights', path: '/insights', icon: Activity, activePrefixes: ['/insights'] },
   { label: 'Operations', path: '/operations', icon: Clock3, activePrefixes: ['/operations'], aliasPaths: ['/jobs', '/risks'] },
   { label: 'Settings', path: '/settings/account', icon: SettingsIcon, activePrefixes: ['/settings'], aliasPaths: ['/account', '/admin/users'] },
 ])
@@ -33,8 +33,15 @@ export const workloadNavItems = Object.freeze([
 export const operationsNavItems = Object.freeze([
   { label: 'Operations', path: '/operations', icon: List },
   { label: 'Jobs', path: '/operations/jobs', icon: Clock3, aliasPaths: ['/jobs'] },
-  { label: 'Risks', path: '/operations/risks', icon: AlertTriangle, aliasPaths: ['/risks'] },
   { label: 'Guided qm', path: '/operations/guided-qm/vm-unlock', icon: Terminal, requiresOperator: true },
+])
+
+export const insightsNavItems = Object.freeze([
+  { label: 'Overview', path: '/insights', icon: Activity },
+  { label: 'Risks', path: '/insights/risks', icon: AlertTriangle },
+  { label: 'Readiness', path: '/insights/readiness', icon: ClipboardCheck },
+  { label: 'Capacity', path: '/insights/capacity', icon: Clock3 },
+  { label: 'Placement', path: '/insights/placement', icon: Network },
 ])
 
 export const accountNavItem = { label: 'Account', path: '/settings/account', icon: UserCircle, aliasPaths: ['/account'] }

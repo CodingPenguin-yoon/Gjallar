@@ -44,7 +44,7 @@ Spring Boot preset은 적용하지 않는다.
 
 ## 아키텍처 상태
 
-- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event 저장 구조, Operations의 VM Start·Create VM·Guided `qm unlock`, Workload Cockpit·Operations frontend vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포한다.
+- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event 저장 구조, Operations의 VM Start·Create VM·Guided `qm unlock`, Workload Cockpit·Operations·Insights frontend vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포한다.
 - 현재 기준선: [`architecture/overview.md`](architecture/overview.md)
 - 승인된 목표 제품 경계: [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md) (`ACCEPTED`)
 - 승인된 목표 구조: [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md) (`ACCEPTED`)
@@ -57,8 +57,8 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 
 | 책임 | 경로 | 비고 |
 |---|---|---|
-| backend application | `backend/app/` | FastAPI, auth, DB, Proxmox, VM workflow, DRS, jobs |
-| frontend application | `frontend/src/app/`, `pages/`, `features/`, `entities/`, `shared/` | route shell과 page composition, Workloads·Operations feature, Operation entity, 공통 API·auth·connection |
+| backend application | `backend/app/` | FastAPI, auth, DB, Proxmox, VM workflow, DRS, jobs, additive Insights query |
+| frontend application | `frontend/src/app/`, `pages/`, `features/`, `entities/`, `shared/` | route shell과 page composition, Workloads·Operations·Insights feature, Operation·Insight entity, 공통 API·auth·connection |
 | frontend compatibility | `frontend/src/components/`, `utils/`, `services/` | 아직 전환하지 않은 screen·view model과 기존 import 경로 adapter |
 | backend tests | `backend/tests/` | contract, DB, auth, jobs, Proxmox, VM workflow, DRS |
 | frontend tests | `frontend/tests/` | Node `.mjs` contract·view-model·source checks |
@@ -122,10 +122,11 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 | Operations Core·Guided `qm` Plan | [`plans/2026-07-20-operations-backend-core-and-guided-qm.md`](plans/2026-07-20-operations-backend-core-and-guided-qm.md) |
 | Frontend Workload·Operations Plan | [`plans/2026-07-21-frontend-workload-operations-slice.md`](plans/2026-07-21-frontend-workload-operations-slice.md) |
 | Create VM Common Operation Plan | [`plans/2026-07-21-create-vm-common-operation-integration.md`](plans/2026-07-21-create-vm-common-operation-integration.md) |
+| Insights Productization Plan | [`plans/2026-07-21-insights-productization-and-drs-maintenance.md`](plans/2026-07-21-insights-productization-and-drs-maintenance.md) |
 
 ## 미확정 사항과 알려진 위험
 
-- 목표 구조는 일부 vertical slice만 구현됐다. frontend app shell·Workloads·Operations는 전환됐지만 Create VM·DRS·Jobs·Risks·Admin의 내부 screen은 page adapter 뒤 기존 구조를 사용하므로 현재 기준선과 목표 문서를 계속 구분한다.
+- 목표 구조는 일부 vertical slice만 구현됐다. frontend app shell·Workloads·Operations·Insights는 전환됐지만 Create VM·DRS maintenance·Jobs·legacy Risks·Admin의 내부 screen은 page adapter 뒤 기존 구조를 사용하므로 현재 기준선과 목표 문서를 계속 구분한다.
 - 단계 3에서 product runtime의 fake inventory를 제거하고 `unconfigured`/`live`/`degraded` connection truth와 frontend route gate를 구현했다.
 - VM Start의 domain command·application use case·external port·workflow 상태기계를 `operations/vm_start`에 두고 기존 endpoint·job/artifact를 compatibility facade로 유지한다. 공통 Operation projection/event를 함께 기록한다.
 - Create VM의 stable intent와 공통 lifecycle tracking을 `operations/vm_create`에 두고 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact를 compatibility facade와 dual record로 유지한다. 신규 plan부터 common Operation을 만들며 별도 migration이나 기존 row backfill은 하지 않았다.
@@ -134,16 +135,16 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 - long-running operation의 durable runner/lease와 자동 restart recovery 구조가 없다. Guided verification은 저장된 `verifying` 상태에서 명시적으로 재요청할 수 있다.
 - VM Start/Create VM/Guided `qm unlock`은 같은 VMID local file lock으로 동시 mutation과 ambiguity를 보호하지만 single-container 전용이며 multi-cluster identity와 shared replica coordination이 없다.
 - DRS는 dispatch 전 durable prepared evidence를 기록하지만 별도 DB lock을 사용해 Create/Start와 공통 target을 직렬화하지 않는다.
-- Jobs/Risks read의 DB exception을 empty result로 축소하는 공개 의미는 별도 승인 전 유지 중이다.
+- 기존 Jobs/Risks read의 DB exception을 empty result로 축소하는 공개 의미는 별도 승인 전 유지한다. 새 Insights risk source는 strict query를 사용해 같은 장애를 `unavailable`로 구분한다.
 - `operations`/`operation_events`는 projection과 checksum-linked append-only event를 분리하지만 application-level tamper evidence이며 external WORM이 아니다. `job_runs`와 `job_artifacts`는 기존 compatibility projection/evidence로 남아 있다.
 - Guided bundle 발급 전후에 외부 Proxmox GUI·CLI가 별도 작업을 시작하는 경쟁은 local lock으로 차단할 수 없다. 짧은 expiry, active-task 재조회, after-state 검증으로 성공 오판을 막는다.
 - 기존 `docs/`는 제거했고 live-smoke 원본과 `artifacts/rewrite-baseline/`은 historical evidence로 보존했다.
 
 ## 최신 검증 기준선
 
-- canonical Python 3.13 container: backend 전체 `443 passed`.
-- local Python 3.14 venv: Create VM·Operations focused suite `32 passed`.
-- host Node 26: frontend test 16개, ESLint, Vite production build 통과. canonical runtime이 아니므로 보조 검증으로만 사용했다.
-- canonical Node 24/pnpm 10: frontend test 16개, ESLint, Vite production build 통과.
+- canonical Python 3.13 container: backend 전체 `457 passed`.
+- local Python 3.14 venv: backend 전체 `457 passed`, Insights/DRS/Risks/Jobs focused `40 passed`.
+- host Node 26: frontend test 17개, ESLint, Vite production build 통과. canonical runtime이 아니므로 보조 검증으로만 사용했다.
+- canonical Node 24/pnpm 10: frontend test 17개, ESLint, Vite production build 통과.
 - production image: `docker build -t gjallar:local .` 통과.
 - live Proxmox mutation: 실행하지 않음.

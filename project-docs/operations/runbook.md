@@ -109,6 +109,7 @@ curl --fail --silent http://127.0.0.1:8000/health
 - login과 `/api/v1/auth/me`
 - inventory endpoint의 `meta.source`
 - authenticated `GET /api/v1/setup/proxmox/connection`의 `state`, `source`, `observed_at`, `freshness`
+- authenticated `GET /api/v1/insights`의 section별 `available`, `freshness`, `rule_version`, `truncated`
 - Jobs 화면이 비어 있을 때 DB log/error 여부
 - live mutation 전 target node/VM과 credential scope
 
@@ -190,7 +191,7 @@ live mutation 전에 다음을 모두 확인한다.
 
 - startup migration 실패 시 service를 정상으로 간주하지 않는다.
 - `GJALLAR_DATABASE_URL`, DNS/network, credential, PostgreSQL availability를 확인한다.
-- Jobs/Risks가 빈 목록일 때 실제 no-data로 단정하지 않는다. 현재 일부 read path가 DB exception을 empty result로 축소하는 알려진 위험이 있다.
+- Jobs/Risks가 빈 목록일 때 실제 no-data로 단정하지 않는다. 현재 compatibility read path가 DB exception을 empty result로 축소한다. `/api/v1/insights`의 risk `available=false` 여부도 함께 확인한다.
 
 ### Proxmox read 실패
 
@@ -199,7 +200,7 @@ live mutation 전에 다음을 모두 확인한다.
 - `degraded`이면 TLS, network/DNS, timeout, token 권한과 PVE availability를 확인한 뒤 `연결 다시 확인`을 실행한다.
 - API URL, token, TLS, timeout과 PVE availability를 확인한다.
 - non-live에서 inventory-dependent API는 `503`과 `PROXMOX_INVENTORY_UNCONFIGURED` 또는 `PROXMOX_INVENTORY_DEGRADED`를 반환한다. retry 전에 reason을 해결한다.
-- UI에서는 VM/Create/Network/DRS navigation을 숨기고 direct route도 connection 안내로 차단한다. Jobs/Risks/Account/Admin은 계속 사용할 수 있다.
+- UI에서는 inventory-dependent Workloads navigation을 숨기고 Overview/Workloads/DRS maintenance direct route를 connection 안내로 차단한다. Insights는 stored risk를 유지하고 readiness/capacity/placement를 `unavailable`로 표시하며 Jobs/Risks/Account/Admin도 계속 사용할 수 있다.
 - stale/unknown/non-live state에서 mutation하지 않는다.
 
 ### Dispatch 결과 불명
@@ -260,4 +261,4 @@ pnpm run verify:container
 - Create/Start target lock은 single-container local file이므로 shared replica coordination과 durable recovery를 제공하지 않는다.
 - Create/Start retained lock의 operator reconciliation/unlock API가 없다.
 - DRS DB lock과 Create/Start file lock은 같은 VM target을 서로 차단하지 않는다.
-- 새 guided `qm` mode는 승인된 목표지만 아직 구현되지 않았다.
+- Guided `qm unlock`은 구현됐지만 backend command executor, durable runner/lease와 automatic restart recovery는 없다.

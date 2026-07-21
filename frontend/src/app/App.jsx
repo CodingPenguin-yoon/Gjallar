@@ -7,6 +7,7 @@ import NetworkReadinessPage from '../pages/workloads/NetworkReadinessPage'
 import RisksPage from '../pages/operations/RisksPage'
 import ProxmoxConnectionBoundary from '../shared/proxmox/ProxmoxConnectionBoundary'
 import DrsAdvisorPage from '../pages/insights/DrsAdvisorPage'
+import InsightsPage from '../pages/insights/InsightsPage'
 import JobsPage from '../pages/operations/JobsPage'
 import { apiV1Client } from '../shared/api/apiV1'
 import { canAdmin, canOperate } from '../shared/auth/permissions'
@@ -19,7 +20,7 @@ import Dashboard from '../pages/dashboard/DashboardPage'
 import LoginPage from '../pages/auth/LoginPage'
 import AccountSettingsScreen from '../pages/settings/AccountSettingsPage'
 import AppShell from './AppShell'
-import { OperationsShell, SettingsShell, WorkloadsShell } from './navigation'
+import { InsightsShell, OperationsShell, SettingsShell, WorkloadsShell } from './navigation'
 import { primaryNavItems } from './navigationModel'
 
 function AdminGuard({ currentUser, children }) {
@@ -180,6 +181,11 @@ function App() {
       <RisksPage />
     </OperationsShell>
   )
+  const insightsRoute = (category = 'overview') => (
+    <InsightsShell>
+      <InsightsPage category={category} />
+    </InsightsShell>
+  )
   const operationsRoute = (
     <OperationsShell canExecute={canMutate}>
       <OperationsListPage canExecute={canMutate} />
@@ -230,6 +236,11 @@ function App() {
               <DrsAdvisorPage currentUser={currentUser} canOperate={canMutate} />
             )}
           />
+          <Route path="/insights" element={insightsRoute()} />
+          <Route path="/insights/risks" element={insightsRoute('risk')} />
+          <Route path="/insights/readiness" element={insightsRoute('readiness')} />
+          <Route path="/insights/capacity" element={insightsRoute('capacity')} />
+          <Route path="/insights/placement" element={insightsRoute('placement')} />
           <Route path="/operations" element={operationsRoute} />
           <Route path="/operations/guided-qm/vm-unlock" element={guidedQmRoute} />
           <Route path="/operations/:operationId" element={operationDetailRoute} />

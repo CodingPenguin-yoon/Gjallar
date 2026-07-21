@@ -5,6 +5,16 @@ from unittest.mock import patch
 
 
 class JobRunsTests(unittest.TestCase):
+    def test_strict_list_job_runs_preserves_db_unavailability(self):
+        from app.jobs import runs as runs_module
+
+        def unavailable_session():
+            raise RuntimeError("database is unavailable")
+
+        with patch.object(runs_module, "session_scope", side_effect=unavailable_session):
+            with self.assertRaisesRegex(RuntimeError, "database is unavailable"):
+                runs_module.list_job_runs_strict()
+
     def test_list_job_runs_fails_open_when_db_is_unavailable(self):
         from app.jobs import runs as runs_module
 
