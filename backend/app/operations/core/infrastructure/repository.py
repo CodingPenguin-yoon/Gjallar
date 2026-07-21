@@ -177,6 +177,25 @@ class SqlAlchemyOperationStore:
             row = session.get(OperationRecord, operation_id)
             return _snapshot(row) if row is not None else None
 
+    def list(
+        self,
+        *,
+        status: str | None = None,
+        operation_type: str | None = None,
+        limit: int = 50,
+    ) -> list[OperationSnapshot]:
+        statement = select(OperationRecord)
+        if status:
+            statement = statement.where(OperationRecord.status == status)
+        if operation_type:
+            statement = statement.where(OperationRecord.operation_type == operation_type)
+        statement = statement.order_by(
+            OperationRecord.updated_at.desc(),
+            OperationRecord.operation_id.desc(),
+        ).limit(max(1, min(int(limit), 200)))
+        with self._sessions() as session:
+            return [_snapshot(row) for row in session.scalars(statement).all()]
+
     def transition(
         self,
         operation_id: str,

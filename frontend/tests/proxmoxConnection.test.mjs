@@ -37,7 +37,7 @@ const fixture = {
 assert.equal(isProxmoxOperational(fixture), false, 'Fixture inventory must never open product operation screens')
 assert.deepEqual(proxmoxConnectionBadge('ready', fixture), { label: 'DEGRADED', tone: 'red' })
 
-const boundary = readFileSync(new URL('../src/components/ProxmoxConnectionBoundary.jsx', import.meta.url), 'utf8')
+const boundary = readFileSync(new URL('../src/shared/proxmox/ProxmoxConnectionBoundary.jsx', import.meta.url), 'utf8')
 assert.match(boundary, /Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다/)
 assert.doesNotMatch(boundary, /demo data|mock data|샘플 데이터/)
 

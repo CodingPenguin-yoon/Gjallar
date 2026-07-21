@@ -2,7 +2,7 @@
 
 - 상태: `APPROVED`
 - 하네스 버전: `1.0.0`
-- 최종 검토일: `2026-07-20`
+- 최종 검토일: `2026-07-21`
 - 최종 승인자: `사용자`
 - 문서 기준 언어: 한국어
 
@@ -44,21 +44,22 @@ Spring Boot preset은 적용하지 않는다.
 
 ## 아키텍처 상태
 
-- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event 저장 구조, Operations의 VM Start와 Guided `qm unlock` vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포한다.
+- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event 저장 구조, Operations의 VM Start·Guided `qm unlock`, Workload Cockpit·Operations frontend vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포한다.
 - 현재 기준선: [`architecture/overview.md`](architecture/overview.md)
 - 승인된 목표 제품 경계: [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md) (`ACCEPTED`)
 - 승인된 목표 구조: [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md) (`ACCEPTED`)
 - 승인된 목표 도메인: Workloads, Operations, Policy/Approval, Evidence/Audit, Insights와 지원 영역 Access, Setup/Integration.
 - 실제 전환: 승인된 [`plans/2026-07-20-verified-operations-control-plane-transition.md`](plans/2026-07-20-verified-operations-control-plane-transition.md)에 따라 작은 vertical slice로 수행한다.
 
-ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Workloads read boundary, VM Start와 Guided `qm unlock`처럼 slice별 구현·검증이 끝난 부분만 현재 아키텍처로 간주한다.
+ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Workloads read boundary, VM Start·Guided `qm unlock`, frontend app shell·Workloads·Operations처럼 slice별 구현·검증이 끝난 부분만 현재 아키텍처로 간주한다.
 
 ## 저장소 지도
 
 | 책임 | 경로 | 비고 |
 |---|---|---|
 | backend application | `backend/app/` | FastAPI, auth, DB, Proxmox, VM workflow, DRS, jobs |
-| frontend application | `frontend/src/` | React route shell, screens, API client, view-model utilities |
+| frontend application | `frontend/src/app/`, `pages/`, `features/`, `entities/`, `shared/` | route shell과 page composition, Workloads·Operations feature, Operation entity, 공통 API·auth·connection |
+| frontend compatibility | `frontend/src/components/`, `utils/`, `services/` | 아직 전환하지 않은 screen·view model과 기존 import 경로 adapter |
 | backend tests | `backend/tests/` | contract, DB, auth, jobs, Proxmox, VM workflow, DRS |
 | frontend tests | `frontend/tests/` | Node `.mjs` contract·view-model·source checks |
 | runtime·build | `Dockerfile`, `docker/`, `.env.example`, root `package.json` | single image와 local dual-process 흐름 |
@@ -119,10 +120,11 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 | Historical live evidence | [`evidence/legacy-live-smoke/README.md`](evidence/legacy-live-smoke/README.md) |
 | 전환 Plan | [`plans/2026-07-20-verified-operations-control-plane-transition.md`](plans/2026-07-20-verified-operations-control-plane-transition.md) |
 | Operations Core·Guided `qm` Plan | [`plans/2026-07-20-operations-backend-core-and-guided-qm.md`](plans/2026-07-20-operations-backend-core-and-guided-qm.md) |
+| Frontend Workload·Operations Plan | [`plans/2026-07-21-frontend-workload-operations-slice.md`](plans/2026-07-21-frontend-workload-operations-slice.md) |
 
 ## 미확정 사항과 알려진 위험
 
-- 목표 구조는 일부 vertical slice만 구현됐다. Create VM·DRS·frontend는 아직 공통 Operations 경계로 전환되지 않았으므로 현재 기준선과 목표 문서를 계속 구분한다.
+- 목표 구조는 일부 vertical slice만 구현됐다. frontend app shell·Workloads·Operations는 전환됐지만 Create VM·DRS·Jobs·Risks·Admin의 내부 screen은 page adapter 뒤 기존 구조를 사용하므로 현재 기준선과 목표 문서를 계속 구분한다.
 - 단계 3에서 product runtime의 fake inventory를 제거하고 `unconfigured`/`live`/`degraded` connection truth와 frontend route gate를 구현했다.
 - VM Start의 domain command·application use case·external port·workflow 상태기계를 `operations/vm_start`에 두고 기존 endpoint·job/artifact를 compatibility facade로 유지한다. 공통 Operation projection/event를 함께 기록한다.
 - 첫 Guided Manual action은 `qm unlock <vmid>`만 지원한다. backend는 명령을 실행하지 않으며 5분짜리 고정 instruction, trusted actor attestation, Proxmox API after-state 검증을 사용한다.
@@ -138,6 +140,8 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 ## 최신 검증 기준선
 
 - canonical Python 3.13 container: backend 전체 `425 passed`.
-- canonical Node 24/pnpm 10: frontend test 15개, lint, build 통과.
+- local Python 3.14 venv: backend 전체 `436 passed`.
+- local Node 24: frontend test 16개, ESLint, Vite production build 통과.
+- canonical Node 24/pnpm 10: 이전 기준선 frontend test 15개, lint, build 통과.
 - production image: `docker build -t gjallar:local .` 통과.
 - live Proxmox mutation: 실행하지 않음.

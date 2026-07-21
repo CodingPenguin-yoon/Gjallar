@@ -94,18 +94,19 @@ function compileInstanceListSource(source) {
   Plus,
   RefreshCw,
   Server,
+  Terminal,
 } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.icons`
     )
     .replace(
-      /import\s+\{\s*apiV1Client\s*\}\s+from\s+'..\/services\/apiV1'/,
+      /import\s+\{\s*apiV1Client\s*\}\s+from\s+'..\/..\/..\/shared\/api\/apiV1'/,
       'const { apiV1Client } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.api'
     )
     .replace(
-      /import\s+\{\s*authFailureMessage\s*\}\s+from\s+'..\/utils\/auth'/,
+      /import\s+\{\s*authFailureMessage\s*\}\s+from\s+'..\/..\/..\/shared\/auth\/permissions'/,
       'const { authFailureMessage } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.auth'
     )
     .replace(
-      /import\s+\{\s*loadInfraExplorerModel\s*\}\s+from\s+'..\/utils\/infraExplorerScreen'/,
+      /import\s+\{\s*loadInfraExplorerModel\s*\}\s+from\s+'\.\/model'/,
       'const { loadInfraExplorerModel } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.loader'
     )
 }
@@ -224,7 +225,7 @@ assert.equal(model.nodes[0].vms[0].primaryIp, '192.168.2.141')
 assert.deepEqual(model.nodes[0].vms[0].hiddenIpAddresses, ['172.17.0.1', '172.18.0.1'])
 assert.equal(model.nodes[0].vms[0].hiddenIpCount, 2)
 
-const sourcePath = new URL('../src/components/InstanceList.jsx', import.meta.url)
+const sourcePath = new URL('../src/features/workloads/inventory/WorkloadInventory.jsx', import.meta.url)
 const instanceListSource = readFileSync(sourcePath, 'utf8')
 assert.match(instanceListSource, /apiV1Client/)
 assert.match(instanceListSource, /loadInfraExplorerModel/)
@@ -342,6 +343,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
     Plus: icon('Plus'),
     RefreshCw: icon('RefreshCw'),
     Server: icon('Server'),
+    Terminal: icon('Terminal'),
   },
   api: { apiV1Client: fakeClient },
   auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
@@ -359,8 +361,8 @@ hookHarness.beginRender()
 let tree = InstanceList({})
 let html = renderToStaticMarkup(tree)
 
-assert.match(html, /Instances/)
-assert.match(html, /Inspect infrastructure instances/)
+assert.match(html, /Workload Cockpit/)
+assert.match(html, /start verified operations from one workload context/)
 assert.match(html, /Refresh/)
 assert.match(html, /Yoonman Server 2/)
 assert.match(html, /yoonmanserver3/)
@@ -487,6 +489,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
     Plus: icon('Plus'),
     RefreshCw: icon('RefreshCw'),
     Server: icon('Server'),
+    Terminal: icon('Terminal'),
   },
   api: { apiV1Client: fakeClient },
   auth: { authFailureMessage: (error, fallback) => error?.message || fallback },

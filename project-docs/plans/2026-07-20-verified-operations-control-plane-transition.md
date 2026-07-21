@@ -8,7 +8,7 @@
 
 이 Plan은 2026-07-20 사용자 승인을 받았다. 한 번에 전면 rewrite하지 않고 검증 가능한 vertical slice로 전환한다.
 
-- 진행 상태: `단계 0~5와 단계 7 backend 완료; 다음은 단계 6 Workload Cockpit·operation UI, jobs DB 공개 오류 의미는 승인 전 보류`
+- 진행 상태: `단계 0~7 완료; 다음은 단계 8 Create VM common operation 통합, jobs DB 공개 오류 의미는 승인 전 보류`
 
 ## 1. 위험도
 
@@ -323,6 +323,16 @@
 - `operator` 이상만 typed plan을 만들 수 있고, server가 5분 instruction bundle과 `plan_digest`를 생성한다.
 - target lock, Proxmox node `Sys.Audit`, active task 부재, allowlisted config lock을 확인한 뒤에만 bundle을 발급한다.
 - trusted actor attestation 뒤에도 성공 처리하지 않고 Proxmox API에서 config lock·active task after-state를 검증한다. 불명·불일치·late execution·lock loss는 reconciliation으로 남긴다.
-- additive API는 plan, operation query, attestation, verification 네 endpoint다. frontend operation UI는 단계 6 범위로 남겼다.
+- additive API는 plan, operation query, attestation, verification 네 endpoint로 시작했고, 단계 6에서 공통 목록 query와 frontend consumer를 완성했다.
 - 품질 검토에서 expiry/late-attestation lock release, persisted `verifying` resume, attestation 없는 expiry reconciliation verification 문제를 수정했다.
 - 검증 결과: Guided focused `77 passed`, canonical Python 3.13 container backend 전체 `425 passed`, `git diff --check` 통과. live Proxmox command/API smoke와 frontend 검증은 실행하지 않았다.
+
+### 단계 6: Workload Cockpit·Operations UI 결과
+
+- frontend root를 `app → pages/features → entities/shared` 방향으로 분리했다. root `App.jsx`는 compatibility entrypoint이고 app shell/navigation/session, Dashboard/Auth/Account page, Workload·Operations page/feature가 물리적으로 분리됐다.
+- `/instances`는 Workload Cockpit으로 유지하며 VM row에서 typed Guided `qm unlock` plan으로 node/VMID context를 전달한다. `/operations` 목록, `/operations/:operationId` 상세 evidence timeline, Guided plan·attestation·verification UI를 추가했다.
+- `GET /api/v1/operations`는 status/type/limit filter와 최신 projection summary를 제공한다. 상세 query는 공통 Operations application boundary가 projection과 events를 조합하고 Guided operation에만 instruction evidence를 붙인다.
+- viewer는 목록·상세만 조회하고 Guided mutation control은 `operator+`와 live Proxmox connection을 함께 요구한다. Browser는 command field를 보내지 않으며 server bundle만 표시한다. 만료·reconciliation instruction은 신규 실행을 금지하고 late evidence만 기록하도록 구분한다.
+- 기존 `/instances`, `/operations/jobs`, `/operations/risks`와 alias route, legacy screen/API consumer는 compatibility adapter로 유지했다. DB schema, dependency, Proxmox mutation은 변경하지 않았다.
+- 품질 검토에서 expired instruction 신규 실행 오인과 managed operation detail의 Guided 전용 facade 결합을 발견해 수정했다.
+- 검증 결과: local Python 3.14 backend 전체 `436 passed`, local Node 24 frontend test 16개·ESLint·Vite production build 통과. container build, browser 수동 a11y/navigation, live Proxmox 실행은 수행하지 않았다.

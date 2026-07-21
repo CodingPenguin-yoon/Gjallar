@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from app.operations.core.domain import (
     OperationActor,
@@ -17,6 +17,14 @@ class OperationStorePort(Protocol):
     def create(self, spec: OperationSpec, *, event_payload: Mapping[str, Any] | None = None) -> OperationCreateResult: ...
 
     def get(self, operation_id: str) -> OperationSnapshot | None: ...
+
+    def list(
+        self,
+        *,
+        status: str | None = None,
+        operation_type: str | None = None,
+        limit: int = 50,
+    ) -> list[OperationSnapshot]: ...
 
     def transition(
         self,

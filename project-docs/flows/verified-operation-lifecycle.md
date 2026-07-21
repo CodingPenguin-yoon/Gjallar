@@ -1,7 +1,7 @@
 # 기능 흐름: Verified Operation Lifecycle
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-20`
+- 최종 검토일: `2026-07-21`
 - 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md)
 
 이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start와 Guided `qm unlock`은 공통 Operation core를 사용하지만 Create VM과 DRS는 아직 자체 상태기계를 유지한다.
@@ -14,6 +14,7 @@
 - DRS는 mutation 직전 durable `prepared` attempt와 lock을 저장하고 UPID 수락 후 `accepted`로 전환한다. prepared/no-UPID 재진입과 reconciliation은 mutation을 반복하지 않는다.
 - VM Start는 API compatibility facade에서 infrastructure-free `VmStartCommand`와 `VmStartUseCase`로 진입하고 Workloads, mutation, Jobs, Evidence, lock을 명시적 port로 받는다. 검증 workflow는 `operations/vm_start/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
+- Workload Cockpit에서 VM context를 Guided plan에 전달하고, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
 - VM Start와 Guided `qm`만 이 문서의 공통 Operation aggregate를 사용한다. Create/Start/Guided file lock과 DRS DB lock은 서로 직렬화하지 않는다.
 - retained file lock의 generic recovery API와 durable recovery worker는 아직 없다. 파일 age나 process restart만으로 side effect가 없다고 판단하지 않는다.
 
@@ -92,6 +93,7 @@ Authenticated request
 6. operator의 `command_executed=true` attestation은 실행 사실 주장만 기록한다. 같은 digest를 제출해도 성공 권위는 아니다.
 7. config lock 부재와 active task 부재를 API로 확인해야 `succeeded`가 되고 target lock을 해제한다. 불일치·관찰 실패·late attestation·target lock 유실은 `needs_reconciliation`이다.
 8. attestation 없이 expiry가 도달하면 실제 config/task 상태를 다시 관찰한다. 외부 effect 가능성이 없을 때만 `expired`와 lock 해제로 끝낸다. 이후라도 실행 attestation이 들어오면 기록을 `needs_reconciliation`으로 다시 열어 stale command의 가능한 effect를 숨기지 않는다.
+9. UI는 server가 발급한 command만 표시한다. expiry 시각이 지났거나 상태가 `expired`/`needs_reconciliation`이면 신규 실행을 금지하고, 이미 발생한 실행을 late evidence로 기록하는 문구와 control만 제공한다.
 
 ## 데이터 변환
 
@@ -157,7 +159,8 @@ HTTP payload
 | managed dispatch | `backend/app/proxmox/client.py` | Integration mutation adapter |
 | DRS dispatch | `backend/app/proxmox/drs_migration.py` | action-specific adapter, 후속 통합 후보 |
 | local persistence | `backend/app/operations/core/infrastructure/`, `jobs/*`, DRS helpers | common operation/event와 기존 compatibility 저장을 병행 |
-| UI | `frontend/src/App.jsx`, feature screens | operation resource와 timeline 소비 |
+| UI composition | `frontend/src/app/`, `pages/operations/`, `pages/workloads/` | route shell, Workload context, operation list/detail/timeline |
+| UI feature/entity/shared | `frontend/src/features/guided-qm-unlock/`, `features/workloads/`, `entities/operation/`, `shared/` | typed plan, expiry-safe handoff, attestation/verification, read model과 API/RBAC/connection 계약 |
 
 ## 검증
 
@@ -167,3 +170,4 @@ HTTP payload
 - ambiguity: timeout, crash after dispatch, missing UPID, post-check mismatch가 second mutation 없이 reconciliation으로 전환.
 - manual: unsupported field/lock/secret 거부, exact command, expiry, digest binding, trusted attestation, API verification, crash-resume와 lock retention.
 - 계약: 기존 endpoint facade와 신규 operation API가 같은 application result를 표현.
+- UI: viewer/operator 경계, 기존 route alias, server-generated command only, expiry/late evidence, architecture import 방향을 contract test로 보호한다.

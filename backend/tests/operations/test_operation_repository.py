@@ -20,7 +20,13 @@ from app.operations.core.infrastructure.repository import SqlAlchemyOperationSto
 FIXED_NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 
 
-def operation_spec(*, intent_suffix: str = "same") -> OperationSpec:
+def operation_spec(
+    *,
+    intent_suffix: str = "same",
+    operation_id: str = "operation-vm-start-306",
+    operation_type: str = "vm_start",
+    initial_status: str = "planned",
+) -> OperationSpec:
     intent = {
         "operation": "vm_start",
         "target": {"node_id": "node-a", "vmid": 306},
@@ -28,16 +34,17 @@ def operation_spec(*, intent_suffix: str = "same") -> OperationSpec:
         "suffix": intent_suffix,
     }
     return OperationSpec(
-        operation_id="operation-vm-start-306",
-        operation_type="vm_start",
+        operation_id=operation_id,
+        operation_type=operation_type,
         execution_mode="managed_api",
         target_type="proxmox_vm",
         target_id="vmid:306",
-        idempotency_key="idem-1",
+        idempotency_key=f"idem-{operation_id}",
         intent_digest=operation_digest(intent),
         plan_digest=operation_digest({"intent": intent, "plan_version": 1}),
         actor=OperationActor(user_id="user-1", username="operator", role="operator"),
         details={"target": intent["target"]},
+        initial_status=initial_status,
     )
 
 
@@ -132,3 +139,32 @@ def test_projection_failure_rolls_back_event_append():
     assert current.status == "planned"
     assert current.version == 1
     assert len(store.list_events(spec.operation_id)) == 1
+
+
+def test_list_returns_latest_projection_with_bounded_filters():
+    store = SqlAlchemyOperationStore(clock=lambda: FIXED_NOW)
+    store.create(operation_spec(operation_id="operation-a"))
+    store.create(
+        operation_spec(
+            operation_id="operation-b",
+            operation_type="guided_qm_vm_unlock",
+            initial_status="awaiting_operator",
+        )
+    )
+    store.create(
+        operation_spec(
+            operation_id="operation-c",
+            operation_type="guided_qm_vm_unlock",
+            initial_status="awaiting_operator",
+        )
+    )
+
+    assert [item.operation_id for item in store.list(limit=2)] == ["operation-c", "operation-b"]
+    assert [
+        item.operation_id
+        for item in store.list(operation_type="guided_qm_vm_unlock", limit=50)
+    ] == ["operation-c", "operation-b"]
+    assert [
+        item.operation_id
+        for item in store.list(status="planned", limit=50)
+    ] == ["operation-a"]

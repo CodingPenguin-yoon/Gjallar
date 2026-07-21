@@ -1,8 +1,8 @@
 # API 계약: 현재 `/api/v1` 기준선
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-20`
-- 소비자: `frontend/src/services/apiV1.js`, React SPA, 승인된 외부 consumer
+- 최종 검토일: `2026-07-21`
+- 소비자: `frontend/src/shared/api/apiV1.js`, compatibility export `frontend/src/services/apiV1.js`, React SPA, 승인된 외부 consumer
 - 관련 요구사항·ADR: [`Project Specification`](../specifications/project-specification.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
 
 이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회와 첫 Guided Manual mutation은 additive public contract로 추가됐고 기존 endpoint는 유지된다.
@@ -83,10 +83,13 @@ VM Start는 기존 job/artifact 계약과 함께 공통 `operations` projection�
 
 | Method | Path | 권한 | side effect | 현재 책임 |
 |---|---|---|---|---|
+| `GET` | `/api/v1/operations` | viewer | 없음 | current projection 최신순 목록; `status`, `operation_type`, `limit=1..200` filter |
 | `POST` | `/api/v1/operations/guided-qm/vm-unlock` | operator | 없음; instruction 발급만 | fixed `qm unlock` plan, pre-check, target lock, 5분 bundle |
 | `GET` | `/api/v1/operations/{operation_id}` | viewer | 없음 | current projection, checksum-linked event timeline 조회 |
 | `POST` | `/api/v1/operations/{operation_id}/operator-attestation` | operator | local state only | 외부 command 실행 사실의 trusted actor attestation |
 | `POST` | `/api/v1/operations/{operation_id}/verification` | operator | Proxmox read only | config lock·active task after-state 검증 |
+
+목록은 `updated_at DESC`, `operation_id DESC` 순서이며 event와 detail payload를 제외한 projection summary를 반환한다. 상세 조회는 Operation 공통 query boundary가 projection과 event를 조합하고 Guided operation에만 instruction bundle과 no-executor evidence를 추가한다. 없는 상세는 기존 `404 GUIDED_QM_OPERATION_NOT_FOUND`를 유지하고 additive `canonical_code=OPERATION_NOT_FOUND`를 제공한다.
 
 Plan request는 다음 네 field만 허용한다.
 
@@ -163,6 +166,6 @@ DRS recommendation은 향후 Insights로 이동한다. 기존 live execution/his
 
 - 진입점: `backend/app/auth/api.py`, `backend/app/auth/admin_api.py`, `backend/app/api/v1/router.py`.
 - success helper: `backend/app/api/v1/responses.py`.
-- frontend consumer: `frontend/src/services/apiV1.js`.
+- frontend consumer: `frontend/src/shared/api/apiV1.js`; 기존 `frontend/src/services/apiV1.js`는 compatibility export다.
 - contract test: `backend/tests/contracts/`, frontend `apiV1Client`, auth, navigation과 feature tests.
-- 2026-07-20 현재 Python 3.13 container backend 전체 suite는 `425 passed`다. Node 24/pnpm 10 production build의 기존 기준선은 frontend test 15개, lint, build와 최종 image build 통과다. 이번 additive backend API slice에서는 frontend를 변경하거나 재실행하지 않았다.
+- Python 3.13 container backend의 이전 기준선은 `425 passed`다. 2026-07-21 local Python 3.14 backend 전체 `436 passed`, local Node 24 frontend test 16개·ESLint·Vite production build가 통과했다. container build와 live Proxmox 실행은 이번 slice에서 수행하지 않았다.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.responses import success_response
@@ -39,10 +39,10 @@ from app.jobs.runs import get_job_run, list_job_runs, record_job_run, run_dir
 from app.operations.guided_qm.facade import (
     GuidedQmError,
     attest_guided_qm_operation,
-    get_operation,
     plan_guided_qm_unlock,
     verify_guided_qm_operation,
 )
+from app.operations.facade import InvalidOperationQuery, OperationQueryNotFound, get_operation, list_operations
 from app.operations.target_lock import TargetOperationLockBusy, acquire_target_operation_lock, release_target_operation_lock
 from app.vm_create.approval import validate_approval_request
 from app.proxmox.client import ProxmoxMutationError, get_default_proxmox_mutation_client
@@ -821,12 +821,42 @@ async def plan_guided_qm_unlock_route(
     return await plan_guided_qm_unlock_action(payload, actor=actor)
 
 
+@router.get("/operations")
+def list_operations_route(
+    status: str | None = None,
+    operation_type: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    try:
+        result = list_operations(status=status, operation_type=operation_type, limit=limit)
+    except InvalidOperationQuery as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_OPERATION_QUERY", "message": str(exc)},
+        ) from exc
+    return success_response(
+        result,
+        meta={
+            "mode": "operation_read",
+            "filters": {"status": status, "operation_type": operation_type, "limit": limit},
+        },
+    )
+
+
 @router.get("/operations/{operation_id}")
 def get_operation_route(operation_id: str) -> dict:
     try:
         result = get_operation(operation_id)
-    except GuidedQmError as exc:
-        raise _guided_qm_http_error(exc) from exc
+    except OperationQueryNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "GUIDED_QM_OPERATION_NOT_FOUND",
+                "canonical_code": "OPERATION_NOT_FOUND",
+                "message": str(exc),
+                "operation_id": exc.operation_id,
+            },
+        ) from exc
     return success_response(result, meta={"mode": "operation_read"})
 
 
