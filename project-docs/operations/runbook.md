@@ -1,7 +1,7 @@
 # 운영 Runbook
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-20`
+- 최종 검토일: `2026-07-21`
 - 적용 범위: 현재 single-image FastAPI/React/PostgreSQL runtime
 
 이 문서는 현재 코드의 실행·점검·복구 절차만 다룬다. 목표 operation architecture가 아직 구현된 것처럼 기록하지 않는다.
@@ -10,7 +10,7 @@
 
 - local 기준: Python 3.13, Node.js 24, pnpm 10, PostgreSQL. `python3.13`이 다른 이름·경로라면 명령의 실행 파일만 해당 경로로 바꾼다.
 - container 기준: Docker와 PostgreSQL 접근 경로.
-- 필수 설정: `GJALLAR_DATABASE_URL`.
+- 필수 설정: `GJALLAR_DATABASE_URL`; target coordination identity는 `GJALLAR_CLUSTER_ID`이며 기본값은 `gjallar-mvp`다.
 - VM/Inventory/Create/Network/DRS 운영 화면 사용 시: Proxmox API URL, token ID, token secret과 TLS 정책.
 - `.env`, password, token, private key를 repository, command history, log, artifact에 남기지 않는다.
 
@@ -112,6 +112,7 @@ curl --fail --silent http://127.0.0.1:8000/health
 - authenticated `GET /api/v1/insights`의 section별 `available`, `freshness`, `rule_version`, `truncated`
 - Jobs 화면이 비어 있을 때 DB log/error 여부
 - live mutation 전 target node/VM과 credential scope
+- enabled recovery 환경이면 Operation 상세의 `recovery`, `target_lock`과 runner warning log
 
 ### DB migration
 
@@ -141,7 +142,7 @@ PYTHONPATH=. venv/bin/python -m app.auth.users list-users
 
 ## 6. Proxmox 연결
 
-현재 `.env.example`의 주요 live inventory/Create VM/VM Start 설정:
+현재 `.env.example`의 주요 live inventory/Create VM/VM lifecycle 설정:
 
 ```dotenv
 GJALLAR_INVENTORY_MODE=live
@@ -163,7 +164,39 @@ PROXMOX_TLS_INSECURE=false
 - common inventory/mutation: `PROXMOX_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_API_READ_TIMEOUT_SECONDS`, `PROXMOX_API_TIMEOUT_SECONDS`.
 - task poll: `PROXMOX_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_TASK_TIMEOUT_SECONDS`; legacy alias는 `GJALLAR_PROXMOX_TASK_*`.
 - DRS client: `PROXMOX_DRS_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_DRS_API_READ_TIMEOUT_SECONDS`, `PROXMOX_DRS_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_DRS_TASK_TIMEOUT_SECONDS`.
+- operation recovery: `GJALLAR_OPERATION_RECOVERY_ENABLED=false`, poll 기본 5초(1..300), lease 기본 60초(10..900). concurrency는 1로 고정된다.
 - 값과 기본값은 `.env.example`과 현재 client code를 우선하며 관측 근거 없이 timeout을 늘리지 않는다.
+
+### VM Start/Shutdown recovery runner rollout
+
+runner는 같은 FastAPI image 안의 opt-in observer다. 저장된 UPID task와 direct VM status를 GET으로만 확인하며 start/shutdown POST나 다른 mutation을 실행하지 않는다.
+
+enable 전:
+
+1. 모든 API replica에 migration head `20260721_0028`과 durable-lock-aware code를 배포하고 구버전 mutation traffic을 drain한다.
+2. 실제 PostgreSQL에서 open locator lock과 non-completed recovery item을 조회해 owner/operation 상태를 대조한다. lease token은 조회·공유하지 않는다.
+3. VM Start/Shutdown operation의 stored UPID, target node/VMID와 Proxmox task 보존 가능성을 확인한다. Shutdown row는 guest-aware `status/shutdown`이 이미 제출됐을 가능성을 전제로 하며 hard stop으로 대체하지 않는다.
+4. 한 replica 또는 동일 설정의 모든 replica에 `GJALLAR_OPERATION_RECOVERY_ENABLED=true`를 적용한다. 여러 replica여도 PostgreSQL lease가 한 observer만 허용한다.
+5. Operation 상세 UI의 Recovery coordination과 event timeline에서 claim/retry/completion을 확인한다.
+
+진단용 read-only SQL 예시:
+
+```sql
+select operation_id, recovery_kind, status, available_at,
+       lease_owner, lease_generation, lease_expires_at,
+       attempt_count, last_error_code, updated_at
+from operation_recovery_items
+where status <> 'completed'
+order by available_at, operation_id;
+
+select operation_type, scope_key, status, owner_id, reason, updated_at
+from operation_locks
+where scope_type = 'proxmox_locator'
+  and status in ('active', 'stale', 'reconciliation_required')
+order by updated_at, operation_lock_id;
+```
+
+즉시 runner를 멈추려면 flag를 `false`로 되돌리고 application을 정상 재시작한다. lease는 만료 후 takeover 가능한 상태가 되지만 operation과 durable target lock은 자동 해제되지 않는다. row를 직접 삭제하거나 status를 임의 terminal로 바꾸지 않는다.
 
 ## 7. Mutation 실행 규칙
 
@@ -209,15 +242,21 @@ live mutation 전에 다음을 모두 확인한다.
 - stored job/artifact, task reference와 Proxmox actual state를 먼저 확인한다.
 - same mutation 자동 retry를 금지하고 `needs_reconciliation` 의미를 유지한다.
 
-### Create/Start retained target lock
+### Graceful VM Shutdown
 
-- VM Start와 Create VM은 현재 한 configured cluster 안의 VMID를 `proxmox_vm/vmid:{vmid}`로 잠근다. node가 달라도 같은 VMID는 같은 target이다.
-- lock은 platform temporary directory 아래 `gjallar-runtime/target-operation-locks/`에 저장된다. 일반 Linux container의 temporary root는 `/tmp`지만 실제 위치는 Python runtime의 temporary directory 설정을 따른다.
-- API evidence에는 target, owner, lock id와 획득 시각만 노출하며 absolute filesystem path는 노출하지 않는다.
-- ambiguous result에서 lock은 의도적으로 남는다. 파일 age, backend process 종료 또는 timeout만으로 stale이라고 판단하거나 삭제하지 않는다.
+- `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown`은 operator role, `vm_shutdown_acknowledged=true`, non-empty idempotency key와 fresh running target context를 요구한다.
+- backend는 QEMU `status/shutdown`만 호출한다. timeout, guest shutdown 실패 또는 ambiguous result를 hard `stop`, reboot, 새 idempotency key 재호출로 보상하지 않는다.
+- task `stopped/OK`와 direct VM `stopped`가 함께 확인된 경우에만 성공이다. 둘 중 하나가 unknown/mismatch이면 Operation 상세의 recovery/target lock과 Proxmox task/current status를 읽기 전용으로 대조한다.
+- live smoke는 정확한 cluster/node/VMID, 현재 workload 영향, 재기동 책임과 사용자 run-specific 승인을 별도로 확보한 경우에만 실행한다. 구현 검증만으로 production VM 종료 권한이 생기지 않는다.
+
+### Durable target lock과 retained ambiguity
+
+- VM Start, VM Shutdown, Create VM, Guided `qm unlock`, DRS는 현재 `GJALLAR_CLUSTER_ID`/VMID의 PostgreSQL `proxmox_locator` lock을 공유한다. node가 달라도 같은 VMID는 같은 target이다.
+- Start/Shutdown/Create/Guided는 platform temporary directory 아래 `gjallar-runtime/target-operation-locks/`의 compatibility file guard도 DB lock 뒤에 잡는다. container 교체로 이 파일이 사라져도 durable DB lock이 canonical 충돌 방어다.
+- API evidence에는 target, owner, lock id, operation type과 획득 시각만 노출하며 absolute filesystem path와 recovery lease token은 노출하지 않는다.
+- ambiguous result에서 durable lock은 의도적으로 남는다. file age, lease expiry, backend process 종료 또는 timeout만으로 stale이라고 판단하거나 삭제하지 않는다.
 - 현재 operator unlock endpoint는 없다. exact job/request evidence, UPID가 있으면 task, Proxmox actual VM state와 active task를 먼저 확인한다.
-- 수동 복구가 불가피하면 해당 target mutation을 중지한 상태에서 복구 결정을 기록하고, metadata로 확인한 정확한 단일 lock file만 별도 quarantine 경로로 이동한다. wildcard나 lock directory 전체 삭제는 금지한다.
-- 새 container 배포나 temporary storage 초기화는 retained lock을 유실할 수 있으며 reconciliation이 아니다. 이후 mutation 전에 unresolved VM Start job과 `vm_create_requests`의 `needs_reconciliation`/`apply_failed`를 먼저 확인한다.
+- 수동 복구가 불가피하면 해당 target mutation을 중지하고 operation/task/actual state를 대조한 뒤 승인된 roll-forward 절차를 만든다. DB row 직접 삭제와 wildcard lock directory 삭제는 금지한다.
 
 ### Task OK와 post-check 불일치
 
@@ -256,9 +295,8 @@ pnpm run verify:container
 
 - `/health`는 DB/Proxmox deep readiness가 아니다.
 - degraded 상태에서 조회할 durable stale inventory snapshot은 아직 없다.
-- long-running operation의 durable worker/lease/restart recovery가 없다.
+- durable restart recovery는 VM Start/Shutdown observation에 있고 Create VM/Guided/DRS 자동 handler는 없다.
 - job/artifact는 공통 append-only operation audit가 아니다.
-- Create/Start target lock은 single-container local file이므로 shared replica coordination과 durable recovery를 제공하지 않는다.
 - Create/Start retained lock의 operator reconciliation/unlock API가 없다.
-- DRS DB lock과 Create/Start file lock은 같은 VM target을 서로 차단하지 않는다.
-- Guided `qm unlock`은 구현됐지만 backend command executor, durable runner/lease와 automatic restart recovery는 없다.
+- recovery runner는 API process와 resource를 공유하며 concurrency 1이다. 처리량/SLA와 별도 worker 분리 기준은 미확정이다.
+- Guided `qm unlock`에는 backend command executor와 automatic restart recovery가 없다.

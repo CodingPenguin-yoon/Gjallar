@@ -8,7 +8,7 @@
 
 - Proxmox GUI만으로 일상 운영을 수행하면 반복 작업, 사전 점검, 승인, 변경 후 검증, 감사 증거가 서로 분리된다.
 - GUI에서 지원하지 않거나 불편한 작업은 운영자가 `qm` 등 CLI로 전환해야 하지만, 명령 생성부터 결과 검증까지의 안전한 공통 흐름이 없다.
-- 현재 Gjallar는 inventory, Create VM, VM Start, DRS, jobs를 제공하지만 기능별 workflow와 evidence로 분절돼 있어 하나의 control plane으로 느껴지지 않는다.
+- 현재 Gjallar는 inventory, Create VM, VM Start, graceful VM Shutdown, DRS, jobs를 제공하지만 기능별 workflow와 evidence로 분절돼 있어 하나의 control plane으로 느껴지지 않는다.
 - DRS 자체는 Proxmox의 native 기능과 경쟁 우위가 약하다. Gjallar의 차별점은 자동 배치가 아니라 API와 guided manual operation을 동일한 검증·승인·증거 모델로 운영하는 데 둔다.
 
 성공하면 최초 연결·비상 복구를 제외한 day-2 운영은 Gjallar에서 시작하고, 실행 상태와 실제 결과 확인까지 Gjallar에서 끝난다.
@@ -133,15 +133,15 @@
 
 - 별도 `approver` role과 separation of duties 도입 시점
 - application-level append-only/checksum audit과 external WORM audit 중 목표 수준
-- PostgreSQL-backed durable runner/lease 도입 단계
-- operation·attempt·evidence의 구체 schema와 기존 table migration 전략
-- guided manual 1차 allowlist action과 허용할 `qm` parameter 범위
+- VM Start/Shutdown 외 Create VM·Guided·DRS의 durable recovery handler 도입 순서와 retry/SLA
+- operation·attempt·evidence compatibility table의 장기 migration·retention 전략
+- Guided Manual 후속 allowlist action과 action별 안전 parameter 범위
 - 기존 DRS execution/history의 유지보수 기간과 최종 제거 여부
 - multi-cluster connection profile과 stale snapshot 보존·표시 계약
 - 정량 SLA, metric interval, evidence retention 기간
 
 ## 12. 승인 기록
 
-- 승인 범위: `제품 경계, 실행 mode, domain ownership, 점진 전환 Plan과 기존 docs 초기화; product runtime demo 제거와 unconfigured/live/degraded connection truth`
+- 승인 범위: `제품 경계, 실행 mode, domain ownership, 점진 전환 Plan과 기존 docs 초기화; product runtime demo 제거와 unconfigured/live/degraded connection truth; PostgreSQL durable target lock·VM Start/Shutdown GET-only recovery와 graceful shutdown action`
 - 감수한 제한: `목표 구조는 점진 구현하며 기존 API와 DB migration 이력은 별도 폐기 승인 전 보존`
 - 승인일: `2026-07-20`

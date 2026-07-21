@@ -162,6 +162,11 @@ class SqlAlchemyOperationStore:
         try:
             with self._sessions() as session:
                 session.add(row)
+                # The ORM models deliberately have no relationship property, so
+                # PostgreSQL FK ordering cannot be inferred from unit-of-work
+                # dependencies. Flush the parent projection before its first
+                # append-only event while keeping both writes in one transaction.
+                session.flush()
                 session.add(event_row)
                 session.flush()
                 result = _snapshot(row)
@@ -270,61 +275,96 @@ class SqlAlchemyOperationStore:
         if not str(event_type).strip() or not str(stage).strip():
             raise ValueError("Operation event_type and stage are required")
         with self._sessions() as session:
-            row = session.scalar(
-                select(OperationRecord)
-                .where(OperationRecord.operation_id == operation_id)
-                .with_for_update()
+            return self.append_in_session(
+                session,
+                operation_id,
+                next_status=next_status,
+                event_type=event_type,
+                stage=stage,
+                payload=payload,
+                details_patch=details_patch,
+                actor=actor,
+                expected_statuses=expected_statuses,
+                is_transition=is_transition,
             )
-            if row is None:
-                raise OperationNotFound(operation_id)
-            if expected_statuses is not None and row.status not in set(expected_statuses):
-                raise OperationStateConflict(operation_id, row.status)
 
-            target_status = next_status if is_transition else row.status
-            if is_transition:
-                ensure_operation_transition(row.status, str(target_status))
-            event_actor = actor or _actor_from_record(row)
-            created_at = _as_utc(self._clock())
-            sanitized_payload = _sanitized_mapping(payload)
-            sequence = int(row.version) + 1
-            checksum = self._event_checksum(
-                operation_id=operation_id,
-                sequence=sequence,
-                event_type=event_type,
-                from_status=row.status,
-                to_status=str(target_status),
-                stage=stage,
-                actor=event_actor,
-                payload=sanitized_payload,
-                previous_checksum=row.last_event_checksum,
-                created_at=created_at,
-            )
-            event_row = self._new_event_row(
-                operation_id=operation_id,
-                sequence=sequence,
-                event_type=event_type,
-                from_status=row.status,
-                to_status=str(target_status),
-                stage=stage,
-                actor=event_actor,
-                payload=sanitized_payload,
-                previous_checksum=row.last_event_checksum,
-                checksum=checksum,
-                created_at=created_at,
-            )
-            session.add(event_row)
-            session.flush()
-            self._apply_projection(
-                row,
-                status=str(target_status),
-                stage=stage,
-                details_patch=_sanitized_mapping(details_patch),
-                version=sequence,
-                checksum=checksum,
-                updated_at=created_at,
-            )
-            session.flush()
-            return _snapshot(row)
+    def append_in_session(
+        self,
+        session: Session,
+        operation_id: str,
+        *,
+        next_status: str | None,
+        event_type: str,
+        stage: str,
+        payload: Mapping[str, Any] | None = None,
+        details_patch: Mapping[str, Any] | None = None,
+        actor: OperationActor | None = None,
+        expected_statuses: Sequence[str] | None = None,
+        is_transition: bool,
+    ) -> OperationSnapshot:
+        """Append an event using a caller-owned transaction.
+
+        Recovery uses this seam to fence a lease and change the canonical
+        Operation projection in the same database transaction.
+        """
+
+        if not str(event_type).strip() or not str(stage).strip():
+            raise ValueError("Operation event_type and stage are required")
+        row = session.scalar(
+            select(OperationRecord)
+            .where(OperationRecord.operation_id == operation_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise OperationNotFound(operation_id)
+        if expected_statuses is not None and row.status not in set(expected_statuses):
+            raise OperationStateConflict(operation_id, row.status)
+
+        target_status = next_status if is_transition else row.status
+        if is_transition:
+            ensure_operation_transition(row.status, str(target_status))
+        event_actor = actor or _actor_from_record(row)
+        created_at = _as_utc(self._clock())
+        sanitized_payload = _sanitized_mapping(payload)
+        sequence = int(row.version) + 1
+        checksum = self._event_checksum(
+            operation_id=operation_id,
+            sequence=sequence,
+            event_type=event_type,
+            from_status=row.status,
+            to_status=str(target_status),
+            stage=stage,
+            actor=event_actor,
+            payload=sanitized_payload,
+            previous_checksum=row.last_event_checksum,
+            created_at=created_at,
+        )
+        event_row = self._new_event_row(
+            operation_id=operation_id,
+            sequence=sequence,
+            event_type=event_type,
+            from_status=row.status,
+            to_status=str(target_status),
+            stage=stage,
+            actor=event_actor,
+            payload=sanitized_payload,
+            previous_checksum=row.last_event_checksum,
+            checksum=checksum,
+            created_at=created_at,
+        )
+        session.add(event_row)
+        session.flush()
+        self._apply_projection(
+            row,
+            status=str(target_status),
+            stage=stage,
+            details_patch=_sanitized_mapping(details_patch),
+            version=sequence,
+            checksum=checksum,
+            updated_at=created_at,
+        )
+        session.flush()
+        return _snapshot(row)
 
     @staticmethod
     def _apply_projection(

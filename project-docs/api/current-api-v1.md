@@ -5,7 +5,7 @@
 - 소비자: `frontend/src/shared/api/apiV1.js`, compatibility export `frontend/src/services/apiV1.js`, React SPA, 승인된 외부 consumer
 - 관련 요구사항·ADR: [`Project Specification`](../specifications/project-specification.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
 
-이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회, Create VM linkage, 첫 Guided Manual mutation, observe-only Insights는 additive public contract로 추가됐고 기존 endpoint는 유지된다.
+이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회, Create VM linkage, 첫 Guided Manual mutation, graceful VM Shutdown, observe-only Insights는 additive public contract로 추가됐고 기존 endpoint는 유지된다.
 
 ## 계약 개요
 
@@ -86,11 +86,16 @@ connection status의 `data`는 `state`, `source`, `cluster_id`, `observed_at`, `
 | Method | Path | 권한 | side effect | 현재 gate |
 |---|---|---|---|---|
 | `POST` | `/api/v1/nodes/{node_id}/vms/{vmid}/actions/start` | operator | Proxmox VM start | acknowledgement, idempotency key, fresh pre-check, lock, task poll, post-check |
+| `POST` | `/api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown` | operator | Proxmox graceful VM shutdown | acknowledgement, idempotency key, running pre-check, recovery registration, task/direct stopped verification |
 | `POST` | `/api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence` | operator | local evidence only | sanitized payload, live check/command/secret field 거부 |
 
-VM Start는 구현된 `managed_api` Operations vertical slice다. 현재 구현은 같은 node/VMID/idempotency key와 같은 intent를 기존 결과로 replay하고, 그 operation identity에서 expected context가 다른 intent는 `409` conflict로 거부한다. 현재 한 개의 configured Proxmox cluster를 전제로 `vmid` 단위 target file lock을 잡으며, POST timeout·missing UPID·task unknown·post-check mismatch는 mutation을 재호출하지 않고 `needs_reconciliation`과 retained lock으로 보존한다.
+VM Start는 구현된 `managed_api` Operations vertical slice다. 현재 구현은 같은 node/VMID/idempotency key와 같은 intent를 기존 결과로 replay하고, 그 operation identity에서 expected context가 다른 intent는 `409` conflict로 거부한다. 현재 한 개의 configured Proxmox cluster를 전제로 `vmid` 단위 PostgreSQL durable locator lock과 compatibility file guard를 잡으며, POST timeout·missing UPID·task unknown·post-check mismatch는 mutation을 재호출하지 않고 `needs_reconciliation`과 retained lock으로 보존한다.
 
-VM Start는 기존 job/artifact 계약과 함께 공통 `operations` projection과 `operation_events`를 기록한다. 기존 response envelope과 job payload는 바꾸지 않는다.
+VM Start는 기존 job/artifact 계약과 함께 공통 `operations` projection과 `operation_events`를 기록한다. Proxmox POST 전에 recovery item/foreground lease를 등록하며 등록 실패는 `503 VM_START_RECOVERY_UNAVAILABLE`이고 POST를 호출하지 않는다. task poll은 lease를 heartbeat하고 fenced terminal commit만 target lock을 해제한다. 기존 success response envelope과 job payload는 바꾸지 않는다.
+
+Graceful VM Shutdown은 별도 `vm_shutdown` common Operation과 기존 Jobs/artifact compatibility projection을 함께 기록한다. request는 `vm_shutdown_acknowledged=true`, non-empty `idempotency_key`, optional `expected_name`/`expected_status`를 받으며 exact running non-template VM만 허용한다. Proxmox 호출은 `POST /nodes/{node}/qemu/{vmid}/status/shutdown` 하나이고 hard `stop`, reboot 또는 timeout 후 강제 fallback은 없다. task `status=stopped`, `exitstatus=OK`와 direct VM `status=stopped`가 모두 확인된 경우에만 `succeeded`/`completed`다.
+
+Shutdown recovery registration 실패는 `503 VM_SHUTDOWN_RECOVERY_UNAVAILABLE`이고 POST 전 차단된다. explicit clear 4xx는 `VM_SHUTDOWN_REQUEST_FAILED`; timeout·connection failure·missing UPID는 `VM_SHUTDOWN_REQUEST_RECONCILIATION_REQUIRED`; task/direct state 불일치는 `VM_SHUTDOWN_RESULT_RECONCILIATION_REQUIRED`; lease fencing 실패는 `503 VM_SHUTDOWN_RECOVERY_LEASE_LOST`이며 target lock을 유지한다. same key/same intent는 기존 result를 replay하고 different intent는 `VM_SHUTDOWN_IDEMPOTENCY_CONFLICT`다.
 
 ### Operations·Guided `qm`
 
@@ -98,11 +103,11 @@ VM Start는 기존 job/artifact 계약과 함께 공통 `operations` projection�
 |---|---|---|---|---|
 | `GET` | `/api/v1/operations` | viewer | 없음 | current projection 최신순 목록; `status`, `operation_type`, `limit=1..200` filter |
 | `POST` | `/api/v1/operations/guided-qm/vm-unlock` | operator | 없음; instruction 발급만 | fixed `qm unlock` plan, pre-check, target lock, 5분 bundle |
-| `GET` | `/api/v1/operations/{operation_id}` | viewer | 없음 | current projection, checksum-linked event timeline 조회 |
+| `GET` | `/api/v1/operations/{operation_id}` | viewer | 없음 | current projection, checksum-linked event timeline, optional recovery/target lock 조회 |
 | `POST` | `/api/v1/operations/{operation_id}/operator-attestation` | operator | local state only | 외부 command 실행 사실의 trusted actor attestation |
 | `POST` | `/api/v1/operations/{operation_id}/verification` | operator | Proxmox read only | config lock·active task after-state 검증 |
 
-목록은 `updated_at DESC`, `operation_id DESC` 순서이며 event와 detail payload를 제외한 projection summary를 반환한다. 상세 조회는 Operation 공통 query boundary가 projection과 event를 조합하고 Guided operation에만 instruction bundle과 no-executor evidence를 추가한다. 없는 상세는 기존 `404 GUIDED_QM_OPERATION_NOT_FOUND`를 유지하고 additive `canonical_code=OPERATION_NOT_FOUND`를 제공한다.
+목록은 `updated_at DESC`, `operation_id DESC` 순서이며 event와 detail payload를 제외한 projection summary를 반환한다. 상세 조회는 Operation 공통 query boundary가 projection과 event를 조합하고 optional `recovery`, `target_lock`을 additive하게 제공한다. `recovery`에는 kind/status/due/lease owner·generation·expiry/attempt/error/redacted details가 있지만 private lease token은 없다. Guided operation에만 instruction bundle과 no-executor evidence를 추가한다. 없는 상세는 기존 `404 GUIDED_QM_OPERATION_NOT_FOUND`를 유지하고 additive `canonical_code=OPERATION_NOT_FOUND`를 제공한다.
 
 Plan request는 다음 네 field만 허용한다.
 
@@ -138,7 +143,7 @@ Plan request는 다음 네 field만 허용한다.
 
 이 다단계 endpoint는 전환 동안 호환 facade를 유지하면서 `vm_create` common Operation을 함께 기록한다. `plan`, `approve`, `proxmox-preview`, 성공·replay된 `proxmox-create`의 `data`에는 additive `operation_id`와 `operation` link가 포함된다. operation은 plan에서 `awaiting_approval` 또는 red risk의 `blocked`로 준비되고 exact approval, preview, dispatch, running, verifying, success/reconciliation event를 기록한다.
 
-final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하고, 같은 job의 다른 intent와 같은 VMID를 소유한 다른 active/reconciliation/completed request를 `409`로 차단한다. VM Start와 같은 VMID target file lock을 사용하며, 명확한 side-effect-free 거절만 common `failed`로 종료·해제하고 partial/unknown result는 common `needs_reconciliation`과 기존 `apply_failed`/`needs_reconciliation` compatibility 상태 및 retained lock으로 남긴다. 외부 effect 뒤 request/workload/job/artifact 또는 common evidence 저장이 실패하면 success를 공표하거나 lock을 해제하지 않는다.
+final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하고, 같은 job의 다른 intent와 같은 VMID를 소유한 다른 active/reconciliation/completed request를 `409`로 차단한다. VM Start와 같은 VMID PostgreSQL locator lock과 compatibility file guard를 사용하며, 명확한 side-effect-free 거절만 common `failed`로 종료·해제하고 partial/unknown result는 common `needs_reconciliation`과 기존 `apply_failed`/`needs_reconciliation` compatibility 상태 및 retained lock으로 남긴다. 외부 effect 뒤 request/workload/job/artifact 또는 common evidence 저장이 실패하면 success를 공표하거나 lock을 해제하지 않는다.
 
 ### DRS
 
@@ -164,10 +169,10 @@ Placement recommendation의 canonical product surface는 `/insights/placement`�
 
 - actor는 server-side session에서 얻고 request payload actor를 신뢰하지 않는다.
 - action별 exact acknowledgement field와 `operator+` role을 요구한다.
-- Create VM, VM Start, Guided `qm unlock`은 현재 한 configured cluster의 VMID를 `proxmox_vm/vmid:{vmid}`로 표현하는 동일한 single-container file lock namespace를 사용한다.
-- DRS는 별도 DB `operation_locks`를 사용하므로 Create/Start와 공통 lock 또는 공통 operation resource를 아직 공유하지 않는다.
-- 네 mutation slice는 서로 다른 idempotency/approval/error contract를 일부 유지하지만, covered ambiguity를 terminal failure로 축소하거나 자동 재호출하지 않는다.
-- VM Start, Create VM과 Guided `qm`은 공통 operation resource/event를 기록한다. Create VM은 기존 request/job/artifact/workload linkage도 dual record하며 DRS는 아직 자체 projection/evidence만 유지한다.
+- Create VM, VM Start, VM Shutdown, Guided `qm unlock`, DRS는 현재 한 configured cluster의 VMID를 같은 PostgreSQL `proxmox_locator` open-lock namespace로 직렬화한다. Start/Shutdown/Create/Guided는 local file compatibility guard도 함께 사용한다.
+- DRS는 공통 operation resource를 아직 공유하지 않지만 locator lock은 공유한다. DRS identity/route lock과 상태기계는 계속 전용 계약이다.
+- 다섯 mutation slice는 서로 다른 idempotency/approval/error contract를 일부 유지하지만, covered ambiguity를 terminal failure로 축소하거나 자동 재호출하지 않는다.
+- VM Start, VM Shutdown, Create VM과 Guided `qm`은 공통 operation resource/event를 기록한다. Start/Shutdown은 restart recovery item도 기록하고, Create VM은 기존 request/job/artifact/workload linkage를 dual record하며 DRS는 아직 자체 projection/evidence만 유지한다.
 - secret, token, password와 unsafe evidence field를 저장·응답하지 않아야 한다.
 
 ## 호환성 정책
@@ -184,4 +189,4 @@ Placement recommendation의 canonical product surface는 `/insights/placement`�
 - success helper: `backend/app/api/v1/responses.py`.
 - frontend consumer: `frontend/src/shared/api/apiV1.js`; 기존 `frontend/src/services/apiV1.js`는 compatibility export다.
 - contract test: `backend/tests/contracts/`, frontend `apiV1Client`, auth, navigation과 feature tests.
-- Python 3.13 container backend 전체 `457 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.
+- Python 3.13 container backend 전체 `504 passed, 2 skipped`, 실제 PostgreSQL 18.4 integration `2 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.

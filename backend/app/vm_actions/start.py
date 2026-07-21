@@ -11,6 +11,7 @@ from app.core.redaction import redact_secrets
 from app.jobs.artifacts import write_json_artifact
 from app.jobs.runs import get_job_run, record_job_run, run_dir
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
 from app.operations.target_lock import (
     TargetOperationLockBusy,
     acquire_target_operation_lock,
@@ -99,7 +100,12 @@ class _CurrentVmStartLockAdapter:
 
     def acquire_target(self, target_type: str, target_id: str, operation_id: str) -> VmStartTargetLockHandle:
         try:
-            handle = acquire_target_operation_lock(target_type, target_id, operation_id)
+            handle = acquire_target_operation_lock(
+                target_type,
+                target_id,
+                operation_id,
+                operation_type="vm_start",
+            )
         except TargetOperationLockBusy as exc:
             raise VmStartTargetLockBusy(exc.to_dict()) from exc
         return VmStartTargetLockHandle(token=handle, evidence=handle.to_dict())
@@ -121,9 +127,15 @@ class _CurrentVmStartMutationAdapter:
         except ProxmoxMutationError as exc:
             raise VmStartMutationFailure(str(exc), details=exc.details) from exc
 
-    def wait_for_task(self, *, node: str, upid: str) -> dict[str, Any]:
+    def wait_for_task(
+        self,
+        *,
+        node: str,
+        upid: str,
+        heartbeat: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
         try:
-            return self._client.wait_for_task(node=node, upid=upid)
+            return self._client.wait_for_task(node=node, upid=upid, heartbeat=heartbeat)
         except ProxmoxMutationError as exc:
             raise VmStartMutationFailure(str(exc), details=exc.details) from exc
 
@@ -175,6 +187,7 @@ def run_vm_start(
         jobs=_CurrentVmStartJobAdapter(),
         evidence=_CurrentVmStartEvidenceAdapter(),
         locks=_CurrentVmStartLockAdapter(),
+        recovery=SqlAlchemyRecoveryStore(),
     )
     return VmStartUseCase(
         workflow=VerifiedVmStartWorkflow(),

@@ -91,6 +91,7 @@ function compileInstanceListSource(source) {
   Loader2,
   Network,
   Play,
+  Power,
   Plus,
   RefreshCw,
   Server,
@@ -134,6 +135,7 @@ const { loadInfraExplorerModel } = await importExpected(
 
 const calls = []
 const startCalls = []
+const shutdownCalls = []
 const fakeClient = {
   async listNodes() {
     calls.push('listNodes')
@@ -192,6 +194,10 @@ const fakeClient = {
     startCalls.push({ nodeId, vmid, payload })
     return { job_id: 'vm-start-node-a-142' }
   },
+  async shutdownVm(nodeId, vmid, payload) {
+    shutdownCalls.push({ nodeId, vmid, payload })
+    return { job_id: 'vm-shutdown-node-a-141' }
+  },
   async getInstances() {
     calls.push('getInstances')
     throw new Error('legacy getInstances must not be called')
@@ -213,7 +219,7 @@ assert.equal(model.summary.guestAgentCount, 1)
 assert.equal(model.nodes[0].name, 'Yoonman Server 2')
 assert.equal(model.nodes[0].vms[0].name, 'app-01')
 assert.equal(model.nodes[0].vms[0].readOnly, true)
-assert.deepEqual(model.nodes[0].vms[0].allowedActions, [])
+assert.deepEqual(model.nodes[0].vms[0].allowedActions, ['shutdown'])
 assert.equal(model.nodes[0].vms[1].name, 'stopped-app')
 assert.deepEqual(model.nodes[0].vms[1].allowedActions, ['start'])
 assert.equal(model.nodes[0].vms[0].storageId, 'local-lvm')
@@ -231,7 +237,8 @@ assert.match(instanceListSource, /apiV1Client/)
 assert.match(instanceListSource, /loadInfraExplorerModel/)
 assert.match(instanceListSource, /useNavigate/)
 assert.match(instanceListSource, /apiV1Client\.startVm/)
-assert.match(instanceListSource, /canStartVms/)
+assert.match(instanceListSource, /apiV1Client\.shutdownVm/)
+assert.match(instanceListSource, /canMutateVms/)
 assert.doesNotMatch(instanceListSource, /loadDrsPolicyCoverage|submitDrsPolicyUpdate|DrsPolicyReviewModal/)
 assert.doesNotMatch(instanceListSource, /canManageDrsPolicies|policyCoverage|policyWriteAllowed|vmIdentityId/)
 assert.doesNotMatch(instanceListSource, /DRS Policy|DRS policy review|Review DRS policy/)
@@ -340,6 +347,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
     Loader2: icon('Loader2'),
     Network: icon('Network'),
     Play: icon('Play'),
+    Power: icon('Power'),
     Plus: icon('Plus'),
     RefreshCw: icon('RefreshCw'),
     Server: icon('Server'),
@@ -377,6 +385,8 @@ assert.match(html, /stopped-app/)
 assert.match(html, /VMID 142/)
 assert.match(html, /aria-label="Start stopped-app"/)
 assert.match(html, /data-icon="Play"/)
+assert.match(html, /aria-label="Gracefully shut down app-01"/)
+assert.match(html, /data-icon="Power"/)
 assert.match(html, /192\.168\.2\.141/)
 assert.match(html, />\+2</)
 assert.match(html, /aria-label="Show 2 additional IP addresses"/)
@@ -444,6 +454,51 @@ hookHarness.beginRender()
 tree = InstanceList({})
 html = renderToStaticMarkup(tree)
 
+const shutdownButton = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['aria-label'] === 'Gracefully shut down app-01'
+)
+assert.ok(shutdownButton, 'Expected a graceful shutdown control for running non-template VMs')
+shutdownButton.props.onClick()
+
+hookHarness.beginRender()
+tree = InstanceList({})
+html = renderToStaticMarkup(tree)
+assert.match(html, /Graceful Shutdown/)
+assert.match(html, /will not force-stop or reboot/)
+assert.match(html, /I acknowledge this will gracefully shut down the running VM on Proxmox/)
+
+const shutdownAck = findElement(
+  tree,
+  (element) => element.type === 'input' && element.props?.['data-testid'] === 'vm-shutdown-acknowledgement'
+)
+assert.ok(shutdownAck, 'Expected VM shutdown acknowledgement checkbox')
+shutdownAck.props.onChange({ target: { checked: true } })
+
+hookHarness.beginRender()
+tree = InstanceList({})
+const confirmShutdown = findElement(
+  tree,
+  (element) => element.type === 'button' && element.props?.['data-testid'] === 'confirm-vm-shutdown'
+)
+assert.ok(confirmShutdown, 'Expected VM shutdown confirmation button')
+await confirmShutdown.props.onClick()
+assert.equal(shutdownCalls.length, 1)
+assert.equal(shutdownCalls[0].nodeId, 'yoonmanserver2')
+assert.equal(shutdownCalls[0].vmid, 141)
+assert.equal(shutdownCalls[0].payload.vm_shutdown_acknowledged, true)
+assert.equal(shutdownCalls[0].payload.expected_name, 'app-01')
+assert.equal(shutdownCalls[0].payload.expected_status, 'running')
+assert.match(shutdownCalls[0].payload.idempotency_key, /^infra-explorer:shutdown:yoonmanserver2:141:/)
+assert.deepEqual(navigateCalls, [
+  '/operations/jobs?job=vm-start-node-a-142',
+  '/operations/vm-shutdown-node-a-141',
+])
+
+hookHarness.beginRender()
+tree = InstanceList({})
+html = renderToStaticMarkup(tree)
+
 const toggle = findElement(
   tree,
   (element) => element.type === 'button' && element.props?.['aria-controls'] === 'instance-group-yoonmanserver2'
@@ -468,7 +523,6 @@ for (const blocked of [
   'resize',
   'force stop',
   'reset',
-  'shutdown',
   'reboot',
   'stop instance',
 ]) {
@@ -486,6 +540,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
     Loader2: icon('Loader2'),
     Network: icon('Network'),
     Play: icon('Play'),
+    Power: icon('Power'),
     Plus: icon('Plus'),
     RefreshCw: icon('RefreshCw'),
     Server: icon('Server'),

@@ -44,14 +44,14 @@ Spring Boot preset은 적용하지 않는다.
 
 ## 아키텍처 상태
 
-- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event 저장 구조, Operations의 VM Start·Create VM·Guided `qm unlock`, Workload Cockpit·Operations·Insights frontend vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포한다.
+- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event, PostgreSQL durable target lock/recovery lease, Operations의 VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, Workload Cockpit·Operations·Insights frontend vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포하며 VM Start/Shutdown recovery observer는 opt-in lifespan task다.
 - 현재 기준선: [`architecture/overview.md`](architecture/overview.md)
 - 승인된 목표 제품 경계: [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md) (`ACCEPTED`)
 - 승인된 목표 구조: [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md) (`ACCEPTED`)
 - 승인된 목표 도메인: Workloads, Operations, Policy/Approval, Evidence/Audit, Insights와 지원 영역 Access, Setup/Integration.
 - 실제 전환: 승인된 [`plans/2026-07-20-verified-operations-control-plane-transition.md`](plans/2026-07-20-verified-operations-control-plane-transition.md)에 따라 작은 vertical slice로 수행한다.
 
-ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Workloads read boundary, VM Start·Create VM·Guided `qm unlock`, frontend app shell·Workloads·Operations처럼 slice별 구현·검증이 끝난 부분만 현재 아키텍처로 간주한다.
+ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Workloads read boundary, VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, frontend app shell·Workloads·Operations처럼 slice별 구현·검증이 끝난 부분만 현재 아키텍처로 간주한다.
 
 ## 저장소 지도
 
@@ -111,6 +111,7 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 | 현재 아키텍처 기준선 | [`architecture/overview.md`](architecture/overview.md) |
 | 제품 권한·실행 경계 | [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md) |
 | Production 연결 상태 | [`ADR-003`](decisions/adr-003-production-inventory-connection-truth.md) |
+| Durable target lock·recovery | [`ADR-004`](decisions/adr-004-postgresql-durable-operation-recovery.md) |
 | 목표 모듈 구조 | [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md) |
 | 목표 도메인 | [`domains/domain-map.md`](domains/domain-map.md) |
 | 목표 operation lifecycle | [`flows/verified-operation-lifecycle.md`](flows/verified-operation-lifecycle.md) |
@@ -123,6 +124,8 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 | Frontend Workload·Operations Plan | [`plans/2026-07-21-frontend-workload-operations-slice.md`](plans/2026-07-21-frontend-workload-operations-slice.md) |
 | Create VM Common Operation Plan | [`plans/2026-07-21-create-vm-common-operation-integration.md`](plans/2026-07-21-create-vm-common-operation-integration.md) |
 | Insights Productization Plan | [`plans/2026-07-21-insights-productization-and-drs-maintenance.md`](plans/2026-07-21-insights-productization-and-drs-maintenance.md) |
+| Durable Recovery 10-A Plan | [`plans/2026-07-21-durable-operation-recovery-foundation.md`](plans/2026-07-21-durable-operation-recovery-foundation.md) |
+| Graceful VM Shutdown 10-B Plan | [`plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md`](plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md) |
 
 ## 미확정 사항과 알려진 위험
 
@@ -132,18 +135,17 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 - Create VM의 stable intent와 공통 lifecycle tracking을 `operations/vm_create`에 두고 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact를 compatibility facade와 dual record로 유지한다. 신규 plan부터 common Operation을 만들며 별도 migration이나 기존 row backfill은 하지 않았다.
 - 첫 Guided Manual action은 `qm unlock <vmid>`만 지원한다. backend는 명령을 실행하지 않으며 5분짜리 고정 instruction, trusted actor attestation, Proxmox API after-state 검증을 사용한다.
 - backend formatter, lint, type-check 명령이 확인되지 않았다.
-- long-running operation의 durable runner/lease와 자동 restart recovery 구조가 없다. Guided verification은 저장된 `verifying` 상태에서 명시적으로 재요청할 수 있다.
-- VM Start/Create VM/Guided `qm unlock`은 같은 VMID local file lock으로 동시 mutation과 ambiguity를 보호하지만 single-container 전용이며 multi-cluster identity와 shared replica coordination이 없다.
-- DRS는 dispatch 전 durable prepared evidence를 기록하지만 별도 DB lock을 사용해 Create/Start와 공통 target을 직렬화하지 않는다.
+- VM Start와 graceful VM Shutdown에는 durable recovery item/lease와 GET-only restart observer가 구현됐지만 Create VM/Guided/DRS 자동 recovery handler와 generic operator unlock API는 없다. Guided verification은 저장된 `verifying` 상태에서 명시적으로 재요청할 수 있다.
+- VM Start/Shutdown/Create VM/Guided `qm unlock`/DRS는 같은 cluster/VMID PostgreSQL locator lock으로 직렬화한다. Start/Shutdown/Create/Guided local file guard는 compatibility 용도이며 multi-cluster connection profile은 없다.
 - 기존 Jobs/Risks read의 DB exception을 empty result로 축소하는 공개 의미는 별도 승인 전 유지한다. 새 Insights risk source는 strict query를 사용해 같은 장애를 `unavailable`로 구분한다.
 - `operations`/`operation_events`는 projection과 checksum-linked append-only event를 분리하지만 application-level tamper evidence이며 external WORM이 아니다. `job_runs`와 `job_artifacts`는 기존 compatibility projection/evidence로 남아 있다.
-- Guided bundle 발급 전후에 외부 Proxmox GUI·CLI가 별도 작업을 시작하는 경쟁은 local lock으로 차단할 수 없다. 짧은 expiry, active-task 재조회, after-state 검증으로 성공 오판을 막는다.
+- Guided bundle 발급 전후에 외부 Proxmox GUI·CLI가 별도 작업을 시작하는 경쟁은 Gjallar lock으로 차단할 수 없다. 짧은 expiry, active-task 재조회, after-state 검증으로 성공 오판을 막는다.
 - 기존 `docs/`는 제거했고 live-smoke 원본과 `artifacts/rewrite-baseline/`은 historical evidence로 보존했다.
 
 ## 최신 검증 기준선
 
-- canonical Python 3.13 container: backend 전체 `457 passed`.
-- local Python 3.14 venv: backend 전체 `457 passed`, Insights/DRS/Risks/Jobs focused `40 passed`.
+- canonical Python 3.13 container: backend 전체 `504 passed, 2 skipped`; 두 skip은 opt-in PostgreSQL integration이다.
+- local Python 3.14 venv: backend 전체 `504 passed, 2 skipped`; 별도 PostgreSQL 18.4 실행에서 integration `2 passed`.
 - host Node 26: frontend test 17개, ESLint, Vite production build 통과. canonical runtime이 아니므로 보조 검증으로만 사용했다.
 - canonical Node 24/pnpm 10: frontend test 17개, ESLint, Vite production build 통과.
 - production image: `docker build -t gjallar:local .` 통과.

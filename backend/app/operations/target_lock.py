@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.operations.locks.domain import DurableTargetLock, DurableTargetLockBusy
+from app.operations.locks.infrastructure.repository import SqlAlchemyDurableTargetLockRepository
+
 
 class TargetOperationLockBusy(RuntimeError):
     """Raised when another operation already holds the target lock."""
@@ -55,15 +58,19 @@ class TargetOperationLockHandle:
     lock_id: str
     path: Path
     acquired_at: str
+    durable: DurableTargetLock | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "target_type": self.target_type,
             "target_id": self.target_id,
             "owner_id": self.owner_id,
             "lock_id": self.lock_id,
             "acquired_at": self.acquired_at,
         }
+        if self.durable is not None:
+            result["durable"] = self.durable.to_dict()
+        return result
 
 
 def _safe_segment(value: str) -> str:
@@ -103,6 +110,9 @@ def acquire_target_operation_lock(
     target_type: str,
     target_id: str,
     owner_id: str,
+    *,
+    operation_type: str | None = None,
+    cluster_id: str | None = None,
 ) -> TargetOperationLockHandle:
     """Acquire an exclusive lock for one mutation target.
 
@@ -117,6 +127,28 @@ def acquire_target_operation_lock(
     path = _target_operation_lock_path(target_type=normalized_type, target_id=normalized_id)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    durable: DurableTargetLock | None = None
+    vmid_match = re.fullmatch(r"vmid:(\d+)", normalized_id)
+    if operation_type and normalized_type == "proxmox_vm" and vmid_match:
+        durable_repository = SqlAlchemyDurableTargetLockRepository()
+        normalized_cluster = _normalized(cluster_id) or _normalized(os.getenv("GJALLAR_CLUSTER_ID")) or "gjallar-mvp"
+        try:
+            durable = durable_repository.acquire(
+                operation_type=operation_type,
+                cluster_id=normalized_cluster,
+                vmid=int(vmid_match.group(1)),
+                owner_id=normalized_owner,
+                reason=f"{operation_type}_dispatch",
+            )
+        except DurableTargetLockBusy as exc:
+            raise TargetOperationLockBusy(
+                target_type=normalized_type,
+                target_id=normalized_id,
+                owner_id=normalized_owner,
+                path=path,
+                existing=exc.existing,
+            ) from exc
+
     acquired_at = datetime.now(timezone.utc).isoformat()
     lock_id = f"targetlock-{uuid.uuid4().hex}"
     payload = {
@@ -128,17 +160,27 @@ def acquire_target_operation_lock(
     }
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError as exc:
-        raise TargetOperationLockBusy(
-            target_type=normalized_type,
-            target_id=normalized_id,
-            owner_id=normalized_owner,
-            path=path,
-            existing=_read_lock_metadata(path),
-        ) from exc
+    except OSError as exc:
+        if durable is not None:
+            SqlAlchemyDurableTargetLockRepository().release(durable, reason="compatibility_file_lock_busy")
+        if isinstance(exc, FileExistsError):
+            raise TargetOperationLockBusy(
+                target_type=normalized_type,
+                target_id=normalized_id,
+                owner_id=normalized_owner,
+                path=path,
+                existing=_read_lock_metadata(path),
+            ) from exc
+        raise
 
-    with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
-        json.dump(payload, lock_file, ensure_ascii=False, sort_keys=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+            json.dump(payload, lock_file, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        path.unlink(missing_ok=True)
+        if durable is not None:
+            SqlAlchemyDurableTargetLockRepository().release(durable, reason="compatibility_file_lock_write_failed")
+        raise
 
     return TargetOperationLockHandle(
         target_type=normalized_type,
@@ -147,6 +189,7 @@ def acquire_target_operation_lock(
         lock_id=lock_id,
         path=path,
         acquired_at=acquired_at,
+        durable=durable,
     )
 
 
@@ -164,13 +207,33 @@ def release_target_operation_lock(handle: TargetOperationLockHandle) -> None:
     try:
         handle.path.unlink()
     except FileNotFoundError:
-        return
+        pass
+    if handle.durable is not None:
+        SqlAlchemyDurableTargetLockRepository().release(handle.durable, reason="verified_operation_completed")
 
 
 def get_target_operation_lock(target_type: str, target_id: str) -> dict[str, Any] | None:
     """Return public lock evidence without exposing the local filesystem path."""
 
-    path = _target_operation_lock_path(target_type=target_type, target_id=target_id)
+    normalized_type = _normalized(target_type) or "target"
+    normalized_id = _normalized(target_id) or "unknown"
+    vmid_match = re.fullmatch(r"vmid:(\d+)", normalized_id)
+    if normalized_type == "proxmox_vm" and vmid_match:
+        cluster_id = _normalized(os.getenv("GJALLAR_CLUSTER_ID")) or "gjallar-mvp"
+        durable = SqlAlchemyDurableTargetLockRepository().current(
+            cluster_id=cluster_id,
+            vmid=int(vmid_match.group(1)),
+        )
+        if durable is not None:
+            return {
+                "target_type": normalized_type,
+                "target_id": normalized_id,
+                "owner_id": durable.owner_id,
+                "lock_id": durable.lock_id,
+                "acquired_at": durable.created_at.isoformat(),
+                "durable": durable.to_dict(),
+            }
+    path = _target_operation_lock_path(target_type=normalized_type, target_id=normalized_id)
     if not path.exists():
         return None
     metadata = _read_lock_metadata(path)
@@ -189,14 +252,26 @@ def release_target_operation_lock_for_owner(target_type: str, target_id: str, ow
     normalized_owner = _normalized(owner_id) or "unknown"
     path = _target_operation_lock_path(target_type=normalized_type, target_id=normalized_id)
     metadata = _read_lock_metadata(path)
-    if not metadata or (
+    file_matches = bool(metadata) and not (
         metadata.get("target_type") != normalized_type
         or metadata.get("target_id") != normalized_id
         or metadata.get("owner_id") != normalized_owner
-    ):
-        return False
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return False
-    return True
+    )
+    file_released = False
+    if file_matches:
+        try:
+            path.unlink()
+            file_released = True
+        except FileNotFoundError:
+            pass
+    durable_released = False
+    vmid_match = re.fullmatch(r"vmid:(\d+)", normalized_id)
+    if normalized_type == "proxmox_vm" and vmid_match:
+        cluster_id = _normalized(os.getenv("GJALLAR_CLUSTER_ID")) or "gjallar-mvp"
+        durable_released = SqlAlchemyDurableTargetLockRepository().release_owned(
+            cluster_id=cluster_id,
+            vmid=int(vmid_match.group(1)),
+            owner_id=normalized_owner,
+            reason="verified_operation_completed",
+        )
+    return file_released or durable_released

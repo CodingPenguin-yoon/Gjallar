@@ -7,7 +7,8 @@ Gjallar의 FastAPI backend입니다. 현재 `/api/v1`과 local auth/admin API를
 - local user, server-side session, `viewer < operator < admin` 권한
 - read-only Proxmox inventory와 normalization
 - Create VM draft/preflight/plan/approval/native create
-- VM Start와 post-create readiness evidence
+- VM Start, graceful VM Shutdown과 post-create readiness evidence
+- PostgreSQL durable target coordination과 opt-in VM Start/Shutdown observation recovery
 - DRS recommendation/policy/approval/migration/reconciliation
 - DB-backed jobs, artifacts, risks
 - risk/readiness/capacity/placement의 observe-only Insights aggregate
@@ -58,6 +59,7 @@ PYTHONPATH=. venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port "${BAC
 ## 주요 환경
 
 - 필수 runtime: `GJALLAR_DATABASE_URL` PostgreSQL URL. `postgresql://`과 `postgres://`는 psycopg driver URL로 normalize된다.
+- operation coordination: `GJALLAR_CLUSTER_ID`; opt-in recovery는 `GJALLAR_OPERATION_RECOVERY_ENABLED`, `GJALLAR_OPERATION_RECOVERY_POLL_SECONDS`, `GJALLAR_OPERATION_RECOVERY_LEASE_SECONDS`.
 - local dev: `FRONTEND_PORT`, `BACKEND_PORT`, `VITE_BACKEND_URL`.
 - connection: `GJALLAR_INVENTORY_MODE`, `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, `PROXMOX_TLS_INSECURE`.
 - inventory/mutation tuning: `PROXMOX_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_API_READ_TIMEOUT_SECONDS`, legacy fallback `PROXMOX_API_TIMEOUT_SECONDS`, `PROXMOX_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_TASK_TIMEOUT_SECONDS`와 `GJALLAR_PROXMOX_TASK_*` alias.
@@ -107,6 +109,8 @@ root Dockerfile은 frontend를 build한 뒤 FastAPI runtime에 포함합니다. 
 4. Uvicorn 실행
 
 `GJALLAR_SKIP_STARTUP_INIT=1`은 migration/seed/bootstrap을 모두 건너뛰므로 일반 운영 시작에 사용하지 않습니다.
+
+recovery runner는 기본 `false`이며 FastAPI lifespan 안에서 concurrency 1로 동작합니다. enable 전 모든 API replica가 migration head `20260721_0028`과 durable lock code를 사용하고 있는지 확인해야 합니다. VM Start/Shutdown handler는 저장된 UPID/task와 direct VM status만 읽으며 Proxmox mutation을 재호출하지 않습니다.
 
 ## 변경 시 지켜야 할 경계
 

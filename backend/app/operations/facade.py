@@ -11,6 +11,9 @@ from app.operations.core.application import (
     OperationQueryService,
 )
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+from app.operations.recovery.domain import recovery_item_payload
+from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
+from app.operations.target_lock import get_target_operation_lock
 
 
 def list_operations(
@@ -25,7 +28,15 @@ def list_operations(
 
 
 def get_operation(operation_id: str) -> dict[str, Any]:
-    return OperationQueryService(operations=SqlAlchemyOperationStore()).get(operation_id)
+    result = OperationQueryService(operations=SqlAlchemyOperationStore()).get(operation_id)
+    operation = result["operation"]
+    recovery = SqlAlchemyRecoveryStore().get(operation_id)
+    result["recovery"] = recovery_item_payload(recovery) if recovery is not None else None
+    result["target_lock"] = get_target_operation_lock(
+        str(operation.get("target_type") or ""),
+        str(operation.get("target_id") or ""),
+    )
+    return result
 
 
 __all__ = ["InvalidOperationQuery", "OperationQueryNotFound", "get_operation", "list_operations"]

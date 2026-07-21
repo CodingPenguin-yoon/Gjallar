@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, NoReturn
 
 from app.operations.core.domain import OperationIntentConflict
+from app.operations.recovery.domain import RecoveryLease, RecoveryLeaseLost, RecoverySpec
 from app.operations.vm_start.domain import (
     VmStartCommand,
     build_vm_start_job_id as build_operation_job_id,
@@ -185,6 +186,27 @@ def _status_payload(payload: Any, *, error: str | None = None) -> dict[str, Any]
     return status
 
 
+def _recovery_task_payload(task: dict[str, Any]) -> dict[str, Any]:
+    """Bound durable recovery details independently of raw poll history."""
+
+    return {
+        "node": str(task.get("node") or ""),
+        "upid": str(task.get("upid") or ""),
+        "status": str(task.get("status") or ""),
+        "exitstatus": str(task.get("exitstatus") or ""),
+    }
+
+
+def _recovery_observed_payload(observed: dict[str, Any], *, node_id: str, vmid: int) -> dict[str, Any]:
+    return {
+        "node_id": node_id,
+        "vmid": vmid,
+        "name": str(observed.get("name") or ""),
+        "status": str(observed.get("status") or ""),
+        "error": str(observed.get("error") or ""),
+    }
+
+
 def _write_observed_artifact(
     *,
     evidence: VmStartEvidencePort,
@@ -274,6 +296,7 @@ def _record_reconciliation_required(
     upid: str,
     side_effects: list[str],
     lock_handle: VmStartTargetLockHandle | None,
+    recovery_lease: RecoveryLease | None = None,
     actor: dict[str, Any] | None = None,
 ) -> None:
     lock = _lock_evidence(lock_handle, retained=True)
@@ -295,22 +318,46 @@ def _record_reconciliation_required(
         "proxmox_mutation_enabled": True,
         "side_effects": side_effects,
     }
-    transition_vm_start_operation(
-        ports.operations,
-        job_id,
-        next_status="needs_reconciliation",
-        event_type="reconciliation_required",
-        stage=stage,
-        payload={
-            "code": code,
-            "message": message,
-            "task": task,
-            "observed_after": observed_after,
-            "side_effects": side_effects,
-        },
-        details_patch={"reconciliation_code": code},
-        expected_statuses=["dispatching", "running", "verifying"],
-    )
+    transition_payload = {
+        "code": code,
+        "message": message,
+        "task": task,
+        "observed_after": observed_after,
+        "side_effects": side_effects,
+    }
+    if ports.recovery is not None and recovery_lease is not None:
+        try:
+            ports.recovery.commit_observation(
+                recovery_lease,
+                next_status="needs_reconciliation",
+                event_type="reconciliation_required",
+                stage=stage,
+                payload=transition_payload,
+                details_patch={"reconciliation_code": code},
+                expected_statuses=["dispatching", "running", "verifying"],
+                recovery_status="paused" if not upid else "retry_wait",
+                retry_delay_seconds=30 if upid else 0,
+                error_code=code,
+                recovery_details_patch={"upid": upid, "node_id": target.get("node_id"), "vmid": target.get("vmid")},
+            )
+        except RecoveryLeaseLost as exc:
+            raise VmStartError(
+                "VM_START_RECOVERY_LEASE_LOST",
+                "VM start recovery ownership changed; the result was not committed",
+                status_code=503,
+                details={"job_id": job_id, "target": target, "side_effects": side_effects},
+            ) from exc
+    else:
+        transition_vm_start_operation(
+            ports.operations,
+            job_id,
+            next_status="needs_reconciliation",
+            event_type="reconciliation_required",
+            stage=stage,
+            payload=transition_payload,
+            details_patch={"reconciliation_code": code},
+            expected_statuses=["dispatching", "running", "verifying"],
+        )
     _record_vm_start_job(
         jobs=ports.jobs,
         job_id=job_id,
@@ -432,6 +479,7 @@ def _execute_vm_start_workflow(
 
     lock_fd: int | None = None
     target_lock: VmStartTargetLockHandle | None = None
+    recovery_lease: RecoveryLease | None = None
     retain_target_lock = False
     try:
         lock_fd = ports.locks.acquire_request(job_id)
@@ -609,6 +657,46 @@ def _execute_vm_start_workflow(
             expected_statuses=["planned"],
         )
 
+        if ports.recovery is not None:
+            try:
+                recovery_lease = ports.recovery.prepare_and_claim(
+                    RecoverySpec(
+                        operation_id=job_id,
+                        recovery_kind="vm_start_observation",
+                        details={
+                            "node_id": node_id,
+                            "vmid": vmid,
+                            "target_type": "proxmox_vm",
+                            "target_id": _target_lock_id(vmid),
+                        },
+                    ),
+                    lease_owner=f"foreground:{job_id}",
+                    lease_seconds=ports.recovery_lease_seconds,
+                )
+            except Exception as exc:
+                transition_vm_start_operation(
+                    ports.operations,
+                    job_id,
+                    next_status="failed",
+                    event_type="recovery_registration_failed",
+                    stage="start",
+                    payload={"code": "VM_START_RECOVERY_UNAVAILABLE"},
+                    expected_statuses=["dispatching"],
+                )
+                retain_target_lock = False
+                raise VmStartError(
+                    "VM_START_RECOVERY_UNAVAILABLE",
+                    "Durable recovery could not be registered before VM start dispatch",
+                    status_code=503,
+                    details={
+                        "job_id": job_id,
+                        "target": target,
+                        "proxmox_start_ran": False,
+                        "proxmox_mutation_enabled": False,
+                        "side_effects": [],
+                    },
+                ) from exc
+
         retain_target_lock = True
         try:
             upid = str(proxmox_client.start_vm(node=node_id, vmid=vmid) or "").strip()
@@ -634,15 +722,36 @@ def _execute_vm_start_workflow(
                     "proxmox_mutation_enabled": False,
                     "side_effects": ["proxmox_start_request_rejected"],
                 }
-                transition_vm_start_operation(
-                    ports.operations,
-                    job_id,
-                    next_status="failed",
-                    event_type="dispatch_rejected",
-                    stage="start",
-                    payload={"message": result["message"], "task": result["task"]},
-                    expected_statuses=["dispatching"],
-                )
+                if ports.recovery is not None and recovery_lease is not None:
+                    try:
+                        ports.recovery.commit_observation(
+                            recovery_lease,
+                            next_status="failed",
+                            event_type="dispatch_rejected",
+                            stage="start",
+                            payload={"message": result["message"], "task": result["task"]},
+                            expected_statuses=["dispatching"],
+                            recovery_status="completed",
+                            error_code="VM_START_REQUEST_FAILED",
+                            release_target_lock=True,
+                        )
+                    except RecoveryLeaseLost as lease_exc:
+                        raise VmStartError(
+                            "VM_START_RECOVERY_LEASE_LOST",
+                            "VM start recovery ownership changed; the rejection was not committed",
+                            status_code=503,
+                            details={"job_id": job_id, "target": target, "side_effects": []},
+                        ) from lease_exc
+                else:
+                    transition_vm_start_operation(
+                        ports.operations,
+                        job_id,
+                        next_status="failed",
+                        event_type="dispatch_rejected",
+                        stage="start",
+                        payload={"message": result["message"], "task": result["task"]},
+                        expected_statuses=["dispatching"],
+                    )
                 _record_vm_start_job(
                     jobs=ports.jobs,
                     job_id=job_id,
@@ -704,6 +813,7 @@ def _execute_vm_start_workflow(
                 upid="",
                 side_effects=["proxmox_start_request_ambiguous", "proxmox_post_check_observed"],
                 lock_handle=target_lock,
+                recovery_lease=recovery_lease,
                 actor=actor_payload,
             )
 
@@ -749,18 +859,42 @@ def _execute_vm_start_workflow(
                 upid="",
                 side_effects=["proxmox_start_invoked", "proxmox_post_check_observed"],
                 lock_handle=target_lock,
+                recovery_lease=recovery_lease,
                 actor=actor_payload,
             )
-        transition_vm_start_operation(
-            ports.operations,
-            job_id,
-            next_status="running",
-            event_type="dispatch_accepted",
-            stage="task_poll",
-            payload={"upid": upid, "node_id": node_id},
-            details_patch={"proxmox_upid": upid},
-            expected_statuses=["dispatching"],
-        )
+        if ports.recovery is not None and recovery_lease is not None:
+            try:
+                _, recovery_item = ports.recovery.commit_observation(
+                    recovery_lease,
+                    next_status="running",
+                    event_type="dispatch_accepted",
+                    stage="task_poll",
+                    payload={"upid": upid, "node_id": node_id},
+                    details_patch={"proxmox_upid": upid},
+                    expected_statuses=["dispatching"],
+                    recovery_status="leased",
+                    recovery_details_patch={"upid": upid, "node_id": node_id, "vmid": vmid},
+                )
+                recovery_lease = RecoveryLease(item=recovery_item, token=recovery_lease.token)
+            except RecoveryLeaseLost as exc:
+                retain_target_lock = True
+                raise VmStartError(
+                    "VM_START_RECOVERY_LEASE_LOST",
+                    "VM start recovery ownership changed after dispatch; reconciliation is required",
+                    status_code=503,
+                    details={"job_id": job_id, "target": target, "upid": upid, "side_effects": ["proxmox_start_invoked"]},
+                ) from exc
+        else:
+            transition_vm_start_operation(
+                ports.operations,
+                job_id,
+                next_status="running",
+                event_type="dispatch_accepted",
+                stage="task_poll",
+                payload={"upid": upid, "node_id": node_id},
+                details_patch={"proxmox_upid": upid},
+                expected_statuses=["dispatching"],
+            )
         task: dict[str, Any] = {"node": node_id, "upid": upid}
         _record_vm_start_job(
             jobs=ports.jobs,
@@ -787,7 +921,24 @@ def _execute_vm_start_workflow(
         observed_after: dict[str, Any]
         task_poll_ambiguous = False
         try:
-            task = proxmox_client.wait_for_task(node=node_id, upid=upid)
+            heartbeat = None
+            if ports.recovery is not None and recovery_lease is not None:
+                heartbeat = lambda: ports.recovery.heartbeat(
+                    recovery_lease,
+                    lease_seconds=ports.recovery_lease_seconds,
+                )
+            if heartbeat is None:
+                task = proxmox_client.wait_for_task(node=node_id, upid=upid)
+            else:
+                task = proxmox_client.wait_for_task(node=node_id, upid=upid, heartbeat=heartbeat)
+        except RecoveryLeaseLost as exc:
+            retain_target_lock = True
+            raise VmStartError(
+                "VM_START_RECOVERY_LEASE_LOST",
+                "VM start recovery ownership changed during task polling; reconciliation is required",
+                status_code=503,
+                details={"job_id": job_id, "target": target, "upid": upid, "side_effects": ["proxmox_start_invoked"]},
+            ) from exc
         except VmStartMutationFailure as exc:
             task_poll_ambiguous = True
             task = {
@@ -803,15 +954,44 @@ def _execute_vm_start_workflow(
         except VmStartMutationFailure as exc:
             observed_after = _status_payload({}, error=str(exc))
 
-        transition_vm_start_operation(
-            ports.operations,
-            job_id,
-            next_status="verifying",
-            event_type="task_and_state_observed",
-            stage="post_check",
-            payload={"task": task, "observed_after": observed_after},
-            expected_statuses=["running"],
-        )
+        if ports.recovery is not None and recovery_lease is not None:
+            try:
+                _, recovery_item = ports.recovery.commit_observation(
+                    recovery_lease,
+                    next_status="verifying",
+                    event_type="task_and_state_observed",
+                    stage="post_check",
+                    payload={"task": task, "observed_after": observed_after},
+                    expected_statuses=["running"],
+                    recovery_status="leased",
+                    recovery_details_patch={
+                        "task": _recovery_task_payload(task),
+                        "observed_after": _recovery_observed_payload(
+                            observed_after,
+                            node_id=node_id,
+                            vmid=vmid,
+                        ),
+                    },
+                )
+                recovery_lease = RecoveryLease(item=recovery_item, token=recovery_lease.token)
+            except RecoveryLeaseLost as exc:
+                retain_target_lock = True
+                raise VmStartError(
+                    "VM_START_RECOVERY_LEASE_LOST",
+                    "VM start recovery ownership changed during verification; reconciliation is required",
+                    status_code=503,
+                    details={"job_id": job_id, "target": target, "upid": upid, "side_effects": ["proxmox_start_invoked"]},
+                ) from exc
+        else:
+            transition_vm_start_operation(
+                ports.operations,
+                job_id,
+                next_status="verifying",
+                event_type="task_and_state_observed",
+                stage="post_check",
+                payload={"task": task, "observed_after": observed_after},
+                expected_statuses=["running"],
+            )
         artifact = _write_observed_artifact(
             evidence=ports.evidence,
             job_id=job_id,
@@ -847,6 +1027,7 @@ def _execute_vm_start_workflow(
                 upid=upid,
                 side_effects=side_effects,
                 lock_handle=target_lock,
+                recovery_lease=recovery_lease,
                 actor=actor_payload,
             )
 
@@ -870,6 +1051,7 @@ def _execute_vm_start_workflow(
                     upid=upid,
                     side_effects=side_effects,
                     lock_handle=target_lock,
+                    recovery_lease=recovery_lease,
                     actor=actor_payload,
                 )
             result = {
@@ -888,15 +1070,46 @@ def _execute_vm_start_workflow(
                 "proxmox_mutation_enabled": True,
                 "side_effects": side_effects,
             }
-            transition_vm_start_operation(
-                ports.operations,
-                job_id,
-                next_status="failed",
-                event_type="task_failed",
-                stage="task_poll",
-                payload={"task": task, "observed_after": observed_after},
-                expected_statuses=["verifying"],
-            )
+            if ports.recovery is not None and recovery_lease is not None:
+                try:
+                    _, recovery_item = ports.recovery.commit_observation(
+                        recovery_lease,
+                        next_status="failed",
+                        event_type="task_failed",
+                        stage="task_poll",
+                        payload={"task": task, "observed_after": observed_after},
+                        expected_statuses=["verifying"],
+                        recovery_status="leased",
+                        error_code="VM_START_TASK_FAILED",
+                        recovery_details_patch={
+                            "terminal_outcome": "failed",
+                            "task": _recovery_task_payload(task),
+                            "observed_after": _recovery_observed_payload(
+                                observed_after,
+                                node_id=node_id,
+                                vmid=vmid,
+                            ),
+                        },
+                    )
+                    recovery_lease = RecoveryLease(item=recovery_item, token=recovery_lease.token)
+                except RecoveryLeaseLost as exc:
+                    retain_target_lock = True
+                    raise VmStartError(
+                        "VM_START_RECOVERY_LEASE_LOST",
+                        "VM start recovery ownership changed; task failure was not committed",
+                        status_code=503,
+                        details={"job_id": job_id, "target": target, "upid": upid, "side_effects": side_effects},
+                    ) from exc
+            else:
+                transition_vm_start_operation(
+                    ports.operations,
+                    job_id,
+                    next_status="failed",
+                    event_type="task_failed",
+                    stage="task_poll",
+                    payload={"task": task, "observed_after": observed_after},
+                    expected_statuses=["verifying"],
+                )
             _record_vm_start_job(
                 jobs=ports.jobs,
                 job_id=job_id,
@@ -910,6 +1123,25 @@ def _execute_vm_start_workflow(
                 intent=stable_intent,
                 details={"vm_start_result": result, "target_operation_lock": _lock_evidence(target_lock)},
             )
+            if ports.recovery is not None and recovery_lease is not None:
+                try:
+                    ports.recovery.commit_observation(
+                        recovery_lease,
+                        event_type="recovery_compatibility_projection_recorded",
+                        stage="task_poll",
+                        payload={"operation_status": "failed"},
+                        expected_statuses=["failed"],
+                        recovery_status="completed",
+                        release_target_lock=True,
+                    )
+                except RecoveryLeaseLost as exc:
+                    retain_target_lock = True
+                    raise VmStartError(
+                        "VM_START_RECOVERY_LEASE_LOST",
+                        "VM start recovery ownership changed before the failed job projection was finalized",
+                        status_code=503,
+                        details={"job_id": job_id, "target": target, "upid": upid, "side_effects": side_effects},
+                    ) from exc
             retain_target_lock = False
             raise VmStartError(
                 "VM_START_TASK_FAILED",
@@ -936,6 +1168,7 @@ def _execute_vm_start_workflow(
                 upid=upid,
                 side_effects=side_effects,
                 lock_handle=target_lock,
+                recovery_lease=recovery_lease,
                 actor=actor_payload,
             )
 
@@ -956,20 +1189,59 @@ def _execute_vm_start_workflow(
             "proxmox_mutation_enabled": True,
             "side_effects": side_effects,
         }
-        transition_vm_start_operation(
-            ports.operations,
-            job_id,
-            next_status="succeeded",
-            event_type="verification_succeeded",
-            stage="post_check",
-            payload={
-                "task": task,
-                "observed_after": observed_after,
-                "artifact": artifact,
-            },
-            details_patch={"result_status": "completed"},
-            expected_statuses=["verifying"],
-        )
+        if ports.recovery is not None and recovery_lease is not None:
+            try:
+                _, recovery_item = ports.recovery.commit_observation(
+                    recovery_lease,
+                    next_status="succeeded",
+                    event_type="verification_succeeded",
+                    stage="post_check",
+                    payload={
+                        "task": _recovery_task_payload(task),
+                        "observed_after": _recovery_observed_payload(
+                            observed_after,
+                            node_id=node_id,
+                            vmid=vmid,
+                        ),
+                        "artifact": artifact,
+                    },
+                    details_patch={"result_status": "completed"},
+                    expected_statuses=["verifying"],
+                    recovery_status="leased",
+                    recovery_details_patch={
+                        "terminal_outcome": "succeeded",
+                        "task": _recovery_task_payload(task),
+                        "observed_after": _recovery_observed_payload(
+                            observed_after,
+                            node_id=node_id,
+                            vmid=vmid,
+                        ),
+                    },
+                )
+                recovery_lease = RecoveryLease(item=recovery_item, token=recovery_lease.token)
+            except RecoveryLeaseLost as exc:
+                retain_target_lock = True
+                raise VmStartError(
+                    "VM_START_RECOVERY_LEASE_LOST",
+                    "VM start recovery ownership changed; success was not committed",
+                    status_code=503,
+                    details={"job_id": job_id, "target": target, "upid": upid, "side_effects": side_effects},
+                ) from exc
+        else:
+            transition_vm_start_operation(
+                ports.operations,
+                job_id,
+                next_status="succeeded",
+                event_type="verification_succeeded",
+                stage="post_check",
+                payload={
+                    "task": task,
+                    "observed_after": observed_after,
+                    "artifact": artifact,
+                },
+                details_patch={"result_status": "completed"},
+                expected_statuses=["verifying"],
+            )
         _record_vm_start_job(
             jobs=ports.jobs,
             job_id=job_id,
@@ -983,6 +1255,25 @@ def _execute_vm_start_workflow(
             intent=stable_intent,
             details={"vm_start_result": result, "target_operation_lock": _lock_evidence(target_lock)},
         )
+        if ports.recovery is not None and recovery_lease is not None:
+            try:
+                ports.recovery.commit_observation(
+                    recovery_lease,
+                    event_type="recovery_compatibility_projection_recorded",
+                    stage="post_check",
+                    payload={"operation_status": "succeeded"},
+                    expected_statuses=["succeeded"],
+                    recovery_status="completed",
+                    release_target_lock=True,
+                )
+            except RecoveryLeaseLost as exc:
+                retain_target_lock = True
+                raise VmStartError(
+                    "VM_START_RECOVERY_LEASE_LOST",
+                    "VM start recovery ownership changed before the completed job projection was finalized",
+                    status_code=503,
+                    details={"job_id": job_id, "target": target, "upid": upid, "side_effects": side_effects},
+                ) from exc
         retain_target_lock = False
         return result
     finally:

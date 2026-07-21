@@ -7,6 +7,8 @@ FastAPI 메인 애플리케이션 진입점
 """
 
 import os
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
 
 from dotenv import load_dotenv
@@ -26,12 +28,34 @@ from app.auth.admin_api import router as admin_router
 from app.auth.api import router as auth_router
 from app.auth.config import allowed_origins
 from app.auth.origin import reject_unexpected_unsafe_origin
+from app.operations.recovery.runtime import RecoveryRuntimeConfig, run_recovery_loop
+
+
+@asynccontextmanager
+async def _application_lifespan(_app: FastAPI):
+    config = RecoveryRuntimeConfig.from_env()
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(run_recovery_loop(stop_event, config=config)) if config.enabled else None
+    try:
+        yield
+    finally:
+        if task is not None:
+            stop_event.set()
+            try:
+                await asyncio.wait_for(task, timeout=min(config.poll_seconds + 5, 30))
+            except TimeoutError:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
 # FastAPI 애플리케이션 인스턴스 생성
 app = FastAPI(
     title="Gjallar VM Operations API",
     description="Proxmox VM 운영, inventory, monitoring을 위한 Gjallar 백엔드",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=_application_lifespan,
 )
 
 # CORS 설정: 프론트엔드로부터의 요청 허용

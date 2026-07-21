@@ -51,7 +51,12 @@ class ProxmoxGuidedQmObservationAdapter:
 class SharedGuidedQmTargetLockAdapter:
     def acquire(self, target_type: str, target_id: str, operation_id: str) -> GuidedQmTargetLockHandle:
         try:
-            handle = acquire_target_operation_lock(target_type, target_id, operation_id)
+            handle = acquire_target_operation_lock(
+                target_type,
+                target_id,
+                operation_id,
+                operation_type="guided_qm_vm_unlock",
+            )
         except TargetOperationLockBusy as exc:
             raise GuidedQmTargetLockBusy(exc.to_dict()) from exc
         return GuidedQmTargetLockHandle(token=handle, evidence=handle.to_dict())

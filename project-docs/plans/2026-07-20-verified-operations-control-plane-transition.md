@@ -8,7 +8,7 @@
 
 이 Plan은 2026-07-20 사용자 승인을 받았다. 한 번에 전면 rewrite하지 않고 검증 가능한 vertical slice로 전환한다.
 
-- 진행 상태: `단계 0~9 완료; 다음 단계 10은 runner/lease/action/runtime별 별도 승인 필요, 기존 jobs DB 공개 오류 의미는 보류`
+- 진행 상태: `단계 0~9, 10-A durable recovery foundation과 10-B graceful VM Shutdown 구현 완료; live shutdown smoke와 기존 jobs DB 공개 오류 의미는 보류`
 
 ## 1. 위험도
 
@@ -24,7 +24,7 @@
 
 - single FastAPI application과 React SPA, PostgreSQL/Alembic, Proxmox API로 구성된다.
 - backend entry는 `backend/app/main.py`, public product API는 `backend/app/api/v1/router.py`, auth/admin은 별도 router다.
-- active 기능은 Auth/Admin, read-only Inventory, Create VM, VM Start, DRS recommendation/policy/approval/migration/reconciliation, Jobs/Artifacts/Risks다.
+- active 기능은 Auth/Admin, read-only Inventory, Create VM, VM Start, graceful VM Shutdown, DRS recommendation/policy/approval/migration/reconciliation, Jobs/Artifacts/Risks다.
 - production은 single Docker image이고 startup 때 Alembic upgrade, profile seed, optional bootstrap admin을 수행한다.
 
 ### 재사용할 강점
@@ -355,3 +355,21 @@
 - frontend primary navigation을 Insights로 전환하고 `/insights`와 category route를 추가했다. `/drs`, `/api/v1/drs/*`, DRS policy/approval/execution/data, `/operations/risks`, `/risks`는 유지하고 `/drs`를 maintenance compatibility surface로 표시한다.
 - 독립 품질 검토에서 partial capacity metric과 unknown placement가 `ready`로 축소되는 문제, bounded finding의 total truncation 미표시를 발견해 보수적 unknown 판정과 `returned_finding_count`/`truncated` metadata로 수정했다.
 - DB schema/migration, scheduler/cache/worker/dependency, Proxmox mutation은 추가하지 않았다. canonical Python 3.13 backend 전체 `457 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다.
+
+### 단계 10-A: Durable Operation Recovery Foundation 결과
+
+- 사용자 승인 상세 Plan [`Durable Operation Recovery Foundation`](2026-07-21-durable-operation-recovery-foundation.md)과 [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md)에 따라 `operation_locks`를 VM Start/Create VM/Guided `qm unlock`/DRS 공통 locator coordination으로 확장하고 `operation_recovery_items` lease/fencing schema를 추가했다.
+- VM Start는 dispatch 전에 recovery item/foreground lease를 저장하고 task poll 중 heartbeat한다. opt-in FastAPI lifespan runner는 stored UPID task와 direct VM status를 GET으로만 재관찰하며 mutation POST를 재호출하지 않는다.
+- recovery generation/token 검증, Operation event/projection, recovery status와 target lock release는 같은 PostgreSQL transaction으로 commit한다. terminal Jobs compatibility projection이 실패하면 durable lock을 유지하고 runner가 Proxmox 재관찰 없이 projection completion을 재시도한다.
+- Operation detail과 UI는 private lease token 없이 recovery와 target lock 상태를 읽기 전용으로 제공한다. runtime flag 기본값은 disabled다.
+- 실제 PostgreSQL 18.4 migration/partial unique/concurrent claim/timezone/fencing integration `1 passed`; local 및 canonical Python backend `475 passed, 1 skipped`; canonical Node frontend 17 tests·ESLint·Vite build와 production image build가 통과했다. live Proxmox mutation과 production enable은 수행하지 않았다.
+- 단계 10-B는 별도 승인된 [`Graceful VM Shutdown과 Recovery Rollout`](2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md) Plan으로 구현했다. exact target이 필요한 live shutdown smoke와 production flag 전환은 계속 run-specific gate다.
+
+### 단계 10-B: Graceful VM Shutdown과 Recovery Rollout 결과
+
+- additive `POST /api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown`과 `operations/vm_shutdown` vertical slice를 추가했다. running non-template exact target, operator role, acknowledgement, idempotency intent와 same-target durable/file lock을 dispatch 전에 검증한다.
+- Proxmox 연동은 QEMU `status/shutdown` POST만 한 번 호출하며 hard `stop`, reboot, timeout fallback을 제공하지 않는다. task `stopped/OK`와 direct VM `stopped`가 모두 확인된 경우에만 success를 기록한다.
+- `vm_shutdown_observation` handler는 stored UPID task와 current VM status를 GET으로만 재관찰한다. missing UPID, ambiguity, mismatch, lease loss와 compatibility projection 실패는 lock을 유지하고 reconciliation 또는 recovery retry로 남긴다.
+- migration `20260721_0028`은 `operation_locks.operation_type`에 `vm_shutdown`만 additive하게 허용한다. PostgreSQL 18.4에서 upgrade/downgrade/roll-forward, cross-operation lock, claim/fencing과 새 process restart observation을 검증했다.
+- Workload Cockpit은 running VM에 graceful shutdown 확인 UI를 표시하고 결과 Operation 상세로 이동한다. live Proxmox shutdown과 production recovery enable은 실행하지 않았다.
+- canonical Python 3.13 backend 전체 `504 passed, 2 skipped`, PostgreSQL 18.4 integration `2 passed`, canonical Node frontend 17 tests·ESLint·Vite build와 production image build가 통과했다. 두 backend skip은 별도로 통과한 opt-in PostgreSQL tests다.

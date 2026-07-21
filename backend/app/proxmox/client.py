@@ -223,11 +223,14 @@ class ProxmoxMutationClient:
         node: str,
         upid: str,
         sleep: Callable[[float], None] = time.sleep,
+        heartbeat: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         deadline = time.monotonic() + self.task_timeout_seconds
         polls: list[dict[str, Any]] = []
         while True:
             status = self.get_task_status(node=node, upid=upid)
+            if heartbeat is not None:
+                heartbeat()
             polls.append(status)
             if str(status.get("status") or "").lower() == "stopped":
                 return {
@@ -259,6 +262,18 @@ class ProxmoxMutationClient:
         upid = str(data or "").strip()
         if not upid:
             raise ProxmoxMutationError("Proxmox start did not return a UPID", details={"node": node, "vmid": int(vmid)})
+        return upid
+
+    def shutdown_vm(self, *, node: str, vmid: int) -> str:
+        """Request guest-aware shutdown without force-stop or reboot fallback."""
+
+        data = self._request_json("POST", f"/nodes/{node}/qemu/{int(vmid)}/status/shutdown")
+        upid = str(data or "").strip()
+        if not upid:
+            raise ProxmoxMutationError(
+                "Proxmox shutdown did not return a UPID",
+                details={"node": node, "vmid": int(vmid)},
+            )
         return upid
 
     def get_vm_status(self, *, node: str, vmid: int) -> dict[str, Any]:

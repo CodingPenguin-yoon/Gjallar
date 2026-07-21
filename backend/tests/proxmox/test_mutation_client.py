@@ -42,6 +42,43 @@ class ProxmoxMutationClientTests(unittest.TestCase):
         with self.assertRaises(ProxmoxMutationError):
             client.start_vm(node="node-a", vmid=306)
 
+    def test_shutdown_vm_uses_only_graceful_qemu_shutdown_endpoint(self):
+        from app.proxmox.client import ProxmoxMutationClient
+
+        calls = []
+
+        def record_request(method, path, *, data=None, timeout=None):
+            calls.append((method, path, data, timeout))
+            return "UPID:node-a:0002:qmshutdown"
+
+        client = ProxmoxMutationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!gjallar",
+            token_secret="secret",
+            request=record_request,
+        )
+
+        result = client.shutdown_vm(node="node-a", vmid=306)
+
+        self.assertEqual("UPID:node-a:0002:qmshutdown", result)
+        self.assertEqual(
+            [("POST", "/nodes/node-a/qemu/306/status/shutdown", None, None)],
+            calls,
+        )
+
+    def test_shutdown_vm_requires_non_empty_upid(self):
+        from app.proxmox.client import ProxmoxMutationClient, ProxmoxMutationError
+
+        client = ProxmoxMutationClient(
+            api_url="https://pve.example.test/api2/json",
+            token_id="root@pam!gjallar",
+            token_secret="secret",
+            request=lambda *args, **kwargs: "",
+        )
+
+        with self.assertRaises(ProxmoxMutationError):
+            client.shutdown_vm(node="node-a", vmid=306)
+
     def test_list_active_vm_tasks_uses_node_task_filter(self):
         from app.proxmox.client import ProxmoxMutationClient
 

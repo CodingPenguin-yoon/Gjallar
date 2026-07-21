@@ -567,6 +567,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             target_type="proxmox_vm",
             target_id="vmid:102",
             owner_id="job-api-proxmox-create-lock-busy",
+            operation_type="vm_create",
         )
         release_lock.assert_not_called()
         mutation.assert_not_called()

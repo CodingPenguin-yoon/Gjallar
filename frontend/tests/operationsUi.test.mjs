@@ -27,6 +27,7 @@ const operation = normalizeOperation({
 assert.equal(operation.id, 'guided-1')
 assert.equal(operation.actor.username, 'operator')
 assert.equal(operationTypeLabel('vm_create'), 'Create VM')
+assert.equal(operationTypeLabel('vm_shutdown'), 'VM Shutdown')
 assert.deepEqual(guidedQmActionState(operation), { guided: true, canAttest: true, canVerify: false, lateAttestation: false })
 assert.equal(guidedQmActionState({ ...operation, status: 'awaiting_verification' }).canVerify, true)
 assert.equal(guidedQmActionState({
@@ -65,9 +66,24 @@ const detail = normalizeOperationDetail({
     { event_id: 'event-1', sequence: 1, event_type: 'operation_created' },
   ],
   instruction_bundle: { command: { display: 'qm unlock 306' } },
+  recovery: {
+    recovery_kind: 'vm_start_observation',
+    status: 'retry_wait',
+    lease_owner: null,
+    lease_generation: 3,
+    attempt_count: 4,
+    last_error_code: 'OPERATION_RECOVERY_OBSERVATION_FAILED',
+  },
+  target_lock: {
+    owner_id: 'guided-1',
+    durable: { operation_type: 'vm_start', status: 'active' },
+  },
 })
 assert.deepEqual(detail.events.map((event) => event.sequence), [1, 2])
 assert.equal(detail.instructionBundle.command.display, 'qm unlock 306')
+assert.equal(detail.recovery.status, 'retry_wait')
+assert.equal(detail.recovery.leaseGeneration, 3)
+assert.equal(detail.targetLock.operationType, 'vm_start')
 
 const apiSource = readFileSync(new URL('../src/shared/api/apiV1.js', import.meta.url), 'utf8')
 const planPage = readFileSync(new URL('../src/pages/operations/GuidedQmUnlockPage.jsx', import.meta.url), 'utf8')
@@ -86,6 +102,8 @@ assert.match(actionSource, /plan_digest: operation\.planDigest/)
 assert.match(actionSource, /Gjallar는 이 명령을 실행하지 않습니다/)
 assert.match(actionSource, /이 화면의 명령을 지금 실행하지 마세요/)
 assert.match(detailPage, /Evidence timeline/)
+assert.match(detailPage, /Recovery coordination/)
+assert.doesNotMatch(detailPage, /leaseToken|lease_token/, 'Private recovery lease token must not be rendered')
 assert.match(inventory, /operations\/guided-qm\/vm-unlock\?node_id=/, 'Workload row must link to a typed Guided qm plan')
 
 console.log('operations UI contract exercised')

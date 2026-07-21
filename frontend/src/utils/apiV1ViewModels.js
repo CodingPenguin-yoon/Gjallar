@@ -1,5 +1,6 @@
 const READ_ONLY_ACTIONS = Object.freeze([])
 const VM_START_ACTIONS = Object.freeze(['start'])
+const VM_SHUTDOWN_ACTIONS = Object.freeze(['shutdown'])
 const RUNNING_STATUSES = new Set(['running', 'pending', 'in_progress', 'processing'])
 const COMPLETED_STATUSES = new Set(['completed', 'success'])
 const BLOCKED_STATUSES = new Set(['blocked'])
@@ -178,8 +179,12 @@ function normalizeVm(source = {}) {
     tags: asArray(source.tags).filter(Boolean),
     template,
     readOnly: true,
-    allowedActions: status === 'stopped' && !template && hasConcreteVmid(vmid) && nodeId !== 'unknown'
-      ? VM_START_ACTIONS
+    allowedActions: !template && hasConcreteVmid(vmid) && nodeId !== 'unknown'
+      ? status === 'stopped'
+        ? VM_START_ACTIONS
+        : status === 'running'
+          ? VM_SHUTDOWN_ACTIONS
+          : READ_ONLY_ACTIONS
       : READ_ONLY_ACTIONS,
     raw: source,
   }

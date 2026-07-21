@@ -7,6 +7,7 @@ import {
   Loader2,
   Network,
   Play,
+  Power,
   Plus,
   RefreshCw,
   Server,
@@ -45,9 +46,18 @@ function canStartVm(vm = {}) {
   return Array.isArray(vm.allowedActions) && vm.allowedActions.includes('start')
 }
 
+function canShutdownVm(vm = {}) {
+  return Array.isArray(vm.allowedActions) && vm.allowedActions.includes('shutdown')
+}
+
 function makeVmStartIdempotencyKey(vm = {}) {
   const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
   return `infra-explorer:start:${vm.nodeId}:${vm.vmid ?? vm.id}:${random}`
+}
+
+function makeVmShutdownIdempotencyKey(vm = {}) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `infra-explorer:shutdown:${vm.nodeId}:${vm.vmid ?? vm.id}:${random}`
 }
 
 function diskBadges(disk = {}) {
@@ -192,7 +202,7 @@ function WorkloadInventory({
   onLogsUpdate = () => {},
   onStatusChange = () => {},
   currentUser = null,
-  canStartVms = true,
+  canMutateVms = true,
 }) {
   const navigate = useNavigate()
   const [model, setModel] = useState(null)
@@ -204,6 +214,10 @@ function WorkloadInventory({
   const [startAcknowledged, setStartAcknowledged] = useState(false)
   const [startSubmitting, setStartSubmitting] = useState(false)
   const [startError, setStartError] = useState('')
+  const [pendingShutdownVm, setPendingShutdownVm] = useState(null)
+  const [shutdownAcknowledged, setShutdownAcknowledged] = useState(false)
+  const [shutdownSubmitting, setShutdownSubmitting] = useState(false)
+  const [shutdownError, setShutdownError] = useState('')
 
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString()
@@ -254,7 +268,7 @@ function WorkloadInventory({
   }
 
   const openStartDialog = (vm) => {
-    if (!canStartVms) {
+    if (!canMutateVms) {
       setStartError('operator 또는 admin 권한이 필요합니다.')
       return
     }
@@ -295,6 +309,51 @@ function WorkloadInventory({
       addLog(`VM start failed for ${pendingStartVm.name}: ${message}`, 'error')
     } finally {
       setStartSubmitting(false)
+    }
+  }
+
+  const openShutdownDialog = (vm) => {
+    if (!canMutateVms) {
+      setShutdownError('operator 또는 admin 권한이 필요합니다.')
+      return
+    }
+    setPendingShutdownVm({ ...vm, shutdownIdempotencyKey: makeVmShutdownIdempotencyKey(vm) })
+    setShutdownAcknowledged(false)
+    setShutdownError('')
+  }
+
+  const closeShutdownDialog = () => {
+    if (shutdownSubmitting) return
+    setPendingShutdownVm(null)
+    setShutdownAcknowledged(false)
+    setShutdownError('')
+  }
+
+  const confirmShutdownVm = async () => {
+    if (!pendingShutdownVm || !shutdownAcknowledged || shutdownSubmitting) return
+    setShutdownSubmitting(true)
+    setShutdownError('')
+    try {
+      const result = await apiV1Client.shutdownVm(pendingShutdownVm.nodeId, pendingShutdownVm.vmid, {
+        vm_shutdown_acknowledged: true,
+        idempotency_key: pendingShutdownVm.shutdownIdempotencyKey,
+        expected_name: pendingShutdownVm.name,
+        expected_status: pendingShutdownVm.status,
+      })
+      addLog(`VM shutdown submitted for ${pendingShutdownVm.name}`, 'success')
+      setPendingShutdownVm(null)
+      setShutdownAcknowledged(false)
+      if (result?.job_id) {
+        navigate(`/operations/${encodeURIComponent(result.job_id)}`)
+      } else {
+        await fetchInfra()
+      }
+    } catch (error) {
+      const message = authFailureMessage(error, 'Failed to shut down VM')
+      setShutdownError(message)
+      addLog(`VM shutdown failed for ${pendingShutdownVm.name}: ${message}`, 'error')
+    } finally {
+      setShutdownSubmitting(false)
     }
   }
 
@@ -348,9 +407,78 @@ function WorkloadInventory({
         </div>
       )}
 
-      {!canStartVms ? (
+      {!canMutateVms ? (
         <div className="border-b border-yellow-100 bg-yellow-50 px-6 py-3 text-sm text-yellow-800">
-          VM Start requires operator or admin role. Current role: {currentUser?.role || 'unknown'}.
+          VM lifecycle actions require operator or admin role. Current role: {currentUser?.role || 'unknown'}.
+        </div>
+      ) : null}
+
+      {pendingShutdownVm ? (
+        <div className="border-b border-amber-100 bg-amber-50 px-6 py-4">
+          <div className="max-w-3xl rounded-lg border border-amber-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-slate-950">Graceful Shutdown</h3>
+                <div className="mt-2 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium uppercase text-slate-500">Name</div>
+                    <div className="truncate font-medium text-slate-900" title={pendingShutdownVm.name}>{pendingShutdownVm.name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-slate-500">Node</div>
+                    <div className="font-mono text-slate-900">{pendingShutdownVm.nodeId}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-slate-500">VMID</div>
+                    <div className="font-mono text-slate-900">{pendingShutdownVm.vmid ?? '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-slate-500">Current status</div>
+                    <div className="text-slate-900">{statusLabel(pendingShutdownVm.status)}</div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeShutdownDialog}
+                disabled={shutdownSubmitting}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+            {shutdownError ? (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {shutdownError}
+              </div>
+            ) : null}
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              This requests a guest-aware shutdown. Gjallar will not force-stop or reboot the VM if shutdown is ambiguous.
+            </div>
+            <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={shutdownAcknowledged}
+                onChange={(event) => setShutdownAcknowledged(event.target.checked)}
+                disabled={shutdownSubmitting}
+                data-testid="vm-shutdown-acknowledgement"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span>I acknowledge this will gracefully shut down the running VM on Proxmox.</span>
+            </label>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                data-testid="confirm-vm-shutdown"
+                onClick={confirmShutdownVm}
+                disabled={!shutdownAcknowledged || shutdownSubmitting}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {shutdownSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                Graceful Shutdown
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -563,7 +691,7 @@ function WorkloadInventory({
                                     </td>
                                     <td className="px-4 py-2 text-center">
                                       <div className="flex items-center justify-center gap-1.5">
-                                        {canStartVms && canStartVm(vm) ? (
+                                        {canMutateVms && canStartVm(vm) ? (
                                           <button
                                             type="button"
                                             onClick={() => openStartDialog(vm)}
@@ -574,7 +702,18 @@ function WorkloadInventory({
                                             <Play className="h-4 w-4" />
                                           </button>
                                         ) : null}
-                                        {canStartVms ? (
+                                        {canMutateVms && canShutdownVm(vm) ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => openShutdownDialog(vm)}
+                                            aria-label={`Gracefully shut down ${vm.name}`}
+                                            title={`Gracefully shut down ${vm.name}`}
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100"
+                                          >
+                                            <Power className="h-4 w-4" />
+                                          </button>
+                                        ) : null}
+                                        {canMutateVms ? (
                                           <button
                                             type="button"
                                             onClick={() => navigate(`/operations/guided-qm/vm-unlock?node_id=${encodeURIComponent(vm.nodeId)}&vmid=${encodeURIComponent(vm.vmid)}`)}

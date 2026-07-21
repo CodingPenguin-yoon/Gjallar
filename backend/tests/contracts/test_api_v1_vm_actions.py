@@ -62,8 +62,10 @@ class RecordingStartClient:
             return self.start_upid
         return f"UPID:{node}:0001:start"
 
-    def wait_for_task(self, *, node, upid):
+    def wait_for_task(self, *, node, upid, heartbeat=None):
         self.calls.append(("wait_for_task", {"node": node, "upid": upid}))
+        if heartbeat is not None:
+            heartbeat()
         if self.wait_error is not None:
             raise self.wait_error
         return {
@@ -267,6 +269,8 @@ class ApiV1VmActionsTests(unittest.TestCase):
         from app.jobs.runs import get_job_run
         from app.operations.core.domain import verify_event_chain
         from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+        from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
+        from app.operations.target_lock import get_target_operation_lock
 
         client = RecordingStartClient()
         response = self._run_start(client=client)
@@ -306,10 +310,65 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertEqual("succeeded", operation.status)
         self.assertEqual("managed_api", operation.execution_mode)
         self.assertEqual(
-            ["operation_created", "dispatch_prepared", "dispatch_accepted", "task_and_state_observed", "verification_succeeded"],
+            [
+                "operation_created",
+                "dispatch_prepared",
+                "dispatch_accepted",
+                "task_and_state_observed",
+                "verification_succeeded",
+                "recovery_compatibility_projection_recorded",
+            ],
             [event.event_type for event in operation_events],
         )
         self.assertTrue(verify_event_chain(operation_events))
+        recovery = SqlAlchemyRecoveryStore().get(result["job_id"])
+        self.assertIsNotNone(recovery)
+        self.assertEqual("completed", recovery.status)
+        self.assertIsNone(recovery.lease_owner)
+        self.assertEqual(
+            {
+                "node": "node-a",
+                "upid": "UPID:node-a:0001:start",
+                "status": "stopped",
+                "exitstatus": "OK",
+            },
+            recovery.details["task"],
+        )
+        self.assertNotIn("polls", recovery.details["task"])
+        self.assertEqual(
+            {
+                "node_id": "node-a",
+                "vmid": 306,
+                "name": "stopped-app",
+                "status": "running",
+                "error": "",
+            },
+            recovery.details["observed_after"],
+        )
+        self.assertIsNone(get_target_operation_lock("proxmox_vm", "vmid:306"))
+
+    def test_recovery_registration_failure_blocks_before_proxmox_dispatch(self):
+        client = RecordingStartClient()
+
+        with patch(
+            "app.vm_actions.start.SqlAlchemyRecoveryStore.prepare_and_claim",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                self._run_start(
+                    client=client,
+                    payload={
+                        "vm_start_acknowledged": True,
+                        "idempotency_key": "idem-recovery-registration-failure",
+                        "expected_name": "stopped-app",
+                        "expected_status": "stopped",
+                    },
+                )
+
+        self.assertEqual(503, raised.exception.status_code)
+        self.assertEqual("VM_START_RECOVERY_UNAVAILABLE", raised.exception.detail["code"])
+        self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
+        self.assertEqual([], [call for call in client.calls if call[0] == "start_vm"])
 
     def test_duplicate_idempotency_key_returns_existing_job_without_second_start(self):
         client = RecordingStartClient()
@@ -625,6 +684,59 @@ class ApiV1VmActionsTests(unittest.TestCase):
                 })
             self.assertEqual("VM_START_TARGET_LOCK_BUSY", blocked.exception.detail["code"])
             self.assertEqual(1, len([call for call in client.calls if call[0] == "start_vm"]))
+        finally:
+            self._cleanup_target_lock(target_id="vmid:306")
+
+    def test_completed_job_projection_failure_retains_durable_lock_after_file_loss(self):
+        from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+        from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
+        from app.vm_actions import start as start_module
+        from app.vm_actions.start import build_vm_start_job_id
+
+        client = RecordingStartClient()
+        original_record_job_run = start_module.record_job_run
+
+        def fail_completed_projection(**kwargs):
+            if kwargs.get("status") == "completed":
+                raise RuntimeError("completed job projection failed")
+            return original_record_job_run(**kwargs)
+
+        payload = {
+            "vm_start_acknowledged": True,
+            "idempotency_key": "idem-completed-job-projection-failed",
+            "expected_name": "stopped-app",
+            "expected_status": "stopped",
+        }
+        operation_id = build_vm_start_job_id(
+            node_id="node-a",
+            vmid=306,
+            idempotency_key=payload["idempotency_key"],
+        )
+        try:
+            with patch("app.vm_actions.start.record_job_run", side_effect=fail_completed_projection):
+                with self.assertRaises(RuntimeError, msg="completed job projection failed"):
+                    self._run_start(client=client, payload=payload)
+
+            operation = SqlAlchemyOperationStore().get(operation_id)
+            recovery = SqlAlchemyRecoveryStore().get(operation_id)
+            self.assertEqual("succeeded", operation.status)
+            self.assertEqual("leased", recovery.status)
+
+            # Simulate container-local compatibility file loss. PostgreSQL must
+            # still reject a second mutation for the same cluster/VMID.
+            self._cleanup_target_lock(target_id="vmid:306")
+            with self.assertRaises(HTTPException) as blocked:
+                self._run_start(
+                    client=RecordingStartClient(),
+                    payload={
+                        "vm_start_acknowledged": True,
+                        "idempotency_key": "idem-after-completed-job-projection-failed",
+                        "expected_name": "stopped-app",
+                        "expected_status": "stopped",
+                    },
+                )
+            self.assertEqual("VM_START_TARGET_LOCK_BUSY", blocked.exception.detail["code"])
+            self.assertEqual(operation_id, blocked.exception.detail["target_operation_lock"]["existing"]["owner_id"])
         finally:
             self._cleanup_target_lock(target_id="vmid:306")
 

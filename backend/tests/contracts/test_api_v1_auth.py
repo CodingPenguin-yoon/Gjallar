@@ -409,6 +409,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
 
     create_payload = {"proxmox_mutation_acknowledged": True}
     start_payload = {"vm_start_acknowledged": True, "idempotency_key": "authz"}
+    shutdown_payload = {"vm_shutdown_acknowledged": True, "idempotency_key": "authz-shutdown"}
     guided_payload = {
         "node_id": "node-a",
         "vmid": 306,
@@ -421,6 +422,8 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
     ) as create_mutation, patch("app.api.v1.router.record_vm_create_request") as create_record, patch(
         "app.api.v1.router.run_vm_start"
     ) as start_mutation, patch(
+        "app.api.v1.router.run_vm_shutdown"
+    ) as shutdown_mutation, patch(
         "app.api.v1.router.plan_guided_qm_unlock"
     ) as guided_plan, patch(
         "app.api.v1.router.attest_guided_qm_operation"
@@ -429,6 +432,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
     ) as guided_verify:
         create_unauth = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        shutdown_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/shutdown", json=shutdown_payload)
         guided_plan_unauth = client.post("/api/v1/operations/guided-qm/vm-unlock", json=guided_payload)
         guided_attest_unauth = client.post(
             "/api/v1/operations/guided-authz/operator-attestation",
@@ -440,6 +444,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         )
         assert create_unauth.status_code == 401
         assert start_unauth.status_code == 401
+        assert shutdown_unauth.status_code == 401
         assert guided_plan_unauth.status_code == 401
         assert guided_attest_unauth.status_code == 401
         assert guided_verify_unauth.status_code == 401
@@ -447,6 +452,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         _login(client, username="viewer-only")
         create_viewer = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_viewer = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
+        shutdown_viewer = client.post("/api/v1/nodes/node-a/vms/306/actions/shutdown", json=shutdown_payload)
         guided_plan_viewer = client.post("/api/v1/operations/guided-qm/vm-unlock", json=guided_payload)
         guided_attest_viewer = client.post(
             "/api/v1/operations/guided-authz/operator-attestation",
@@ -458,6 +464,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         )
         assert create_viewer.status_code == 403
         assert start_viewer.status_code == 403
+        assert shutdown_viewer.status_code == 403
         assert guided_plan_viewer.status_code == 403
         assert guided_attest_viewer.status_code == 403
         assert guided_verify_viewer.status_code == 403
@@ -466,6 +473,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         create_mutation.assert_not_called()
         create_record.assert_not_called()
         start_mutation.assert_not_called()
+        shutdown_mutation.assert_not_called()
         guided_plan.assert_not_called()
         guided_attest.assert_not_called()
         guided_verify.assert_not_called()
@@ -656,6 +664,32 @@ def test_vm_start_route_passes_authenticated_actor_from_session(monkeypatch):
     assert captured["actor"]["role"] == "operator"
 
 
+def test_vm_shutdown_route_passes_authenticated_actor_from_session(monkeypatch):
+    _create_user(monkeypatch, username="shutdown-operator", role="operator")
+    client = _client()
+    _login(client, username="shutdown-operator")
+    captured = {}
+
+    def fake_shutdown(**kwargs):
+        captured.update(kwargs)
+        return {
+            "job_id": "vm-shutdown-auth-actor",
+            "status": "completed",
+            "proxmox_mutation_enabled": True,
+            "side_effects": [],
+        }
+
+    with patch("app.api.v1.router.run_vm_shutdown", side_effect=fake_shutdown):
+        response = client.post(
+            "/api/v1/nodes/node-a/vms/306/actions/shutdown",
+            json={"vm_shutdown_acknowledged": True, "idempotency_key": "actor-shutdown"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert captured["actor"]["username"] == "shutdown-operator"
+    assert captured["actor"]["role"] == "operator"
+
+
 def test_guided_qm_plan_route_passes_authenticated_actor_from_session(monkeypatch):
     _create_user(monkeypatch, username="qm-operator", role="operator")
     client = _client()
@@ -804,7 +838,9 @@ def test_vm_start_job_and_artifact_include_flat_actor_fields(monkeypatch):
         def start_vm(self, *, node, vmid):
             return f"UPID:{node}:0001:start"
 
-        def wait_for_task(self, *, node, upid):
+        def wait_for_task(self, *, node, upid, heartbeat=None):
+            if heartbeat is not None:
+                heartbeat()
             return {"node": node, "upid": upid, "status": "stopped", "exitstatus": "OK"}
 
         def get_vm_status(self, *, node, vmid):

@@ -46,6 +46,8 @@ export function normalizeOperation(value = {}) {
 
 export function normalizeOperationDetail(value = {}) {
   const events = Array.isArray(value?.events) ? value.events : []
+  const recovery = value?.recovery && typeof value.recovery === 'object' ? value.recovery : null
+  const targetLock = value?.target_lock && typeof value.target_lock === 'object' ? value.target_lock : null
   return {
     operation: normalizeOperation(value?.operation),
     events: events
@@ -64,12 +66,34 @@ export function normalizeOperationDetail(value = {}) {
       ? value.instruction_bundle
       : value?.operation?.details?.instruction_bundle || null,
     idempotentReplay: value?.idempotent_replay === true,
+    recovery: recovery
+      ? {
+          kind: String(recovery.recovery_kind || 'unknown'),
+          status: String(recovery.status || 'unknown'),
+          availableAt: recovery.available_at || null,
+          leaseOwner: recovery.lease_owner ? String(recovery.lease_owner) : null,
+          leaseGeneration: Number(recovery.lease_generation || 0),
+          leaseExpiresAt: recovery.lease_expires_at || null,
+          attemptCount: Number(recovery.attempt_count || 0),
+          lastErrorCode: recovery.last_error_code ? String(recovery.last_error_code) : null,
+          completedAt: recovery.completed_at || null,
+        }
+      : null,
+    targetLock: targetLock
+      ? {
+          status: String(targetLock?.durable?.status || targetLock.status || 'unknown'),
+          ownerId: String(targetLock.owner_id || targetLock?.durable?.owner_id || ''),
+          operationType: String(targetLock?.durable?.operation_type || 'unknown'),
+          acquiredAt: targetLock.acquired_at || targetLock?.durable?.created_at || null,
+        }
+      : null,
   }
 }
 
 export function operationTypeLabel(type) {
   const labels = {
     vm_start: 'VM Start',
+    vm_shutdown: 'VM Shutdown',
     vm_create: 'Create VM',
     [GUIDED_QM_UNLOCK_OPERATION_TYPE]: 'Guided qm unlock',
   }

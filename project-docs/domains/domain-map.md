@@ -2,9 +2,9 @@
 
 - 상태: `APPROVED`
 - 최종 검토일: `2026-07-21`
-- 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
+- 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md)
 
-이 문서는 승인된 logical ownership과 현재 구현 범위를 함께 설명한다. Operations core와 VM Start·Create VM·Guided `qm unlock`, observe-only Insights vertical slice가 이 경계를 적용했으며 나머지 package/table 전환이나 추가 data migration을 승인하는 문서는 아니다.
+이 문서는 승인된 logical ownership과 현재 구현 범위를 함께 설명한다. Operations core와 VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, observe-only Insights vertical slice가 이 경계를 적용했으며 나머지 package/table 전환이나 추가 data migration을 승인하는 문서는 아니다.
 
 ## 도메인 목록
 
@@ -51,6 +51,7 @@ flowchart LR
 - operation intent와 idempotency identity는 dispatch 전에 저장한다.
 - 하나의 operation은 target, action, plan digest, mode를 명시한다.
 - 같은 target의 충돌 action은 idempotency key가 달라도 target-scoped lock/lease로 직렬화한다.
+- target lock은 operation 충돌을 막는 durable state이고 recovery lease는 한 observer의 time-bounded 처리 권한이다. lease expiry만으로 target lock이나 operation 결과를 바꾸지 않는다.
 - dispatch 결과 불명은 자동 재시도하지 않고 `needs_reconciliation`이다.
 - required task와 direct after-state가 확인되고 evidence가 저장된 뒤에만 `succeeded`다.
 
@@ -111,7 +112,8 @@ flowchart LR
 | `job_artifacts` | Evidence/Audit | upsert identity와 append-only artifact 구분 필요 |
 | `operations` | Operations | 현재 projection; target/action/mode/status/idempotency/plan/actor/version 소유 |
 | `operation_events` | Evidence/Audit, producer는 Operations | operation별 monotonic sequence와 checksum chain을 갖는 append-only event |
-| `vm_create_requests`, `drs_migration_jobs`, `operation_locks` | Operations | 공통 operation으로의 이동은 forward migration 필요 |
+| `operation_locks`, `operation_recovery_items` | Operations | locator lock은 VM Start/Shutdown/Create/Guided/DRS가 공유하고 recovery item은 VM Start/Shutdown observer가 생산 |
+| `vm_create_requests`, `drs_migration_jobs` | Operations | 공통 operation으로의 이동은 forward migration 필요 |
 | `vm_migration_policies`, `drs_approval_packets` | Policy/Approval | generic policy화는 실제 use case가 생길 때 수행 |
 | policy/reconciliation event tables | Evidence/Audit 또는 Operations event | event 의미와 retention을 먼저 확정 |
 
@@ -120,15 +122,16 @@ flowchart LR
 - workload owner/environment/tag가 Gjallar metadata인지 Proxmox tag projection인지
 - 공통 repository는 projection transition과 해당 event append를 하나의 transaction으로 기록한다. 기존 job/artifact와 향후 Policy approval까지 같은 transaction으로 묶을 범위는 미확정이다.
 - separate approver role과 approval ownership
-- durable runner/lease가 Operations 내부 adapter인지 별도 runtime component인지
+- recovery throughput이 늘 때 현재 Operations 내부 in-process adapter를 별도 worker process로 분리할 시점
 - metric sample retention과 Insights read model storage
 - DRS-specific identity/policy table을 generic domain으로 전환할 시점
 
 ## 현재 구현 범위
 
 - `backend/app/operations/core/`가 infrastructure-free 상태 전이·digest와 `OperationStore` 계약을 소유하고, SQLAlchemy adapter가 `operations` projection과 `operation_events` append를 한 transaction으로 기록한다.
-- VM Start는 common Operation을 기존 `job_runs`/`job_artifacts`와 함께 기록한다. 기존 API와 Jobs 화면의 compatibility 의미는 유지한다.
+- VM Start와 graceful VM Shutdown은 common Operation/recovery를 기존 `job_runs`/`job_artifacts`와 함께 기록한다. Shutdown은 hard stop/reboot fallback 없이 terminal task와 direct stopped state를 성공 권위로 사용한다.
 - Create VM은 plan부터 common Operation을 만들고 approval·preview·dispatch·result·workload linkage를 event로 기록한다. 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact는 migration 없이 compatibility record로 병행한다.
 - Guided `qm unlock`은 common Operation만 사용하며 `guided_manual` mode, expiry, trusted attestation, API verification과 reconciliation을 상태/event로 남긴다.
+- `backend/app/operations/locks/`와 `recovery/`가 durable locator lock, due item, lease generation/token fencing과 allowlisted handler를 소유한다. VM Start/Shutdown은 dispatch 전 recovery item을 준비하고 opt-in FastAPI lifespan runner가 stored UPID와 actual state만 재관찰한다.
 - Insights는 `backend/app/insights/`의 공통 finding/section 계약과 read application service로 구현됐다. `job_runs` risk, current Workloads observation, DRS recommendation을 요청 시 조합하며 persistent Insight table이나 command port는 없다. source 장애와 미관찰 값은 `unknown`/`unavailable`, 200개 초과 finding은 truncation metadata로 드러낸다.
-- DRS는 아직 common Operation repository로 전환되지 않았다. DRS의 DB lock도 shared file lock과 통합되지 않았다.
+- DRS는 아직 common Operation repository로 전환되지 않았지만 Proxmox locator scope는 다른 mutation과 같은 PostgreSQL unique lock을 공유한다. DRS identity/route scope와 상태기계는 그대로 DRS 전용이다.

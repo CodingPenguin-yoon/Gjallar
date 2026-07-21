@@ -21,6 +21,10 @@ def pytest_configure(config):
         "markers",
         "live_inventory: opt into live Proxmox inventory env handling for backend tests",
     )
+    config.addinivalue_line(
+        "markers",
+        "postgresql: requires GJALLAR_POSTGRES_TEST_URL and validates PostgreSQL-specific coordination",
+    )
 
 
 @pytest.fixture(autouse=True)

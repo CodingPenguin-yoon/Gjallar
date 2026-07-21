@@ -74,9 +74,10 @@ assert.match(wizardSource, /disabled=\{!canExecuteLiveMutation \|\| !model\.revi
 assert.match(wizardSource, /disabled=\{!canExecuteLiveMutation/, 'Create VM acknowledgement must disable for viewers')
 
 const instanceListSource = readFileSync(new URL('../src/features/workloads/inventory/WorkloadInventory.jsx', import.meta.url), 'utf8')
-assert.match(instanceListSource, /canStartVms/, 'Instance list must guard VM Start by role')
-assert.match(instanceListSource, /VM Start requires operator or admin role/, 'Instance list must explain insufficient VM Start role')
-assert.match(instanceListSource, /canStartVms && canStartVm\(vm\)/, 'VM Start action button must be hidden unless the role can mutate')
+assert.match(instanceListSource, /canMutateVms/, 'Instance list must guard VM lifecycle mutations by role')
+assert.match(instanceListSource, /VM lifecycle actions require operator or admin role/, 'Instance list must explain insufficient VM lifecycle role')
+assert.match(instanceListSource, /canMutateVms && canStartVm\(vm\)/, 'VM Start action button must be hidden unless the role can mutate')
+assert.match(instanceListSource, /canMutateVms && canShutdownVm\(vm\)/, 'VM Shutdown action button must be hidden unless the role can mutate')
 assert.doesNotMatch(instanceListSource, /canManageDrsPolicies|submitDrsPolicyUpdate|DrsPolicyReviewModal|loadDrsPolicyCoverage/, 'Inventory must not own DRS policy management')
 
 const drsPoliciesSource = readFileSync(new URL('../src/components/DrsPoliciesScreen.jsx', import.meta.url), 'utf8')

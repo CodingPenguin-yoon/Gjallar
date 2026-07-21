@@ -142,7 +142,12 @@ def query_open_locks_for_scopes(
     *,
     operation_type: str = DRS_MIGRATION_OPERATION_TYPE,
 ) -> list[OperationLockRecord]:
-    """Return open DRS locks matching any checked scope without mutating state."""
+    """Return open locks that conflict with the checked DRS scopes.
+
+    VM identity and route scopes remain DRS-specific. The Proxmox locator is
+    shared across operation types so VM Start/Create/Guided can block DRS and
+    vice versa.
+    """
     filters = [
         and_(
             OperationLockRecord.scope_type == scope["scope_type"],
@@ -156,7 +161,10 @@ def query_open_locks_for_scopes(
         session.execute(
             select(OperationLockRecord)
             .where(
-                OperationLockRecord.operation_type == operation_type,
+                or_(
+                    OperationLockRecord.operation_type == operation_type,
+                    OperationLockRecord.scope_type == "proxmox_locator",
+                ),
                 OperationLockRecord.status.in_(OPEN_LOCK_STATUSES),
                 or_(*filters),
             )

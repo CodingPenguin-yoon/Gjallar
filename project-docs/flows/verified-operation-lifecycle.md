@@ -4,19 +4,19 @@
 - 최종 검토일: `2026-07-21`
 - 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md)
 
-이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용하지만 DRS는 아직 자체 상태기계를 유지한다.
+이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, graceful VM Shutdown, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용하지만 DRS는 아직 자체 상태기계를 유지한다.
 
 ## 현재 구현 범위
 
-- VM Start, Create VM, Guided `qm unlock`은 현재 한 개의 configured Proxmox cluster를 전제로 `proxmox_vm/vmid:{vmid}` target file lock을 공유한다. 같은 VMID의 다른 node 표기는 별도 target으로 취급하지 않는다.
-- VM Start는 same-key replay/intent conflict와 ambiguous dispatch·task·post-check의 `needs_reconciliation` 보존을 구현했다.
+- VM Start, VM Shutdown, Create VM, Guided `qm unlock`, DRS는 현재 한 개의 configured Proxmox cluster를 전제로 같은 cluster/VMID의 PostgreSQL durable locator lock을 공유한다. Start/Shutdown/Create/Guided는 전환 중 local file guard도 dual acquire하며 같은 VMID의 다른 node 표기는 별도 target으로 취급하지 않는다.
+- VM Start/Shutdown은 same-key replay/intent conflict와 ambiguous dispatch·task·post-check의 `needs_reconciliation` 보존을 구현했다. Shutdown은 graceful POST만 허용하고 force-stop/reboot fallback을 금지한다.
 - Create VM은 plan에서 common Operation을 준비하고 exact approval, preview, dispatch, task/result, workload linkage를 event로 기록한다. completed replay, same-key intent conflict, VMID owner guard와 명확한 실패/불명확한 결과의 구분을 유지한다.
 - DRS는 mutation 직전 durable `prepared` attempt와 lock을 저장하고 UPID 수락 후 `accepted`로 전환한다. prepared/no-UPID 재진입과 reconciliation은 mutation을 반복하지 않는다.
-- VM Start는 API compatibility facade에서 infrastructure-free `VmStartCommand`와 `VmStartUseCase`로 진입하고 Workloads, mutation, Jobs, Evidence, lock을 명시적 port로 받는다. 검증 workflow는 `operations/vm_start/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
+- VM Start/Shutdown은 API compatibility facade에서 infrastructure-free command와 use case로 진입하고 Workloads, mutation, Jobs, Evidence, lock/recovery를 명시적 port로 받는다. 검증 workflow는 각각 `operations/vm_start/workflow.py`, `operations/vm_shutdown/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
 - Workload Cockpit에서 VM context를 Guided plan에 전달하고, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
-- VM Start, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다. Create/Start/Guided file lock과 DRS DB lock은 서로 직렬화하지 않는다.
-- retained file lock의 generic recovery API와 durable recovery worker는 아직 없다. 파일 age나 process restart만으로 side effect가 없다고 판단하지 않는다.
+- VM Start, VM Shutdown, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다. DRS는 자체 aggregate를 유지하지만 locator lock은 다른 operation type과 공통으로 직렬화한다.
+- VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided/DRS 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다.
 
 ## 목적과 진입점
 
@@ -75,6 +75,15 @@ Authenticated request
 4. terminal task와 direct after-state를 확인한다.
 5. ambiguity가 있으면 자동 재호출하지 않는다.
 
+### VM Start/Shutdown foreground와 restart recovery
+
+1. durable locator lock과 compatibility file guard를 획득한 뒤 common Operation을 `dispatching`으로 기록한다.
+2. Proxmox POST 전에 `operation_recovery_items`를 만들고 foreground lease를 획득한다. 이 단계가 실패하면 POST를 호출하지 않는다.
+3. UPID를 저장하고 task poll 중 lease를 heartbeat한다. terminal task와 direct VM status를 확인한 fenced transaction만 success/failure와 lock release를 commit한다.
+4. process가 종료되면 target lock은 남고 lease만 만료된다. enabled runner 하나가 `SKIP LOCKED`로 due item을 claim한다.
+5. runner handler는 stored UPID task와 VM status GET만 수행한다. 같은 start/shutdown POST, 다른 mutation, manual fallback을 실행하지 않는다.
+6. Start는 task `OK`와 running state, Shutdown은 task `stopped/OK`와 direct stopped state가 일치할 때만 `succeeded`; task가 진행 중이면 `retry_wait`; missing UPID 또는 mismatch는 `needs_reconciliation`/`paused`와 retained lock이다.
+
 ### `guided_manual`
 
 1. allowlisted structured template과 validated parameter로 instruction bundle을 만든다.
@@ -121,6 +130,7 @@ HTTP payload
 - external call: PostgreSQL transaction과 하나의 원자적 transaction으로 묶지 않는다.
 - dispatch ordering: attempt를 persistent하게 기록한 뒤 external call하고, task reference를 가능한 즉시 별도 transition으로 기록한다.
 - current projection은 재구성 가능한 최신 상태이며 immutable evidence와 동일시하지 않는다.
+- recovery commit은 유효 lease generation/token 확인, Operation event/projection, recovery status와 optional target lock release를 같은 PostgreSQL transaction에서 처리한다.
 
 ## 실패 흐름
 
@@ -135,6 +145,7 @@ HTTP payload
 | task OK/post-check mismatch | 결과 불일치 | `needs_reconciliation` | direct observation 반복·수동 판단 | expected/observed diff |
 | manual attestation only | 권위 있는 검증 없음 | `awaiting_verification` | API 재검증 | verification pending |
 | evidence append failure | 성공 공표 불가 | recoverable non-success | evidence recovery | actual effect와 기록 상태를 구분 |
+| recovery lease loss | stale observer 결과 | canonical 상태 변경 없음 | 새 owner가 stored task/state 재관찰 | retry/reconciliation 상태 조회 |
 
 ## 멱등성과 동시성
 
@@ -144,7 +155,7 @@ HTTP payload
 - timeout·process crash 후에는 stored attempt/task ref와 actual state를 reconcile하고 mutation을 재호출하지 않는다.
 - lease expiry만으로 side effect가 없다고 가정하지 않는다.
 
-현재 Create/Start/Guided lock은 local filesystem의 atomic create에 의존한다. 한 container/runtime 안의 충돌은 차단하지만 여러 replica 사이에서 공유되지 않고, container 교체 또는 임시 디렉터리 초기화 뒤에는 retained 상태를 보장하지 않는다. 현재 target key에 cluster identity도 포함되지 않으므로 multi-cluster 지원 전에 durable shared lock과 stable cluster identity가 필요하다.
+canonical target coordination은 `(GJALLAR_CLUSTER_ID, VMID)`의 PostgreSQL partial unique locator lock이다. local file guard는 구버전·동일 container 호환을 위해 남아 있으며 recovery lease와 독립적이다. cluster identity는 environment의 단일 configured cluster를 전제로 하므로 multi-cluster connection profile을 도입할 때 partition·identity 계약을 다시 정해야 한다.
 
 ## 구현 위치
 
@@ -152,15 +163,18 @@ HTTP payload
 |---|---|---|
 | HTTP facade | `backend/app/api/v1/router.py` | auth/validation, DTO, error/response mapping |
 | Operation core | `backend/app/operations/core/` | 상태 전이, digest, projection/event port와 SQLAlchemy adapter |
+| Durable coordination | `backend/app/operations/locks/`, `backend/app/operations/recovery/` | locator lock, due/lease/fencing, VM Start/Shutdown observation handler와 opt-in runner |
 | VM Start application | `backend/app/operations/vm_start/` | command·stable intent, use case, 외부 port 계약 |
 | VM Start compatibility | `backend/app/vm_actions/start.py` | 기존 공개 facade와 현재 infrastructure adapter 조립 |
+| VM Shutdown application | `backend/app/operations/vm_shutdown/` | graceful shutdown command·stable intent, running pre-check, use case와 외부 port 계약 |
+| VM Shutdown compatibility | `backend/app/vm_actions/shutdown.py` | 공개 facade, Proxmox/Jobs/Evidence/Lock/Recovery adapter 조립 |
 | Create VM tracking | `backend/app/operations/vm_create/` | stable redacted intent, plan·approval·dispatch·result·replay 상태/event mapping |
 | Create VM compatibility | `backend/app/api/v1/router.py`, `backend/app/vm_create/` | 기존 `/vm-create/*`, runner, request/workload/job/artifact dual record 조립 |
 | Guided `qm` | `backend/app/operations/guided_qm/` | fixed template, typed validation, handoff, attestation, API verification |
 | workload observation | `backend/app/proxmox/inventory.py` | Workloads query + Integration read port |
 | managed dispatch | `backend/app/proxmox/client.py` | Integration mutation adapter |
 | DRS dispatch | `backend/app/proxmox/drs_migration.py` | action-specific adapter, 후속 통합 후보 |
-| local persistence | `backend/app/operations/core/infrastructure/`, `jobs/*`, DRS helpers | common operation/event와 기존 compatibility 저장을 병행 |
+| local persistence | `backend/app/operations/core/infrastructure/`, `operations/recovery/infrastructure/`, `jobs/*`, DRS helpers | common operation/event/recovery와 기존 compatibility 저장을 병행 |
 | UI composition | `frontend/src/app/`, `pages/operations/`, `pages/workloads/` | route shell, Workload context, operation list/detail/timeline |
 | UI feature/entity/shared | `frontend/src/features/guided-qm-unlock/`, `features/workloads/`, `entities/operation/`, `shared/` | typed plan, expiry-safe handoff, attestation/verification, read model과 API/RBAC/connection 계약 |
 
@@ -170,6 +184,7 @@ HTTP payload
 - 경계: ack 누락, stale identity, plan drift, role 부족은 port 호출 전 차단.
 - 중복: same key replay와 different key/same target conflict.
 - ambiguity: timeout, crash after dispatch, missing UPID, post-check mismatch가 second mutation 없이 reconciliation으로 전환.
+- recovery: registration failure의 no-dispatch, lease takeover/fencing, stored-UPID GET-only resume, cross-operation locator conflict.
 - manual: unsupported field/lock/secret 거부, exact command, expiry, digest binding, trusted attestation, API verification, crash-resume와 lock retention.
 - 계약: 기존 endpoint facade와 신규 operation API가 같은 application result를 표현.
 - UI: viewer/operator 경계, 기존 route alias, server-generated command only, expiry/late evidence, architecture import 방향을 contract test로 보호한다.

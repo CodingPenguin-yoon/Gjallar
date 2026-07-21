@@ -354,7 +354,7 @@ class OperationLockRecord(Base):
     __tablename__ = "operation_locks"
     __table_args__ = (
         CheckConstraint(
-            "operation_type in ('drs_migration')",
+            "operation_type in ('drs_migration', 'vm_start', 'vm_create', 'guided_qm_vm_unlock', 'vm_shutdown')",
             name="ck_operation_locks_operation_type",
         ),
         CheckConstraint(
@@ -378,6 +378,18 @@ class OperationLockRecord(Base):
             unique=True,
             sqlite_where=text("status in ('active', 'stale', 'reconciliation_required')"),
             postgresql_where=text("status in ('active', 'stale', 'reconciliation_required')"),
+        ),
+        Index(
+            "uq_operation_locks_open_locator",
+            "scope_type",
+            "scope_key",
+            unique=True,
+            sqlite_where=text(
+                "scope_type = 'proxmox_locator' and status in ('active', 'stale', 'reconciliation_required')"
+            ),
+            postgresql_where=text(
+                "scope_type = 'proxmox_locator' and status in ('active', 'stale', 'reconciliation_required')"
+            ),
         ),
     )
 

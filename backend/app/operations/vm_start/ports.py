@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from app.operations.core.ports import OperationStorePort
+from app.operations.recovery.ports import RecoveryStorePort
 from app.operations.vm_start.domain import VmStartCommand
 
 
@@ -38,7 +39,13 @@ class VmStartMutationPort(Protocol):
 
     def start_vm(self, *, node: str, vmid: int) -> str: ...
 
-    def wait_for_task(self, *, node: str, upid: str) -> dict[str, Any]: ...
+    def wait_for_task(
+        self,
+        *,
+        node: str,
+        upid: str,
+        heartbeat: Callable[[], None] | None = None,
+    ) -> dict[str, Any]: ...
 
     def get_vm_status(self, *, node: str, vmid: int) -> dict[str, Any]: ...
 
@@ -78,6 +85,8 @@ class VmStartExecutionPorts:
     jobs: VmStartJobPort
     evidence: VmStartEvidencePort
     locks: VmStartLockPort
+    recovery: RecoveryStorePort | None = None
+    recovery_lease_seconds: float = 60.0
 
 
 class VmStartWorkflowPort(Protocol):

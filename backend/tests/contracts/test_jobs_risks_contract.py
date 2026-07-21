@@ -26,11 +26,16 @@ class JobsRisksContractTests(unittest.TestCase):
             "MVP Risks screen must read risk summaries from /api/v1/risks.",
         )
 
-    def test_vm_start_route_exists_without_legacy_instance_action_route(self):
+    def test_explicit_vm_lifecycle_routes_exist_without_legacy_instance_action_route(self):
         self.assertIn(
             "/api/v1/nodes/{node_id}/vms/{vmid}/actions/start",
             self.paths,
             "Infra Explorer VM start must use the explicit /api/v1 node/vmid action route.",
+        )
+        self.assertIn(
+            "/api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown",
+            self.paths,
+            "Workload Cockpit VM shutdown must use the explicit /api/v1 node/vmid action route.",
         )
         self.assertNotIn("/api/instances/action", self.paths)
         self.assertNotIn("/api/v1/instances/action", self.paths)

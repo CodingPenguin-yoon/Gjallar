@@ -91,6 +91,48 @@ export default function OperationDetailPage({ canExecute = false }) {
 
       <GuidedQmOperationActions detail={detail} canExecute={canExecute} onChanged={acceptChanged} />
 
+      {detail.recovery || detail.targetLock ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="operation-recovery-title">
+          <div>
+            <h2 id="operation-recovery-title" className="text-xl font-semibold text-slate-950">Recovery coordination</h2>
+            <p className="mt-1 text-sm text-slate-600">읽기 전용 복구 lease와 동일 target mutation 차단 상태입니다.</p>
+          </div>
+          <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {detail.recovery ? (
+              <>
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recovery status</dt>
+                  <dd className="mt-2 font-semibold text-slate-950">{detail.recovery.status}</dd>
+                  <dd className="mt-1 text-xs text-slate-500">{detail.recovery.kind}</dd>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attempts</dt>
+                  <dd className="mt-2 font-semibold text-slate-950">{detail.recovery.attemptCount}</dd>
+                  <dd className="mt-1 text-xs text-slate-500">Next {formatOperationTime(detail.recovery.availableAt)}</dd>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Observer lease</dt>
+                  <dd className="mt-2 break-all font-mono text-xs text-slate-900">{detail.recovery.leaseOwner || 'unclaimed'}</dd>
+                  <dd className="mt-1 text-xs text-slate-500">generation {detail.recovery.leaseGeneration} · until {formatOperationTime(detail.recovery.leaseExpiresAt)}</dd>
+                </div>
+              </>
+            ) : null}
+            {detail.targetLock ? (
+              <div className="rounded-lg border border-slate-200 p-4">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Target lock</dt>
+                <dd className="mt-2 font-semibold text-slate-950">{detail.targetLock.status}</dd>
+                <dd className="mt-1 break-all text-xs text-slate-500">{detail.targetLock.operationType} · {detail.targetLock.ownerId}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {detail.recovery?.lastErrorCode ? (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Last recovery error: <span className="font-mono">{detail.recovery.lastErrorCode}</span>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="operation-timeline-title">
         <div className="flex items-end justify-between gap-3">
           <div>

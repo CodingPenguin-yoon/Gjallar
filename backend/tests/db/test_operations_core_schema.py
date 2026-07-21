@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 
 def test_operations_models_register_owned_tables_and_constraints():
@@ -10,6 +10,8 @@ def test_operations_models_register_owned_tables_and_constraints():
 
     operations = Base.metadata.tables["operations"]
     events = Base.metadata.tables["operation_events"]
+    recovery = Base.metadata.tables["operation_recovery_items"]
+    locks = Base.metadata.tables["operation_locks"]
 
     assert {
         "operation_id",
@@ -45,6 +47,20 @@ def test_operations_models_register_owned_tables_and_constraints():
         "uq_operations_scoped_idempotency",
     } <= {constraint.name for constraint in operations.constraints}
     assert "uq_operation_events_operation_sequence" in {constraint.name for constraint in events.constraints}
+    assert {
+        "operation_id",
+        "recovery_kind",
+        "status",
+        "available_at",
+        "lease_owner",
+        "lease_token",
+        "lease_generation",
+        "lease_expires_at",
+        "attempt_count",
+        "details",
+    } <= set(recovery.columns.keys())
+    assert "ck_operation_recovery_items_status" in {constraint.name for constraint in recovery.constraints}
+    assert "uq_operation_locks_open_locator" in {index.name for index in locks.indexes}
 
 
 def test_alembic_head_adds_operations_projection_and_event_tables(tmp_path, monkeypatch):
@@ -66,6 +82,7 @@ def test_alembic_head_adds_operations_projection_and_event_tables(tmp_path, monk
     try:
         assert inspector.has_table("operations")
         assert inspector.has_table("operation_events")
+        assert inspector.has_table("operation_recovery_items")
         assert "uq_operations_scoped_idempotency" in {
             constraint["name"] for constraint in inspector.get_unique_constraints("operations")
         }
@@ -81,6 +98,24 @@ def test_alembic_head_adds_operations_projection_and_event_tables(tmp_path, monk
             "ix_operation_events_operation_created",
             "ix_operation_events_type_created",
         } <= {index["name"] for index in inspector.get_indexes("operation_events")}
+        assert {
+            "ix_operation_recovery_items_due",
+            "ix_operation_recovery_items_lease",
+        } <= {index["name"] for index in inspector.get_indexes("operation_recovery_items")}
+        assert "uq_operation_locks_open_locator" in {
+            index["name"] for index in inspector.get_indexes("operation_locks")
+        }
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "insert into operation_locks "
+                    "(operation_lock_id, operation_type, scope_type, scope_key, status, cluster_id, vmid, "
+                    "owner_id, reason, evidence, created_at, updated_at) values "
+                    "(:lock_id, 'vm_shutdown', 'proxmox_locator', :scope_key, 'released', 'schema-test', "
+                    "306, 'operation-schema-test', 'schema_test', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ),
+                {"lock_id": "schema-vm-shutdown-lock", "scope_key": "schema-test|proxmox_locator|306"},
+            )
     finally:
         engine.dispose()
         reset_session_cache()

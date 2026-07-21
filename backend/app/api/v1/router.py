@@ -66,6 +66,7 @@ from app.vm_create.preflight import run_preflight
 from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
 from app.vm_actions.post_create_readiness import PostCreateReadinessError, record_post_create_readiness_evidence
 from app.vm_actions.start import VmStartError, run_vm_start
+from app.vm_actions.shutdown import VmShutdownError, run_vm_shutdown
 from app.workloads.inventory import WorkloadInventoryQuery, WorkloadInventoryUnavailableError, get_default_workload_inventory_query
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_viewer)])
@@ -1299,6 +1300,38 @@ async def start_vm_action_route(
     return await start_vm_action(node_id, vmid, payload, actor=actor)
 
 
+async def shutdown_vm_action(
+    node_id: str,
+    vmid: int,
+    payload: dict | None = None,
+    actor: AuthenticatedUser | dict | None = None,
+) -> dict:
+    """Gracefully shut down a running VM through the verified action path."""
+    try:
+        result = await run_in_threadpool(
+            run_vm_shutdown,
+            node_id=node_id,
+            vmid=vmid,
+            payload=payload or {},
+            actor=actor_evidence(actor) if actor is not None else None,
+            inventory_adapter=_inventory_adapter(),
+            client_factory=get_default_proxmox_mutation_client,
+        )
+    except VmShutdownError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.to_detail()) from exc
+    return success_response(result, meta={"mode": "proxmox_native_vm_shutdown"})
+
+
+@router.post("/nodes/{node_id}/vms/{vmid}/actions/shutdown")
+async def shutdown_vm_action_route(
+    node_id: str,
+    vmid: int,
+    payload: dict | None = None,
+    actor: AuthenticatedUser = Depends(require_operator),
+) -> dict:
+    return await shutdown_vm_action(node_id, vmid, payload, actor=actor)
+
+
 async def post_create_readiness_evidence_action(
     node_id: str,
     vmid: int,
@@ -1631,6 +1664,7 @@ async def create_vm_draft_proxmox_native(
             target_type="proxmox_vm",
             target_id=target_id,
             owner_id=owner_id,
+            operation_type="vm_create",
         )
     except TargetOperationLockBusy as exc:
         detail = _target_lock_busy_detail(exc, target_id=target_id, owner_id=owner_id)

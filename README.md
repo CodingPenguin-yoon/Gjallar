@@ -6,11 +6,11 @@ Proxmox는 VM·node·task의 actual state와 low-level execution을 소유하고
 
 ## 현재 상태와 목표
 
-현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 점진 전환 중인 modular monolith입니다. 인증, inventory, Create VM, VM Start, Operations/Guided `qm unlock`, observe-only Insights, DRS maintenance, Jobs/Risks를 제공하지만 모든 workflow가 목표 domain 구조로 이동한 것은 아닙니다.
+현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 점진 전환 중인 modular monolith입니다. 인증, inventory, Create VM, VM Start, graceful VM Shutdown, Operations/Guided `qm unlock`, observe-only Insights, DRS maintenance, Jobs/Risks를 제공하지만 모든 workflow가 목표 domain 구조로 이동한 것은 아닙니다.
 
 - 목표 제품 정의: [`project-docs/specifications/project-specification.md`](project-docs/specifications/project-specification.md)
 - 현재 코드 기준선: [`project-docs/architecture/overview.md`](project-docs/architecture/overview.md)
-- 승인된 아키텍처 결정: [`ADR-001`](project-docs/decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](project-docs/decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](project-docs/decisions/adr-003-production-inventory-connection-truth.md)
+- 승인된 아키텍처 결정: [`ADR-001`](project-docs/decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](project-docs/decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](project-docs/decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](project-docs/decisions/adr-004-postgresql-durable-operation-recovery.md)
 - 전환 순서: [`project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md`](project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md)
 
 기존 DRS 중심 문서는 폐기했습니다. DRS는 앞으로 제품의 중심이 아니라 placement/capacity insight와 제한된 기존 operation으로 다룹니다.
@@ -20,7 +20,8 @@ Proxmox는 VM·node·task의 actual state와 low-level execution을 소유하고
 - local user/session과 `viewer < operator < admin` RBAC
 - Proxmox node, VM, template, storage, network inventory
 - approval-gated native Create VM
-- acknowledgement/idempotency-gated VM Start
+- acknowledgement/idempotency-gated VM Start와 force fallback 없는 graceful VM Shutdown
+- PostgreSQL durable target lock과 opt-in VM Start/Shutdown observation recovery
 - Jobs/Artifacts/Risks 조회
 - source·freshness·rule·evidence를 제공하는 observe-only Insights
 - maintenance DRS recommendation, policy, approval packet, 제한된 migration/reconciliation backend
@@ -69,6 +70,8 @@ docker run --rm --env-file .env -p 8000:8000 gjallar:local
 ```
 
 container startup은 Alembic migration, Create VM profile seed, 선택적 bootstrap admin을 수행한 뒤 Uvicorn을 시작합니다. bootstrap admin은 `GJALLAR_BOOTSTRAP_ADMIN_USERNAME`과 `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD`가 모두 있을 때만 생성됩니다.
+
+VM Start/Shutdown recovery runner는 기본적으로 꺼져 있습니다. `GJALLAR_OPERATION_RECOVERY_ENABLED=true`는 모든 replica가 migration head와 durable-lock-aware code로 전환되고 open lock/recovery row를 확인한 환경에서만 사용합니다. runner는 저장된 UPID와 VM 상태를 GET으로 재관찰하며 start/shutdown mutation POST를 재호출하지 않습니다.
 
 ## 안전 원칙
 
