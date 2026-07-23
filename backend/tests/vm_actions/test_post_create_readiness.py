@@ -208,25 +208,27 @@ def test_live_command_and_endpoint_fields_are_rejected_before_persistence():
 
 
 def test_route_records_local_evidence_without_calling_live_capable_router_functions():
-    from app.api.v1 import router as v1_router
+    from app.api.v1 import vm_actions as v1_router
 
     payload = _payload(evidence_id="route-local-evidence")
-    live_call_message = "Goal 8 route must not call live-capable helpers"
-    with patch.object(v1_router, "_inventory_adapter", side_effect=AssertionError(live_call_message)) as inventory, patch.object(
-        v1_router, "get_default_proxmox_mutation_client", side_effect=AssertionError(live_call_message)
+    live_call_message = "readiness evidence route must not call live-capable helpers"
+    with patch.object(
+        v1_router.inventory_context,
+        "inventory_adapter",
+        side_effect=AssertionError(live_call_message),
+    ) as inventory, patch.object(
+        v1_router,
+        "get_default_proxmox_mutation_client",
+        side_effect=AssertionError(live_call_message),
     ) as proxmox_client_factory, patch.object(
-        v1_router, "get_default_drs_proxmox_migration_client", side_effect=AssertionError(live_call_message)
-    ) as drs_client_factory, patch.object(
-        v1_router, "run_vm_start", side_effect=AssertionError(live_call_message)
+        v1_router,
+        "run_vm_start",
+        side_effect=AssertionError(live_call_message),
     ) as run_vm_start, patch.object(
-        v1_router, "run_proxmox_create", side_effect=AssertionError(live_call_message)
-    ) as run_proxmox_create, patch.object(
-        v1_router, "build_drs_check_result", side_effect=AssertionError(live_call_message)
-    ) as build_drs_check_result, patch.object(
-        v1_router, "execute_drs_migration_job", side_effect=AssertionError(live_call_message)
-    ) as execute_drs, patch.object(
-        v1_router, "run_preflight", side_effect=AssertionError(live_call_message)
-    ) as run_preflight:
+        v1_router,
+        "run_vm_shutdown",
+        side_effect=AssertionError(live_call_message),
+    ) as run_vm_shutdown:
         response = asyncio.run(
             v1_router.post_create_readiness_evidence_action(
                 "node-a",
@@ -239,14 +241,10 @@ def test_route_records_local_evidence_without_calling_live_capable_router_functi
     assert response["ok"] is True
     assert response["meta"]["mode"] == "post_create_readiness_evidence_local_only"
     assert response["data"]["live_checks_performed_by_gjallar"] is False
-    for mocked in [
-        inventory,
-        proxmox_client_factory,
-        drs_client_factory,
-        run_vm_start,
-        run_proxmox_create,
-        build_drs_check_result,
-        execute_drs,
-        run_preflight,
-    ]:
+    for mocked in (inventory, proxmox_client_factory, run_vm_start, run_vm_shutdown):
         mocked.assert_not_called()
+    assert not hasattr(v1_router, "get_default_drs_proxmox_migration_client")
+    assert not hasattr(v1_router, "run_proxmox_create")
+    assert not hasattr(v1_router, "build_drs_check_result")
+    assert not hasattr(v1_router, "execute_drs_migration_job")
+    assert not hasattr(v1_router, "run_preflight")

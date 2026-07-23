@@ -1,8 +1,8 @@
 # 데이터베이스 기준선: 현재 Schema와 목표 Logical Ownership
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-21`
-- 관련 migration·ADR: `backend/alembic/versions/`, [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md)
+- 최종 검토일: `2026-07-23`
+- 관련 migration·ADR: `backend/alembic/versions/`, [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
 
 ## 목적과 범위
 
@@ -32,7 +32,7 @@
 | `vm_migration_policy_events` | migration policy change history | Evidence/Audit | append-only producer event |
 | `operation_locks` | DRS identity/route lock과 공통 Proxmox locator durable lock | Operations | open locator는 operation type과 무관하게 cluster/VMID당 하나; DRS 전용 scope는 유지 |
 | `drs_approval_packets` | exact recommendation approval packet | Policy/Approval | generic plan approval 후보 |
-| `drs_migration_jobs` | migration state와 task correlation | Operations | common operation/attempt 후보 |
+| `drs_migration_jobs` | migration state와 task correlation | Operations | DRS compatibility state; Common Operation 미연결 |
 | `drs_reconciliation_events` | ambiguous migration reconciliation history | Evidence/Audit 또는 Operations event | 의미·retention 확정 필요 |
 
 ## 현재 모델 관계
@@ -58,17 +58,17 @@ erDiagram
 - session boundary: `backend/app/db/session.py`의 `session_scope()` 호출 단위.
 - local strong consistency: DB constraint, unique identity, last-admin rule과 단일 session write.
 - external eventual consistency: Proxmox mutation/task/post-check와 Gjallar DB 기록.
-- current job/artifact helper는 여러 transaction을 만들 수 있어 하나의 operation transition 원자성을 보장하지 않는다.
+- current job/artifact helper는 일반적으로 여러 transaction을 만들 수 있어 하나의 operation transition 원자성을 보장하지 않는다.
 - `SqlAlchemyOperationStore`는 `operations` projection create/transition과 대응 `operation_events` append를 한 짧은 transaction으로 기록한다. PostgreSQL FK를 만족하도록 parent projection을 먼저 flush하되 event까지 commit되기 전에는 transaction을 완료하지 않는다. optimistic version·event sequence·scoped idempotency constraint가 충돌을 거부한다.
 - `SqlAlchemyRecoveryStore`는 lease generation/token/expiry를 row lock으로 검증하고 Operation event/projection, recovery status와 optional locator lock release를 같은 transaction에서 commit한다. external Proxmox GET은 transaction 밖이다.
 - jobs read exception이 empty collection으로 변환되는 경로가 있어 availability failure와 no-data를 구분하지 못할 수 있다.
 - VM Start, VM Shutdown, Create VM, Guided `qm unlock`, DRS는 `operation_locks`의 open `proxmox_locator` partial unique index로 같은 cluster/VMID를 직렬화한다. Start/Shutdown/Create/Guided local file lock은 compatibility guard다.
-- DRS migration은 기존 `drs_migration_jobs.execution_evidence`에 dispatch `prepared`/`accepted` evidence를 저장한다. 이 단계에서 schema migration은 추가하지 않았다.
+- DRS migration은 `drs_migration_jobs.execution_evidence`의 dispatch `prepared`/`accepted` evidence를 사용한다. lock의 `owner_id`는 authenticated user ID이고 Common Operation event는 기록하지 않는다.
 
 ## 목표 변화 원칙
 
 - logical ownership과 repository contract를 먼저 도입하고 table rename/move는 나중에 한다.
-- VM Start/Shutdown은 기존 `job_runs`/`job_artifacts` compatibility와 공통 operation/event/recovery를 dual record한다. Create VM은 신규 plan부터 common operation/event와 기존 `vm_create_requests`/`vm_instances`/job/artifact를 dual record하며 기존 row backfill은 하지 않는다. Guided `qm unlock`은 공통 저장 구조를 사용한다.
+- VM Start/Shutdown은 기존 `job_runs`/`job_artifacts` compatibility와 공통 operation/event/recovery를 dual record한다. Create VM은 신규 plan부터 common operation/event와 기존 `vm_create_requests`/`vm_instances`/job/artifact를 dual record한다. DRS migration은 기존 DRS/job/artifact만 기록한다. Guided `qm unlock`은 공통 저장 구조를 사용한다.
 - migration `20260720_0026`은 기존 table을 수정하지 않고 `operations`, `operation_events`를 additive하게 추가한다. `20260721_0027`은 `operation_recovery_items`를 추가하고 `operation_locks.operation_type`을 VM Start/Create/Guided까지 확장하며 open locator cross-operation partial unique index를 추가한다. `20260721_0028`은 check constraint에 `vm_shutdown` type만 additive하게 허용한다.
 - projection과 immutable evidence를 분리한다.
 - external call 전체를 DB transaction 안에 두지 않는다.
@@ -120,4 +120,4 @@ erDiagram
 - mapping: ORM repository, relationship, constraint tests.
 - 정합성: duplicate idempotency, same target/different key concurrency, crash-window, approval digest, append-only evidence tests.
 - failure: DB unavailable이 empty success가 아니라 degraded/error로 표현되는 contract test.
-- 현재 상태: migration head `20260721_0028`을 SQLite와 실제 PostgreSQL 18.4에 적용하고 0028 downgrade/roll-forward도 확인했다. PostgreSQL에서 `vm_shutdown` lock type, cross-operation partial unique locator, 동시 `SKIP LOCKED` claim 1개, timezone/stale lease fencing과 새 process의 shutdown GET-only recovery를 integration `2 passed`로 확인했다. jobs DB failure semantics 변경은 공개 오류 계약 승인이 필요해 계속 보류한다.
+- 현재 상태: migration head `20260721_0028`을 SQLite와 실제 PostgreSQL 18.4에 적용하고 0028 downgrade/roll-forward도 확인했다. PostgreSQL에서 `vm_shutdown` lock type, cross-operation partial unique locator, 동시 `SKIP LOCKED` claim 1개, timezone/stale lease fencing과 새 process의 shutdown GET-only recovery를 integration `2 passed`로 확인했다. 2026-07-23 live test에서는 shutdown `dispatch_accepted` 직후 API process를 중단했을 때 Operation `running`, recovery `leased`, locator lock `active`가 보존됐고, lease 만료 뒤 새 runner가 generation·attempt를 증가시켜 recovery event, compatibility projection, `succeeded`/`completed`와 lock release를 commit하는 것도 확인했다. 최종 non-terminal Operation·미완료 recovery·open locator lock은 모두 0이었다. DRS Common Operation 통합은 롤백했고 schema migration이나 live DRS migration은 실행하지 않았다. jobs DB failure semantics 변경은 공개 오류 계약 승인이 필요해 계속 보류한다.

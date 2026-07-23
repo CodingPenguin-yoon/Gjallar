@@ -103,14 +103,14 @@ class ApiV1VmActionsTests(unittest.TestCase):
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             from app.main import app
-            from app.api.v1 import router as api_v1_router
+            from app.api.v1 import vm_actions as api_v1_router
         cls.paths = {getattr(route, "path", "") for route in app.routes}
         cls.api_v1_router = api_v1_router
 
     def _run_start(self, *, adapter=None, client=None, payload=None, node_id="node-a", vmid=306):
         adapter = adapter or StubInventoryAdapter(vms=[stopped_vm(vmid=vmid, node_id=node_id)])
         client = client or RecordingStartClient()
-        with patch.object(self.api_v1_router, "_inventory_adapter", return_value=adapter):
+        with patch.object(self.api_v1_router.inventory_context, "inventory_adapter", return_value=adapter):
             with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=client):
                 return asyncio.run(
                     self.api_v1_router.start_vm_action(

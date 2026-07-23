@@ -417,18 +417,18 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         "qm_unlock_risk_acknowledged": True,
     }
 
-    with patch("app.api.v1.router.get_default_proxmox_mutation_client") as client_factory, patch(
-        "app.api.v1.router.run_proxmox_create"
-    ) as create_mutation, patch("app.api.v1.router.record_vm_create_request") as create_record, patch(
-        "app.api.v1.router.run_vm_start"
+    with patch("app.api.v1.vm_create_compat._mutation_client_factory") as client_factory, patch(
+        "app.vm_create.application.run_proxmox_create"
+    ) as create_mutation, patch("app.vm_create.application.record_vm_create_request") as create_record, patch(
+        "app.api.v1.vm_actions.run_vm_start"
     ) as start_mutation, patch(
-        "app.api.v1.router.run_vm_shutdown"
+        "app.api.v1.vm_actions.run_vm_shutdown"
     ) as shutdown_mutation, patch(
-        "app.api.v1.router.plan_guided_qm_unlock"
+        "app.api.v1.guided_qm.plan_guided_qm_unlock"
     ) as guided_plan, patch(
-        "app.api.v1.router.attest_guided_qm_operation"
+        "app.api.v1.guided_qm.attest_guided_qm_operation"
     ) as guided_attest, patch(
-        "app.api.v1.router.verify_guided_qm_operation"
+        "app.api.v1.guided_qm.verify_guided_qm_operation"
     ) as guided_verify:
         create_unauth = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
@@ -484,10 +484,10 @@ def test_drs_approval_packet_route_requires_operator_before_local_or_proxmox_wor
     client = _client()
     path = "/api/v1/drs/recommendations/authz-rec/approval-packets"
 
-    with patch("app.api.v1.router.create_approval_packet_and_job_intent") as create_local_intent, patch(
-        "app.api.v1.router.get_default_proxmox_mutation_client"
-    ) as mutation_client_factory, patch("app.api.v1.router.run_proxmox_create") as create_mutation, patch(
-        "app.api.v1.router.record_job_run"
+    with patch("app.drs.application.create_approval_packet_and_job_intent") as create_local_intent, patch(
+        "app.api.v1.vm_create_compat._mutation_client_factory"
+    ) as mutation_client_factory, patch("app.vm_create.application.run_proxmox_create") as create_mutation, patch(
+        "app.drs.approval.record_job_run"
     ) as record_job_run:
         unauthenticated = client.post(path, json={"warning_acknowledged": True})
         assert unauthenticated.status_code == 401
@@ -519,10 +519,10 @@ def test_drs_explicit_test_candidate_routes_require_operator_before_adapter_or_l
         "target_node_id": "node-b",
     }
 
-    with patch("app.api.v1.router._inventory_adapter") as inventory, patch(
-        "app.api.v1.router.build_drs_check_result"
-    ) as build_check, patch("app.api.v1.router.create_approval_packet_and_job_intent") as create_local_intent, patch(
-        "app.api.v1.router.get_default_drs_proxmox_migration_client"
+    with patch("app.api.v1.drs_compat._inventory_adapter") as inventory, patch(
+        "app.drs.application.build_drs_check_result"
+    ) as build_check, patch("app.drs.application.create_approval_packet_and_job_intent") as create_local_intent, patch(
+        "app.api.v1.drs_compat._drs_migration_client_factory"
     ) as drs_client_factory:
         for path in paths:
             unauthenticated = client.post(path, json=payload)
@@ -558,7 +558,7 @@ def test_drs_policy_put_requires_operator_before_service_or_db_mutation(monkeypa
         },
     }
 
-    with patch("app.api.v1.router.update_drs_policy") as update_policy:
+    with patch("app.drs.application.update_drs_policy") as update_policy:
         unauthenticated = client.put(path, json=payload)
         assert unauthenticated.status_code == 401
         assert unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
@@ -578,16 +578,16 @@ def test_drs_execute_and_reconcile_preview_routes_require_operator_before_work(m
     reconcile_preview_path = "/api/v1/drs/migration-jobs/authz-job/reconcile-preview"
     reconcile_path = "/api/v1/drs/migration-jobs/authz-job/reconcile"
 
-    with patch("app.api.v1.router.execute_drs_migration_job") as execute_drs, patch(
-        "app.api.v1.router.build_drs_migration_reconciliation_preview"
+    with patch("app.drs.application.execute_drs_migration_job") as execute_drs, patch(
+        "app.drs.application.build_drs_migration_reconciliation_preview"
     ) as preview_reconcile, patch(
-        "app.api.v1.router.reconcile_drs_migration_job"
+        "app.drs.application.reconcile_drs_migration_job"
     ) as reconcile_drs, patch(
-        "app.api.v1.router.get_default_drs_proxmox_migration_client"
+        "app.api.v1.drs_compat._drs_migration_client_factory"
     ) as drs_client_factory, patch(
-        "app.api.v1.router.get_default_proxmox_mutation_client"
+        "app.api.v1.vm_create_compat._mutation_client_factory"
     ) as create_vm_client_factory, patch(
-        "app.api.v1.router.run_proxmox_create"
+        "app.vm_create.application.run_proxmox_create"
     ) as create_mutation:
         execute_unauthenticated = client.post(execute_path, json={})
         reconcile_preview_unauthenticated = client.post(reconcile_preview_path, json={})
@@ -623,7 +623,7 @@ def test_viewer_cannot_write_create_vm_workflow_state(monkeypatch):
     client = _client()
     _login(client, username="workflow-viewer")
 
-    with patch("app.api.v1.router.record_job_run") as record_job_run:
+    with patch("app.vm_create.application.record_job_run") as record_job_run:
         for path in (
             "/api/v1/vm-create/drafts",
             "/api/v1/vm-create/workflow-viewer/preflight",
@@ -653,7 +653,7 @@ def test_vm_start_route_passes_authenticated_actor_from_session(monkeypatch):
             "side_effects": [],
         }
 
-    with patch("app.api.v1.router.run_vm_start", side_effect=fake_start):
+    with patch("app.api.v1.vm_actions.run_vm_start", side_effect=fake_start):
         response = client.post(
             "/api/v1/nodes/node-a/vms/306/actions/start",
             json={"vm_start_acknowledged": True, "idempotency_key": "actor-start"},
@@ -679,7 +679,7 @@ def test_vm_shutdown_route_passes_authenticated_actor_from_session(monkeypatch):
             "side_effects": [],
         }
 
-    with patch("app.api.v1.router.run_vm_shutdown", side_effect=fake_shutdown):
+    with patch("app.api.v1.vm_actions.run_vm_shutdown", side_effect=fake_shutdown):
         response = client.post(
             "/api/v1/nodes/node-a/vms/306/actions/shutdown",
             json={"vm_shutdown_acknowledged": True, "idempotency_key": "actor-shutdown"},
@@ -700,7 +700,7 @@ def test_guided_qm_plan_route_passes_authenticated_actor_from_session(monkeypatc
         captured.update(kwargs)
         return {"operation": {"operation_id": "guided-session-actor"}}
 
-    with patch("app.api.v1.router.plan_guided_qm_unlock", side_effect=fake_plan):
+    with patch("app.api.v1.guided_qm.plan_guided_qm_unlock", side_effect=fake_plan):
         response = client.post(
             "/api/v1/operations/guided-qm/vm-unlock",
             json={
@@ -790,7 +790,7 @@ def test_admin_can_access_protected_create_vm_mutation_route(monkeypatch):
     _login(client, username="admin-user")
     handler = AsyncMock(return_value={"ok": True, "data": {"status": "mocked"}, "meta": {"mode": "mocked"}})
 
-    with patch("app.api.v1.router.create_vm_draft_proxmox_native", handler):
+    with patch("app.api.v1.vm_create_compat.create_vm_draft_proxmox_native", handler):
         response = client.post(
             "/api/v1/vm-create/admin-authz/proxmox-create",
             json={"proxmox_mutation_acknowledged": True},
@@ -846,8 +846,11 @@ def test_vm_start_job_and_artifact_include_flat_actor_fields(monkeypatch):
         def get_vm_status(self, *, node, vmid):
             return {"node": node, "vmid": vmid, "name": "stopped-app", "status": "running"}
 
-    with patch("app.api.v1.router._inventory_adapter", return_value=StubInventoryAdapter()), patch(
-        "app.api.v1.router.get_default_proxmox_mutation_client",
+    with patch(
+        "app.api.v1.vm_actions.inventory_context.inventory_adapter",
+        return_value=StubInventoryAdapter(),
+    ), patch(
+        "app.api.v1.vm_actions.get_default_proxmox_mutation_client",
         return_value=RecordingStartClient(),
     ):
         response = client.post(
@@ -929,8 +932,8 @@ def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypat
             "side_effects": ["proxmox_clone_invoked", "proxmox_task_polled", "proxmox_config_updated", "proxmox_post_check_observed"],
         }
 
-    with patch("app.api.v1.router.get_default_proxmox_mutation_client", return_value=object()), patch(
-        "app.api.v1.router.run_proxmox_create",
+    with patch("app.api.v1.vm_create_compat._mutation_client_factory", return_value=object()), patch(
+        "app.vm_create.application.run_proxmox_create",
         side_effect=fake_create,
     ):
         create_response = client.post(

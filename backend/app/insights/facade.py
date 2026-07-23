@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from app.drs.advisor import build_drs_advisor_model
 from app.insights.application import InsightsQueryService
+from app.insights.placement import build_placement_model
 from app.insights.ports import InventoryInsightSource
 from app.jobs.runs import list_job_runs_strict
 from app.workloads.inventory import get_default_workload_inventory_query
@@ -85,7 +85,10 @@ class _PlacementPort:
         snapshot: Mapping[str, Any],
         risks: Sequence[Mapping[str, Any]],
     ) -> Mapping[str, Any]:
-        return build_drs_advisor_model(_MappingInventoryAdapter(snapshot), risks=list(risks))
+        return build_placement_model(
+            _MappingInventoryAdapter(snapshot),
+            risks=list(risks),
+        )
 
 
 def get_insights() -> dict[str, Any]:

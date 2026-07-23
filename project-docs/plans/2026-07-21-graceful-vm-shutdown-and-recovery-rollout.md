@@ -209,13 +209,16 @@
 
 ## 11. 구현 후 대조
 
-- 계획과 달라진 부분: foreground와 restart recovery는 계획대로 구현했다. production-like restart gate는 별도 container process를 장시간 운영하는 대신 실제 PostgreSQL 18.4에서 foreground lease expiry 후 새 repository/handler instance가 claim해 GET-only completion하는 integration으로 검증했다. live Proxmox shutdown과 browser 수동 확인은 실행하지 않았다.
-- 달라진 이유: live target/cluster와 run-specific 승인이 없고 product runtime은 fake inventory를 허용하지 않으므로 실제 Workload Cockpit shutdown click은 안전하게 재현할 대상이 없었다. 이 미실행 항목을 코드 구현 완료와 분리해 유지한다.
+- 계획과 달라진 부분: foreground와 restart recovery는 계획대로 구현했다. production-like restart gate는 별도 container process를 장시간 운영하는 대신 실제 PostgreSQL 18.4에서 foreground lease expiry 후 새 repository/handler instance가 claim해 GET-only completion하는 integration으로 먼저 검증했다. 구현 완료 당시에는 exact target과 run-specific 승인이 없어 live smoke를 보류했지만, 2026-07-23 승인된 private test target `gjallar-mvp/yoonserver3/100/test`가 제공돼 별도 rollout 검증으로 수행했다.
+- 달라진 이유: 구현 시점에는 실제 Workload Cockpit shutdown을 안전하게 재현할 대상이 없었고 product runtime에는 fake inventory mode가 없었다. 이후 사용자가 해당 test VM의 shutdown·restart와 장애 복구 smoke를 명시 승인해 미실행 gate를 해소했다.
 - 최종 검증 결과:
   - local Python 3.14 backend 전체 `504 passed, 2 skipped`; 두 skip은 opt-in PostgreSQL integration.
   - canonical Python 3.13 container backend 전체 `504 passed, 2 skipped`.
   - PostgreSQL 18.4에서 migration head `0028` upgrade, downgrade `0027`, roll-forward와 `vm_shutdown` lock/partial unique/동시 claim/fencing/new-process GET-only recovery integration `2 passed`.
   - canonical Node 24/pnpm 10 production image stage에서 frontend test 17개, ESLint, Vite build 통과. host Node 26에서도 같은 17개와 lint/build를 보조 검증했다.
   - `docker build -t gjallar:local .`과 `git diff --check` 통과. 기존 Vite 500 kB chunk warning은 유지된다.
+  - 2026-07-23 foreground live smoke에서 `test` VM의 running→graceful shutdown→stopped와 Start→running을 확인했다. 두 Operation은 각각 evidence 6개, recovery `completed`, locator lock `released`로 종료됐고 Proxmox active task는 0이었다.
+  - 같은 target의 restart recovery smoke에서 새 shutdown의 `dispatch_accepted` 직후 backend를 중단했다. 중단 직후 VM `stopped`, Operation `running`, recovery `leased`, locator lock `active`가 보존됐고, 새 runner가 lease generation `1→2`, attempt `1→2`로 takeover해 `recovery_*` evidence 3개를 추가한 뒤 Operation `succeeded`, recovery `completed`, lock `released`를 기록했다. `dispatch_accepted`는 1개뿐이어서 shutdown mutation 재전송은 없었다.
+  - 복구 smoke 후 VM Start를 완료해 최종 target은 `running`, active task 0이며 전체 non-terminal Operation·미완료 recovery·open locator lock은 0이다. 시험용 runner-enabled process는 종료하고 기본 disabled backend로 복원했다.
 - 갱신한 현재 상태 문서: `README.md`, `backend/README.md`, Project Profile, Specification, Architecture, Domain Map, Verified Operation Lifecycle, API, Database, Runbook, ADR-004 후속 구현 기록과 상위 Plan.
-- 남은 위험: live Proxmox shutdown과 production recovery flag enable은 수행하지 않았다. exact target과 별도 승인이 필요하다. runner는 API process와 resource를 공유하고 concurrency 1이며 Create VM/Guided/DRS 자동 handler와 generic operator unlock API는 없다. common Operation/recovery와 legacy Jobs/artifact projection은 하나의 원자적 transaction이 아니므로 terminal compatibility projection은 retained lock 상태에서 재시도한다.
+- 남은 위험: production recovery flag 상시 enable과 production VM smoke는 수행하지 않았다. 이번 검증은 `PROXMOX_TLS_INSECURE=true`인 private test 환경의 단일 VM에 한정된다. runner는 API process와 resource를 공유하고 concurrency 1이며 Create VM/Guided/DRS 자동 handler와 generic operator unlock API는 없다. common Operation/recovery와 legacy Jobs/artifact projection은 하나의 원자적 transaction이 아니므로 terminal compatibility projection은 retained lock 상태에서 재시도한다.

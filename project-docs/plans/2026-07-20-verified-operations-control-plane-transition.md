@@ -3,12 +3,12 @@
 - 상태: `APPROVED`
 - 날짜: `2026-07-20`
 - 관련 요구사항: [`Project Specification`](../specifications/project-specification.md)
-- 관련 ADR: [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
+- 관련 ADR: [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
 - 승인자: `사용자`
 
 이 Plan은 2026-07-20 사용자 승인을 받았다. 한 번에 전면 rewrite하지 않고 검증 가능한 vertical slice로 전환한다.
 
-- 진행 상태: `단계 0~9, 10-A durable recovery foundation과 10-B graceful VM Shutdown 구현 완료; live shutdown smoke와 기존 jobs DB 공개 오류 의미는 보류`
+- 진행 상태: `단계 0~9, 10-A durable recovery foundation과 10-B graceful VM Shutdown 구현 완료; DRS maintenance 단계적 폐기는 ADR-006에 따라 후속 상세 Plan 대기`
 
 ## 1. 위험도
 
@@ -69,7 +69,7 @@
 - dispatch ambiguity는 중복 호출 대신 reconciliation으로 남는다.
 - 기존 `/api/v1`과 canonical routes는 명시적 deprecation 전 동작한다.
 - 각 slice는 focused/full regression, architecture review, 독립 rollback point를 가진다.
-- 기존 DRS data/migration/history는 별도 제거 승인 전 보존한다.
+- 기존 DRS data/migration/history는 제거 대상 compatibility state로 동결하고 별도 제거 승인 전 보존한다. 신규 Common Operation·automatic recovery·기능 확장은 하지 않는다.
 
 ## 4. 아키텍처와 데이터 영향
 
@@ -117,9 +117,10 @@
 6. application-level append-only/checksum audit를 1차 목표로 하고 external WORM은 비범위.
 7. existing `/api/v1`을 compatibility facade로 유지하는 additive migration.
 8. 위 문서 초기화 매니페스트, 특히 live evidence와 `artifacts/` 보존 여부.
-9. 단계 9는 additive Insights aggregate와 primary navigation을 추가하고 기존 DRS API/UI/data/execution을 maintenance compatibility surface로 보존.
+9. 단계 9는 additive Insights aggregate와 primary navigation을 추가하고 기존 DRS API/UI/data/execution을 제거 전 compatibility surface로 보존했다. 이 보존은 장기 유지 결정이 아니며 후속 단계는 `ADR-006`의 단계적 폐기다.
 
 - 사용자 결정: `추천안 승인 — 새 방향 우선, 기존 docs 제거, live-smoke evidence와 artifacts 보존, compatibility facade 기반 점진 전환`
+- 2026-07-23 방향 정정: `DRS maintenance는 유지·확장 대상이 아니라 제거 대상이며 neutral Placement/Capacity만 Insights/Monitoring에 유지한다.`
 - 승인일: `2026-07-20`
 
 ## 6. 구현 단계
@@ -137,8 +138,9 @@
 | 6 | Workload Cockpit + standardized operation UI | backend workload/operation query, frontend feature boundaries와 timeline | API/frontend/navigation/a11y manual check, full suite | existing screen/routes 유지 |
 | 7 | guided manual 첫 action | allowlisted `qm` template, expiry, attestation, API after-state verification | injection/secret/unsupported parameter/expiry/reconciliation tests | feature flag/allowlist 제거; no raw executor |
 | 8 | Create VM operation 통합 | current draft/preflight/plan/approval/create를 common operation/evidence와 workload linkage로 전환 | Create VM contracts, idempotency, task/post-check, frontend flow | existing `/vm-create/*` facade 유지 |
-| 9 | Insights 제품화와 DRS 중심성 제거 | risk/readiness/capacity/placement insight, navigation 변경; DRS execution maintenance status 명시 | insight evidence/freshness, route/API regression | DRS data/API 삭제 없음 |
+| 9 | Insights 제품화와 DRS 중심성 제거 | risk/readiness/capacity/placement insight, navigation 변경; DRS를 제거 전 compatibility로 격리 | insight evidence/freshness, route/API regression | 이 단계에서는 DRS data/API 삭제 없음 |
 | 10 | durable recovery와 action 확장 | 승인된 runner/lease/resume/reconcile, shutdown/reboot 등 action별 safety slice | restart/failover/concurrency/live smoke 승인 | action·runtime별 별도 rollback/roll-forward |
+| 11 | DRS maintenance 단계적 폐기 | consumer·history·retention 조사, Insights/Monitoring replacement, UI/API deprecation, 마지막 forward data migration | boundary/API/frontend/PostgreSQL contract; DRS live mutation 없음 | 상세 high-risk Plan 승인 전 contract/data 변경 없음 |
 
 ### 단계별 추가 승인 gate
 
@@ -146,7 +148,7 @@
 - 단계 2의 public error semantics가 바뀌는 경우
 - 단계 5 이후 모든 DB schema/data ownership/transaction migration
 - 단계 7의 최초 `qm` allowlist action과 exact parameters
-- 단계 9의 DRS API/UI 폐기 또는 data deletion
+- 단계 11의 DRS API/UI deprecation·제거, history retention과 data migration
 - 단계 10의 worker/queue/scheduler/new runtime dependency와 destructive action
 - 모든 live Proxmox mutation/smoke target
 
@@ -353,6 +355,7 @@
 - `backend/app/insights/`는 command port 없이 read application과 pure rule을 소유한다. stored job risk와 current Workloads observation을 독립 수집하고 기존 DRS advisor를 placement compatibility adapter로 재사용한다.
 - 기존 Jobs/Risks의 DB exception → empty list 의미는 유지하되 Insights는 strict read로 장애를 risk `unavailable`로 드러낸다. non-live inventory에서는 stored risk만 유지하고 readiness/capacity/placement는 `unavailable`이며 fake/stale fallback이 없다.
 - frontend primary navigation을 Insights로 전환하고 `/insights`와 category route를 추가했다. `/drs`, `/api/v1/drs/*`, DRS policy/approval/execution/data, `/operations/risks`, `/risks`는 유지하고 `/drs`를 maintenance compatibility surface로 표시한다.
+- 2026-07-23 `ADR-006`으로 이 maintenance 보존은 제거 전 호환 단계임을 명확히 했다. DRS execution의 Common Operation 통합과 automatic recovery는 후속 범위가 아니며, 단계 11에서 consumer·retention을 확인한 뒤 UI/API/state를 제거한다.
 - 독립 품질 검토에서 partial capacity metric과 unknown placement가 `ready`로 축소되는 문제, bounded finding의 total truncation 미표시를 발견해 보수적 unknown 판정과 `returned_finding_count`/`truncated` metadata로 수정했다.
 - DB schema/migration, scheduler/cache/worker/dependency, Proxmox mutation은 추가하지 않았다. canonical Python 3.13 backend 전체 `457 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다.
 

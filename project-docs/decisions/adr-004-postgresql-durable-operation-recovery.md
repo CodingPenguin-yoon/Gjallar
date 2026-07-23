@@ -102,3 +102,5 @@ Gjallar는 dispatch ambiguity를 mutation retry가 아닌 reconciliation으로 �
 ## 후속 구현 기록
 
 2026-07-21 승인된 10-B Plan으로 두 번째 allowlisted handler인 `vm_shutdown_observation`을 추가했다. 이 확장은 ADR의 GET-only recovery 권한 경계를 유지한다. foreground만 QEMU graceful shutdown POST를 수행하고 recovery handler는 stored UPID task와 direct VM status GET만 받으며 hard stop, reboot, shutdown 재제출 capability를 갖지 않는다. migration `20260721_0028`은 기존 locator constraint에 `vm_shutdown` type만 추가했고 새 table이나 외부 dependency는 만들지 않았다.
+
+2026-07-23 [`ADR-006`](adr-006-drs-deprecation-and-insights-convergence.md)은 DRS maintenance를 단계적 제거 대상으로 확정했다. DRS가 현재 locator lock을 공유한다는 사실은 유지되지만 DRS용 automatic recovery handler는 추가하지 않는다.

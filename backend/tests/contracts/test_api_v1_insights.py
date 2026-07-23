@@ -16,7 +16,7 @@ def test_insights_route_exists_under_api_v1():
 
 
 def test_insights_route_preserves_observe_only_envelope():
-    from app.api.v1 import router as v1_router
+    from app.api.v1 import insights as v1_router
 
     aggregate = {
         "execution_mode": "observe_only",
@@ -31,7 +31,7 @@ def test_insights_route_preserves_observe_only_envelope():
 
 
 def test_insights_route_composes_current_fake_inventory_and_empty_job_store():
-    from app.api.v1 import router as v1_router
+    from app.api.v1 import insights as v1_router
 
     response = v1_router.get_insights_route()
     data = response["data"]

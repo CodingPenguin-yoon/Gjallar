@@ -2,7 +2,7 @@
 
 - 상태: `APPROVED`
 - 하네스 버전: `1.0.0`
-- 최종 검토일: `2026-07-21`
+- 최종 검토일: `2026-07-23`
 - 최종 승인자: `사용자`
 - 문서 기준 언어: 한국어
 
@@ -44,7 +44,7 @@ Spring Boot preset은 적용하지 않는다.
 
 ## 아키텍처 상태
 
-- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, 공통 Operation projection/event, PostgreSQL durable target lock/recovery lease, Operations의 VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, Workload Cockpit·Operations·Insights frontend vertical slice가 구현됐고, 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포하며 VM Start/Shutdown recovery observer는 opt-in lifespan task다.
+- 현재 아키텍처: 기능별 package가 있는 monolith에서 domain-oriented modular monolith로 전환 중이다. Setup/Integration·Workloads read boundary, `/api/v1` query·VM action·Guided `qm`·Create VM·DRS compatibility child router, Create VM·DRS application orchestration facade, neutral Insights Placement, 공통 Operation projection/event, PostgreSQL durable target lock/recovery lease, Operations의 VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, Workload Cockpit·Operations·Insights frontend vertical slice가 구현됐고, DRS migration은 아직 전용 state를 사용한다. DRS maintenance는 `ADR-006`에 따라 제거 대상이며 신규 Common Operation·automatic recovery·기능 확장 대상이 아니다. 나머지는 기존 feature-oriented 구조를 page adapter로 유지한다. 단일 FastAPI application과 React SPA를 하나의 Docker image로 배포하며 VM Start/Shutdown recovery observer는 opt-in lifespan task다.
 - 현재 기준선: [`architecture/overview.md`](architecture/overview.md)
 - 승인된 목표 제품 경계: [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md) (`ACCEPTED`)
 - 승인된 목표 구조: [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md) (`ACCEPTED`)
@@ -57,7 +57,7 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 
 | 책임 | 경로 | 비고 |
 |---|---|---|
-| backend application | `backend/app/` | FastAPI, auth, DB, Proxmox, VM workflow, DRS, jobs, additive Insights query |
+| backend application | `backend/app/` | FastAPI composition router와 query·VM action·Guided `qm`·Create VM·DRS compatibility child router, Create VM·DRS application facade, neutral Placement, auth, DB, Proxmox, VM workflow, jobs, additive Insights query |
 | frontend application | `frontend/src/app/`, `pages/`, `features/`, `entities/`, `shared/` | route shell과 page composition, Workloads·Operations·Insights feature, Operation·Insight entity, 공통 API·auth·connection |
 | frontend compatibility | `frontend/src/components/`, `utils/`, `services/` | 아직 전환하지 않은 screen·view model과 기존 import 경로 adapter |
 | backend tests | `backend/tests/` | contract, DB, auth, jobs, Proxmox, VM workflow, DRS |
@@ -109,10 +109,13 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 |---|---|
 | 프로젝트 명세 | [`specifications/project-specification.md`](specifications/project-specification.md) |
 | 현재 아키텍처 기준선 | [`architecture/overview.md`](architecture/overview.md) |
+| DRS·Jobs/Artifacts 전환 판단 | [`architecture/drs-jobs-convergence-assessment.md`](architecture/drs-jobs-convergence-assessment.md) |
 | 제품 권한·실행 경계 | [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md) |
 | Production 연결 상태 | [`ADR-003`](decisions/adr-003-production-inventory-connection-truth.md) |
 | Durable target lock·recovery | [`ADR-004`](decisions/adr-004-postgresql-durable-operation-recovery.md) |
 | 목표 모듈 구조 | [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md) |
+| 철회된 DRS Placement·Operation 통합 결정 | [`ADR-005`](decisions/adr-005-drs-placement-and-operation-convergence.md) (`REJECTED`) |
+| DRS 단계적 폐기·Insights 통합 결정 | [`ADR-006`](decisions/adr-006-drs-deprecation-and-insights-convergence.md) (`ACCEPTED`) |
 | 목표 도메인 | [`domains/domain-map.md`](domains/domain-map.md) |
 | 목표 operation lifecycle | [`flows/verified-operation-lifecycle.md`](flows/verified-operation-lifecycle.md) |
 | 현재 API 기준선 | [`api/current-api-v1.md`](api/current-api-v1.md) |
@@ -126,27 +129,32 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 | Insights Productization Plan | [`plans/2026-07-21-insights-productization-and-drs-maintenance.md`](plans/2026-07-21-insights-productization-and-drs-maintenance.md) |
 | Durable Recovery 10-A Plan | [`plans/2026-07-21-durable-operation-recovery-foundation.md`](plans/2026-07-21-durable-operation-recovery-foundation.md) |
 | Graceful VM Shutdown 10-B Plan | [`plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md`](plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md) |
+| Backend 모듈 경계·legacy 격리 Plan | [`plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md`](plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md) |
+| 롤백된 DRS Placement·Common Operation Plan | [`plans/2026-07-23-drs-placement-and-common-operation-convergence.md`](plans/2026-07-23-drs-placement-and-common-operation-convergence.md) (`ROLLED_BACK`) |
 
 ## 미확정 사항과 알려진 위험
 
 - 목표 구조는 일부 vertical slice만 구현됐다. frontend app shell·Workloads·Operations·Insights는 전환됐지만 Create VM·DRS maintenance·Jobs·legacy Risks·Admin의 내부 screen은 page adapter 뒤 기존 구조를 사용하므로 현재 기준선과 목표 문서를 계속 구분한다.
 - 단계 3에서 product runtime의 fake inventory를 제거하고 `unconfigured`/`live`/`degraded` connection truth와 frontend route gate를 구현했다.
 - VM Start의 domain command·application use case·external port·workflow 상태기계를 `operations/vm_start`에 두고 기존 endpoint·job/artifact를 compatibility facade로 유지한다. 공통 Operation projection/event를 함께 기록한다.
-- Create VM의 stable intent와 공통 lifecycle tracking을 `operations/vm_create`에 두고 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact를 compatibility facade와 dual record로 유지한다. 신규 plan부터 common Operation을 만들며 별도 migration이나 기존 row backfill은 하지 않았다.
+- Create VM의 stable intent와 공통 lifecycle tracking을 `operations/vm_create`에 두고, `api/v1/vm_create_compat.py`가 기존 `/vm-create/*` HTTP 계약을 `vm_create/application.py`에 연결한다. application facade는 draft→preflight→plan→approval→preview/execute, idempotency, target lock, Operation evidence와 기존 `vm_create_requests`·`vm_instances`·job/artifact dual record 순서를 소유한다. 신규 plan부터 common Operation을 만들며 별도 migration이나 기존 row backfill은 하지 않았다.
+- `api/v1/drs_compat.py`가 기존 13개 `/drs/*` route의 HTTP/RBAC/provider 경계를 담당하고 `drs/application.py`가 advisor·policy·approval·execute/reconcile 순서와 explicit acknowledgement gate를 조립한다. DRS migration은 기존 전용 state와 job/artifact 기록, 전용 migration client 계약을 사용하며 Common Operation에는 연결하지 않는다.
+- `api/v1/guided_qm.py`가 Guided `qm`의 plan·attestation·verification HTTP/RBAC/error mapping을 소유하고 `api/v1/router.py`는 공통 dependency와 child router 조립만 담당한다.
 - 첫 Guided Manual action은 `qm unlock <vmid>`만 지원한다. backend는 명령을 실행하지 않으며 5분짜리 고정 instruction, trusted actor attestation, Proxmox API after-state 검증을 사용한다.
 - backend formatter, lint, type-check 명령이 확인되지 않았다.
-- VM Start와 graceful VM Shutdown에는 durable recovery item/lease와 GET-only restart observer가 구현됐지만 Create VM/Guided/DRS 자동 recovery handler와 generic operator unlock API는 없다. Guided verification은 저장된 `verifying` 상태에서 명시적으로 재요청할 수 있다.
+- VM Start와 graceful VM Shutdown에는 durable recovery item/lease와 GET-only restart observer가 구현됐지만 Create VM/Guided 자동 recovery handler와 generic operator unlock API는 없다. DRS automatic recovery는 제거 방향에 따라 구현 대상이 아니며, Guided verification은 저장된 `verifying` 상태에서 명시적으로 재요청할 수 있다.
 - VM Start/Shutdown/Create VM/Guided `qm unlock`/DRS는 같은 cluster/VMID PostgreSQL locator lock으로 직렬화한다. Start/Shutdown/Create/Guided local file guard는 compatibility 용도이며 multi-cluster connection profile은 없다.
 - 기존 Jobs/Risks read의 DB exception을 empty result로 축소하는 공개 의미는 별도 승인 전 유지한다. 새 Insights risk source는 strict query를 사용해 같은 장애를 `unavailable`로 구분한다.
 - `operations`/`operation_events`는 projection과 checksum-linked append-only event를 분리하지만 application-level tamper evidence이며 external WORM이 아니다. `job_runs`와 `job_artifacts`는 기존 compatibility projection/evidence로 남아 있다.
+- Legacy consumer 조사 결과 `job_runs`는 Jobs/Risks 화면뿐 아니라 VM Start/Shutdown 멱등 replay와 recovery terminal projection에도 사용된다. `job_artifacts`는 common Operation detail에 아직 없는 artifact content 저장과 metadata 조회를 제공한다. neutral placement 계산은 `backend/app/insights/placement.py`로 분리돼 `/insights`가 DRS identity/policy/lock DB 경계에 의존하지 않으며, DRS advisor는 같은 결과에 maintenance gate를 보강한다. 잘못 추가했던 DRS Common Operation 통합은 롤백했으며 DRS 제거와 Insights/Monitoring 통합의 구체 단계가 남아 있다.
 - Guided bundle 발급 전후에 외부 Proxmox GUI·CLI가 별도 작업을 시작하는 경쟁은 Gjallar lock으로 차단할 수 없다. 짧은 expiry, active-task 재조회, after-state 검증으로 성공 오판을 막는다.
 - 기존 `docs/`는 제거했고 live-smoke 원본과 `artifacts/rewrite-baseline/`은 historical evidence로 보존했다.
 
 ## 최신 검증 기준선
 
 - canonical Python 3.13 container: backend 전체 `504 passed, 2 skipped`; 두 skip은 opt-in PostgreSQL integration이다.
-- local Python 3.14 venv: backend 전체 `504 passed, 2 skipped`; 별도 PostgreSQL 18.4 실행에서 integration `2 passed`.
-- host Node 26: frontend test 17개, ESLint, Vite production build 통과. canonical runtime이 아니므로 보조 검증으로만 사용했다.
+- local Python 3.14 venv: 롤백 후 backend 전체 `514 passed, 2 skipped`, DRS·route·Placement 집중 `120 passed`; 별도 PostgreSQL 18.4의 직전 integration 기준선은 `2 passed`.
+- host Node 26: 현재 변경에서 frontend test 17개, ESLint, Vite production build 통과. canonical runtime이 아니므로 보조 검증으로만 사용했다.
 - canonical Node 24/pnpm 10: frontend test 17개, ESLint, Vite production build 통과.
 - production image: `docker build -t gjallar:local .` 통과.
-- live Proxmox mutation: 실행하지 않음.
+- live Proxmox mutation: 2026-07-23 승인된 private test target `gjallar-mvp/yoonserver3/100/test`에서 Workload Cockpit의 graceful shutdown·VM Start와 shutdown `dispatch_accepted` 직후 backend crash/restart recovery smoke를 확인했다. 새 runner가 만료 lease를 takeover해 기존 UPID와 direct VM state만 관찰했고, 최종 VM은 `running`, non-terminal Operation·미완료 recovery·open locator lock은 모두 0이었다. 이 검증은 production runner 상시 enable을 의미하지 않으며 local runtime은 기본 disabled로 복원했다.

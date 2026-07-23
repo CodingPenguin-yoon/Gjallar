@@ -1,7 +1,7 @@
 # 프로젝트 명세: Gjallar Verified Operations Control Plane
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-20`
+- 최종 검토일: `2026-07-23`
 - 최종 승인자: `사용자`
 
 ## 1. 해결할 문제
@@ -57,7 +57,8 @@
 - `managed_api`, `guided_manual`, `observe_only` 실행 모드
 - allowlist 기반 `qm` instruction bundle과 외부 실행 후 API 재검증
 - evidence/audit timeline, artifact redaction, operations and risk/health insights
-- placement/capacity recommendation as insight; 기존 DRS execution은 별도 승인 전 유지보수 범위
+- placement/capacity recommendation as observe-only Insights/Monitoring
+- 기존 DRS execution/policy/approval/reconciliation/API/UI는 제거 전 compatibility 범위이며 신규 기능·Common Operation·automatic recovery 확장 대상이 아님
 
 ### 제외
 
@@ -80,7 +81,7 @@
 | FR-007 | Create VM은 표준화된 workload 생성 operation이어야 한다. | 필수 | draft/preflight/plan/exact approval/create/post-check가 하나의 operation 및 생성된 workload identity로 연결된다. |
 | FR-008 | operation 결과는 append-only evidence와 감사 추적을 제공해야 한다. | 필수 | actor/action/before/after/task/provenance/checksum을 조회할 수 있고 secret은 저장·노출되지 않는다. |
 | FR-009 | partial failure와 ambiguous state를 보수적으로 보존해야 한다. | 필수 | timeout, missing UPID, crash-after-dispatch, task/post-check mismatch, evidence 저장 실패를 성공으로 표시하지 않는다. |
-| FR-010 | insights는 실행 권한과 분리해야 한다. | 필수 | risk, readiness, capacity, placement recommendation은 근거·version·freshness를 제공하지만 자체적으로 mutation을 시작하지 않는다. |
+| FR-010 | insights는 실행 권한과 분리하고 DRS 제품 surface를 대체해야 한다. | 필수 | risk, readiness, capacity, placement recommendation은 근거·version·freshness를 제공하지만 mutation을 시작하지 않는다. neutral placement는 DRS persistence와 migration client에 의존하지 않으며 기존 DRS maintenance 계약은 승인된 deprecation 순서로 제거한다. |
 | FR-011 | 인증·권한은 trusted server-side actor를 사용해야 한다. | 필수 | browser payload의 actor를 신뢰하지 않고 read/operator/admin 경계를 backend에서 검증한다. |
 | FR-012 | 기존 소비자는 점진 전환 동안 동작해야 한다. | 필수 | active `/api/v1` endpoint와 canonical frontend route는 deprecation 결정 전 compatibility facade로 유지한다. |
 
@@ -102,6 +103,8 @@
 - Proxmox는 VM/node/config/power/location/storage/network/HA/task actual state를 소유한다.
 - Gjallar는 workload metadata, operation intent, policy, approval, verification, evidence, audit, derived insight를 소유한다.
 - recommendation과 insight는 operation dispatch 권한을 갖지 않는다.
+- DRS maintenance는 제거 대상 compatibility surface다. 신규 Common Operation, automatic recovery, producer/consumer 또는 기능을 추가하지 않는다.
+- 기존 DRS API와 이력은 consumer·retention·forward migration이 승인될 때까지 보존하며, 임시 보존을 장기 제품 결정으로 해석하지 않는다.
 - mutation 전에 intent와 idempotency identity를 저장하고 fresh target identity를 확인한다.
 - exact plan/evidence digest와 승인 대상이 달라지면 재승인한다.
 - 외부 dispatch 불확실성은 retry가 아니라 `needs_reconciliation`이다.
@@ -133,15 +136,15 @@
 
 - 별도 `approver` role과 separation of duties 도입 시점
 - application-level append-only/checksum audit과 external WORM audit 중 목표 수준
-- VM Start/Shutdown 외 Create VM·Guided·DRS의 durable recovery handler 도입 순서와 retry/SLA
+- VM Start/Shutdown 외 Create VM·Guided의 durable recovery handler 도입 순서와 retry/SLA
 - operation·attempt·evidence compatibility table의 장기 migration·retention 전략
 - Guided Manual 후속 allowlist action과 action별 안전 parameter 범위
-- 기존 DRS execution/history의 유지보수 기간과 최종 제거 여부
+- DRS API/UI/policy/approval/execution/reconciliation 중 Insights/Monitoring이 대체할 read model, 외부 consumer, history retention과 제거 순서
 - multi-cluster connection profile과 stale snapshot 보존·표시 계약
 - 정량 SLA, metric interval, evidence retention 기간
 
 ## 12. 승인 기록
 
-- 승인 범위: `제품 경계, 실행 mode, domain ownership, 점진 전환 Plan과 기존 docs 초기화; product runtime demo 제거와 unconfigured/live/degraded connection truth; PostgreSQL durable target lock·VM Start/Shutdown GET-only recovery와 graceful shutdown action`
+- 승인 범위: `제품 경계, 실행 mode, domain ownership, 점진 전환 Plan과 기존 docs 초기화; product runtime demo 제거와 unconfigured/live/degraded connection truth; PostgreSQL durable target lock·VM Start/Shutdown GET-only recovery와 graceful shutdown action; DRS maintenance 단계적 폐기와 neutral Placement/Capacity의 Insights/Monitoring 통합`
 - 감수한 제한: `목표 구조는 점진 구현하며 기존 API와 DB migration 이력은 별도 폐기 승인 전 보존`
-- 승인일: `2026-07-20`
+- 승인일: `2026-07-20`; DRS 방향 정정 승인 `2026-07-23`

@@ -23,10 +23,12 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             from app.main import app
-            from app.api.v1 import router as api_v1_router
+            from app.api.v1 import vm_create_compat as api_v1_router
+            from app.vm_create import application as vm_create_application
         cls.app = app
         cls.paths = {getattr(route, "path", "") for route in app.routes}
         cls.api_v1_router = api_v1_router
+        cls.vm_create_application = vm_create_application
 
     def _approved_payload(self, draft_id, payload):
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
@@ -40,7 +42,11 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         }
 
     def _plan_from_payload(self, draft_id, payload):
-        return self.api_v1_router._api_preview_plan_from_payload(draft_id, payload)
+        return self.vm_create_application.build_preview_plan(
+            draft_id,
+            payload,
+            inventory_adapter=self.api_v1_router._inventory_adapter(),
+        )
 
     def _successful_create_result(self, plan, run_dir, fingerprint_seed="1"):
         from app.jobs.artifacts import write_json_artifact
@@ -114,7 +120,11 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         result = None
         if existing_status == "completed":
             existing_plan = self._plan_from_payload(f"draft-existing-target-{existing_status}", existing_payload)
-            result = self._successful_create_result(existing_plan, self.api_v1_router._api_preview_run_dir(existing_plan.job_id), fingerprint_seed="5")
+            result = self._successful_create_result(
+                existing_plan,
+                self.vm_create_application.preview_run_dir(existing_plan.job_id),
+                fingerprint_seed="5",
+            )
         self._record_existing_create_request(
             draft_id=f"draft-existing-target-{existing_status}",
             payload=existing_payload,
@@ -130,8 +140,8 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "lock-should-not-run"}, create=True) as acquire_lock:
-            with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as mutation:
+        with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "lock-should-not-run"}, create=True) as acquire_lock:
+            with patch.object(self.vm_create_application, "run_proxmox_create", create=True) as mutation:
                 with self.assertRaises(HTTPException) as raised:
                     asyncio.run(
                         self.api_v1_router.create_vm_draft_proxmox_native(
@@ -247,7 +257,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         plan_response = asyncio.run(self.api_v1_router.plan_vm_draft(draft_id, payload))
         review = plan_response["data"]["review_confirm"]
 
-        with patch.object(self.api_v1_router, "run_proxmox_create") as mutation:
+        with patch.object(self.vm_create_application, "run_proxmox_create") as mutation:
             response = asyncio.run(
                 self.api_v1_router.preview_vm_draft_proxmox_create(
                     draft_id,
@@ -304,10 +314,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         def fake_create(plan, *, run_dir, client):
             return self._successful_create_result(plan, run_dir)
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "success-lock"}, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True):
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "success-lock"}, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True):
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create):
                         response = asyncio.run(
                             self.api_v1_router.create_vm_draft_proxmox_native(
                                 draft_id,
@@ -360,10 +370,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="6")
 
         handle = {"handle": "success-lock"}
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value=handle, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value=handle, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create):
                         response = asyncio.run(
                             self.api_v1_router.create_vm_draft_proxmox_native(
                                 draft_id,
@@ -400,10 +410,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             }
 
         handle = {"handle": "clear-reject-lock"}
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value=handle, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value=handle, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create):
                         with self.assertRaises(HTTPException) as raised:
                             asyncio.run(
                                 self.api_v1_router.create_vm_draft_proxmox_native(
@@ -420,7 +430,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertEqual("failed", stored["status"])
         self.assertIsNone(find_vm_create_request_for_target(vmid=102))
 
-        with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as retry_mutation:
+        with patch.object(self.vm_create_application, "run_proxmox_create", create=True) as retry_mutation:
             with self.assertRaises(HTTPException) as retry:
                 asyncio.run(
                     self.api_v1_router.create_vm_draft_proxmox_native(
@@ -457,10 +467,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
                 "side_effects": ["proxmox_clone_invoked", "proxmox_task_poll_state_unknown"],
             }
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "ambiguous-lock"}, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "ambiguous-lock"}, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create):
                         with self.assertRaises(HTTPException) as raised:
                             asyncio.run(
                                 self.api_v1_router.create_vm_draft_proxmox_native(
@@ -494,11 +504,11 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         def fake_create(plan, *, run_dir, client):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="7")
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "persistence-fault-lock"}, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create) as mutation:
-                        with patch.object(self.api_v1_router, "record_vm_instance_from_create", side_effect=RuntimeError("db persistence failed")):
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "persistence-fault-lock"}, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create) as mutation:
+                        with patch.object(self.vm_create_application, "record_vm_instance_from_create", side_effect=RuntimeError("db persistence failed")):
                             with self.assertRaises(RuntimeError):
                                 asyncio.run(
                                     self.api_v1_router.create_vm_draft_proxmox_native(
@@ -516,8 +526,8 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         self.assertEqual("verifying", detail["operation"]["status"])
         self.assertEqual("task_and_state_observed", detail["events"][-1]["event_type"])
 
-        with patch.object(self.api_v1_router, "acquire_target_operation_lock", create=True) as acquire_lock:
-            with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as retry_mutation:
+        with patch.object(self.vm_create_application, "acquire_target_operation_lock", create=True) as acquire_lock:
+            with patch.object(self.vm_create_application, "run_proxmox_create", create=True) as retry_mutation:
                 replay = asyncio.run(
                     self.api_v1_router.create_vm_draft_proxmox_native(
                         draft_id,
@@ -548,10 +558,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        with patch.object(self.api_v1_router, "TargetOperationLockBusy", Busy, create=True):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", side_effect=Busy(), create=True) as acquire_lock:
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as mutation:
+        with patch.object(self.vm_create_application, "TargetOperationLockBusy", Busy, create=True):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", side_effect=Busy(), create=True) as acquire_lock:
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", create=True) as mutation:
                         with self.assertRaises(HTTPException) as raised:
                             asyncio.run(
                                 self.api_v1_router.create_vm_draft_proxmox_native(
@@ -590,10 +600,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         approved_payload = self._approved_payload(draft_id, payload)
         handle = {"handle": "operation-persistence-failure-lock"}
 
-        with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value=handle, create=True):
-            with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                with patch.object(self.api_v1_router, "record_vm_create_dispatch_prepared", side_effect=RuntimeError("operation store unavailable")):
-                    with patch.object(self.api_v1_router, "run_proxmox_create", create=True) as mutation:
+        with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value=handle, create=True):
+            with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                with patch.object(self.vm_create_application, "record_vm_create_dispatch_prepared", side_effect=RuntimeError("operation store unavailable")):
+                    with patch.object(self.vm_create_application, "run_proxmox_create", create=True) as mutation:
                         with self.assertRaises(RuntimeError):
                             asyncio.run(
                                 self.api_v1_router.create_vm_draft_proxmox_native(
@@ -619,10 +629,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         def fake_create(plan, *, run_dir, client):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="3")
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "lock-1"}, create=True) as acquire_lock:
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create) as mutation:
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "lock-1"}, create=True) as acquire_lock:
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create) as mutation:
                         first = asyncio.run(
                             self.api_v1_router.create_vm_draft_proxmox_native(
                                 draft_id,
@@ -700,10 +710,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         def fake_create(plan, *, run_dir, client):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="4")
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "lock-1"}, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True):
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create) as mutation:
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "lock-1"}, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True):
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create) as mutation:
                         first = asyncio.run(
                             self.api_v1_router.create_vm_draft_proxmox_native(
                                 draft_id,
@@ -748,10 +758,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
                 "side_effects": ["proxmox_clone_invoked", "proxmox_task_poll_state_unknown"],
             }
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "lock-1"}, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True):
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create) as mutation:
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "lock-1"}, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True):
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create) as mutation:
                         with self.assertRaises(HTTPException) as first:
                             asyncio.run(
                                 self.api_v1_router.create_vm_draft_proxmox_native(
@@ -821,10 +831,10 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
                 "side_effects": ["proxmox_clone_invoked", "proxmox_task_polled", "proxmox_config_updated", "proxmox_post_check_observed"],
             }
 
-        with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=object()):
-            with patch.object(self.api_v1_router, "acquire_target_operation_lock", return_value={"handle": "reconcile-lock"}, create=True):
-                with patch.object(self.api_v1_router, "release_target_operation_lock", create=True) as release_lock:
-                    with patch.object(self.api_v1_router, "run_proxmox_create", side_effect=fake_create):
+        with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
+            with patch.object(self.vm_create_application, "acquire_target_operation_lock", return_value={"handle": "reconcile-lock"}, create=True):
+                with patch.object(self.vm_create_application, "release_target_operation_lock", create=True) as release_lock:
+                    with patch.object(self.vm_create_application, "run_proxmox_create", side_effect=fake_create):
                         with self.assertRaises(HTTPException) as raised:
                             asyncio.run(
                                 self.api_v1_router.create_vm_draft_proxmox_native(

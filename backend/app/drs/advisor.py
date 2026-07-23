@@ -14,18 +14,11 @@ from typing import Any
 
 from app.drs.identity import DEFAULT_CLUSTER_ID, migration_policy_evidence, resolve_inventory_identities
 from app.drs.operation_locks import lock_blockers, recommendation_lock_evidence
-
-
-THRESHOLDS = {
-    "hot": 70,
-    "critical": 85,
-    "source_target_delta": 25,
-    "cpu_hot_percent": 70,
-    "memory_hot_percent": 70,
-    "cpu_critical_percent": 85,
-    "memory_critical_percent": 85,
-    "source_target_delta_percent": 25,
-}
+from app.insights.placement import (
+    THRESHOLDS,
+    build_candidate_recommendation,
+    calculate_placement,
+)
 EXPLICIT_TEST_RECOMMENDATION_PREFIX = "drs-rec-explicit-test-vm-"
 READ_ONLY_EXECUTION = {
     "available": False,
@@ -35,9 +28,6 @@ READ_ONLY_EXECUTION = {
 BASE_BLOCKERS = (
     "final_precheck_not_run",
 )
-LOCAL_STORAGE_TYPES = {"dir", "lvm", "lvmthin", "zfspool", "zfs"}
-LOCAL_STORAGE_IDS = {"local", "local-lvm", "local-zfs"}
-PASSTHROUGH_TAG_TERMS = ("passthrough", "pci", "gpu", "usb")
 AUTHORITY_GJALLAR = "gjallar_operational_gate"
 AUTHORITY_PROXMOX = "proxmox_final_technical_gate"
 AUTHORITY_ADVISOR = "advisor_prefilter_signal"
@@ -350,13 +340,6 @@ def _as_text(value: Any, fallback: str = "") -> str:
     return text or fallback
 
 
-def _as_float(value: Any, fallback: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
-
-
 def _as_int(value: Any, fallback: int = 0) -> int:
     try:
         return int(value)
@@ -402,143 +385,6 @@ def _parse_explicit_test_recommendation_id(recommendation_id: str) -> dict[str, 
     return {"vmid": _as_int(match.group("vmid"))}
 
 
-def _source_label(adapter: Any, snapshot: Any | None) -> str:
-    return _as_text(_field(snapshot, "source", default=None) or _field(adapter, "source", default="unknown"), "unknown")
-
-
-def _snapshot(adapter: Any) -> Any | None:
-    if hasattr(adapter, "snapshot"):
-        return adapter.snapshot()
-    return None
-
-
-def _adapter_items(adapter: Any, snapshot: Any | None, method_name: str, snapshot_name: str) -> list[Any]:
-    if hasattr(adapter, method_name):
-        return list(getattr(adapter, method_name)())
-    return _as_list(_field(snapshot, snapshot_name, default=[]))
-
-
-def _storage_id(source: Any) -> str:
-    return _as_text(_field(source, "storage_id", "storageId", "storage", "id", default="unknown"), "unknown")
-
-
-def _node_id(source: Any) -> str:
-    return _as_text(_field(source, "node_id", "nodeId", "node", "id", "name", default="unknown"), "unknown")
-
-
-def _normalize_storage(source: Any) -> dict[str, Any]:
-    return {
-        "id": _storage_id(source),
-        "node_id": _node_id(source),
-        "type": _normalize_status(_field(source, "type", default="unknown")),
-        "total_gb": _as_float(_field(source, "total_gb", "totalGb", default=0)),
-        "free_gb": _as_float(_field(source, "free_gb", "freeGb", default=0)),
-    }
-
-
-def _normalize_network(source: Any) -> dict[str, Any]:
-    active_value = _field(source, "active", default=True)
-    return {
-        "bridge_id": _as_text(_field(source, "bridge_id", "bridgeId", "bridge", "id", default="unknown"), "unknown"),
-        "node_id": _node_id(source),
-        "active": True if active_value is None else bool(active_value),
-        "type": _normalize_status(_field(source, "type", default="bridge")),
-        "cidr": _as_text(_field(source, "cidr", default="")),
-        "gateway": _as_text(_field(source, "gateway", default="")),
-    }
-
-
-def _normalize_node(source: Any, storages: list[dict[str, Any]], networks: list[dict[str, Any]]) -> dict[str, Any]:
-    node_id = _node_id(source)
-    inline_storages = [_normalize_storage(item) for item in _as_list(_field(source, "storage", default=[]))]
-    inline_networks = [_normalize_network(item) for item in _as_list(_field(source, "networks", default=[]))]
-    node_storages = inline_storages or [item for item in storages if item["node_id"] == node_id]
-    node_networks = inline_networks or [item for item in networks if item["node_id"] == node_id]
-    cpu_usage = _as_float(_field(source, "cpu_usage_percent", "cpuUsagePercent", default=0))
-    memory_usage = _as_float(_field(source, "memory_usage_percent", "memoryUsagePercent", default=0))
-    return {
-        "id": node_id,
-        "name": _as_text(_field(source, "display_name", "displayName", "name", default=node_id), node_id),
-        "status": _normalize_status(_field(source, "status", default="unknown")),
-        "online": _normalize_status(_field(source, "status", default="unknown")) == "online",
-        "cpu_usage_percent": cpu_usage,
-        "memory_usage_percent": memory_usage,
-        "pressure": max(cpu_usage, memory_usage),
-        "memory_total_mb": _as_int(_field(source, "memory_total_mb", "memoryTotalMb", default=0)),
-        "storage": node_storages,
-        "networks": node_networks,
-    }
-
-
-def _disk_storage_ids(vm: Any) -> list[str]:
-    return _unique(
-        [
-            _storage_id(disk)
-            for disk in _as_list(_field(vm, "disks", default=[]))
-            if _storage_id(disk) != "unknown"
-        ]
-    )
-
-
-def _disk_volume_ids(vm: Any) -> list[str]:
-    return _unique(
-        [
-            _field(disk, "volume_id", "volumeId", default="")
-            for disk in _as_list(_field(vm, "disks", default=[]))
-            if _as_text(_field(disk, "volume_id", "volumeId", default="")).lower() != "unknown"
-        ]
-    )
-
-
-def _vm_bridge_ids(vm: Any) -> list[str]:
-    evidence = _as_list(_field(vm, "nic_bridge_evidence", "nicBridgeEvidence", default=[]))
-    return _unique(
-        [
-            _field(item, "bridge_id", "bridgeId", "bridge", default="")
-            for item in evidence
-        ]
-    )
-
-
-def _vm_mac_addresses(vm: Any) -> list[str]:
-    direct = _as_list(_field(vm, "mac_addresses", "macAddresses", default=[]))
-    nic_macs = [
-        _field(item, "mac_address", "macAddress", "mac", default="")
-        for item in _as_list(_field(vm, "nic_bridge_evidence", "nicBridgeEvidence", default=[]))
-    ]
-    return _unique([str(item).strip().lower() for item in [*direct, *nic_macs]])
-
-
-def _normalize_vm(source: Any) -> dict[str, Any]:
-    vmid = _field(source, "vmid", "vm_id", "id", default=0)
-    storage_ids = _unique(
-        [
-            _field(source, "storage_id", "storageId", default=""),
-            *_disk_storage_ids(source),
-        ]
-    )
-    return {
-        "id": _as_text(vmid, "unknown"),
-        "vmid": _as_int(vmid),
-        "name": _as_text(_field(source, "name", "vm_name", default=f"vm-{vmid}"), f"vm-{vmid}"),
-        "node_id": _as_text(_field(source, "node_id", "nodeId", "node", default="unknown"), "unknown"),
-        "status": _normalize_status(_field(source, "status", default="unknown")),
-        "template": bool(_field(source, "template", default=False)),
-        "cpu": _as_int(_field(source, "cpu", "cpus", default=0)),
-        "memory_mb": _as_int(_field(source, "memory_mb", "memoryMb", default=0)),
-        "disk_gb": _as_float(_field(source, "disk_gb", "diskGb", default=0)),
-        "storage_ids": storage_ids,
-        "disk_volume_ids": _disk_volume_ids(source),
-        "bridge_ids": _vm_bridge_ids(source),
-        "smbios1": _as_text(_field(source, "smbios1", default="")),
-        "vmgenid": _as_text(_field(source, "vmgenid", default="")),
-        "mac_addresses": _vm_mac_addresses(source),
-        "config_lock": _as_text(_field(source, "config_lock", "configLock", default="")),
-        "tags": _unique(_as_list(_field(source, "tags", default=[]))),
-        "raw": source,
-    }
-
-
 def _risk_level(risk: Any) -> str:
     return _normalize_status(_field(risk, "level", "risk_level", "riskLevel", default="unknown"))
 
@@ -563,106 +409,6 @@ def _risk_targets_vm(risk: Any, vm: dict[str, Any]) -> bool:
 
 def _has_red_risk(vm: dict[str, Any], risks: list[Any]) -> bool:
     return any(_risk_level(risk) == "red" and _risk_targets_vm(risk, vm) for risk in risks)
-
-
-def _is_local_storage_id(storage_id: str) -> bool:
-    normalized = storage_id.strip().lower()
-    return normalized in LOCAL_STORAGE_IDS or normalized.startswith("local-")
-
-
-def _storage_records_for_ids(storage_ids: list[str], nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    records = []
-    wanted = set(storage_ids)
-    for node in nodes:
-        for storage in node["storage"]:
-            if storage["id"] in wanted:
-                records.append(storage)
-    return records
-
-
-def _local_storage_evidence(vm: dict[str, Any], nodes: list[dict[str, Any]]) -> dict[str, Any]:
-    records = _storage_records_for_ids(vm["storage_ids"], nodes)
-    local_ids = [
-        storage_id
-        for storage_id in vm["storage_ids"]
-        if _is_local_storage_id(storage_id)
-    ]
-    local_types = [
-        record["type"]
-        for record in records
-        if record["type"] in LOCAL_STORAGE_TYPES
-    ]
-    return {
-        "blocked": bool(local_ids or local_types),
-        "authority": AUTHORITY_ADVISOR,
-        "category": "advisory",
-        "severity": "warning" if local_ids or local_types else "info",
-        "evidence_state": "observed",
-        "action_blocked": ACTION_NONE,
-        "storage_ids": vm["storage_ids"],
-        "local_storage_ids": _unique(local_ids),
-        "local_storage_types": _unique(local_types),
-    }
-
-
-def _passthrough_evidence(vm: dict[str, Any]) -> dict[str, Any]:
-    matched = []
-    for tag in vm["tags"]:
-        normalized = tag.lower()
-        if any(term in normalized for term in PASSTHROUGH_TAG_TERMS):
-            matched.append(tag)
-    return {
-        "blocked": bool(matched),
-        "authority": AUTHORITY_ADVISOR,
-        "category": "advisory",
-        "severity": "warning" if matched else "info",
-        "evidence_state": "observed",
-        "action_blocked": ACTION_NONE,
-        "matched_tags": _unique(matched),
-        "method": "tags_only",
-        "limitation": "Current passthrough detection uses VM tags only; Proxmox device config parsing is not yet included.",
-    }
-
-
-def _route_evidence(vm: dict[str, Any], source_node: dict[str, Any], target_node: dict[str, Any]) -> dict[str, Any]:
-    source_bridge_ids = {
-        network["bridge_id"]
-        for network in source_node["networks"]
-        if network["active"] and network["bridge_id"] != "unknown"
-    }
-    target_bridge_ids = {
-        network["bridge_id"]
-        for network in target_node["networks"]
-        if network["active"] and network["bridge_id"] != "unknown"
-    }
-    vm_bridge_ids = set(vm["bridge_ids"])
-    target_storage_ids = {storage["id"] for storage in target_node["storage"]}
-    vm_storage_ids = set(vm["storage_ids"])
-    matching_bridges = sorted(vm_bridge_ids & target_bridge_ids)
-    source_bridge_present = not vm_bridge_ids or bool(vm_bridge_ids & source_bridge_ids)
-    network_sufficient = bool(vm_bridge_ids) and source_bridge_present and vm_bridge_ids.issubset(target_bridge_ids)
-    storage_sufficient = bool(vm_storage_ids) and vm_storage_ids.issubset(target_storage_ids)
-    if storage_sufficient and vm["disk_gb"] > 0:
-        matching_target_storages = [
-            storage for storage in target_node["storage"] if storage["id"] in vm_storage_ids
-        ]
-        storage_sufficient = any(storage["free_gb"] >= vm["disk_gb"] for storage in matching_target_storages)
-    return {
-        "blocked": not (network_sufficient and storage_sufficient),
-        "authority": AUTHORITY_ADVISOR,
-        "category": "advisory",
-        "severity": "warning" if not (network_sufficient and storage_sufficient) else "info",
-        "evidence_state": "observed" if network_sufficient and storage_sufficient else "unknown",
-        "action_blocked": ACTION_NONE,
-        "network_evidence_sufficient": network_sufficient,
-        "storage_evidence_sufficient": storage_sufficient,
-        "vm_bridge_ids": sorted(vm_bridge_ids),
-        "source_bridge_ids": sorted(source_bridge_ids),
-        "target_bridge_ids": sorted(target_bridge_ids),
-        "matching_target_bridge_ids": matching_bridges,
-        "vm_storage_ids": sorted(vm_storage_ids),
-        "target_storage_ids": sorted(target_storage_ids),
-    }
 
 
 def _criterion_detail(
@@ -890,46 +636,6 @@ def _identity_policy_blockers(
     return blockers
 
 
-def _cluster_id(adapter: Any, snapshot: Any | None) -> str:
-    connection = _field(snapshot, "connection", default={})
-    return _as_text(
-        _field(connection, "cluster_id", "clusterId", default=None)
-        or _field(adapter, "cluster_id", "clusterId", default=None),
-        DEFAULT_CLUSTER_ID,
-    )
-
-
-def _estimate_pressure_effect(vm: dict[str, Any], source_node: dict[str, Any]) -> float:
-    running_count = max(_as_int(source_node.get("running_vm_count"), 1), 1)
-    vm_count_share = source_node["pressure"] / running_count
-    memory_share = 0.0
-    if source_node["memory_total_mb"] > 0:
-        memory_share = (vm["memory_mb"] / source_node["memory_total_mb"]) * 100
-    return max(4.0, min(18.0, max(vm_count_share, memory_share)))
-
-
-def _with_vm_counts(nodes: list[dict[str, Any]], vms: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result = []
-    for node in nodes:
-        node_vms = [vm for vm in vms if vm["node_id"] == node["id"]]
-        result.append(
-            {
-                **node,
-                "running_vm_count": len([vm for vm in node_vms if vm["status"] == "running" and not vm["template"]]),
-                "total_vm_count": len(node_vms),
-            }
-        )
-    return result
-
-
-def _candidate_reason(source_node: dict[str, Any], target_node: dict[str, Any]) -> str:
-    source_state = "critical" if source_node["pressure"] >= THRESHOLDS["critical"] else "hot"
-    return (
-        f"Source node is {source_state} and target pressure is lower by "
-        f"{round(source_node['pressure'] - target_node['pressure'])}%."
-    )
-
-
 def _build_recommendation(
     *,
     vm: dict[str, Any],
@@ -939,16 +645,19 @@ def _build_recommendation(
     identity_evidence: dict[str, Any],
     policy_evidence: dict[str, Any],
 ) -> dict[str, Any]:
-    route = _route_evidence(vm, source_node, target_node)
-    local_storage = _local_storage_evidence(vm, nodes)
-    passthrough = _passthrough_evidence(vm)
-    pressure_effect = _estimate_pressure_effect(vm, source_node)
-    target_pressure_after = min(100, target_node["pressure"] + pressure_effect)
-    target_over_threshold = target_pressure_after >= THRESHOLDS["critical"]
+    placement = build_candidate_recommendation(
+        vm=vm,
+        source_node=source_node,
+        target_node=target_node,
+        nodes=nodes,
+    )
+    route = placement["evidence"]["route"]
+    local_storage = placement["evidence"]["storage"]
+    passthrough = placement["evidence"]["passthrough"]
     blockers = [
         *_identity_policy_blockers(identity_evidence, policy_evidence),
         *BASE_BLOCKERS,
-        "target_over_threshold" if target_over_threshold else "",
+        *placement["blockers"],
     ]
     blockers = _unique([code for code in blockers if code])
     advisory_signals = [
@@ -961,20 +670,9 @@ def _build_recommendation(
         advisory_signals=advisory_signals,
         extra=_proxmox_pending_technical_criteria(),
     )
-    delta = source_node["pressure"] - target_node["pressure"]
     return {
-        "id": f"drs-rec-vm-{_safe_segment(vm['vmid'])}-{_safe_segment(source_node['id'])}-{_safe_segment(target_node['id'])}",
-        "type": "vm_migration_advice",
+        **placement,
         "status": "blocked",
-        "risk_level": "yellow",
-        "vmid": vm["vmid"],
-        "vm_name": vm["name"],
-        "source_node_id": source_node["id"],
-        "source_node_name": source_node["name"],
-        "target_node_id": target_node["id"],
-        "target_node_name": target_node["name"],
-        "reason": _candidate_reason(source_node, target_node),
-        "thresholds": dict(THRESHOLDS),
         "blockers": blockers,
         "blocker_details": _blocker_details(blockers),
         "criteria": criteria,
@@ -983,43 +681,11 @@ def _build_recommendation(
         "technical_gate_status": technical_gate_status,
         "identity_evidence": identity_evidence,
         "policy_evidence": policy_evidence,
-        "estimated_effect": {
-            "source_pressure_before": round(source_node["pressure"], 2),
-            "target_pressure_before": round(target_node["pressure"], 2),
-            "source_pressure_after": round(max(0, source_node["pressure"] - pressure_effect), 2),
-            "target_pressure_after": round(target_pressure_after, 2),
-            "source_target_delta": round(delta, 2),
-        },
         "evidence": {
-            "candidate_filter": {
-                "running": True,
-                "template": False,
-                "red_risk_excluded": False,
-            },
-            "source": {
-                "cpu_usage_percent": source_node["cpu_usage_percent"],
-                "memory_usage_percent": source_node["memory_usage_percent"],
-                "pressure_percent": source_node["pressure"],
-            },
-            "target": {
-                "cpu_usage_percent": target_node["cpu_usage_percent"],
-                "memory_usage_percent": target_node["memory_usage_percent"],
-                "pressure_percent": target_node["pressure"],
-            },
-            "route": route,
-            "storage": local_storage,
-            "passthrough": passthrough,
+            **placement["evidence"],
             "identity": identity_evidence,
             "policy": policy_evidence,
-            "target_over_threshold": {
-                "blocked": target_over_threshold,
-                "critical_threshold": THRESHOLDS["critical"],
-                "projected_target_pressure_percent": round(target_pressure_after, 2),
-            },
         },
-        "read_only": True,
-        "executable": False,
-        "allowed_actions": [],
         "execution": dict(READ_ONLY_EXECUTION),
     }
 
@@ -1153,142 +819,55 @@ def _synthesize_explicit_test_recommendation(
     return recommendation
 
 
-def _build_recommendations(
-    nodes: list[dict[str, Any]],
-    vms: list[dict[str, Any]],
-    risks: list[Any],
-    *,
-    identity_map: dict[tuple[str, int], Any],
-    cluster_id: str,
-    source: str,
-) -> list[dict[str, Any]]:
-    recommendations: list[dict[str, Any]] = []
-    sources = sorted(
-        [node for node in nodes if node["online"] and node["pressure"] >= THRESHOLDS["hot"]],
-        key=lambda node: (-node["pressure"], node["name"]),
-    )
-    for source_node in sources:
-        target_candidates = [
-            node
-            for node in nodes
-            if node["online"]
-            and node["id"] != source_node["id"]
-            and source_node["pressure"] - node["pressure"] >= THRESHOLDS["source_target_delta"]
-        ]
-        if not target_candidates:
-            continue
-        target_node = sorted(target_candidates, key=lambda node: (node["pressure"], node["name"]))[0]
-        source_vms = [
-            vm
-            for vm in vms
-            if vm["node_id"] == source_node["id"]
-            and vm["status"] == "running"
-            and not vm["template"]
-            and not _has_red_risk(vm, risks)
-        ]
-        for vm in sorted(source_vms, key=lambda item: (-item["memory_mb"], -item["disk_gb"], item["name"]))[:3]:
-            identity_evidence = _identity_evidence_for_vm(
-                vm,
-                identity_map,
-                cluster_id=cluster_id,
-                source=source,
-            )
-            policy_evidence = _policy_evidence_for_identity(identity_evidence)
-            recommendations.append(
-                _build_recommendation(
-                    vm=vm,
-                    source_node=source_node,
-                    target_node=target_node,
-                    nodes=nodes,
-                    identity_evidence=identity_evidence,
-                    policy_evidence=policy_evidence,
-                )
-            )
-    return sorted(
-        recommendations,
-        key=lambda item: (-item["estimated_effect"]["source_target_delta"], item["vm_name"]),
-    )[:10]
-
-
-def _cluster_state(nodes: list[dict[str, Any]], recommendations: list[dict[str, Any]]) -> str:
-    if any(node["pressure"] >= THRESHOLDS["critical"] for node in nodes):
-        return "critical"
-    if recommendations or any(node["pressure"] >= THRESHOLDS["hot"] for node in nodes):
-        return "hot"
-    return "balanced"
-
-
-def _summary(nodes: list[dict[str, Any]], vms: list[dict[str, Any]], risks: list[Any], recommendations: list[dict[str, Any]]) -> dict[str, Any]:
-    running_non_template = [vm for vm in vms if vm["status"] == "running" and not vm["template"]]
-    excluded_red = [vm for vm in running_non_template if _has_red_risk(vm, risks)]
-    online_nodes = [node for node in nodes if node["online"]]
-    pressures = [node["pressure"] for node in online_nodes]
-    pressure_delta = max(pressures) - min(pressures) if len(pressures) >= 2 else 0
-    return {
-        "cluster_state": _cluster_state(nodes, recommendations),
-        "total_nodes": len(nodes),
-        "online_nodes": len(online_nodes),
-        "total_vms": len(vms),
-        "running_candidate_vms": len(running_non_template),
-        "excluded_red_risk_vms": len(excluded_red),
-        "recommendation_count": len(recommendations),
-        "hot_node_count": len([node for node in online_nodes if node["pressure"] >= THRESHOLDS["hot"]]),
-        "critical_node_count": len([node for node in online_nodes if node["pressure"] >= THRESHOLDS["critical"]]),
-        "source_target_delta": round(pressure_delta, 2),
-        "thresholds": dict(THRESHOLDS),
-        "read_only": True,
-        "executable": False,
-        "execution": dict(READ_ONLY_EXECUTION),
-    }
-
-
 def _calculate_drs_model(adapter: Any, *, risks: list[Any] | None = None) -> dict[str, Any]:
-    snapshot = _snapshot(adapter)
-    source = _source_label(adapter, snapshot)
-    cluster_id = _cluster_id(adapter, snapshot)
-    observed_at = _as_text(_field(snapshot, "observed_at", default=""))
-    storages = [_normalize_storage(item) for item in _adapter_items(adapter, snapshot, "list_storage", "storage")]
-    networks = [_normalize_network(item) for item in _adapter_items(adapter, snapshot, "list_networks", "networks")]
-    nodes = [
-        _normalize_node(item, storages, networks)
-        for item in _adapter_items(adapter, snapshot, "list_nodes", "nodes")
-    ]
-    vms = [
-        _normalize_vm(item)
-        for item in _adapter_items(adapter, snapshot, "list_vms", "vms")
-    ]
-    nodes = _with_vm_counts(nodes, vms)
-    risk_items = list(risks or [])
+    placement = calculate_placement(adapter, risks=risks)
+    nodes = placement["nodes"]
+    vms = placement["vms"]
+    risk_items = placement["risks"]
+    cluster_id = placement["cluster_id"]
+    source = placement["source"]
+    observed_at = placement["observed_at"]
     identity_map = resolve_inventory_identities(
         vms,
         cluster_id=cluster_id,
-        observed_at=_field(snapshot, "observed_at", default=None),
+        observed_at=placement["snapshot_observed_at"],
         source=source,
     )
-    recommendations = _build_recommendations(
-        nodes,
-        vms,
-        risk_items,
-        identity_map=identity_map,
-        cluster_id=cluster_id,
-        source=source,
-    )
-    summary = _summary(nodes, vms, risk_items, recommendations)
+    node_by_id = {node["id"]: node for node in nodes}
+    vm_by_id = {vm["vmid"]: vm for vm in vms}
+    recommendations: list[dict[str, Any]] = []
+    for candidate in placement["model"]["recommendations"]:
+        vm = vm_by_id.get(candidate["vmid"])
+        source_node = node_by_id.get(candidate["source_node_id"])
+        target_node = node_by_id.get(candidate["target_node_id"])
+        if vm is None or source_node is None or target_node is None:
+            continue
+        identity_evidence = _identity_evidence_for_vm(
+            vm,
+            identity_map,
+            cluster_id=cluster_id,
+            source=source,
+        )
+        policy_evidence = _policy_evidence_for_identity(identity_evidence)
+        recommendation = _build_recommendation(
+            vm=vm,
+            source_node=source_node,
+            target_node=target_node,
+            nodes=nodes,
+            identity_evidence=identity_evidence,
+            policy_evidence=policy_evidence,
+        )
+        recommendation["id"] = candidate["id"]
+        recommendations.append(recommendation)
+    summary = {
+        **placement["model"]["summary"],
+        "recommendation_count": len(recommendations),
+    }
     model = {
+        **placement["model"],
         "summary": summary,
         "recommendations": recommendations,
-        "thresholds": dict(THRESHOLDS),
-        "read_only": True,
-        "executable": False,
-        "allowed_actions": [],
         "execution": dict(READ_ONLY_EXECUTION),
-        "evidence": {
-            "source": source,
-            "cluster_id": cluster_id,
-            "observed_at": observed_at,
-            "candidate_filter": "running_non_template_vms_without_red_risk",
-            "passthrough_detection": "tags_only",
-        },
     }
     return {
         "model": model,

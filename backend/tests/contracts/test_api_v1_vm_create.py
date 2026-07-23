@@ -23,7 +23,7 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             from app.main import app
-            from app.api.v1 import router as api_v1_router
+            from app.api.v1 import vm_create_compat as api_v1_router
         cls.paths = {getattr(route, "path", "") for route in app.routes}
         cls.api_v1_router = api_v1_router
 
@@ -62,7 +62,9 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         self.assertEqual(303, plan_response["data"]["vmid"])
 
     def test_profiles_route_returns_three_active_db_seed_profiles_without_forbidden_fields(self):
-        response = asyncio.run(self.api_v1_router.list_profiles())
+        from app.api.v1 import inventory as inventory_api
+
+        response = asyncio.run(inventory_api.list_profiles())
 
         self.assertTrue(response["ok"])
         profiles = response["data"]
@@ -116,7 +118,9 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         asyncio.run(self.api_v1_router.preflight_vm_draft("draft-api-progress-contract", payload))
         asyncio.run(self.api_v1_router.plan_vm_draft("draft-api-progress-contract", payload))
 
-        jobs_response = asyncio.run(self.api_v1_router.list_jobs())
+        from app.api.v1 import jobs_compat as jobs_api
+
+        jobs_response = asyncio.run(jobs_api.list_jobs())
         jobs = {job["job_id"]: job for job in jobs_response["data"]}
         self.assertIn(job_id, jobs)
         job = jobs[job_id]
@@ -125,8 +129,8 @@ class ApiV1VmCreateRoutesTests(unittest.TestCase):
         self.assertGreaterEqual(job["progress_percent"], 1)
         self.assertTrue(any(step["id"] == "plan" for step in job["steps"]))
 
-        detail_response = asyncio.run(self.api_v1_router.get_job(job_id))
-        artifact_response = asyncio.run(self.api_v1_router.list_job_artifacts(job_id))
+        detail_response = asyncio.run(jobs_api.get_job(job_id))
+        artifact_response = asyncio.run(jobs_api.list_job_artifacts(job_id))
         self.assertEqual(job_id, detail_response["data"]["job_id"])
         self.assertTrue(any(artifact["type"] == "plan" for artifact in artifact_response["data"]))
 

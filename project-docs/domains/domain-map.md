@@ -1,8 +1,8 @@
 # 목표 도메인 지도
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-21`
-- 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md)
+- 최종 검토일: `2026-07-23`
+- 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
 
 이 문서는 승인된 logical ownership과 현재 구현 범위를 함께 설명한다. Operations core와 VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, observe-only Insights vertical slice가 이 경계를 적용했으며 나머지 package/table 전환이나 추가 data migration을 승인하는 문서는 아니다.
 
@@ -113,14 +113,14 @@ flowchart LR
 | `operations` | Operations | 현재 projection; target/action/mode/status/idempotency/plan/actor/version 소유 |
 | `operation_events` | Evidence/Audit, producer는 Operations | operation별 monotonic sequence와 checksum chain을 갖는 append-only event |
 | `operation_locks`, `operation_recovery_items` | Operations | locator lock은 VM Start/Shutdown/Create/Guided/DRS가 공유하고 recovery item은 VM Start/Shutdown observer가 생산 |
-| `vm_create_requests`, `drs_migration_jobs` | Operations | 공통 operation으로의 이동은 forward migration 필요 |
+| `vm_create_requests`, `drs_migration_jobs` | Operations | Create VM 신규 row는 공통 Operation과 dual record; DRS job은 전용 state를 유지하며 제거에는 forward migration 승인 필요 |
 | `vm_migration_policies`, `drs_approval_packets` | Policy/Approval | generic policy화는 실제 use case가 생길 때 수행 |
 | policy/reconciliation event tables | Evidence/Audit 또는 Operations event | event 의미와 retention을 먼저 확정 |
 
 ## 경계가 불확실한 영역
 
 - workload owner/environment/tag가 Gjallar metadata인지 Proxmox tag projection인지
-- 공통 repository는 projection transition과 해당 event append를 하나의 transaction으로 기록한다. 기존 job/artifact와 향후 Policy approval까지 같은 transaction으로 묶을 범위는 미확정이다.
+- 공통 repository는 projection transition과 해당 event append를 하나의 transaction으로 기록한다. 기존 job/artifact와 향후 generic Policy approval의 transaction 범위는 미확정이다.
 - separate approver role과 approval ownership
 - recovery throughput이 늘 때 현재 Operations 내부 in-process adapter를 별도 worker process로 분리할 시점
 - metric sample retention과 Insights read model storage
@@ -133,5 +133,5 @@ flowchart LR
 - Create VM은 plan부터 common Operation을 만들고 approval·preview·dispatch·result·workload linkage를 event로 기록한다. 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact는 migration 없이 compatibility record로 병행한다.
 - Guided `qm unlock`은 common Operation만 사용하며 `guided_manual` mode, expiry, trusted attestation, API verification과 reconciliation을 상태/event로 남긴다.
 - `backend/app/operations/locks/`와 `recovery/`가 durable locator lock, due item, lease generation/token fencing과 allowlisted handler를 소유한다. VM Start/Shutdown은 dispatch 전 recovery item을 준비하고 opt-in FastAPI lifespan runner가 stored UPID와 actual state만 재관찰한다.
-- Insights는 `backend/app/insights/`의 공통 finding/section 계약과 read application service로 구현됐다. `job_runs` risk, current Workloads observation, DRS recommendation을 요청 시 조합하며 persistent Insight table이나 command port는 없다. source 장애와 미관찰 값은 `unknown`/`unavailable`, 200개 초과 finding은 truncation metadata로 드러낸다.
-- DRS는 아직 common Operation repository로 전환되지 않았지만 Proxmox locator scope는 다른 mutation과 같은 PostgreSQL unique lock을 공유한다. DRS identity/route scope와 상태기계는 그대로 DRS 전용이다.
+- Insights는 `backend/app/insights/`의 공통 finding/section 계약과 read application service로 구현됐다. `job_runs` risk와 current Workloads observation을 요청 시 조합하고 `insights/placement.py`가 neutral placement를 계산하며 persistent Insight table이나 command port는 없다. placement는 DRS identity/policy/lock persistence에 의존하지 않는다. source 장애와 미관찰 값은 `unknown`/`unavailable`, 200개 초과 finding은 truncation metadata로 드러낸다.
+- DRS migration은 기존 DRS state, authenticated actor 소유 lock, operator reconciliation과 Jobs/Artifacts를 사용하는 전용 compatibility 책임이다. Common Operation에는 연결하지 않는다. DRS 제거와 Insights/Monitoring 통합의 consumer·history·contract/data migration은 아직 구현하지 않았다.

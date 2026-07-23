@@ -9,6 +9,8 @@
 
 이 Plan은 risk, readiness, capacity, placement를 실행 권한 없는 Insights 제품 경계로 통합하고 DRS를 primary product navigation에서 maintenance 경로로 내리는 단계 9의 상세 범위를 정의한다. 기존 DRS API·실행·정책·DB 데이터와 compatibility route는 별도 폐기 승인 전 유지한다.
 
+> 2026-07-23 방향 정정: 이 Plan의 DRS maintenance 보존은 단계 9에서 즉시 contract/data를 삭제하지 않기 위한 전환 전술이었다. 장기 제품 방향은 [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)의 DRS 단계적 폐기와 Insights/Monitoring 통합이며, DRS Common Operation·automatic recovery·기능 확장은 후속 범위가 아니다.
+
 ## 1. 위험도
 
 - 분류: `HIGH`
@@ -182,5 +184,5 @@
 - 갱신한 현재 상태 문서: Project Profile, Architecture Overview, Domain Map, current API, 상위 전환 Plan, 이 상세 Plan. 요구사항과 ADR은 승인된 방향이 바뀌지 않아 수정하지 않았고 DB schema/operation lifecycle도 변경하지 않았다.
 - 남은 위험:
   - Insights는 request-time derived model이며 metric retention/stale snapshot persistence가 없다. Proxmox non-live에서는 inventory category를 다시 볼 수 없다.
-  - legacy Jobs/Risks endpoint의 DB error → empty list 의미와 DRS maintenance execution은 별도 승인 전 남아 있다.
+  - legacy Jobs/Risks endpoint의 DB error → empty list 의미와 DRS maintenance execution은 별도 제거 Plan 전 남아 있다. DRS는 유지·확장 대상이 아니라 제거 대상 compatibility surface다.
   - browser 수동 a11y/navigation과 live cluster rule 적합성은 확인하지 않았다. live Proxmox mutation은 범위 밖이다.

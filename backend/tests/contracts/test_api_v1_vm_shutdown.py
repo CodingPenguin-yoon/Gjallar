@@ -70,11 +70,11 @@ class ShutdownClient:
 
 
 def run_shutdown(*, client=None, inventory=None, payload=None):
-    from app.api.v1 import router
+    from app.api.v1 import vm_actions as router
 
     client = client or ShutdownClient()
     inventory = inventory or Inventory()
-    with patch.object(router, "_inventory_adapter", return_value=inventory), patch.object(
+    with patch.object(router.inventory_context, "inventory_adapter", return_value=inventory), patch.object(
         router,
         "get_default_proxmox_mutation_client",
         return_value=client,
@@ -103,7 +103,7 @@ def test_shutdown_route_is_additive():
 
 
 def test_shutdown_requires_ack_and_idempotency_before_client_creation():
-    from app.api.v1 import router
+    from app.api.v1 import vm_actions as router
 
     with patch.object(router, "get_default_proxmox_mutation_client") as factory:
         with pytest.raises(HTTPException) as missing_ack:
@@ -267,12 +267,12 @@ def test_shutdown_recovery_registration_failure_blocks_before_post():
 
 
 def test_shutdown_missing_mutation_client_is_failed_without_post_or_retained_lock():
-    from app.api.v1 import router
+    from app.api.v1 import vm_actions as router
     from app.jobs.runs import get_job_run
     from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
     from app.operations.target_lock import get_target_operation_lock
 
-    with patch.object(router, "_inventory_adapter", return_value=Inventory()), patch.object(
+    with patch.object(router.inventory_context, "inventory_adapter", return_value=Inventory()), patch.object(
         router,
         "get_default_proxmox_mutation_client",
         return_value=None,

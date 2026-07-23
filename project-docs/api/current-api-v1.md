@@ -1,9 +1,9 @@
 # API 계약: 현재 `/api/v1` 기준선
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-21`
+- 최종 검토일: `2026-07-23`
 - 소비자: `frontend/src/shared/api/apiV1.js`, compatibility export `frontend/src/services/apiV1.js`, React SPA, 승인된 외부 consumer
-- 관련 요구사항·ADR: [`Project Specification`](../specifications/project-specification.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md)
+- 관련 요구사항·ADR: [`Project Specification`](../specifications/project-specification.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
 
 이 문서는 active route의 보존용 기준선이다. 세부 payload와 error code는 코드와 contract test가 우선한다. 공통 Operation 조회, Create VM linkage, 첫 Guided Manual mutation, graceful VM Shutdown, observe-only Insights는 additive public contract로 추가됐고 기존 endpoint는 유지된다.
 
@@ -79,7 +79,7 @@ connection status의 `data`는 `state`, `source`, `cluster_id`, `observed_at`, `
 - 기존 `/api/v1/risks`는 compatibility 의미를 유지한다. Insights만 `list_job_runs_strict()`를 사용해 DB read failure를 빈 정상 목록이 아닌 risk `unavailable`로 표시한다.
 - Proxmox가 `unconfigured`/`degraded`이면 stored risk는 독립 조회하고 readiness/capacity/placement는 source reason을 포함한 `unavailable`로 반환한다. fake나 stale snapshot으로 대체하지 않는다.
 - live observation에서도 CPU/memory/storage evidence가 일부 없거나 node inventory가 비어 있으면 capacity와 영향받는 placement를 `ready`로 축소하지 않는다.
-- Placement는 기존 execution-closed DRS advisor 계산을 adapter로 재사용한다. `/insights`에는 check, approval packet, operation, execute, reconciliation action이나 link가 없다.
+- Placement는 `backend/app/insights/placement.py`의 infrastructure-free neutral 계산을 사용한다. DRS advisor는 같은 candidate 결과에 identity/policy/final gate를 별도로 보강하며 `/insights`는 DRS identity observation, policy/lock DB 접근을 수행하지 않는다. `/insights`에는 check, approval packet, operation, execute, reconciliation action이나 link가 없다.
 
 ### VM action
 
@@ -153,7 +153,7 @@ final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하�
 | `GET` | `/api/v1/drs/recommendations` | viewer | 없음 | recommendation 목록 |
 | `GET` | `/api/v1/drs/recommendations/{recommendation_id}` | viewer | 없음 | recommendation 상세 |
 | `POST` | `/api/v1/drs/recommendations/{recommendation_id}/check` | viewer | 없음 | execution-closed check |
-| `POST` | `/api/v1/drs/explicit-test-candidates/check` | viewer | 없음 | explicit candidate check |
+| `POST` | `/api/v1/drs/explicit-test-candidates/check` | operator | 없음 | explicit candidate check |
 | `GET` | `/api/v1/drs/policies` | viewer | 없음 | policy 목록 |
 | `GET` | `/api/v1/drs/policies/{vm_identity_id}` | viewer | 없음 | policy 상세 |
 | `PUT` | `/api/v1/drs/policies/{vm_identity_id}` | operator | local DB | ack와 observation guard를 포함한 policy 변경 |
@@ -163,16 +163,18 @@ final create는 같은 job/intent의 완료 결과를 mutation 없이 replay하�
 | `POST` | `/api/v1/drs/migration-jobs/{job_id}/reconcile` | operator | local/Proxmox read | ack 후 reconciliation |
 | `POST` | `/api/v1/drs/migration-jobs/{job_id}/reconcile-preview` | operator | 없음 | read-only reconciliation preview |
 
-Placement recommendation의 canonical product surface는 `/insights/placement`로 이동했고 기존 `/drs`와 `/api/v1/drs/*`는 maintenance compatibility surface다. 기존 live execution/history의 유지·폐기는 별도 승인 전 변경하지 않는다. migration execute는 Proxmox POST 전에 DB에 `running`과 `dispatch_attempt.state=prepared`, active operation lock을 저장하고, UPID를 받으면 `accepted` evidence로 전환한다. prepared 이후 UPID 저장이 확인되지 않는 crash window에서 execute 재진입은 second mutation 없이 `needs_reconciliation`으로 전환한다. 해당 no-UPID reconcile은 direct read-only post-check만 허용하며 UPID 없이 자동 완료하거나 lock을 해제하지 않는다.
+Placement recommendation의 canonical product surface는 `/insights/placement`로 이동했고 기존 `/drs`와 `/api/v1/drs/*`는 maintenance compatibility surface다. DRS 제거와 Insights/Monitoring 통합 방향은 확인됐지만 실제 contract 제거 범위는 후속 Plan 전까지 변경하지 않는다. approval/execute/reconcile 응답은 기존 DRS field만 제공하며 Common Operation을 생성하거나 링크하지 않는다.
+
+migration execute는 Proxmox POST 전에 authenticated actor 소유 active lock과 DRS `running`/`dispatch_attempt.state=prepared`를 저장한다. UPID/task/post-check와 불명확한 결과는 DRS 전용 `needs_reconciliation`과 retained lock으로 보존한다. prepared 이후 UPID 저장이 확인되지 않는 crash window에서 execute 재진입은 second mutation 없이 read-only reconciliation으로 전환한다.
 
 ## 공통 mutation 계약 기준선
 
 - actor는 server-side session에서 얻고 request payload actor를 신뢰하지 않는다.
 - action별 exact acknowledgement field와 `operator+` role을 요구한다.
 - Create VM, VM Start, VM Shutdown, Guided `qm unlock`, DRS는 현재 한 configured cluster의 VMID를 같은 PostgreSQL `proxmox_locator` open-lock namespace로 직렬화한다. Start/Shutdown/Create/Guided는 local file compatibility guard도 함께 사용한다.
-- DRS는 공통 operation resource를 아직 공유하지 않지만 locator lock은 공유한다. DRS identity/route lock과 상태기계는 계속 전용 계약이다.
+- DRS migration은 공통 operation resource/event를 사용하지 않는다. DRS identity/policy/approval/route lock과 전용 job/reconciliation projection을 compatibility 계약으로 유지한다.
 - 다섯 mutation slice는 서로 다른 idempotency/approval/error contract를 일부 유지하지만, covered ambiguity를 terminal failure로 축소하거나 자동 재호출하지 않는다.
-- VM Start, VM Shutdown, Create VM과 Guided `qm`은 공통 operation resource/event를 기록한다. Start/Shutdown은 restart recovery item도 기록하고, Create VM은 기존 request/job/artifact/workload linkage를 dual record하며 DRS는 아직 자체 projection/evidence만 유지한다.
+- VM Start, VM Shutdown, Create VM과 Guided `qm`은 공통 operation resource/event를 기록한다. Start/Shutdown은 restart recovery item도 기록하고, Create VM은 기존 전용 state/job/artifact를 dual record한다. DRS는 전용 state와 operator reconciliation만 사용하며 automatic recovery handler는 없다.
 - secret, token, password와 unsafe evidence field를 저장·응답하지 않아야 한다.
 
 ## 호환성 정책
@@ -185,8 +187,13 @@ Placement recommendation의 canonical product surface는 `/insights/placement`�
 
 ## 구현과 검증
 
-- 진입점: `backend/app/auth/api.py`, `backend/app/auth/admin_api.py`, `backend/app/api/v1/router.py`.
+- 진입점: `backend/app/auth/api.py`, `backend/app/auth/admin_api.py`, `/api/v1` composition root `backend/app/api/v1/router.py`.
+- query route module: `backend/app/api/v1/inventory.py`, `operations.py`, `insights.py`, `jobs_compat.py`; shared inventory provider는 `inventory_context.py`.
+- Guided `qm` route module: `backend/app/api/v1/guided_qm.py`; plan·attestation·verification의 operator dependency, observation client provider와 error mapping을 소유한다.
+- VM action route module: `backend/app/api/v1/vm_actions.py`; Start/Shutdown application workflow와 post-create readiness facade를 HTTP에 mapping한다.
+- Create VM route module: `backend/app/api/v1/vm_create_compat.py`; 기존 6개 path와 operator dependency, response/error mapping을 유지하고 `backend/app/vm_create/application.py`의 draft→preflight→plan→approval→preview/execute orchestration을 호출한다.
+- DRS route module: `backend/app/api/v1/drs_compat.py`; 기존 13개 path와 viewer/operator dependency, response/error mapping을 유지하고 `backend/app/drs/application.py`의 advisor→policy→approval→execute/reconcile orchestration을 호출한다.
 - success helper: `backend/app/api/v1/responses.py`.
 - frontend consumer: `frontend/src/shared/api/apiV1.js`; 기존 `frontend/src/services/apiV1.js`는 compatibility export다.
-- contract test: `backend/tests/contracts/`, frontend `apiV1Client`, auth, navigation과 feature tests.
-- Python 3.13 container backend 전체 `504 passed, 2 skipped`, 실제 PostgreSQL 18.4 integration `2 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다. live Proxmox 실행과 browser 수동 확인은 수행하지 않았다.
+- contract test: `backend/tests/contracts/test_api_v1_route_registry.py`, 나머지 `backend/tests/contracts/`, frontend `apiV1Client`, auth, navigation과 feature tests.
+- Python 3.13 container backend 전체 `504 passed, 2 skipped`, 실제 PostgreSQL 18.4 integration `2 passed`, canonical Node 24/pnpm 10 frontend test 17개·ESLint·Vite production build와 production image build가 통과했다. router·neutral Placement를 보존하고 잘못 추가된 DRS Common Operation 통합을 롤백한 뒤 local Python 3.14 backend 전체 `514 passed, 2 skipped`, DRS·route·Placement 집중 `120 passed`, `/api/v1` 52개 route 유지도 확인했다. 2026-07-23 승인된 private test VM에서 browser로 Start/Shutdown acknowledgement·exact target 표시·Jobs/Operations 결과를 확인하고, foreground shutdown/start와 backend crash 뒤 GET-only recovery를 live Proxmox에서 검증했다. production runner 상시 enable은 아직 수행하지 않았다.

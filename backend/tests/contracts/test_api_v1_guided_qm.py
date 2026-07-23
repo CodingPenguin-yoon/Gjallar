@@ -53,7 +53,7 @@ def test_guided_qm_routes_are_additive_and_do_not_expose_executor():
 
 
 def test_guided_qm_unlock_plan_attestation_and_verification_contract():
-    from app.api.v1 import router as api
+    from app.api.v1 import guided_qm as api
 
     client = RecordingObservationClient()
     with patch.object(api, "get_default_proxmox_mutation_client", return_value=client):
@@ -97,7 +97,9 @@ def test_guided_qm_unlock_plan_attestation_and_verification_contract():
     assert verified["data"]["operation"]["details"]["verification"]["verified"] is True
     assert verified["data"]["target_lock_released"] is True
 
-    fetched = api.get_operation_route(operation_id)
+    from app.api.v1 import operations as operations_api
+
+    fetched = operations_api.get_operation_route(operation_id)
     assert fetched["data"]["operation"]["operation_id"] == operation_id
     assert [event["event_type"] for event in fetched["data"]["events"]] == [
         "operation_created",
@@ -109,7 +111,7 @@ def test_guided_qm_unlock_plan_attestation_and_verification_contract():
 
 @pytest.mark.parametrize("field", ["command", "arguments", "options", "token_secret"])
 def test_guided_qm_plan_rejects_arbitrary_command_fields_before_proxmox_access(field):
-    from app.api.v1 import router as api
+    from app.api.v1 import guided_qm as api
 
     with patch.object(api, "get_default_proxmox_mutation_client") as client_factory:
         with pytest.raises(HTTPException) as raised:
@@ -127,7 +129,7 @@ def test_guided_qm_plan_rejects_arbitrary_command_fields_before_proxmox_access(f
 
 
 def test_guided_qm_plan_blocks_active_tasks_and_releases_local_target_lock():
-    from app.api.v1 import router as api
+    from app.api.v1 import guided_qm as api
     from app.operations.target_lock import get_target_operation_lock
 
     client = RecordingObservationClient(

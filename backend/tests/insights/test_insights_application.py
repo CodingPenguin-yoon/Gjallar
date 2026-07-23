@@ -262,7 +262,7 @@ def test_unknown_placement_state_is_not_ready_without_recommendations():
     assert incomplete["summary"]["source_evidence_complete"] is False
 
 
-def test_existing_drs_advisor_accepts_the_inventory_snapshot_compatibility_adapter():
+def test_neutral_placement_accepts_the_inventory_snapshot_compatibility_adapter():
     from app.insights.facade import _PlacementPort
 
     model = _PlacementPort().build(_snapshot(), [])
@@ -271,6 +271,50 @@ def test_existing_drs_advisor_accepts_the_inventory_snapshot_compatibility_adapt
     assert model["allowed_actions"] == []
     assert model["evidence"]["source"] == "fake-proxmox"
     assert model["evidence"]["observed_at"] == OBSERVED_AT
+
+
+def test_insights_placement_does_not_resolve_or_persist_drs_identity(monkeypatch):
+    from app.drs import advisor as drs_advisor
+    from app.insights.facade import _PlacementPort
+
+    def unexpected_identity_resolution(*args, **kwargs):
+        raise AssertionError("Insights placement must not resolve or persist DRS identity")
+
+    monkeypatch.setattr(
+        drs_advisor,
+        "resolve_inventory_identities",
+        unexpected_identity_resolution,
+    )
+
+    model = _PlacementPort().build(_snapshot(), [])
+
+    assert model["recommendations"]
+    assert model["recommendations"][0]["identity_evidence"] == {}
+    assert model["recommendations"][0]["policy_evidence"] == {}
+
+
+def test_placement_candidate_identity_and_pressure_contract_is_stable():
+    from app.insights.facade import _PlacementPort
+
+    model = _PlacementPort().build(_snapshot(), [])
+
+    assert model["summary"]["cluster_state"] == "critical"
+    assert model["summary"]["recommendation_count"] == 1
+    recommendation = model["recommendations"][0]
+    assert recommendation["id"] == "drs-rec-vm-101-node-hot-node-cool"
+    assert recommendation["vmid"] == 101
+    assert recommendation["source_node_id"] == "node-hot"
+    assert recommendation["target_node_id"] == "node-cool"
+    assert recommendation["estimated_effect"] == {
+        "source_pressure_before": 91.0,
+        "target_pressure_before": 30.0,
+        "source_pressure_after": 73.0,
+        "target_pressure_after": 48.0,
+        "source_target_delta": 61.0,
+    }
+    assert recommendation["read_only"] is True
+    assert recommendation["executable"] is False
+    assert recommendation["allowed_actions"] == []
 
 
 def test_finding_limit_discloses_total_and_truncation():
@@ -319,7 +363,26 @@ def test_finding_id_is_deterministic_and_evidence_is_redacted():
 
 def test_domain_and_application_layers_do_not_depend_on_commands_or_web_frameworks():
     app_root = Path(__file__).resolve().parents[2] / "app" / "insights"
-    source = "\n".join((app_root / name).read_text() for name in ("domain.py", "ports.py", "rules.py", "application.py"))
+    source = "\n".join(
+        (app_root / name).read_text()
+        for name in (
+            "domain.py",
+            "ports.py",
+            "rules.py",
+            "application.py",
+            "placement.py",
+        )
+    )
+    facade_source = (app_root / "facade.py").read_text()
 
-    for forbidden in ("fastapi", "sqlalchemy", "ProxmoxMutation", "record_job_run", "approval_packet"):
+    for forbidden in (
+        "fastapi",
+        "sqlalchemy",
+        "ProxmoxMutation",
+        "record_job_run",
+        "approval_packet",
+        "app.drs",
+        "session_scope",
+    ):
         assert forbidden not in source
+    assert "app.drs" not in facade_source

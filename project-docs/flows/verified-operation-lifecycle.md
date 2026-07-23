@@ -1,8 +1,8 @@
 # 기능 흐름: Verified Operation Lifecycle
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-21`
-- 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md)
+- 최종 검토일: `2026-07-23`
+- 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
 
 이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, graceful VM Shutdown, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용하지만 DRS는 아직 자체 상태기계를 유지한다.
 
@@ -16,7 +16,7 @@
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
 - Workload Cockpit에서 VM context를 Guided plan에 전달하고, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
 - VM Start, VM Shutdown, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다. DRS는 자체 aggregate를 유지하지만 locator lock은 다른 operation type과 공통으로 직렬화한다.
-- VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided/DRS 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다.
+- VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다. DRS automatic recovery는 제거 방향에 따라 구현 대상이 아니다.
 
 ## 목적과 진입점
 
@@ -173,7 +173,7 @@ canonical target coordination은 `(GJALLAR_CLUSTER_ID, VMID)`의 PostgreSQL part
 | Guided `qm` | `backend/app/operations/guided_qm/` | fixed template, typed validation, handoff, attestation, API verification |
 | workload observation | `backend/app/proxmox/inventory.py` | Workloads query + Integration read port |
 | managed dispatch | `backend/app/proxmox/client.py` | Integration mutation adapter |
-| DRS dispatch | `backend/app/proxmox/drs_migration.py` | action-specific adapter, 후속 통합 후보 |
+| DRS dispatch | `backend/app/proxmox/drs_migration.py` | 제거 전 compatibility adapter; Common Operation/recovery 통합 대상 아님 |
 | local persistence | `backend/app/operations/core/infrastructure/`, `operations/recovery/infrastructure/`, `jobs/*`, DRS helpers | common operation/event/recovery와 기존 compatibility 저장을 병행 |
 | UI composition | `frontend/src/app/`, `pages/operations/`, `pages/workloads/` | route shell, Workload context, operation list/detail/timeline |
 | UI feature/entity/shared | `frontend/src/features/guided-qm-unlock/`, `features/workloads/`, `entities/operation/`, `shared/` | typed plan, expiry-safe handoff, attestation/verification, read model과 API/RBAC/connection 계약 |

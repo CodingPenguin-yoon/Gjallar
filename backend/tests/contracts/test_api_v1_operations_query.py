@@ -18,7 +18,7 @@ def test_operation_list_route_is_additive_and_keeps_existing_detail_routes():
 
 
 def test_operation_list_route_forwards_bounded_filters_and_envelope():
-    from app.api.v1 import router as api
+    from app.api.v1 import operations as api
 
     summaries = [{"operation_id": "operation-1", "status": "succeeded"}]
     with patch.object(api, "list_operations", return_value=summaries) as query:
@@ -39,7 +39,7 @@ def test_operation_list_route_forwards_bounded_filters_and_envelope():
 
 
 def test_operation_list_route_maps_invalid_query_to_422():
-    from app.api.v1 import router as api
+    from app.api.v1 import operations as api
 
     with patch.object(api, "list_operations", side_effect=InvalidOperationQuery("bad status")):
         with pytest.raises(HTTPException) as raised:
@@ -50,7 +50,7 @@ def test_operation_list_route_maps_invalid_query_to_422():
 
 
 def test_operation_detail_route_uses_generic_not_found_contract():
-    from app.api.v1 import router as api
+    from app.api.v1 import operations as api
 
     with patch.object(api, "get_operation", side_effect=OperationQueryNotFound("missing-operation")):
         with pytest.raises(HTTPException) as raised:

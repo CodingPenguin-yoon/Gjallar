@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from app.drs import application as drs_application
 
 
 class ApiV1DrsContractTests(unittest.TestCase):
@@ -42,7 +43,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertNotIn("/api/v1/drs/recommendations/{recommendation_id}/live-migrate", self.paths)
 
     def test_policy_routes_read_and_update_by_vm_identity_id_with_session_actor(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -80,7 +81,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertEqual(item["vm_identity_id"], updated["data"]["vm_identity_id"])
 
     def test_recommendations_are_read_only_and_filter_candidates(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
 
         with patch.object(v1_router, "_inventory_adapter", return_value=_adapter()), patch.object(
             v1_router,
@@ -116,7 +117,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertEqual(1, data["summary"]["excluded_red_risk_vms"])
 
     def test_advisory_prefilter_signals_are_not_hard_blockers(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
 
         adapter = _adapter(
             storage_id="local-lvm",
@@ -148,7 +149,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertFalse(recommendation["evidence"]["route"]["network_evidence_sufficient"])
 
     def test_target_over_threshold_blocks_projected_critical_target_pressure(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
 
         adapter = _adapter(source_cpu=99, source_memory=96, target_cpu=74, target_memory=74)
         with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
@@ -168,7 +169,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertFalse(recommendation["execution"]["available"])
 
     def test_route_unknown_when_only_unrelated_target_storage_has_free_space(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
 
         adapter = _adapter(
             target_storage_free=10,
@@ -192,7 +193,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertFalse(recommendation["executable"])
 
     def test_detail_404s_unknown_recommendation_id(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
 
         with patch.object(v1_router, "_inventory_adapter", return_value=_adapter()), patch.object(
             v1_router,
@@ -205,14 +206,14 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertEqual(404, context.exception.status_code)
 
     def test_check_recalculates_reference_only_without_job_writes(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
 
         adapter = _adapter()
         with patch.object(v1_router, "_inventory_adapter", return_value=adapter), patch.object(
             v1_router,
             "_drs_risks",
             return_value=[],
-        ), patch.object(v1_router, "record_job_run") as record_job_run:
+        ), patch("app.drs.approval.record_job_run") as record_job_run:
             recommendation_id = v1_router.list_drs_recommendations()["data"]["recommendations"][0]["id"]
             response = v1_router.check_drs_recommendation(recommendation_id, {})
 
@@ -233,7 +234,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         record_job_run.assert_not_called()
 
     def test_explicit_test_candidate_routes_require_exact_ack_before_drs_work(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -249,17 +250,23 @@ class ApiV1DrsContractTests(unittest.TestCase):
         ]
 
         for label, payload in invalid_payloads:
-            for route in (v1_router.check_drs_explicit_test_candidate, v1_router.create_drs_explicit_test_approval_packet):
-                with self.subTest(label=label, route=route.__name__), patch.object(
-                    v1_router,
-                    "_inventory_adapter",
-                ) as inventory, patch.object(v1_router, "_drs_risks") as risks, patch.object(
-                    v1_router,
-                    "build_drs_check_result",
-                ) as build_check, patch.object(
-                    v1_router,
-                    "create_approval_packet_and_job_intent",
-                ) as create_packet:
+            for route in (
+                v1_router.check_drs_explicit_test_candidate,
+                v1_router.create_drs_explicit_test_approval_packet,
+            ):
+                with (
+                    self.subTest(label=label, route=route.__name__),
+                    patch.object(v1_router, "_inventory_adapter") as inventory,
+                    patch.object(v1_router, "_drs_risks") as risks,
+                    patch.object(
+                        drs_application,
+                        "build_drs_check_result",
+                    ) as build_check,
+                    patch.object(
+                        drs_application,
+                        "create_approval_packet_and_job_intent",
+                    ) as create_packet,
+                ):
                     with self.assertRaises(HTTPException) as raised:
                         route(payload, actor=actor)
 
@@ -275,7 +282,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
                     create_packet.assert_not_called()
 
     def test_explicit_test_candidate_check_and_approval_packet_use_local_drs_gates(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         adapter = _adapter(include_explicit_smoke=True)
@@ -296,7 +303,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
                 "target_node_id": "node-b",
             }
             blocked_check = v1_router.check_drs_explicit_test_candidate(payload, actor=actor)
-            with patch.object(v1_router, "create_approval_packet_and_job_intent") as create_packet:
+            with patch.object(drs_application, "create_approval_packet_and_job_intent") as create_packet:
                 with self.assertRaises(HTTPException) as blocked_approval:
                     v1_router.create_drs_explicit_test_approval_packet(payload, actor=actor)
             _set_policy(smoke_policy["vm_identity_id"], "allowed")
@@ -321,7 +328,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         self.assertEqual([], approval["data"]["job_intent"]["side_effects"])
 
     def test_explicit_test_candidate_selection_mismatch_rejects_before_approval_creation(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         adapter = _adapter(include_explicit_smoke=True)
@@ -341,7 +348,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
                 "source_node_id": "node-x",
                 "target_node_id": "node-b",
             }
-            with patch.object(v1_router, "create_approval_packet_and_job_intent") as create_packet:
+            with patch.object(drs_application, "create_approval_packet_and_job_intent") as create_packet:
                 with self.assertRaises(HTTPException) as raised:
                     v1_router.create_drs_explicit_test_approval_packet(payload, actor=actor)
 
@@ -353,7 +360,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         create_packet.assert_not_called()
 
     def test_approval_packet_route_creates_local_non_runnable_job_without_proxmox_mutation(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         adapter = _adapter()
@@ -362,9 +369,8 @@ class ApiV1DrsContractTests(unittest.TestCase):
             v1_router,
             "_drs_risks",
             return_value=[{"level": "red", "vmid": 104, "code": "vm_blocked"}],
-        ), patch.object(v1_router, "get_default_proxmox_mutation_client") as mutation_client, patch.object(
-            v1_router,
-            "run_proxmox_create",
+        ), patch("app.api.v1.vm_create_compat._mutation_client_factory") as mutation_client, patch(
+            "app.vm_create.application.run_proxmox_create"
         ) as create_mutation:
             recommendation = v1_router.list_drs_recommendations()["data"]["recommendations"][0]
             _set_policy(recommendation["identity_evidence"]["vm_identity_id"], "allowed")
@@ -410,7 +416,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         create_mutation.assert_not_called()
 
     def test_migration_job_execute_route_delegates_to_drs_execution_only(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -419,14 +425,18 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "proxmox_upid": "UPID:node-a:0001:migrate",
             "side_effects": ["drs_operation_locks_acquired", "proxmox_migrate_invoked"],
         }
-        with patch.object(v1_router, "_inventory_adapter", return_value=_adapter()), patch.object(
-            v1_router,
-            "_drs_risks",
-            return_value=[],
-        ), patch.object(v1_router, "execute_drs_migration_job", return_value=expected) as execute, patch.object(
-            v1_router,
-            "get_default_proxmox_mutation_client",
-        ) as create_vm_client:
+        with (
+            patch.object(v1_router, "_inventory_adapter", return_value=_adapter()),
+            patch.object(v1_router, "_drs_risks", return_value=[]),
+            patch.object(
+                drs_application,
+                "execute_drs_migration_job",
+                return_value=expected,
+            ) as execute,
+            patch(
+                "app.api.v1.vm_create_compat._mutation_client_factory",
+            ) as create_vm_client,
+        ):
             response = asyncio.run(
                 v1_router.execute_drs_migration_job_action(
                     "job-drs-1",
@@ -443,7 +453,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         create_vm_client.assert_not_called()
 
     def test_migration_job_execute_route_requires_exact_live_ack_before_drs_work(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -459,19 +469,23 @@ class ApiV1DrsContractTests(unittest.TestCase):
         ]
 
         for label, payload in invalid_payloads:
-            with self.subTest(label=label), patch.object(v1_router, "_inventory_adapter") as inventory, patch.object(
-                v1_router,
-                "_drs_risks",
-            ) as risks, patch.object(v1_router, "execute_drs_migration_job") as execute, patch.object(
-                v1_router,
-                "get_default_drs_proxmox_migration_client",
-            ) as drs_client_factory, patch.object(
-                v1_router,
-                "run_in_threadpool",
-            ) as threadpool, patch.object(
-                v1_router,
-                "get_default_proxmox_mutation_client",
-            ) as create_vm_client:
+            with (
+                self.subTest(label=label),
+                patch.object(v1_router, "_inventory_adapter") as inventory,
+                patch.object(v1_router, "_drs_risks") as risks,
+                patch.object(
+                    drs_application,
+                    "execute_drs_migration_job",
+                ) as execute,
+                patch.object(
+                    v1_router,
+                    "_drs_migration_client_factory",
+                ) as drs_client_factory,
+                patch.object(drs_application.asyncio, "to_thread") as threadpool,
+                patch(
+                    "app.api.v1.vm_create_compat._mutation_client_factory",
+                ) as create_vm_client,
+            ):
                 with self.assertRaises(HTTPException) as raised:
                     asyncio.run(v1_router.execute_drs_migration_job_action("job-drs-ack", payload, actor=actor))
 
@@ -491,7 +505,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
                 create_vm_client.assert_not_called()
 
     def test_migration_job_reconcile_route_delegates_to_local_reconciliation_only(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -503,13 +517,20 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "side_effects": ["proxmox_task_polled", "proxmox_drs_post_check_observed"],
         }
         payload = {"drs_reconciliation_acknowledged": True}
-        with patch.object(v1_router, "reconcile_drs_migration_job", return_value=expected) as reconcile, patch.object(
-            v1_router,
-            "execute_drs_migration_job",
-        ) as execute, patch.object(
-            v1_router,
-            "get_default_proxmox_mutation_client",
-        ) as create_vm_client:
+        with (
+            patch.object(
+                drs_application,
+                "reconcile_drs_migration_job",
+                return_value=expected,
+            ) as reconcile,
+            patch.object(
+                drs_application,
+                "execute_drs_migration_job",
+            ) as execute,
+            patch(
+                "app.api.v1.vm_create_compat._mutation_client_factory",
+            ) as create_vm_client,
+        ):
             response = asyncio.run(v1_router.reconcile_drs_migration_job_action("job-drs-1", payload, actor=actor))
 
         self.assertTrue(response["ok"])
@@ -521,7 +542,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
         create_vm_client.assert_not_called()
 
     def test_migration_job_reconcile_route_requires_exact_ack_before_drs_work(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -538,16 +559,22 @@ class ApiV1DrsContractTests(unittest.TestCase):
         ]
 
         for label, payload in invalid_payloads:
-            with self.subTest(label=label), patch.object(v1_router, "reconcile_drs_migration_job") as reconcile, patch.object(
-                v1_router,
-                "get_default_drs_proxmox_migration_client",
-            ) as drs_client_factory, patch.object(
-                v1_router,
-                "run_in_threadpool",
-            ) as threadpool, patch.object(
-                v1_router,
-                "execute_drs_migration_job",
-            ) as execute:
+            with (
+                self.subTest(label=label),
+                patch.object(
+                    drs_application,
+                    "reconcile_drs_migration_job",
+                ) as reconcile,
+                patch.object(
+                    v1_router,
+                    "_drs_migration_client_factory",
+                ) as drs_client_factory,
+                patch.object(drs_application.asyncio, "to_thread") as threadpool,
+                patch.object(
+                    drs_application,
+                    "execute_drs_migration_job",
+                ) as execute,
+            ):
                 with self.assertRaises(HTTPException) as raised:
                     asyncio.run(v1_router.reconcile_drs_migration_job_action("job-drs-reconcile", payload, actor=actor))
 
@@ -564,7 +591,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
                 execute.assert_not_called()
 
     def test_migration_job_execute_ack_failure_preserves_pending_job_without_locks(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
         from app.db.models import DrsMigrationJobRecord, OperationLockRecord
         from app.db.session import session_scope
@@ -586,13 +613,19 @@ class ApiV1DrsContractTests(unittest.TestCase):
             )
         job_id = packet["data"]["job_intent"]["job_id"]
 
-        with patch.object(v1_router, "_inventory_adapter") as inventory, patch.object(
-            v1_router,
-            "_drs_risks",
-        ) as risks, patch.object(v1_router, "execute_drs_migration_job") as execute, patch.object(
-            v1_router,
-            "get_default_drs_proxmox_migration_client",
-        ) as drs_client_factory, patch.object(v1_router, "run_in_threadpool") as threadpool:
+        with (
+            patch.object(v1_router, "_inventory_adapter") as inventory,
+            patch.object(v1_router, "_drs_risks") as risks,
+            patch.object(
+                drs_application,
+                "execute_drs_migration_job",
+            ) as execute,
+            patch.object(
+                v1_router,
+                "_drs_migration_client_factory",
+            ) as drs_client_factory,
+            patch.object(drs_application.asyncio, "to_thread") as threadpool,
+        ):
             with self.assertRaises(HTTPException) as raised:
                 asyncio.run(
                     v1_router.execute_drs_migration_job_action(
@@ -619,7 +652,7 @@ class ApiV1DrsContractTests(unittest.TestCase):
             self.assertEqual([], session.query(OperationLockRecord).all())
 
     def test_reconcile_preview_route_is_read_only_and_not_create_vm_coupled(self):
-        from app.api.v1 import router as v1_router
+        from app.api.v1 import drs_compat as v1_router
         from app.auth.roles import AuthenticatedUser
 
         actor = AuthenticatedUser(user_id="operator-1", username="operator", role="operator")
@@ -631,13 +664,20 @@ class ApiV1DrsContractTests(unittest.TestCase):
             "corrective_mutation_enabled": False,
             "post_check": {"status": "pass"},
         }
-        with patch.object(v1_router, "build_drs_migration_reconciliation_preview", return_value=expected) as preview, patch.object(
-            v1_router,
-            "execute_drs_migration_job",
-        ) as execute, patch.object(
-            v1_router,
-            "get_default_proxmox_mutation_client",
-        ) as create_vm_client:
+        with (
+            patch.object(
+                drs_application,
+                "build_drs_migration_reconciliation_preview",
+                return_value=expected,
+            ) as preview,
+            patch.object(
+                drs_application,
+                "execute_drs_migration_job",
+            ) as execute,
+            patch(
+                "app.api.v1.vm_create_compat._mutation_client_factory",
+            ) as create_vm_client,
+        ):
             response = asyncio.run(v1_router.preview_drs_migration_reconciliation_action("job-drs-1", {}, actor=actor))
 
         self.assertTrue(response["ok"])
