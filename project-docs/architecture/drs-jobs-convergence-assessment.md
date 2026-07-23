@@ -3,7 +3,8 @@
 - 상태: `REOPENED`
 - 조사일: `2026-07-23`
 - 관련 Plan: [`Backend 모듈 경계·legacy 격리`](../plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md)
-- 관련 Architecture·ADR: [`현재 기준선`](overview.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-005`](../decisions/adr-005-drs-placement-and-operation-convergence.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
+- 관련 Architecture·ADR: [`현재 기준선`](overview.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
+- 철회된 ADR: [`ADR-005`](../decisions/adr-005-drs-placement-and-operation-convergence.md) (`REJECTED`, 역사 기록)
 - 현재 방향: `C — DRS maintenance 제거와 Insights/Monitoring 통합; 세부 범위는 후속 Plan 필요`
 - 철회된 Plan: [`DRS Placement·Common Operation 전환`](../plans/2026-07-23-drs-placement-and-common-operation-convergence.md) (`ROLLED_BACK`)
 
@@ -93,20 +94,29 @@ DRS table 전체를 `operations` 하나로 치환하는 것은 목표 도메인 
 1. 완료 — `job_runs`/`job_artifacts`와 DRS 전용 execution 구조에 신규 producer·consumer를 추가하지 않는 방향을 확정했다.
 2. 완료 — placement 계산을 DRS 실행 package에서 neutral Insights/placement 경계로 옮기고 공개 결과를 유지했다.
 3. 다음 — DRS route/UI/policy/approval/execution/reconciliation과 Jobs/Artifacts 의존을 consumer 단위로 분류한다.
-4. Insights/Monitoring이 유지해야 할 read model과 history를 정의하고 DRS product surface의 replacement parity를 만든다.
+4. Insights/Monitoring에 필요한 최소 read-only placement/capacity/history 보존 범위를 정의한다. DRS policy·approval·execution·reconciliation 기능 parity는 재구현하지 않는다.
 5. DRS live migration 기능을 폐기한다. 향후 일반 VM migration operation이 필요하면 DRS 전환과 분리한 새 제품 결정으로 다룬다.
 6. 저장소 내부 consumer가 0이 된 뒤 외부 API 사용량과 retention을 확인하고 DRS maintenance 계약을 deprecate한다.
 7. 마지막 contract 단계에서만 별도 승인된 migration으로 불필요한 DRS table을 제거한다. Jobs/Artifacts 전환은 독립 Plan으로 수행한다.
 
 ## Contract 단계 진입 조건
 
-- 기존 producer와 frontend/backend consumer가 0이거나 승인된 replacement를 사용한다.
+### DRS maintenance 제거
+
+- DRS의 신규 policy·approval·execution·reconciliation 기능과 producer/consumer 추가가 동결돼 있다.
+- 저장소 내부 DRS consumer가 0이거나 승인된 최소 read-only Insights/Monitoring 계약만 사용한다.
+- 열린 DRS job·lock·reconciliation 상태의 처리 방법과 history retention 또는 archive 범위가 승인됐다.
 - 공개 API 외부 사용량 또는 명시적 deprecation 기간을 확인했다.
-- Operation과 Evidence/Audit가 status, replay, actor, task, artifact, risk, reconciliation 표시를 대체한다.
-- 기존 row backfill과 dual-write 대조가 idempotent하고 불명확한 상태를 성공으로 바꾸지 않는다.
+- 제거 과정에서 Common Operation 통합, automatic recovery 또는 DRS 기능 parity를 새로 만들지 않는다.
+- rollback 또는 forward correction 절차가 PostgreSQL integration test로 검증됐다.
+
+### Jobs/Artifacts 전환
+
+- DRS 제거와 독립된 Plan에서 기존 producer와 frontend/backend consumer가 0이거나 승인된 replacement를 사용한다.
+- Operation/Evidence 전환이 필요한 consumer에 한해 status, replay, actor, task, artifact와 risk 표시 계약을 검증한다.
+- 기존 row backfill과 전환 대조가 idempotent하고 불명확한 상태를 성공으로 바꾸지 않는다.
 - recovery와 open lock이 legacy projection 없이도 안전하게 완료·보존된다.
 - artifact/evidence retention과 삭제 정책이 승인됐다.
-- rollback 또는 forward correction 절차가 PostgreSQL integration test로 검증됐다.
 
 ## 아직 확인되지 않은 운영 정보
 

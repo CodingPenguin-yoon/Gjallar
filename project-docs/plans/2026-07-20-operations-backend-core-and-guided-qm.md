@@ -1,12 +1,13 @@
 # 구현 계획: Operations Backend Core와 Guided `qm`
 
-- 상태: `APPROVED`
+- 상태: `IMPLEMENTED`
 - 날짜: `2026-07-20`
 - 관련 요구사항: [`Project Specification`](../specifications/project-specification.md) FR-003, FR-005, FR-008, FR-009
 - 관련 ADR: [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md)
 - 상위 Plan: [`Verified Operations Control Plane 전환`](2026-07-20-verified-operations-control-plane-transition.md) 단계 5·7
 - 승인자: `사용자`
 - 진행 상태: `구현·품질 검토·문서 동기화 완료`
+- 승인 문장: `이 승인은 additive Operations projection/event와 Guided qm unlock 구현을 의미하며, 기존 Jobs/Artifacts/DRS 제거, raw shell 실행 또는 automatic fallback을 의미하지 않는다.`
 
 ## 1. 위험도
 

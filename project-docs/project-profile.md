@@ -123,13 +123,13 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 | 운영 Runbook | [`operations/runbook.md`](operations/runbook.md) |
 | Historical live evidence | [`evidence/legacy-live-smoke/README.md`](evidence/legacy-live-smoke/README.md) |
 | 전환 Plan | [`plans/2026-07-20-verified-operations-control-plane-transition.md`](plans/2026-07-20-verified-operations-control-plane-transition.md) |
-| Operations Core·Guided `qm` Plan | [`plans/2026-07-20-operations-backend-core-and-guided-qm.md`](plans/2026-07-20-operations-backend-core-and-guided-qm.md) |
+| Operations Core·Guided `qm` Plan | [`plans/2026-07-20-operations-backend-core-and-guided-qm.md`](plans/2026-07-20-operations-backend-core-and-guided-qm.md) (`IMPLEMENTED`) |
 | Frontend Workload·Operations Plan | [`plans/2026-07-21-frontend-workload-operations-slice.md`](plans/2026-07-21-frontend-workload-operations-slice.md) |
 | Create VM Common Operation Plan | [`plans/2026-07-21-create-vm-common-operation-integration.md`](plans/2026-07-21-create-vm-common-operation-integration.md) |
 | Insights Productization Plan | [`plans/2026-07-21-insights-productization-and-drs-maintenance.md`](plans/2026-07-21-insights-productization-and-drs-maintenance.md) |
 | Durable Recovery 10-A Plan | [`plans/2026-07-21-durable-operation-recovery-foundation.md`](plans/2026-07-21-durable-operation-recovery-foundation.md) |
 | Graceful VM Shutdown 10-B Plan | [`plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md`](plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md) |
-| Backend 모듈 경계·legacy 격리 Plan | [`plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md`](plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md) |
+| Backend 모듈 경계·legacy 격리 Plan | [`plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md`](plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md) (`IMPLEMENTED`) |
 | 롤백된 DRS Placement·Common Operation Plan | [`plans/2026-07-23-drs-placement-and-common-operation-convergence.md`](plans/2026-07-23-drs-placement-and-common-operation-convergence.md) (`ROLLED_BACK`) |
 
 ## 미확정 사항과 알려진 위험
@@ -153,7 +153,7 @@ ADR의 전체 목표 구조가 구현된 것은 아니다. Setup/Integration·Wo
 ## 최신 검증 기준선
 
 - canonical Python 3.13 container: backend 전체 `504 passed, 2 skipped`; 두 skip은 opt-in PostgreSQL integration이다.
-- local Python 3.14 venv: 롤백 후 backend 전체 `514 passed, 2 skipped`, DRS·route·Placement 집중 `120 passed`; 별도 PostgreSQL 18.4의 직전 integration 기준선은 `2 passed`.
+- local Python 3.14 venv: DRS 확장 방지 architecture contract 보강 후 backend 전체 `518 passed, 2 skipped`, 신규 DRS·route·Insights 집중 `20 passed`; 별도 PostgreSQL 18.4의 직전 integration 기준선은 `2 passed`.
 - host Node 26: 현재 변경에서 frontend test 17개, ESLint, Vite production build 통과. canonical runtime이 아니므로 보조 검증으로만 사용했다.
 - canonical Node 24/pnpm 10: frontend test 17개, ESLint, Vite production build 통과.
 - production image: `docker build -t gjallar:local .` 통과.

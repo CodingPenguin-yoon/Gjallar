@@ -155,7 +155,7 @@ Queue, scheduler, cache는 현재 active dependency가 아니다. recovery obser
 - 단위: DRS 판단, identity, preflight, view model, normalization 등 순수·준순수 로직.
 - 통합·계약: FastAPI `/api/v1`, auth/RBAC, SQLAlchemy/Alembic, jobs/artifacts, static SPA, frontend client/route.
 - 외부 대역: test에서 직접 주입한 fake inventory/mutation client와 test-only SQLite를 기본 사용한다. product runtime environment에는 fake inventory mode가 없다.
-- neutral Placement와 router/application 경계를 보존한 롤백 후 local Python 3.14 backend 전체 `514 passed, 2 skipped`, DRS·route·Placement 집중 `120 passed`, 관련 module `py_compile`과 `git diff --check`를 확인했다. 직전 canonical Python 3.13 container backend 전체 `504 passed, 2 skipped`, canonical Node 24/pnpm 10 frontend와 production image build, 실제 PostgreSQL 18.4 integration `2 passed`는 이전 기준선이다. live DRS migration은 수행하지 않았다.
+- neutral Placement와 router/application 경계를 보존한 롤백 및 DRS 확장 방지 architecture contract 보강 후 local Python 3.14 backend 전체 `518 passed, 2 skipped`, 신규 DRS·route·Insights 집중 `20 passed`, frontend test 17개·ESLint·Vite production build와 `git diff --check`를 확인했다. 직전 canonical Python 3.13 container backend 전체 `504 passed, 2 skipped`, canonical Node 24/pnpm 10 frontend와 production image build, 실제 PostgreSQL 18.4 integration `2 passed`는 이전 기준선이다. live DRS migration은 수행하지 않았다.
 
 ## 12. 알려진 위험과 기술 부채
 

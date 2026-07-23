@@ -146,5 +146,7 @@
 ## 12. 승인 기록
 
 - 승인 범위: `제품 경계, 실행 mode, domain ownership, 점진 전환 Plan과 기존 docs 초기화; product runtime demo 제거와 unconfigured/live/degraded connection truth; PostgreSQL durable target lock·VM Start/Shutdown GET-only recovery와 graceful shutdown action; DRS maintenance 단계적 폐기와 neutral Placement/Capacity의 Insights/Monitoring 통합`
+- 승인 문장: `Gjallar를 Verified Operations Control Plane으로 유지하면서 DRS policy·approval·execution·reconciliation 제품 기능을 단계적으로 제거하고 Placement/Capacity만 observe-only Insights/Monitoring으로 유지한다.`
+- 이 승인이 의미하지 않는 것: `DRS Common Operation 통합, automatic recovery, 기능 parity 재구현, consumer·retention 확인 전 API/UI/data 즉시 삭제`
 - 감수한 제한: `목표 구조는 점진 구현하며 기존 API와 DB migration 이력은 별도 폐기 승인 전 보존`
 - 승인일: `2026-07-20`; DRS 방향 정정 승인 `2026-07-23`

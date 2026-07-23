@@ -3,6 +3,8 @@
 - 상태: `ACCEPTED`
 - 날짜: `2026-07-23`
 - 결정자: `사용자`
+- 상위 제품 방향: [`Project Specification`](../specifications/project-specification.md) FR-010
+- 승인 문장: `이 승인은 Gjallar를 Verified Operations Control Plane으로 유지하면서 DRS policy·approval·execution·reconciliation 제품 기능을 단계적으로 제거하고 Placement/Capacity만 observe-only Insights/Monitoring으로 유지하는 방향을 의미하며, DRS Common Operation 통합·automatic recovery·기능 parity 재구현을 의미하지 않는다.`
 - 대체하는 ADR: `ADR-005`
 - 대체된 ADR: `없음`
 - 관련 Assessment: [`DRS·Jobs/Artifacts Legacy Convergence Assessment`](../architecture/drs-jobs-convergence-assessment.md)

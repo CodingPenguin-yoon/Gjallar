@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const srcRoot = fileURLToPath(new URL('../src/', import.meta.url))
+
+function sourceFiles(root) {
+  return readdirSync(root)
+    .flatMap((entry) => {
+      const path = join(root, entry)
+      return statSync(path).isDirectory() ? sourceFiles(path) : [path]
+    })
+    .filter((path) => path.endsWith('.js') || path.endsWith('.jsx'))
+}
 
 const {
   INSIGHT_CATEGORIES,
@@ -67,6 +80,7 @@ assert.equal(loaded.sections.risk.findings.length, 1)
 const explorer = readFileSync(new URL('../src/features/insights/InsightsExplorer.jsx', import.meta.url), 'utf8')
 const featureModel = readFileSync(new URL('../src/features/insights/model.js', import.meta.url), 'utf8')
 const drsMaintenance = readFileSync(new URL('../src/components/DrsAdvisorScreen.jsx', import.meta.url), 'utf8')
+const appSource = readFileSync(new URL('../src/app/App.jsx', import.meta.url), 'utf8')
 
 assert.match(explorer, /allowed actions: none/, 'Insights must make the execution-closed boundary visible')
 assert.match(explorer, /빈 결과를 정상 상태로 해석하지 않습니다/, 'Unavailable sources must not render as healthy empty data')
@@ -78,6 +92,55 @@ for (const forbidden of ['createDrsApprovalPacket', 'recordJobRun', 'executeDrsM
   assert.equal(explorer.includes(forbidden), false, `Insights UI must not expose command capability: ${forbidden}`)
   assert.equal(featureModel.includes(forbidden), false, `Insights model must not expose command capability: ${forbidden}`)
 }
+
+const canonicalInsightsSources = [
+  ...sourceFiles(join(srcRoot, 'features', 'insights')),
+  join(srcRoot, 'pages', 'insights', 'InsightsPage.jsx'),
+]
+const forbiddenDrsMaintenanceCapabilities = [
+  'DrsAdvisorScreen',
+  'DrsPoliciesScreen',
+  'DrsPolicyReviewModal',
+  'checkDrsRecommendation',
+  'createDrsApprovalPacket',
+  'updateDrsPolicy',
+  'reconcilePreviewDrsMigrationJob',
+]
+for (const path of canonicalInsightsSources) {
+  const source = readFileSync(path, 'utf8')
+  for (const forbidden of forbiddenDrsMaintenanceCapabilities) {
+    assert.equal(
+      source.includes(forbidden),
+      false,
+      `${relative(srcRoot, path)} must not consume DRS maintenance capability: ${forbidden}`,
+    )
+  }
+}
+
+const drsConsumerPattern = /\b(?:DrsAdvisorScreen|DrsPoliciesScreen|DrsPolicyReviewModal|getDrsSummary|listDrsRecommendations|getDrsRecommendation|checkDrsRecommendation|createDrsApprovalPacket|drsPolicies|drsPolicy|updateDrsPolicy|reconcilePreviewDrsMigrationJob)\b/
+const drsConsumerFiles = sourceFiles(srcRoot)
+  .filter((path) => drsConsumerPattern.test(readFileSync(path, 'utf8')))
+  .map((path) => relative(srcRoot, path))
+  .sort()
+assert.deepEqual(drsConsumerFiles, [
+  'components/DrsAdvisorScreen.jsx',
+  'components/DrsPoliciesScreen.jsx',
+  'components/DrsPolicyReviewModal.jsx',
+  'pages/insights/DrsAdvisorPage.jsx',
+  'pages/workloads/DrsPoliciesPage.jsx',
+  'shared/api/apiV1.js',
+  'utils/drsAdvisor.js',
+], 'DRS maintenance must not gain a new frontend consumer')
+
+const drsRoutes = [...appSource.matchAll(/path="([^"]*drs[^"]*)"/gi)]
+  .map((match) => match[1])
+  .sort()
+assert.deepEqual(
+  drsRoutes,
+  ['/drs', '/instances/drs-policies'],
+  'DRS maintenance must not gain a new frontend route',
+)
+
 assert.match(drsMaintenance, /Maintenance compatibility surface/, 'Legacy DRS must identify itself as maintenance')
 assert.match(drsMaintenance, /to="\/insights\/placement"/, 'Legacy DRS must link to canonical Placement Insights')
 

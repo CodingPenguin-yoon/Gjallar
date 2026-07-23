@@ -1,12 +1,14 @@
 # 구현 계획: Backend 모듈 경계 정리와 Legacy 호환 영역 격리
 
-- 상태: `PARTIALLY_IMPLEMENTED`
+- 상태: `IMPLEMENTED`
 - 날짜: `2026-07-23`
 - 관련 요구사항: [`Project Specification`](../specifications/project-specification.md) FR-001, FR-003, FR-004, FR-005, FR-008, FR-009, FR-010, FR-012
-- 관련 ADR: [`ADR-002 Domain-oriented Modular Monolith`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-005 DRS Placement·Operation Convergence`](../decisions/adr-005-drs-placement-and-operation-convergence.md)
+- 관련 ADR: [`ADR-002 Domain-oriented Modular Monolith`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-006 DRS Maintenance 단계적 폐기와 Insights/Monitoring 통합`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
+- 상위 제품 방향: [`Project Specification`](../specifications/project-specification.md) FR-010의 DRS maintenance 단계적 폐기와 observe-only Insights/Monitoring 통합
 - 관련 상위 Plan: [`Verified Operations Control Plane 전환`](2026-07-20-verified-operations-control-plane-transition.md)
 - 승인자: `사용자`
-- 현재 진행: `단계 1~6 완료, neutral Placement 유지 — DRS Common Operation 단계 8은 사용자 방향 정정으로 롤백`
+- 현재 진행: `단계 1~6 완료, Plan 종료 — DRS 제거는 별도 high-risk Plan 승인 대상`
+- 승인 문장: `이 승인은 Backend route/application 경계 분리와 DRS·Jobs/Artifacts compatibility 격리를 의미하며, DRS Common Operation 통합·automatic recovery·기능 확장 또는 API/DB 제거를 의미하지 않는다.`
 
 이 Plan은 이미 승인된 ADR-002의 방향을 실제 backend 모듈 경계에 점진적으로 적용한다. 새로운 아키텍처를 선택하는 작업이 아니므로 별도 ADR은 만들지 않는다.
 
@@ -140,17 +142,18 @@
 | 4 | Create VM application orchestration 분리 | 신규 `api/v1/vm_create_compat.py`, `vm_create/application.py` | draft→preflight→plan→approve→execute, 실패·멱등성 test | route가 기존 orchestration을 호출하도록 복귀 |
 | 5 | DRS compatibility boundary 격리 | 신규 `api/v1/drs_compat.py`, `drs/application.py`, frontend/API consumer map | DRS contract, policy, approval, execute/reconcile test | 기존 DRS handler로 복귀 |
 | 6 | Legacy convergence 결정 자료 작성 | DRS·Jobs/Artifacts producer/consumer와 Operation 대체 가능성 정리 | 코드 검색, 실제 화면·contract 확인 | 문서 변경 revert |
-| 7 | 사용자 결정 gate | DRS 유지·Operation 통합 또는 단계적 폐기, Jobs projection 전환 범위 선택 | 별도 인수 조건 승인 | 구현하지 않고 현재 호환 영역 유지 |
-| 8 | 승인된 legacy expand 전환 | 별도 high-risk Plan의 neutral Placement와 DRS Common Operation dual record; DB migration 불필요 | failure injection·전체 contract·문서·독립 리뷰 | 별도 Plan에 정의 |
 
-- 단계 7 정정: 사용자는 DRS 기능을 유지·확장하려는 것이 아니라 제거하고 Insights/Monitoring으로 통합하려는 방향임을 명확히 했다. 선택지 A 기록은 철회됐고, neutral placement 경계만 유지한다.
-- 단계 8 롤백: [`DRS Placement·Common Operation 전환 Plan`](2026-07-23-drs-placement-and-common-operation-convergence.md)의 Common Operation 통합 구현은 롤백했다. DRS 제거의 세부 단계는 별도 Plan에서 다룬다.
+### 후속 결정과 철회 기록
+
+- 과거 단계 7의 결정 gate는 [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)으로 종결됐다. 사용자는 DRS 기능 유지·확장이 아니라 DRS maintenance 단계적 폐기와 neutral Insights/Monitoring 통합을 승인했다.
+- 과거 단계 8의 DRS Common Operation dual record는 제품 방향과 충돌해 구현과 함께 롤백됐다. [`ADR-005`](../decisions/adr-005-drs-placement-and-operation-convergence.md)는 `REJECTED`, [`DRS Placement·Common Operation 전환 Plan`](2026-07-23-drs-placement-and-common-operation-convergence.md)은 `ROLLED_BACK`인 역사 기록이며 현재 구현 권한이 아니다.
+- DRS API/UI/data 제거와 Jobs/Artifacts 전환은 이 Plan을 재개하지 않고 각각 별도 high-risk Plan과 사용자 승인을 거친다.
 
 ### 단계별 진행 규칙
 
 1. 한 단계의 구현·검증·문서 동기화를 끝낸 뒤 다음 단계로 이동한다.
 2. 단계 1~6에서는 공개 API, frontend 기능, DB schema를 변경하지 않는다.
-3. 단계 7의 사용자 결정 전에는 DRS route, 화면, table 또는 Jobs/Artifacts table을 삭제하지 않는다.
+3. 이 Plan은 단계 1~6 완료로 종료한다. DRS route·화면·table 제거와 Jobs/Artifacts 전환은 이 Plan의 범위가 아니다.
 4. route module은 기존 내부 심볼을 무조건 재수출하지 않는다. 테스트가 concrete module global을 patch하는 대신 명시적 provider/application seam을 사용하도록 함께 정리한다.
 
 ## 7. 성공·실패·데이터 흐름
@@ -191,17 +194,16 @@
 ## 9. 문서 영향
 
 - Project Specification:
-  - 외부 동작을 바꾸지 않으므로 초기 단계에는 변경하지 않는다.
-  - DRS 최종 정책 결정 시 scope/non-goal을 갱신한다.
+  - 외부 동작을 바꾸지 않으므로 이 Plan의 구현만으로 계약을 변경하지 않는다.
+  - DRS 최종 방향은 FR-010과 ADR-006을 따른다.
 - Architecture·ADR:
   - 구현 결과를 `architecture/overview.md`에 반영한다.
-  - ADR-002 방향을 유지하므로 새 ADR은 만들지 않는다.
-  - DRS 최종 정책이 새로운 장기 결정을 만들면 별도 ADR을 검토한다.
+  - route/application 경계는 ADR-002, DRS 제품 방향은 ADR-006을 따른다.
 - Domain·Flow:
   - route/application 책임과 legacy compatibility 흐름을 실제 구현에 맞춰 갱신한다.
 - API·Database:
   - route registry는 유지하며 내부 책임만 갱신한다.
-  - DB schema 변경은 단계 8의 별도 Plan에서만 문서화한다.
+  - 이 Plan에는 DB schema 변경이 없다. 향후 DRS 제거 또는 Jobs/Artifacts 전환의 schema 변경은 별도 high-risk Plan에서만 문서화한다.
 
 ## 10. 복구와 위험 완화
 
@@ -227,12 +229,12 @@
 
 ## 11. 구현 후 대조
 
-- 현재 완료 범위: 단계 1~6과 neutral Placement. Guided `qm` route까지 child router로 이동해 root router는 composition만 담당한다. 잘못 진행한 단계 8의 DRS Common Operation 통합은 롤백했다.
+- 현재 완료 범위: 단계 1~6과 neutral Placement. Guided `qm` route까지 child router로 이동해 root router는 composition만 담당한다. 잘못 진행한 과거 DRS Common Operation 통합은 롤백했고 이 Plan을 종료했다.
 - 계획과 달라진 부분: child router는 기존 flat package 관례에 맞춰 `api/v1/routes/` 하위가 아니라 `api/v1/vm_create_compat.py`와 `api/v1/drs_compat.py`에 두었다. application facade는 각각 `vm_create/application.py`, `drs/application.py`에 구현했다.
 - 달라진 이유: 단계 2~3에서 확립한 `api/v1/*.py` child router 조립 규칙을 유지하고, HTTP framework dependency가 Create VM·DRS application orchestration으로 역류하지 않게 하기 위해서다.
 - 품질 리뷰 조치: Create VM application 내부 default mutation client 선택과 child router의 테스트 재수출을 제거했다. DRS도 HTTP 경계가 inventory·risk·전용 migration client provider를 명시적으로 주입하고 테스트는 실제 application 소유 심볼을 patch한다. application의 HTTP/interface 역의존과 Create VM 6개·DRS 13개 route 소유 모듈은 architecture contract로 고정했다.
-- DRS·legacy consumer 확인: `frontend/src/shared/api/apiV1.js`와 `DrsAdvisorScreen.jsx`·`DrsPoliciesScreen.jsx`가 DRS read/check/approval/policy/reconcile-preview를 소비한다. frontend에는 live execute helper나 mutation control이 없다. DRS approval/execution은 계속 `job_runs`·`job_artifacts`를 생산하고 Jobs 화면이 `/jobs`·artifact 계약으로 이를 표시하며, Insights placement는 advisor 계산만 read-only로 재사용한다. 따라서 DRS route/table과 Jobs/Artifacts는 단계 7 결정 전 제거할 수 없다.
+- DRS·legacy consumer 확인: `frontend/src/shared/api/apiV1.js`와 `DrsAdvisorScreen.jsx`·`DrsPoliciesScreen.jsx`가 DRS read/check/approval/policy/reconcile-preview를 소비한다. frontend에는 live execute helper나 mutation control이 없다. DRS approval/execution은 계속 `job_runs`·`job_artifacts`를 생산하고 Jobs 화면이 `/jobs`·artifact 계약으로 이를 표시하며, Insights placement는 advisor 계산만 read-only로 재사용한다. 따라서 DRS route/table과 Jobs/Artifacts 제거는 별도 high-risk Plan에서 consumer·retention·deprecation을 승인한 뒤 진행한다.
 - Legacy convergence 조사와 결정: [`DRS·Jobs/Artifacts Legacy Convergence Assessment`](../architecture/drs-jobs-convergence-assessment.md)에 producer/consumer, 공개 계약, table logical ownership과 replacement gap을 기록했다. 선택지 A는 철회됐고 [`DRS Placement·Common Operation Plan`](2026-07-23-drs-placement-and-common-operation-convergence.md)의 단계 3~7도 롤백했다. DRS 제거와 Jobs/Artifacts 전환은 서로 분리해 진행한다.
-- 현재 검증 결과: neutral Placement와 router/application 경계를 보존한 롤백 후 local Python 3.14 backend 전체 `514 passed, 2 skipped`, DRS·route·Placement 집중 `120 passed`, 관련 module `py_compile`과 `git diff --check`가 통과했다. live Proxmox mutation과 DB migration은 실행하지 않았다.
+- 현재 검증 결과: neutral Placement와 router/application 경계를 보존한 롤백 및 DRS 확장 방지 architecture contract 보강 후 local Python 3.14 backend 전체 `518 passed, 2 skipped`, 신규 DRS·route·Insights 집중 `20 passed`, frontend test 17개·ESLint·Vite production build와 `git diff --check`가 통과했다. live Proxmox mutation과 DB migration은 실행하지 않았다.
 - 갱신한 현재 상태 문서: `project-profile.md`, `architecture/overview.md`, `api/current-api-v1.md`, `database/current-schema-and-ownership.md`, `domains/domain-map.md`, `architecture/drs-jobs-convergence-assessment.md`와 두 구현 Plan.
 - 남은 위험: production row 수·retention과 저장소 밖 API consumer는 확인하지 않았다. DRS API/UI/table 제거, history 보존, backfill과 deprecation은 별도 승인 대상이다.
