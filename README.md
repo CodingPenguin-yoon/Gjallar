@@ -1,38 +1,59 @@
 # Gjallar
 
-Gjallar는 Proxmox를 위한 **Verified Operations Control Plane**을 지향합니다.
+Gjallar is a Proxmox operations and risk console that combines live infrastructure visibility with guarded execution for a deliberately narrow set of VM workflows.
 
-Proxmox는 VM·node·task의 actual state와 low-level execution을 소유하고, Gjallar는 workload 운영 의도, 정책, 승인, 실행 검증, evidence와 reconciliation을 소유합니다. 최초 연결과 break-glass를 제외한 day-2 운영을 Gjallar에서 시작하고 결과 확인까지 끝내는 것이 목표입니다.
+Proxmox remains the source of truth for nodes, virtual machines, and tasks. Gjallar records operation intent, action-specific acknowledgements or approval records, execution events, and post-checks. Operational insights are derived from current sources when requested and are not persisted.
 
-## 현재 상태와 목표
+## Current Status
 
-현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 점진 전환 중인 modular monolith입니다. 인증, inventory, Create VM, VM Start, Operations/Guided `qm unlock`, observe-only Insights, DRS maintenance, Jobs/Risks를 제공하지만 모든 workflow가 목표 domain 구조로 이동한 것은 아닙니다.
+Gjallar is under active development. The current application is a modular monolith in transition, built with a React SPA, FastAPI, PostgreSQL/Alembic, and the Proxmox API. Authentication, live inventory, selected VM operations, operation history, risks, and read-only insights are implemented, while some older workflows still use the previous internal structure.
 
-- 목표 제품 정의: [`project-docs/specifications/project-specification.md`](project-docs/specifications/project-specification.md)
-- 현재 코드 기준선: [`project-docs/architecture/overview.md`](project-docs/architecture/overview.md)
-- 승인된 아키텍처 결정: [`ADR-001`](project-docs/decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-002`](project-docs/decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](project-docs/decisions/adr-003-production-inventory-connection-truth.md)
-- 전환 순서: [`project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md`](project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md)
+The earlier DRS-centered product direction has been retired. Placement and capacity signals now appear in read-only Insights. Existing `/drs` and `/api/v1/drs/*` routes remain as maintenance compatibility surfaces for recommendations and checks, policies, approval packets, and a narrow migration and reconciliation workflow, but they are not the product's main feature or a claim of autonomous infrastructure control.
 
-기존 DRS 중심 문서는 폐기했습니다. DRS는 앞으로 제품의 중심이 아니라 placement/capacity insight와 제한된 기존 operation으로 다룹니다.
+- [Product specification](project-docs/specifications/project-specification.md)
+- [Current architecture](project-docs/architecture/overview.md)
+- Architecture decisions: [ADR-001](project-docs/decisions/adr-001-proxmox-gjallar-authority-boundary.md), [ADR-002](project-docs/decisions/adr-002-modular-monolith-domain-boundaries.md), [ADR-003](project-docs/decisions/adr-003-production-inventory-connection-truth.md)
+- [Transition plan](project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md)
 
-## 현재 제공 기능
+## Current Capabilities
 
-- local user/session과 `viewer < operator < admin` RBAC
-- Proxmox node, VM, template, storage, network inventory
-- approval-gated native Create VM
-- acknowledgement/idempotency-gated VM Start
-- Jobs/Artifacts/Risks 조회
-- source·freshness·rule·evidence를 제공하는 observe-only Insights
-- maintenance DRS recommendation, policy, approval packet, 제한된 migration/reconciliation backend
-- same-origin production SPA/API Docker image
+- Local users and sessions with `viewer < operator < admin` role-based access control
+- Live Proxmox inventory for nodes, VMs, templates, storage, and networks
+- Native VM creation with exact-plan approval, risk acknowledgement when required, and a final mutation acknowledgement
+- Guarded VM start with acknowledgement, idempotency, task polling, and an observed-state post-check
+- Guided `qm unlock <vmid>` with a five-minute instruction, trusted-actor attestation, and Proxmox API verification; the backend does not execute the command
+- A common operation projection and event history for VM creation, VM start, and guided unlock
+- Jobs, artifacts, and operational risks for reviewing previous work
+- Read-only readiness, capacity, placement, and stored-risk insights with source and freshness information
+- A same-origin React SPA and FastAPI API packaged as a single production Docker image
 
-Proxmox 연결은 `unconfigured`/`live`/`degraded`로 표시됩니다. product runtime은 mock/demo inventory로 fallback하지 않으며, `live`가 아니면 inventory-dependent 화면과 DRS maintenance route를 닫습니다. Insights는 stored risk를 유지하고 readiness/capacity/placement를 `unavailable`로 표시하며 Jobs/Risks/Account/Admin도 계속 사용할 수 있습니다.
+## Connection Truth
 
-현재 기능과 목표 기능을 혼동하지 않습니다. 목표 operation lifecycle은 승인됐지만 아직 모든 workflow에 구현되지 않았습니다.
+The Proxmox connection is reported as `unconfigured`, `live`, or `degraded`. Production runtime never substitutes mock or demo inventory when the live connection is unavailable.
 
-## 로컬 실행
+Inventory-dependent pages and mutation controls are available only in `live` mode. When the connection is not live, Insights retain stored risks but mark readiness, capacity, and placement data as unavailable. Jobs, Risks, Account, and Admin remain accessible.
 
-기준 runtime은 Dockerfile의 Python 3.13, Node.js 24, pnpm 10입니다. PostgreSQL과 실행 가능한 `python3.13` binary 또는 동일한 Python 3.13 경로가 필요합니다.
+## Operation Boundaries
+
+- Create VM binds approval to the plan artifact and checksum. Yellow risk requires explicit acknowledgement, red risk blocks execution, and a final `proxmox_mutation_acknowledged=true` is required before dispatch. The current `operator` and `admin` roles can approve and execute; a separate four-eyes approver role is not implemented.
+- VM Start requires an explicit acknowledgement and idempotency key before execution.
+- Guided Unlock requires a risk acknowledgement and idempotency key, the node's `Sys.Audit` permission, no active task, and a supported current config lock before issuing a five-minute `qm unlock <vmid>` instruction. The backend does not execute the command. Operator attestation alone is not success; Gjallar must observe both the config lock and active task as absent through the Proxmox API.
+- A timeout, missing task reference, or post-check mismatch remains a non-success or reconciliation state without an automatic mutation retry or fallback. Complete recovery from a hard process interruption is not yet implemented.
+- Create VM, VM Start, and Guided Unlock share a target-scoped local file lock for the configured cluster. The current lock is designed for a single-container runtime, not multiple replicas.
+- Insights are read-only. They do not expose an approval, operation, or mutation path.
+
+## Current Limitations
+
+- Supported mutations are intentionally narrow. Gjallar has no Stop, Shutdown, Reboot, Reset, Delete, Snapshot, or Rollback API surface; no arbitrary shell, SSH, or `qm` executor; and no autonomous remediation or automatic balancing.
+- Inventory and inventory-dependent operations require a live Proxmox connection.
+- Long-running operations do not yet have a durable runner, lease, or complete automatic restart recovery.
+- Local target locks are not shared across replicas and may be lost when runtime storage is replaced.
+- Existing DRS maintenance workflows use a separate lock and state model. They are not yet serialized with the common Create VM, VM Start, and Guided Unlock target lock.
+- Not every backend workflow and frontend screen has moved to the target modular-monolith boundaries.
+
+## Local Development
+
+The supported local runtime matches the repository toolchain: Python 3.13, Node.js 24, pnpm 10, and PostgreSQL.
 
 ```bash
 cp .env.example .env
@@ -43,7 +64,7 @@ backend/venv/bin/pip install -r backend/requirements-dev.lock
 pnpm --dir frontend install --frozen-lockfile
 ```
 
-`.env`의 `GJALLAR_DATABASE_URL`을 실제 PostgreSQL에 맞춘 뒤 초기화합니다.
+Set `GJALLAR_DATABASE_URL` in `.env` to a PostgreSQL database, then initialize and start the application.
 
 ```bash
 set -a
@@ -55,11 +76,11 @@ PYTHONPATH=backend backend/venv/bin/python -m app.auth.users create-admin --user
 pnpm run dev
 ```
 
-- frontend: `http://127.0.0.1:5173`
-- backend: `http://127.0.0.1:8000`
-- health: `http://127.0.0.1:8000/health`
+- Frontend: `http://127.0.0.1:5173`
+- Backend: `http://127.0.0.1:8000`
+- Health: `http://127.0.0.1:8000/health`
 
-`.python-version`, `.nvmrc`, package engines, `packageManager`와 lockfile이 local 기준을 명시합니다. 생성되는 venv와 `node_modules`는 Git에 포함하지 않습니다. Python direct dependency를 바꿀 때는 `requirements*.txt`와 Python 3.13/Linux에서 해석한 `requirements*.lock`을 함께 갱신합니다.
+`.python-version`, `.nvmrc`, package engines, `packageManager`, and lockfiles define the local toolchain. Generated virtual environments and `node_modules` are not committed. When changing direct Python dependencies, update both `requirements*.txt` and the corresponding Python 3.13/Linux `requirements*.lock` files.
 
 ## Docker
 
@@ -68,17 +89,17 @@ docker build -t gjallar:local .
 docker run --rm --env-file .env -p 8000:8000 gjallar:local
 ```
 
-container startup은 Alembic migration, Create VM profile seed, 선택적 bootstrap admin을 수행한 뒤 Uvicorn을 시작합니다. bootstrap admin은 `GJALLAR_BOOTSTRAP_ADMIN_USERNAME`과 `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD`가 모두 있을 때만 생성됩니다.
+Container startup applies Alembic migrations, seeds the Create VM profiles, optionally creates a bootstrap admin, and then starts Uvicorn. The bootstrap account is created only when both `GJALLAR_BOOTSTRAP_ADMIN_USERNAME` and `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD` are set.
 
-## 안전 원칙
+## Safety Rules
 
-- live Proxmox mutation과 smoke test는 target과 side effect를 확인한 별도 승인이 필요합니다.
-- API 결과가 불확실할 때 `qm`으로 자동 fallback하거나 같은 mutation을 재호출하지 않습니다.
-- arbitrary shell/SSH executor는 제품 범위가 아닙니다.
-- `.env`, password, API token, session token과 private key를 commit·log·artifact에 남기지 않습니다.
-- 적용된 Alembic migration을 수정하거나 삭제하지 않습니다.
+- Contributors must obtain explicit out-of-band authorization before running live Proxmox mutations or smoke tests against a real target.
+- Gjallar does not silently fall back to `qm` or repeat a mutation when an API result is ambiguous.
+- Arbitrary shell and SSH execution are outside the product scope.
+- Secrets such as `.env` values, passwords, API tokens, session tokens, and private keys must not be committed or stored in logs and artifacts.
+- Applied Alembic migrations must not be edited or deleted.
 
-## 검증
+## Verification
 
 ```bash
 git diff --check
@@ -86,16 +107,16 @@ pnpm run verify
 pnpm run verify:container
 ```
 
-`verify`는 local backend test → frontend test → frontend lint → frontend build 순서로 실행합니다. `verify:container`는 Python 3.13 backend test stage와 Node 24/pnpm 10 frontend 검증을 포함한 production image build를 실행합니다.
+`pnpm run verify` runs backend tests, frontend tests, frontend lint, and the frontend production build. `pnpm run verify:container` builds the production image with Python 3.13 backend tests and Node.js 24/pnpm 10 frontend verification stages.
 
-## 문서
+## Documentation
 
-공동 source of truth는 `project-docs/` 하나입니다.
+`project-docs/` is the active source of truth for the project.
 
-- [`project-docs/project-profile.md`](project-docs/project-profile.md): 기술·검증·저장소 기준
-- [`project-docs/api/current-api-v1.md`](project-docs/api/current-api-v1.md): 현재 API
-- [`project-docs/database/current-schema-and-ownership.md`](project-docs/database/current-schema-and-ownership.md): 현재 DB와 목표 ownership
-- [`project-docs/flows/verified-operation-lifecycle.md`](project-docs/flows/verified-operation-lifecycle.md): 승인된 operation 흐름
-- [`project-docs/operations/runbook.md`](project-docs/operations/runbook.md): 실행·장애 대응
+- [Project profile](project-docs/project-profile.md)
+- [Current API](project-docs/api/current-api-v1.md)
+- [Database schema and ownership](project-docs/database/current-schema-and-ownership.md)
+- [Operation lifecycle](project-docs/flows/verified-operation-lifecycle.md)
+- [Operations runbook](project-docs/operations/runbook.md)
 
-역사적 live-smoke 자료는 `project-docs/evidence/legacy-live-smoke/`, 과거 rewrite raw artifact는 `artifacts/rewrite-baseline/`에 보존하지만 active 요구사항의 근거로 사용하지 않습니다.
+Historical live-smoke records remain under `project-docs/evidence/legacy-live-smoke/`, and previous rewrite artifacts remain under `artifacts/rewrite-baseline/`. Neither directory defines the active product scope.
