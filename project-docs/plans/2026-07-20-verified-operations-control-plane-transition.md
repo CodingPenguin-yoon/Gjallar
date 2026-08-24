@@ -96,7 +96,7 @@
 
 | 분류 | 정확한 범위 | 처리 제안 |
 |---|---|---|
-| 보존 | `AGENTS.md`, `.agent-harness/**`, `.agents/skills/**`, `.gitignore`의 하네스 지원 변경 | 프로젝트 문서가 아니므로 그대로 유지 |
+| 당시 보존 | `AGENTS.md`, `.agent-harness/**`, `.agents/skills/**`, `.gitignore`의 하네스 지원 변경 | 2026-08-24 Codex 프로젝트 설정 전면 재작성 결정으로 대체됨 |
 | 새 source of truth | `project-docs/**` | 현재 코드 기준선과 목표/ADR/Plan을 분리해 재작성 |
 | 재작성 | `README.md`, `backend/README.md`, `frontend/README.md` | 설치·실행·검증과 `project-docs` 진입점만 간결히 유지 |
 | 흡수 후 삭제 | `docs/**`의 product, current, architecture, ko mirror, engineering, goal, archive PRD/feature/roadmap/status | 새 명세·ADR·API·DB·flow에 durable 내용만 흡수하고 제거 |
@@ -104,6 +104,8 @@
 | 재작성 후 교체 | `docs/operations/runbook.md` | current runtime 사실을 흡수해 `project-docs/operations/runbook.md`로 교체 |
 | 보존·비권위 | `artifacts/rewrite-baseline/**` | 삭제하지 않고 historical raw evidence로만 유지; active docs에서 일반 진입점으로 링크하지 않음 |
 | 절대 보존 | source, tests, `backend/alembic/versions/**` | 문서 reset 대상이 아님; applied migration은 수정·삭제 금지 |
+
+2026-08-24 사용자의 최신 결정에 따라 위 하네스 보존 항목은 대체되었다. 범용 `.agent-harness/`, 일회성 도입 스킬, custom agent 설정은 제거하고 `AGENTS.md`, 최소 `.codex/config.toml`, 반복 가치가 있는 세 프로젝트 스킬만 유지한다. 이는 이 Plan의 제품 전환 범위나 소스 코드·테스트·migration 보존 결정을 변경하지 않는다.
 
 권장안은 raw live-smoke evidence와 `artifacts/rewrite-baseline/**`를 보존하고 나머지 기존 `docs/**`를 제거하는 것이다. 전체 evidence까지 삭제하고 Git history에만 의존하려면 사용자의 별도 명시가 필요하다.
 
