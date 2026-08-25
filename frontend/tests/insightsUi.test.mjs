@@ -60,6 +60,33 @@ const payload = {
       freshness: 'unavailable', rule_version: 'operational-readiness.v1', summary: { finding_count: 0 },
       findings: [], unavailable_reason: 'proxmox_unconfigured', read_only: true, allowed_actions: [],
     },
+    placement: {
+      status: 'attention',
+      available: true,
+      source: 'drs_advisor',
+      observed_at: '2026-07-21T01:00:00+00:00',
+      freshness: 'recorded',
+      rule_version: 'placement-insight.v1',
+      summary: { finding_count: 1 },
+      findings: [{
+        finding_id: 'drs-rec-vm-101-node-a-node-b',
+        severity: 'warning',
+        status: 'active',
+        code: 'placement_candidate',
+        title: 'Placement candidate',
+        message: 'Review current placement evidence.',
+        target: { type: 'vm', id: '101' },
+        source: 'drs_advisor',
+        observed_at: '2026-07-21T01:00:00+00:00',
+        freshness: 'recorded',
+        rule_version: 'placement-insight.v1',
+        evidence: { source_node_id: 'node-a', candidate_node_id: 'node-b' },
+        read_only: true,
+        allowed_actions: [],
+      }],
+      read_only: true,
+      allowed_actions: [],
+    },
   },
 }
 
@@ -72,14 +99,16 @@ assert.equal(model.sections.risk.findings[0].targetId, 'job-1')
 assert.equal(model.sections.readiness.available, false)
 assert.equal(model.sections.readiness.unavailableReason, 'proxmox_unconfigured')
 assert.equal(model.sections.capacity.status, 'unavailable')
-assert.equal(model.sections.placement.available, false)
+assert.equal(model.sections.placement.available, true)
+assert.equal(model.sections.placement.source, 'drs_advisor', 'Insight source identifiers must remain opaque compatibility values')
+assert.equal(model.sections.placement.findings[0].id, 'drs-rec-vm-101-node-a-node-b', 'Insight finding IDs must remain opaque compatibility values')
+assert.equal(model.sections.placement.findings[0].source, 'drs_advisor')
 
 const loaded = await loadInsightsModel({ getInsights: async () => payload })
 assert.equal(loaded.sections.risk.findings.length, 1)
 
 const explorer = readFileSync(new URL('../src/features/insights/InsightsExplorer.jsx', import.meta.url), 'utf8')
 const featureModel = readFileSync(new URL('../src/features/insights/model.js', import.meta.url), 'utf8')
-const drsMaintenance = readFileSync(new URL('../src/components/DrsAdvisorScreen.jsx', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../src/app/App.jsx', import.meta.url), 'utf8')
 
 assert.match(explorer, /allowed actions: none/, 'Insights must make the execution-closed boundary visible')
@@ -122,26 +151,15 @@ const drsConsumerFiles = sourceFiles(srcRoot)
   .filter((path) => drsConsumerPattern.test(readFileSync(path, 'utf8')))
   .map((path) => relative(srcRoot, path))
   .sort()
-assert.deepEqual(drsConsumerFiles, [
-  'components/DrsAdvisorScreen.jsx',
-  'components/DrsPoliciesScreen.jsx',
-  'components/DrsPolicyReviewModal.jsx',
-  'pages/insights/DrsAdvisorPage.jsx',
-  'pages/workloads/DrsPoliciesPage.jsx',
-  'shared/api/apiV1.js',
-  'utils/drsAdvisor.js',
-], 'DRS maintenance must not gain a new frontend consumer')
+assert.deepEqual(drsConsumerFiles, [], 'DRS maintenance must not have a frontend consumer')
 
 const drsRoutes = [...appSource.matchAll(/path="([^"]*drs[^"]*)"/gi)]
   .map((match) => match[1])
   .sort()
 assert.deepEqual(
   drsRoutes,
-  ['/drs', '/instances/drs-policies'],
-  'DRS maintenance must not gain a new frontend route',
+  [],
+  'DRS maintenance must not have a frontend route',
 )
-
-assert.match(drsMaintenance, /Maintenance compatibility surface/, 'Legacy DRS must identify itself as maintenance')
-assert.match(drsMaintenance, /to="\/insights\/placement"/, 'Legacy DRS must link to canonical Placement Insights')
 
 console.log('Insights product and execution-closed UI contract exercised')

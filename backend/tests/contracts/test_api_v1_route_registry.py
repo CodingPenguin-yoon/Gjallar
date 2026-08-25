@@ -20,59 +20,6 @@ EXPECTED_API_V1_ROUTES = (
     ("POST", "/api/v1/auth/logout", "logout", 200),
     ("GET", "/api/v1/auth/me", "me", 200),
     ("GET", "/api/v1/cluster/summary", "cluster_summary", 200),
-    (
-        "POST",
-        "/api/v1/drs/explicit-test-candidates/approval-packets",
-        "create_drs_explicit_test_approval_packet",
-        200,
-    ),
-    (
-        "POST",
-        "/api/v1/drs/explicit-test-candidates/check",
-        "check_drs_explicit_test_candidate",
-        200,
-    ),
-    (
-        "POST",
-        "/api/v1/drs/migration-jobs/{job_id}/execute",
-        "execute_drs_migration_job_route",
-        200,
-    ),
-    (
-        "POST",
-        "/api/v1/drs/migration-jobs/{job_id}/reconcile",
-        "reconcile_drs_migration_job_route",
-        200,
-    ),
-    (
-        "POST",
-        "/api/v1/drs/migration-jobs/{job_id}/reconcile-preview",
-        "preview_drs_migration_reconciliation_route",
-        200,
-    ),
-    ("GET", "/api/v1/drs/policies", "list_drs_policies", 200),
-    ("GET", "/api/v1/drs/policies/{vm_identity_id}", "get_drs_policy", 200),
-    ("PUT", "/api/v1/drs/policies/{vm_identity_id}", "put_drs_policy", 200),
-    ("GET", "/api/v1/drs/recommendations", "list_drs_recommendations", 200),
-    (
-        "GET",
-        "/api/v1/drs/recommendations/{recommendation_id}",
-        "get_drs_recommendation",
-        200,
-    ),
-    (
-        "POST",
-        "/api/v1/drs/recommendations/{recommendation_id}/approval-packets",
-        "create_drs_approval_packet",
-        200,
-    ),
-    (
-        "POST",
-        "/api/v1/drs/recommendations/{recommendation_id}/check",
-        "check_drs_recommendation",
-        200,
-    ),
-    ("GET", "/api/v1/drs/summary", "get_drs_summary", 200),
     ("GET", "/api/v1/insights", "get_insights_route", 200),
     ("GET", "/api/v1/jobs", "list_jobs", 200),
     ("GET", "/api/v1/jobs/{job_id}", "get_job", 200),
@@ -148,13 +95,6 @@ EXPECTED_API_V1_ROUTES = (
 )
 
 OPERATOR_ROUTES = {
-    ("POST", "/api/v1/drs/explicit-test-candidates/approval-packets"),
-    ("POST", "/api/v1/drs/explicit-test-candidates/check"),
-    ("POST", "/api/v1/drs/migration-jobs/{job_id}/execute"),
-    ("POST", "/api/v1/drs/migration-jobs/{job_id}/reconcile"),
-    ("POST", "/api/v1/drs/migration-jobs/{job_id}/reconcile-preview"),
-    ("PUT", "/api/v1/drs/policies/{vm_identity_id}"),
-    ("POST", "/api/v1/drs/recommendations/{recommendation_id}/approval-packets"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/start"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence"),
@@ -213,6 +153,7 @@ def test_api_v1_route_registry_is_unchanged_during_router_extraction():
         )
     )
 
+    assert len(actual) == 39
     assert actual == EXPECTED_API_V1_ROUTES
 
 

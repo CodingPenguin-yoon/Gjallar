@@ -243,8 +243,5 @@ def test_route_records_local_evidence_without_calling_live_capable_router_functi
     assert response["data"]["live_checks_performed_by_gjallar"] is False
     for mocked in (inventory, proxmox_client_factory, run_vm_start, run_vm_shutdown):
         mocked.assert_not_called()
-    assert not hasattr(v1_router, "get_default_drs_proxmox_migration_client")
     assert not hasattr(v1_router, "run_proxmox_create")
-    assert not hasattr(v1_router, "build_drs_check_result")
-    assert not hasattr(v1_router, "execute_drs_migration_job")
     assert not hasattr(v1_router, "run_preflight")

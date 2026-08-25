@@ -2,11 +2,9 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import AdminUsersPage from '../pages/settings/AdminUsersPage'
 import CreateVmPage from '../pages/workloads/CreateVmPage'
-import DrsPoliciesPage from '../pages/workloads/DrsPoliciesPage'
 import NetworkReadinessPage from '../pages/workloads/NetworkReadinessPage'
 import RisksPage from '../pages/operations/RisksPage'
 import ProxmoxConnectionBoundary from '../shared/proxmox/ProxmoxConnectionBoundary'
-import DrsAdvisorPage from '../pages/insights/DrsAdvisorPage'
 import InsightsPage from '../pages/insights/InsightsPage'
 import JobsPage from '../pages/operations/JobsPage'
 import { apiV1Client } from '../shared/api/apiV1'
@@ -150,13 +148,6 @@ function App() {
       </WorkloadsShell>,
     )
   )
-  const drsPoliciesRoute = (
-    operationalRoute(
-      <WorkloadsShell>
-        <DrsPoliciesPage currentUser={currentUser} canManageDrsPolicies={canMutate} />
-      </WorkloadsShell>,
-    )
-  )
   const createVmRoute = (
     operationalRoute(
       <WorkloadsShell>
@@ -227,15 +218,8 @@ function App() {
       <Routes>
           <Route path="/" element={operationalRoute(<Dashboard />)} />
           <Route path="/instances" element={vmInventoryRoute} />
-          <Route path="/instances/drs-policies" element={drsPoliciesRoute} />
           <Route path="/instances/create" element={createVmRoute} />
           <Route path="/instances/networks" element={networkReadinessRoute} />
-          <Route
-            path="/drs"
-            element={operationalRoute(
-              <DrsAdvisorPage currentUser={currentUser} canOperate={canMutate} />
-            )}
-          />
           <Route path="/insights" element={insightsRoute()} />
           <Route path="/insights/risks" element={insightsRoute('risk')} />
           <Route path="/insights/readiness" element={insightsRoute('readiness')} />

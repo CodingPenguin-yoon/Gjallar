@@ -8,11 +8,11 @@ Gjallar의 React + Vite operator UI입니다. backend `/api/v1`만 사용합니�
 |---|---|---|
 | Overview | `/` | cluster summary와 dashboard |
 | VM Instances | `/instances` | VM inventory와 gated Start |
-| DRS Policies | `/instances/drs-policies` | VM migration policy 조회·변경 |
 | Create VM | `/instances/create` | draft부터 native create까지의 wizard |
 | Networks | `/instances/networks` | read-only network readiness |
 | Insights | `/insights` | risk/readiness/capacity/placement의 observe-only finding과 evidence |
-| DRS maintenance | `/drs` | 기존 recommendation/check와 local approval intent |
+| Operations | `/operations`, `/operations/:operationId` | verified operation 목록·상세 evidence timeline |
+| Guided `qm unlock` | `/operations/guided-qm/vm-unlock` | allowlisted manual instruction·attestation·API verification |
 | Jobs | `/operations/jobs` | job projection 조회 |
 | Risks | `/operations/risks` | job-derived risk 조회 |
 | Account | `/settings/account` | current account와 password 변경 |
@@ -20,11 +20,11 @@ Gjallar의 React + Vite operator UI입니다. backend `/api/v1`만 사용합니�
 
 일부 legacy deep-link alias가 남아 있으며 별도 deprecation 전 유지합니다.
 
-Overview, VM Instances, DRS Policies, Create VM, Networks와 DRS maintenance는 backend connection state가 authoritative `live`일 때만 실제 화면을 엽니다. `unconfigured`/`degraded`에서는 Workloads navigation을 숨기고 inventory-dependent direct route에 연결 안내를 표시합니다. Insights는 계속 열리며 stored risk와 unavailable inventory category를 구분합니다. Jobs, legacy Risks, Account, Users도 계속 사용할 수 있고 내장 mock/demo inventory는 없습니다.
+Overview, VM Instances, Create VM과 Networks는 backend connection state가 authoritative `live`일 때만 실제 화면을 엽니다. `unconfigured`/`degraded`에서는 Workloads navigation을 숨기고 inventory-dependent direct route에 연결 안내를 표시합니다. Insights는 계속 열리며 stored risk와 unavailable inventory category를 구분합니다. Jobs, legacy Risks, Account, Users도 계속 사용할 수 있고 내장 mock/demo inventory는 없습니다.
 
 ## 목표 UI 방향
 
-제품 중심은 DRS 화면이 아니라 Workload Cockpit, verified operation, observe-only Insights입니다.
+제품 중심은 Workload Cockpit, verified operation, observe-only Insights입니다. DRS 전용 route와 control은 제공하지 않습니다.
 
 - workload state, metadata, capability, freshness, recent operation을 한 컨텍스트에 표시
 - `managed_api`, `guided_manual`, `observe_only` mode를 명시

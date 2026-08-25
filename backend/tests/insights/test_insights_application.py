@@ -196,6 +196,7 @@ def test_risk_failure_is_not_empty_healthy_and_prevents_placement_calculation():
     assert payload["status"] == "partial"
     assert payload["sections"]["risk"]["status"] == "unavailable"
     assert payload["sections"]["risk"]["unavailable_reason"] == "risk_source_unavailable"
+    assert payload["sections"]["placement"]["source"] == "drs_advisor"
     assert payload["sections"]["placement"]["unavailable_reason"] == "risk_source_unavailable"
     assert placement.called is False
 
@@ -273,18 +274,8 @@ def test_neutral_placement_accepts_the_inventory_snapshot_compatibility_adapter(
     assert model["evidence"]["observed_at"] == OBSERVED_AT
 
 
-def test_insights_placement_does_not_resolve_or_persist_drs_identity(monkeypatch):
-    from app.drs import advisor as drs_advisor
+def test_insights_placement_has_no_identity_or_policy_persistence_contract():
     from app.insights.facade import _PlacementPort
-
-    def unexpected_identity_resolution(*args, **kwargs):
-        raise AssertionError("Insights placement must not resolve or persist DRS identity")
-
-    monkeypatch.setattr(
-        drs_advisor,
-        "resolve_inventory_identities",
-        unexpected_identity_resolution,
-    )
 
     model = _PlacementPort().build(_snapshot(), [])
 
@@ -315,6 +306,8 @@ def test_placement_candidate_identity_and_pressure_contract_is_stable():
     assert recommendation["read_only"] is True
     assert recommendation["executable"] is False
     assert recommendation["allowed_actions"] == []
+    placement = build_placement_section(model, freshness="live").to_dict()
+    assert placement["findings"][0]["evidence"]["recommendation_id"] == recommendation["id"]
 
 
 def test_finding_limit_discloses_total_and_truncation():

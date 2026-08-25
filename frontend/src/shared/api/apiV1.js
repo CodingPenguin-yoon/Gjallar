@@ -33,14 +33,6 @@ export const API_V1_ENDPOINTS = Object.freeze({
   guidedQmVmUnlock: '/operations/guided-qm/vm-unlock',
   operationAttestation: (operationId) => `/operations/${encodePathPart(operationId)}/operator-attestation`,
   operationVerification: (operationId) => `/operations/${encodePathPart(operationId)}/verification`,
-  drsSummary: '/drs/summary',
-  drsRecommendations: '/drs/recommendations',
-  drsRecommendation: (recommendationId) => `/drs/recommendations/${encodePathPart(recommendationId)}`,
-  drsRecommendationCheck: (recommendationId) => `/drs/recommendations/${encodePathPart(recommendationId)}/check`,
-  drsRecommendationApprovalPackets: (recommendationId) => `/drs/recommendations/${encodePathPart(recommendationId)}/approval-packets`,
-  drsPolicies: '/drs/policies',
-  drsPolicy: (vmIdentityId) => `/drs/policies/${encodePathPart(vmIdentityId)}`,
-  drsMigrationJobReconcilePreview: (jobId) => `/drs/migration-jobs/${encodePathPart(jobId)}/reconcile-preview`,
   createVmDrafts: '/vm-create/drafts',
   vmCreatePreflight: (draftId) => `/vm-create/${encodePathPart(draftId)}/preflight`,
   vmCreatePlan: (draftId) => `/vm-create/${encodePathPart(draftId)}/plan`,
@@ -149,7 +141,6 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
   const clientConfig = { baseUrl: normalizeBaseUrl(baseUrl), fetchImpl }
   const get = (path) => requestJson({ ...clientConfig, path })
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
-  const put = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PUT', body })
   const patch = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PATCH', body })
 
   return Object.freeze({
@@ -186,15 +177,6 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     planGuidedQmVmUnlock: (payload = {}) => post(API_V1_ENDPOINTS.guidedQmVmUnlock, payload),
     attestOperation: (operationId, payload = {}) => post(API_V1_ENDPOINTS.operationAttestation(operationId), payload),
     verifyOperation: (operationId, payload = {}) => post(API_V1_ENDPOINTS.operationVerification(operationId), payload),
-    getDrsSummary: () => get(API_V1_ENDPOINTS.drsSummary),
-    listDrsRecommendations: () => get(API_V1_ENDPOINTS.drsRecommendations),
-    getDrsRecommendation: (recommendationId) => get(API_V1_ENDPOINTS.drsRecommendation(recommendationId)),
-    checkDrsRecommendation: (recommendationId, payload = {}) => post(API_V1_ENDPOINTS.drsRecommendationCheck(recommendationId), payload),
-    createDrsApprovalPacket: (recommendationId, payload = {}) => post(API_V1_ENDPOINTS.drsRecommendationApprovalPackets(recommendationId), payload),
-    drsPolicies: () => get(API_V1_ENDPOINTS.drsPolicies),
-    drsPolicy: (vmIdentityId) => get(API_V1_ENDPOINTS.drsPolicy(vmIdentityId)),
-    updateDrsPolicy: (vmIdentityId, payload = {}) => put(API_V1_ENDPOINTS.drsPolicy(vmIdentityId), payload),
-    reconcilePreviewDrsMigrationJob: (jobId, payload = {}) => post(API_V1_ENDPOINTS.drsMigrationJobReconcilePreview(jobId), payload),
     createVmDraft: (payload = {}) => post(API_V1_ENDPOINTS.createVmDrafts, payload),
     preflightVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePreflight(draftId), payload),
     planVmDraft: (draftId, payload = {}) => post(API_V1_ENDPOINTS.vmCreatePlan(draftId), payload),

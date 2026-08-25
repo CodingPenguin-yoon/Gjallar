@@ -1,26 +1,25 @@
 # 기능 흐름: Verified Operation Lifecycle
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-23`
-- 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-001`](../decisions/adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
+- 최종 검토일: `2026-08-24`
+- 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)
 
-이 문서는 목표 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, graceful VM Shutdown, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용하지만 DRS는 아직 자체 상태기계를 유지한다.
+이 문서는 선택적 Verified Action의 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, graceful VM Shutdown, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용한다. DRS와 migration은 action/API/runtime에서 제거됐고 이 lifecycle에 포함되지 않는다.
 
 ## 현재 구현 범위
 
-- VM Start, VM Shutdown, Create VM, Guided `qm unlock`, DRS는 현재 한 개의 configured Proxmox cluster를 전제로 같은 cluster/VMID의 PostgreSQL durable locator lock을 공유한다. Start/Shutdown/Create/Guided는 전환 중 local file guard도 dual acquire하며 같은 VMID의 다른 node 표기는 별도 target으로 취급하지 않는다.
+- VM Start, VM Shutdown, Create VM과 Guided `qm unlock`은 현재 한 개의 configured Proxmox cluster를 전제로 같은 cluster/VMID의 PostgreSQL durable locator lock을 공유한다. 전환 중 local file guard도 dual acquire하며 같은 VMID의 다른 node 표기는 별도 target으로 취급하지 않는다.
 - VM Start/Shutdown은 same-key replay/intent conflict와 ambiguous dispatch·task·post-check의 `needs_reconciliation` 보존을 구현했다. Shutdown은 graceful POST만 허용하고 force-stop/reboot fallback을 금지한다.
 - Create VM은 plan에서 common Operation을 준비하고 exact approval, preview, dispatch, task/result, workload linkage를 event로 기록한다. completed replay, same-key intent conflict, VMID owner guard와 명확한 실패/불명확한 결과의 구분을 유지한다.
-- DRS는 mutation 직전 durable `prepared` attempt와 lock을 저장하고 UPID 수락 후 `accepted`로 전환한다. prepared/no-UPID 재진입과 reconciliation은 mutation을 반복하지 않는다.
 - VM Start/Shutdown은 API compatibility facade에서 infrastructure-free command와 use case로 진입하고 Workloads, mutation, Jobs, Evidence, lock/recovery를 명시적 port로 받는다. 검증 workflow는 각각 `operations/vm_start/workflow.py`, `operations/vm_shutdown/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
 - Workload Cockpit에서 VM context를 Guided plan에 전달하고, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
-- VM Start, VM Shutdown, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다. DRS는 자체 aggregate를 유지하지만 locator lock은 다른 operation type과 공통으로 직렬화한다.
-- VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다. DRS automatic recovery는 제거 방향에 따라 구현 대상이 아니다.
+- VM Start, VM Shutdown, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다.
+- VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다.
 
 ## 목적과 진입점
 
-- 해결하는 문제: API와 guided manual operation의 승인, dispatch, task, post-check, evidence, reconciliation 의미를 통일한다.
+- 해결하는 문제: API와 guided manual operation의 action별 gate, dispatch 또는 operator handoff, completion evidence, post-check와 reconciliation 의미를 통일한다.
 - 시작 조건: authenticated actor, supported action, target reference 또는 create input, explicit execution mode.
 - 호출 주체: React UI 또는 승인된 `/api/v1` consumer.
 - 최종 결과: verified `succeeded`, side-effect 없는 terminal result, 또는 복구 가능한 non-terminal/reconciliation state.
@@ -30,8 +29,7 @@
 ```text
 draft
 → planned
-→ awaiting_approval
-→ approved
+→ [action별 필요한 경우 awaiting_approval → approved]
 → dispatching
 → running | awaiting_operator
 → verifying | awaiting_verification → verifying
@@ -46,7 +44,7 @@ blocked | rejected | expired | failed | needs_reconciliation | cancelled
 - `needs_reconciliation`: side effect 여부 또는 external result가 불명확하거나 post-check가 불일치한다.
 - `awaiting_operator`: guided manual bundle을 발급했고 외부 실행/attestation을 기다린다.
 - `awaiting_verification`: operator attestation은 있으나 authoritative after-state 확인이 끝나지 않았다.
-- `succeeded`: required terminal task, direct after-state, evidence append가 모두 완료됐다.
+- `succeeded`: action contract가 요구하는 external completion evidence, direct after-state와 evidence append가 모두 완료됐다. managed API action은 terminal task를, guided manual action은 authenticated operator attestation을 상관 연결한다. attestation 자체는 성공 권위가 아니다.
 
 ## 성공 흐름
 
@@ -54,13 +52,13 @@ blocked | rejected | expired | failed | needs_reconciliation | cancelled
 Authenticated request
 → Operation intent + idempotency identity 저장
 → Fresh workload observation/capability 확인
-→ Versioned policy 평가
+→ Action별 validation/pre-check와 필요한 경우 versioned policy 평가
 → Exact plan/evidence digest 생성
-→ Approval binding 확인
+→ Action별 필요한 approval/acknowledgement binding 확인
 → Final pre-check + target lock/lease 획득
 → Dispatch attempt 기록
 → managed API dispatch 또는 guided manual bundle 발급
-→ External task/operator attestation correlation
+→ Action contract에 따라 external task 또는 operator attestation correlation
 → Direct after-state verification
 → Append-only evidence 저장 + current projection 갱신
 → Lock 해제
@@ -173,8 +171,7 @@ canonical target coordination은 `(GJALLAR_CLUSTER_ID, VMID)`의 PostgreSQL part
 | Guided `qm` | `backend/app/operations/guided_qm/` | fixed template, typed validation, handoff, attestation, API verification |
 | workload observation | `backend/app/proxmox/inventory.py` | Workloads query + Integration read port |
 | managed dispatch | `backend/app/proxmox/client.py` | Integration mutation adapter |
-| DRS dispatch | `backend/app/proxmox/drs_migration.py` | 제거 전 compatibility adapter; Common Operation/recovery 통합 대상 아님 |
-| local persistence | `backend/app/operations/core/infrastructure/`, `operations/recovery/infrastructure/`, `jobs/*`, DRS helpers | common operation/event/recovery와 기존 compatibility 저장을 병행 |
+| local persistence | `backend/app/operations/core/infrastructure/`, `operations/recovery/infrastructure/`, `jobs/*` | common operation/event/recovery와 기존 Jobs/Artifacts compatibility 저장을 병행 |
 | UI composition | `frontend/src/app/`, `pages/operations/`, `pages/workloads/` | route shell, Workload context, operation list/detail/timeline |
 | UI feature/entity/shared | `frontend/src/features/guided-qm-unlock/`, `features/workloads/`, `entities/operation/`, `shared/` | typed plan, expiry-safe handoff, attestation/verification, read model과 API/RBAC/connection 계약 |
 

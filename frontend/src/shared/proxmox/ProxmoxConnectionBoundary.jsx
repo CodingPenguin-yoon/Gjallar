@@ -41,7 +41,7 @@ export default function ProxmoxConnectionBoundary({ requestStatus, connection, o
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Proxmox {status.state}</div>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">{message}</h2>
           <p className="mt-2 text-sm text-slate-600">
-            실제 Proxmox inventory를 확인할 수 있을 때만 Workloads, Create, Network, DRS 화면을 엽니다. Operations, Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다.
+            실제 Proxmox inventory를 확인할 수 있을 때만 Workloads inventory, Create, Network 화면을 엽니다. Insights, Operations, Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다.
           </p>
 
           {status.missingConfiguration.length > 0 ? (

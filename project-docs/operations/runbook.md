@@ -1,7 +1,7 @@
 # 운영 Runbook
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-07-21`
+- 최종 검토일: `2026-08-24`
 - 적용 범위: 현재 single-image FastAPI/React/PostgreSQL runtime
 
 이 문서는 현재 코드의 실행·점검·복구 절차만 다룬다. 목표 operation architecture가 아직 구현된 것처럼 기록하지 않는다.
@@ -11,7 +11,7 @@
 - local 기준: Python 3.13, Node.js 24, pnpm 10, PostgreSQL. `python3.13`이 다른 이름·경로라면 명령의 실행 파일만 해당 경로로 바꾼다.
 - container 기준: Docker와 PostgreSQL 접근 경로.
 - 필수 설정: `GJALLAR_DATABASE_URL`; target coordination identity는 `GJALLAR_CLUSTER_ID`이며 기본값은 `gjallar-mvp`다.
-- VM/Inventory/Create/Network/DRS 운영 화면 사용 시: Proxmox API URL, token ID, token secret과 TLS 정책.
+- VM/Inventory/Create/Network 운영 화면 사용 시: Proxmox API URL, token ID, token secret과 TLS 정책.
 - `.env`, password, token, private key를 repository, command history, log, artifact에 남기지 않는다.
 
 product runtime은 Proxmox 설정 누락이나 연결 실패를 fake inventory로 대체하지 않는다. 연결 상태가 `live`일 때만 inventory-dependent 화면과 mutation affordance가 열린다.
@@ -37,7 +37,7 @@ set -a
 set +a
 ```
 
-DB 초기화와 first admin 생성:
+DB 초기화와 first admin 생성은 새 빈 로컬 DB에서만 바로 실행한다. 기존 또는 production DB는 아래 `DB migration`의 `20260824_0029` preflight와 별도 적용 승인을 먼저 완료한다. DRS row나 호환되지 않는 lock이 있으면 삭제·변환·force stamp하지 않는다.
 
 ```bash
 PYTHONPATH=backend backend/venv/bin/alembic -c backend/alembic.ini upgrade head
@@ -65,6 +65,8 @@ root script는 다음 process를 함께 시작한다.
 터미널의 `Ctrl-C`로 두 process를 종료한다. background process가 남았으면 현재 port listener를 확인한 뒤 해당 process만 종료한다.
 
 ## 4. Container 시작
+
+entrypoint가 `alembic upgrade head`를 자동 실행한다. 기존 또는 production DB에 연결할 image는 아래 read-only preflight와 별도 DB 적용 승인 전 배포·실행하지 않는다.
 
 ```bash
 docker build -t gjallar:local .
@@ -126,6 +128,43 @@ PYTHONPATH=backend backend/venv/bin/alembic -c backend/alembic.ini heads
 
 `current`와 expected head가 다르면 application을 통한 mutation 전에 migration 실패 원인을 해결한다. 적용된 revision file은 수정하지 않는다.
 
+`20260824_0029`는 DRS 전용 schema를 제거하는 roll-forward-only migration이다. 기존 또는 production DB에서는 다음 순서를 지킨다.
+
+1. maintenance window를 확보하고 현재 revision과 backup/복구 가능성을 확인한 뒤 모든 구버전 replica와 DRS API traffic을 완전히 중지한다. `0029`는 제거될 table/column을 참조하는 구버전 code와 rolling-compatible하지 않다.
+2. read-only로 DRS 7개 table의 row count, `operation_locks`의 비-generic row, shared `job_runs`의 `drs_migration` status 분포를 확인한다.
+3. 저장소 밖 `/api/v1/drs/*` consumer와 배포된 `PROXMOX_DRS_*` credential dependency를 별도로 확인한다. migration은 이 두 항목과 shared job 상태를 감지하지 못한다.
+4. DRS 전용 table과 비-generic lock row가 모두 0이고 나머지 항목의 처리 결정을 기록한 뒤 exact DB와 적용 시점에 대한 별도 승인을 받는다.
+5. one-off controlled upgrade 뒤 `current`, table/index/constraint, generic lock과 shared job/artifact 보존을 확인하고 `0029`-aware 새 application image만 시작한다.
+
+read-only SQL 예시:
+
+```sql
+select 'vm_identities' as contract, count(*) as retained_rows from vm_identities
+union all select 'vm_identity_observations', count(*) from vm_identity_observations
+union all select 'vm_migration_policies', count(*) from vm_migration_policies
+union all select 'vm_migration_policy_events', count(*) from vm_migration_policy_events
+union all select 'drs_approval_packets', count(*) from drs_approval_packets
+union all select 'drs_migration_jobs', count(*) from drs_migration_jobs
+union all select 'drs_reconciliation_events', count(*) from drs_reconciliation_events;
+
+select operation_type, scope_type, status, count(*)
+from operation_locks
+where operation_type not in ('vm_start', 'vm_create', 'guided_qm_vm_unlock', 'vm_shutdown')
+   or scope_type <> 'proxmox_locator'
+   or vm_identity_id is not null
+   or source_node_id is not null
+   or target_node_id is not null
+group by operation_type, scope_type, status;
+
+select status, count(*)
+from job_runs
+where job_type = 'drs_migration'
+group by status
+order by status;
+```
+
+첫 query의 `retained_rows`가 하나라도 0이 아니거나 두 번째 query가 한 row라도 반환하면 `0029`는 DDL 전에 실패한다. 실패 후 row 삭제, Alembic stamp, 기존 revision 수정 또는 destructive downgrade를 하지 않는다. state별 archive/data-retirement와 corrective forward migration을 별도 승인받는다.
+
 ### 계정·session
 
 ```bash
@@ -157,13 +196,11 @@ PROXMOX_TLS_INSECURE=false
 - 세 필수 `PROXMOX_API_*` 값이 없으면 connection state는 `unconfigured`이고 실제 inventory row를 반환하지 않는다.
 - `PROXMOX_TLS_INSECURE=true`는 검증된 폐쇄 test 환경 외에는 사용하지 않는다.
 - token privilege는 필요한 endpoint에 최소화한다.
-- DRS migration backend는 별도 `PROXMOX_DRS_API_URL`, `PROXMOX_DRS_API_TOKEN_ID`, `PROXMOX_DRS_API_TOKEN_SECRET`를 사용한다. DRS live execution은 일반 운영 확인에 포함하지 않는다.
 
 필요할 때만 다음 tuning env를 사용한다.
 
 - common inventory/mutation: `PROXMOX_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_API_READ_TIMEOUT_SECONDS`, `PROXMOX_API_TIMEOUT_SECONDS`.
 - task poll: `PROXMOX_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_TASK_TIMEOUT_SECONDS`; legacy alias는 `GJALLAR_PROXMOX_TASK_*`.
-- DRS client: `PROXMOX_DRS_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_DRS_API_READ_TIMEOUT_SECONDS`, `PROXMOX_DRS_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_DRS_TASK_TIMEOUT_SECONDS`.
 - operation recovery: `GJALLAR_OPERATION_RECOVERY_ENABLED=false`, poll 기본 5초(1..300), lease 기본 60초(10..900). concurrency는 1로 고정된다.
 - 값과 기본값은 `.env.example`과 현재 client code를 우선하며 관측 근거 없이 timeout을 늘리지 않는다.
 
@@ -173,11 +210,13 @@ runner는 같은 FastAPI image 안의 opt-in observer다. 저장된 UPID task와
 
 enable 전:
 
-1. 모든 API replica에 migration head `20260721_0028`과 durable-lock-aware code를 배포하고 구버전 mutation traffic을 drain한다.
-2. 실제 PostgreSQL에서 open locator lock과 non-completed recovery item을 조회해 owner/operation 상태를 대조한다. lease token은 조회·공유하지 않는다.
-3. VM Start/Shutdown operation의 stored UPID, target node/VMID와 Proxmox task 보존 가능성을 확인한다. Shutdown row는 guest-aware `status/shutdown`이 이미 제출됐을 가능성을 전제로 하며 hard stop으로 대체하지 않는다.
-4. 한 replica 또는 동일 설정의 모든 replica에 `GJALLAR_OPERATION_RECOVERY_ENABLED=true`를 적용한다. 여러 replica여도 PostgreSQL lease가 한 observer만 허용한다.
-5. Operation 상세 UI의 Recovery coordination과 event timeline에서 claim/retry/completion을 확인한다.
+1. maintenance window에서 모든 구버전 replica를 drain하고 완전히 중지한 뒤 위 DB migration read-only preflight와 별도 적용 승인을 완료한다.
+2. one-off controlled DB upgrade 뒤 migration head `20260824_0029`와 generic lock/shared history 보존을 확인한다.
+3. `0029`-aware durable-lock code만 배포한다.
+4. 실제 PostgreSQL에서 open locator lock과 non-completed recovery item을 조회해 owner/operation 상태를 대조한다. lease token은 조회·공유하지 않는다.
+5. VM Start/Shutdown operation의 stored UPID, target node/VMID와 Proxmox task 보존 가능성을 확인한다. Shutdown row는 guest-aware `status/shutdown`이 이미 제출됐을 가능성을 전제로 하며 hard stop으로 대체하지 않는다.
+6. 한 replica 또는 동일 설정의 모든 replica에 `GJALLAR_OPERATION_RECOVERY_ENABLED=true`를 적용한다. 여러 replica여도 PostgreSQL lease가 한 observer만 허용한다.
+7. Operation 상세 UI의 Recovery coordination과 event timeline에서 claim/retry/completion을 확인한다.
 
 진단용 read-only SQL 예시:
 
@@ -216,7 +255,6 @@ live mutation 전에 다음을 모두 확인한다.
 - API 실패를 확인하지 않고 `qm`으로 자동 fallback
 - task `OK`만 보고 direct post-check 없이 성공 판정
 - arbitrary command, SSH, token, password, raw secret을 evidence endpoint에 제출
-- DRS recommendation을 execution approval로 간주
 
 ## 8. 실패와 복구
 
@@ -233,7 +271,7 @@ live mutation 전에 다음을 모두 확인한다.
 - `degraded`이면 TLS, network/DNS, timeout, token 권한과 PVE availability를 확인한 뒤 `연결 다시 확인`을 실행한다.
 - API URL, token, TLS, timeout과 PVE availability를 확인한다.
 - non-live에서 inventory-dependent API는 `503`과 `PROXMOX_INVENTORY_UNCONFIGURED` 또는 `PROXMOX_INVENTORY_DEGRADED`를 반환한다. retry 전에 reason을 해결한다.
-- UI에서는 inventory-dependent Workloads navigation을 숨기고 Overview/Workloads/DRS maintenance direct route를 connection 안내로 차단한다. Insights는 stored risk를 유지하고 readiness/capacity/placement를 `unavailable`로 표시하며 Jobs/Risks/Account/Admin도 계속 사용할 수 있다.
+- UI에서는 inventory-dependent Workloads navigation을 숨기고 Overview/Workloads direct route를 connection 안내로 차단한다. Insights는 stored risk를 유지하고 readiness/capacity/placement를 `unavailable`로 표시하며 Jobs/Risks/Account/Admin도 계속 사용할 수 있다.
 - stale/unknown/non-live state에서 mutation하지 않는다.
 
 ### Dispatch 결과 불명
@@ -251,7 +289,7 @@ live mutation 전에 다음을 모두 확인한다.
 
 ### Durable target lock과 retained ambiguity
 
-- VM Start, VM Shutdown, Create VM, Guided `qm unlock`, DRS는 현재 `GJALLAR_CLUSTER_ID`/VMID의 PostgreSQL `proxmox_locator` lock을 공유한다. node가 달라도 같은 VMID는 같은 target이다.
+- VM Start, VM Shutdown, Create VM과 Guided `qm unlock`은 현재 `GJALLAR_CLUSTER_ID`/VMID의 PostgreSQL `proxmox_locator` lock을 공유한다. node가 달라도 같은 VMID는 같은 target이다.
 - Start/Shutdown/Create/Guided는 platform temporary directory 아래 `gjallar-runtime/target-operation-locks/`의 compatibility file guard도 DB lock 뒤에 잡는다. container 교체로 이 파일이 사라져도 durable DB lock이 canonical 충돌 방어다.
 - API evidence에는 target, owner, lock id, operation type과 획득 시각만 노출하며 absolute filesystem path와 recovery lease token은 노출하지 않는다.
 - ambiguous result에서 durable lock은 의도적으로 남는다. file age, lease expiry, backend process 종료 또는 timeout만으로 stale이라고 판단하거나 삭제하지 않는다.
@@ -263,14 +301,6 @@ live mutation 전에 다음을 모두 확인한다.
 - success로 수동 변경하지 않는다.
 - expected/observed target, node, power/config/fingerprint와 active task를 비교한다.
 - external effect를 reverse action으로 자동 보상하지 않는다.
-
-### DRS reconciliation
-
-- reconcile endpoint는 stored task를 poll하고 local state를 갱신하는 follow-up이며 새 migration이나 corrective mutation을 시작하지 않는다.
-- 정확한 acknowledgement와 stored job/UPID가 필요하다.
-- live DRS evidence는 historical 자료일 뿐 future mutation의 승인이 아니다.
-- `dispatch_attempt.state=prepared`인데 UPID가 없으면 execute 재호출은 migration을 다시 제출하지 않고 job/lock을 reconciliation-required로 전환한다.
-- 이 prepared/no-UPID 상태의 reconcile은 VM status/config/active task를 read-only로 확인할 수 있지만, UPID 없이 job을 자동 완료하거나 operation lock을 해제하지 않는다.
 
 ## 9. 검증 명령
 
@@ -295,7 +325,7 @@ pnpm run verify:container
 
 - `/health`는 DB/Proxmox deep readiness가 아니다.
 - degraded 상태에서 조회할 durable stale inventory snapshot은 아직 없다.
-- durable restart recovery는 VM Start/Shutdown observation에 있고 Create VM/Guided/DRS 자동 handler는 없다.
+- durable restart recovery는 VM Start/Shutdown observation에 있고 Create VM/Guided 자동 handler는 없다.
 - job/artifact는 공통 append-only operation audit가 아니다.
 - Create/Start retained lock의 operator reconciliation/unlock API가 없다.
 - recovery runner는 API process와 resource를 공유하며 concurrency 1이다. 처리량/SLA와 별도 worker 분리 기준은 미확정이다.

@@ -1,14 +1,18 @@
 # DRS·Jobs/Artifacts Legacy Convergence Assessment
 
-- 상태: `REOPENED`
-- 조사일: `2026-07-23`
+- 상태: `RESOLVED`
+- 조사일: `2026-07-23`; 제품 방향 재검토 `2026-08-24`
 - 관련 Plan: [`Backend 모듈 경계·legacy 격리`](../plans/2026-07-23-backend-modular-boundaries-and-legacy-compatibility.md)
-- 관련 Architecture·ADR: [`현재 기준선`](overview.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-006`](../decisions/adr-006-drs-deprecation-and-insights-convergence.md)
+- 관련 Architecture·ADR: [`현재 기준선`](overview.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)
 - 철회된 ADR: [`ADR-005`](../decisions/adr-005-drs-placement-and-operation-convergence.md) (`REJECTED`, 역사 기록)
-- 현재 방향: `C — DRS maintenance 제거와 Insights/Monitoring 통합; 세부 범위는 후속 Plan 필요`
+- 현재 방향: `DRS 전용 UI·API·runtime·schema contract 제거 완료; shared Jobs/Artifacts는 별도 책임으로 보존`
 - 철회된 Plan: [`DRS Placement·Common Operation 전환`](../plans/2026-07-23-drs-placement-and-common-operation-convergence.md) (`ROLLED_BACK`)
 
 ## 결론
+
+2026-08-24 사용자가 운영 배포·외부 DRS consumer·보존할 production DRS state가 없다는 전제를 수락하고 repository full removal을 승인했다. 그 결과 DRS 전용 frontend·API·runtime·config·ORM/table contract는 신규 Operations로 이전하지 않고 제거됐으며, `job_runs`, `job_artifacts`, generic `operation_locks`, Jobs의 historical renderer와 `/insights` legacy source·ID 값은 보존됐다. 실제 production DB migration 적용, data 삭제, 외부 credential revoke와 live Proxmox mutation은 수행하지 않았다.
+
+아래 내용은 이 결론에 이르기 전 2026-07-23~2026-08-24 조사 snapshot과 선택지 기록이다. 현재 구현 기준선은 [`overview.md`](overview.md), 현재 DB/API 계약은 각각 [`current-schema-and-ownership.md`](../database/current-schema-and-ownership.md), [`current-api-v1.md`](../api/current-api-v1.md)를 따른다.
 
 DRS와 Jobs/Artifacts는 서로 다른 전환 문제다. 사용자는 DRS maintenance 기능을 유지·확장하는 선택지 A가 아니라 DRS를 제거하고 제품 surface를 Insights/Monitoring으로 통합하려는 방향을 명확히 했다.
 
@@ -72,12 +76,12 @@ flowchart LR
 | 상태 전이와 시간순 evidence | 가능 | artifact 저장·metadata 조회와 job step/progress 표현 |
 | VM Start/Shutdown restart recovery와 locator lock | 가능 | recovery terminal Jobs projection 의존 제거 |
 | DRS migration lifecycle | 현재 대체하지 않음 | DRS execution 폐기; 향후 일반 VM migration이 필요하면 별도 제품 결정과 action Plan 필요 |
-| DRS stable identity와 observation | Operation 소유가 아님 | Workloads 경계로 별도 유지·전환 |
-| DRS migration policy와 exact approval packet | Operation 소유가 아님 | Policy/Approval 경계로 별도 유지·전환 |
+| DRS stable identity와 observation | Operation 소유가 아님 | 목표 owner를 자동 지정하지 않는다. neutral Workloads observation에 필요한 field와 실제 consumer가 확인된 경우에만 별도 Plan으로 재설계 |
+| DRS migration policy와 exact approval packet | Operation 소유가 아님 | DRS 기능과 함께 제거 대상. generic Policy/Approval 계약으로 승격하지 않음 |
 | artifact와 audit | event payload 일부만 가능 | redacted artifact 저장·metadata query·내부 content read, append-only identity, retention |
 | risk/insight | 직접 대체하지 않음 | Operation/Evidence 기반 finding rule과 availability contract |
 
-DRS table 전체를 `operations` 하나로 치환하는 것은 목표 도메인 경계에도 맞지 않는다. `drs_migration_jobs`와 reconciliation execution state는 Operations 후보지만, identity/observation은 Workloads, policy/approval은 Policy/Approval, artifact/history는 Evidence/Audit 책임이다.
+DRS 전용 table에 generic 목표 owner를 배정하는 것은 현재 제품 방향과 맞지 않는다. `drs_migration_jobs`와 reconciliation execution state는 새 Operations 계약으로 이전하지 않고 active state를 모두 해소한 뒤 제거한다. `vm_identities`와 observation도 DRS origin만으로 Workloads에 승격하지 않으며, 실제 neutral consumer가 확인된 field만 별도 Plan에서 재설계한다. 보존이 승인된 artifact/history만 Evidence/Audit 책임으로 남긴다.
 
 ## 선택지
 

@@ -1,6 +1,6 @@
 # Gjallar 작업 지침
 
-이 저장소는 Proxmox의 실제 상태와 실행 권위를 존중하면서 운영 의도, 승인, 검증과 증거를 관리하는 Verified Operations Control Plane이다.
+이 저장소는 Proxmox의 실제 상태와 실행 권위를 존중하면서 상태·변화·위험과 운영 증거를 먼저 관찰하고 설명하며, 필요한 경우에만 제한된 검증 작업을 제공하는 Observe-first Operations Intelligence with Verified Actions이다.
 
 ## 기본 원칙
 

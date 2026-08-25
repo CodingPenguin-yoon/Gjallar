@@ -8,7 +8,9 @@
 
 이 Plan은 2026-07-20 사용자 승인을 받았다. 한 번에 전면 rewrite하지 않고 검증 가능한 vertical slice로 전환한다.
 
-- 진행 상태: `단계 0~9, 10-A durable recovery foundation과 10-B graceful VM Shutdown 구현 완료; DRS maintenance 단계적 폐기는 ADR-006에 따라 후속 상세 Plan 대기`
+> 2026-08-24 제품 기준선 갱신: [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)이 Verified Operations Control Plane 중심을 Observe-first Operations Intelligence with Verified Actions로 대체했다. 이 Plan의 완료된 단계 0~10-B는 구현 이력으로 보존한다. 미착수 단계 11의 후속 범위는 [`Observe-first Operations Intelligence 전환`](2026-08-24-observe-first-operations-intelligence-transition.md)에 구체화했으며, 사용자가 운영 배포·외부 consumer·보존할 production DRS state가 없다는 전제를 수락해 full repository removal까지 추가 승인·구현했다. production DB 적용·외부 credential revoke·live mutation은 후속 Plan 밖이다.
+
+- 진행 상태: `단계 0~9, 10-A durable recovery foundation과 10-B graceful VM Shutdown 구현 완료; 이후 전환은 ADR-007과 2026-08-24 후속 Plan이 소유`
 
 ## 1. 위험도
 

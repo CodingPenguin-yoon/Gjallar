@@ -18,18 +18,17 @@ assert.match(appFacade, /from ['"]\.\/app\/App['"]/, 'Root App must be a compati
 for (const label of ['Overview', 'Workloads', 'Insights', 'Operations', 'Settings']) {
   assert.ok(navigation.includes(`label: '${label}'`), `Primary navigation must expose ${label}`)
 }
-for (const label of ['Inventory', 'DRS Policies', 'Create VM', 'Network readiness', 'Jobs', 'Risks', 'Readiness', 'Capacity', 'Placement', 'Guided qm', 'Account', 'Admin Users']) {
+for (const label of ['Inventory', 'Create VM', 'Network readiness', 'Jobs', 'Risks', 'Readiness', 'Capacity', 'Placement', 'Guided qm', 'Account', 'Admin Users']) {
   assert.ok(navigation.includes(label), `Section navigation must expose ${label}`)
 }
 assert.doesNotMatch(navigation, /label: 'DRS Advisor'/, 'DRS must not remain a primary product navigation item')
+assert.doesNotMatch(navigation, /label: 'DRS Policies'/, 'DRS Policies must not remain a Workloads navigation item')
 
 for (const route of [
   'path="/"',
   'path="/instances"',
-  'path="/instances/drs-policies"',
   'path="/instances/create"',
   'path="/instances/networks"',
-  'path="/drs"',
   'path="/insights"',
   'path="/insights/risks"',
   'path="/insights/readiness"',
@@ -56,6 +55,8 @@ assert.match(app, /path="\/jobs"\s+element=\{jobsRoute\}/, 'Legacy Jobs alias mu
 assert.match(app, /visiblePrimaryNavItems/, 'Unavailable Proxmox navigation must be hidden')
 assert.match(app, /<InsightsPage category=\{category\}/, 'Insights routes must compose the dedicated page boundary')
 assert.doesNotMatch(app, /operationalRoute\(\s*insightsRoute/, 'Insights must remain visible for partial source availability')
+assert.doesNotMatch(app, /path="\/(?:drs|instances\/drs-policies)"/, 'Removed DRS URLs must follow the unknown-path fallback')
+assert.match(app, /<Route path="\*" element=\{<Navigate to="\/" replace \/>\} \/>/, 'Authenticated unknown paths must continue to redirect to Overview')
 assert.match(app, /operationalRoute\(<Dashboard \/>\)/, 'Dashboard must require authoritative Proxmox connection truth')
 assert.match(app, /canOperate\(currentUser\) && proxmoxOperational/, 'Mutation affordances must require role and live connection truth')
 assert.doesNotMatch(app, /from ['"]\.\.\/components\//, 'App layer must compose pages rather than legacy screen components')

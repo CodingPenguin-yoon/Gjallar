@@ -469,7 +469,7 @@ function NetworkReadinessScreen() {
           </div>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">네트워크 준비도</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            기존 live inventory 응답을 조합해 마이그레이션 전 네트워크 근거를 읽기 전용으로 보여줍니다. Proxmox 네트워크 설정을 변경하거나 DRS 실행 권한을 부여하지 않습니다.
+            기존 live inventory 응답을 조합해 마이그레이션 전 네트워크 근거를 읽기 전용으로 보여줍니다. Proxmox 네트워크 설정을 변경하거나 migration 실행 권한을 부여하지 않습니다.
           </p>
         </div>
         <button

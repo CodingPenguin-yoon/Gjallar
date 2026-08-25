@@ -21,7 +21,7 @@ target_metadata = Base.metadata
 
 def _configured_database_url() -> str:
     database_url = get_database_url()
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     return database_url
 
 

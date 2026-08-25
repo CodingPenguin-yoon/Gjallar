@@ -804,7 +804,7 @@ def calculate_placement(
     *,
     risks: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """Return neutral model plus normalized evidence for DRS enrichment."""
+    """Return neutral placement findings with normalized evidence."""
     snapshot = _snapshot(adapter)
     source = _source_label(adapter, snapshot)
     cluster_id = _cluster_id(adapter, snapshot)

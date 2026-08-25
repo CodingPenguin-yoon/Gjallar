@@ -239,9 +239,6 @@ assert.match(instanceListSource, /useNavigate/)
 assert.match(instanceListSource, /apiV1Client\.startVm/)
 assert.match(instanceListSource, /apiV1Client\.shutdownVm/)
 assert.match(instanceListSource, /canMutateVms/)
-assert.doesNotMatch(instanceListSource, /loadDrsPolicyCoverage|submitDrsPolicyUpdate|DrsPolicyReviewModal/)
-assert.doesNotMatch(instanceListSource, /canManageDrsPolicies|policyCoverage|policyWriteAllowed|vmIdentityId/)
-assert.doesNotMatch(instanceListSource, /DRS Policy|DRS policy review|Review DRS policy/)
 assert.doesNotMatch(instanceListSource, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'InstanceList must not import the legacy /api client')
 assert.match(
   instanceListSource,
@@ -403,9 +400,6 @@ assert.match(html, /boot/)
 assert.match(html, /raw/)
 assert.match(html, /discard/)
 assert.match(html, /local-lvm/)
-assert.doesNotMatch(html, /DRS Policy/)
-assert.doesNotMatch(html, /DRS policy review is visible/)
-assert.doesNotMatch(html, /Review policy/)
 
 for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals', 'Actions']) {
   assert.match(html, new RegExp(`>${heading}<`), `InstanceList must show ${heading} in the grouped inventory table`)
@@ -528,37 +522,6 @@ for (const blocked of [
 ]) {
   assert.ok(!html.toLowerCase().includes(blocked.toLowerCase()), `InstanceList read-only slice must not expose ${blocked}`)
 }
-
-const failureHarness = createHookHarness()
-globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
-  reactHooks: failureHarness.hooks,
-  router: { useNavigate: () => (path) => navigateCalls.push(path) },
-  icons: {
-    AlertTriangle: icon('AlertTriangle'),
-    ChevronDown: icon('ChevronDown'),
-    ChevronRight: icon('ChevronRight'),
-    Loader2: icon('Loader2'),
-    Network: icon('Network'),
-    Play: icon('Play'),
-    Power: icon('Power'),
-    Plus: icon('Plus'),
-    RefreshCw: icon('RefreshCw'),
-    Server: icon('Server'),
-    Terminal: icon('Terminal'),
-  },
-  api: { apiV1Client: fakeClient },
-  auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
-  loader: { loadInfraExplorerModel: async () => model },
-}
-const FailureInstanceList = loadCommonJsModule(compiled, `${String(sourcePath)}?drs-policy-failure`).default
-failureHarness.beginRender()
-FailureInstanceList({ canManageDrsPolicies: true })
-await failureHarness.flushEffects()
-failureHarness.beginRender()
-tree = FailureInstanceList({ canManageDrsPolicies: true })
-html = renderToStaticMarkup(tree)
-assert.match(html, /app-01/, 'Inventory must still render when DRS policy context fails')
-assert.doesNotMatch(html, /DRS policy context is unavailable/)
 
 delete globalThis.__INSTANCE_LIST_TEST_MOCKS__
 

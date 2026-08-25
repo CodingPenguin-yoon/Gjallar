@@ -1,10 +1,12 @@
 # ADR-001: Proxmox와 Gjallar의 권한 경계 및 실행 모드
 
-- 상태: `ACCEPTED`
+- 상태: `SUPERSEDED`
 - 날짜: `2026-07-20`
 - 결정자: `사용자`
 - 대체하는 ADR: `없음 — 이전 ADR-001은 미승인 초안이므로 문서 초기화에서 폐기`
-- 대체된 ADR: `없음`
+- 대체된 ADR: [`ADR-007`](adr-007-observe-first-operations-intelligence.md)
+
+> 2026-08-24 제품 방향 갱신: Proxmox actual-state authority, execution mode, no-silent-fallback과 arbitrary shell 금지 원칙은 `ADR-007`이 계승한다. day-2 mutation을 제품 중심으로 두는 결정은 observe-first Operations Intelligence와 선택적 verified action 방향으로 대체됐다. 아래 본문은 당시 결정의 역사로 보존한다.
 
 ## 배경
 

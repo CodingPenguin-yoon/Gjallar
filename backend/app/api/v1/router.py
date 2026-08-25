@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.v1.drs_compat import router as drs_compat_router
 from app.api.v1.guided_qm import router as guided_qm_router
 from app.api.v1.insights import router as insights_router
 from app.api.v1.inventory import router as inventory_router
@@ -22,4 +21,3 @@ router.include_router(insights_router)
 router.include_router(jobs_compat_router)
 router.include_router(vm_actions_router)
 router.include_router(vm_create_compat_router)
-router.include_router(drs_compat_router)

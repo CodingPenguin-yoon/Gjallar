@@ -9,7 +9,7 @@
 ## 프로젝트와 기준 문서
 
 - 프로젝트명: `Gjallar`
-- 목적: Proxmox의 실제 상태와 실행 권위를 존중하면서 운영 의도, 정책, 승인, 검증과 증거를 통합하는 Verified Operations Control Plane
+- 목적: Proxmox의 actual state와 실행 권위를 존중하면서 상태·변화·freshness와 운영 evidence를 설명하고, 필요한 경우 제한된 검증 action을 제공하는 Observe-first Operations Intelligence
 - 주요 사용자: Proxmox 인프라 운영자와 관리자(`viewer`, `operator`, `admin`)
 - 저장소 형태: React SPA, FastAPI backend, PostgreSQL/Alembic과 Docker runtime을 함께 관리하는 monorepo
 - 제품 범위와 현재 구조: [`specifications/project-specification.md`](specifications/project-specification.md), [`architecture/overview.md`](architecture/overview.md)
@@ -29,11 +29,14 @@
 ## 현재 방향과 경계
 
 - 기능별 monolith에서 domain-oriented modular monolith로 작은 vertical slice 단위 전환 중이다. 현재와 목표 구조를 섞지 않는다.
-- Proxmox가 리소스 실행 권위와 실제 상태를 소유하며 Gjallar는 의도, 정책, 승인, 검증과 evidence를 소유한다. 상세 경계는 [`ADR-001`](decisions/adr-001-proxmox-gjallar-authority-boundary.md)을 따른다.
+- 제품의 기본 경로는 `Proxmox observation → 상태·변화·위험 설명 → 필요한 경우 verified action`이다. 상세 제품·권한 경계는 [`ADR-007`](decisions/adr-007-observe-first-operations-intelligence.md)을 따른다.
+- Proxmox가 actual state와 low-level execution을 소유하며 Gjallar는 local metadata, observation provenance/freshness, derived finding과 지원 action의 intent·verification·evidence·audit를 소유한다.
+- 지원 action은 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`으로 제한한다. Insights는 operation을 자동 생성하거나 dispatch하지 않는다.
 - 목표 도메인과 의존성 방향은 [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md)와 [`domains/domain-map.md`](domains/domain-map.md)를 따른다.
 - product runtime은 Proxmox 연결 실패를 fake inventory로 대체하지 않는다. `unconfigured`·`live`·`degraded` 의미는 [`ADR-003`](decisions/adr-003-production-inventory-connection-truth.md)을 따른다.
-- DRS maintenance는 [`ADR-006`](decisions/adr-006-drs-deprecation-and-insights-convergence.md)에 따른 제거 대상이며 Common Operation, automatic recovery나 신규 기능으로 확장하지 않는다.
-- 실제 전환은 승인된 [`plans/2026-07-20-verified-operations-control-plane-transition.md`](plans/2026-07-20-verified-operations-control-plane-transition.md)를 기준으로 한다.
+- DRS policy·approval·execution·reconciliation, 전용 UI/API/runtime/schema contract는 제거됐다. historical Jobs/Artifacts renderer와 `/insights` legacy source·ID 값은 active DRS 기능으로 해석하거나 확장하지 않는다.
+- generic TSDB·독립 alerting platform, automatic remediation과 multi-provider 지원은 현재 비범위다.
+- 현재 구현 사실은 [`architecture/overview.md`](architecture/overview.md)를 따른다. 이후 공개 계약·data ownership·architecture 전환은 다시 승인된 고위험 Plan으로만 수행한다.
 
 ## 저장소 지도
 
@@ -72,6 +75,8 @@ Backend formatter, Lint와 type-check 전용 명령은 현재 확인되지 않�
 - domain boundary, dependency direction과 주요 배포 구조 전환
 - idempotency, target lock, lease, retry, recovery와 reconciliation 변경
 - raw shell/SSH executor, background worker, queue, scheduler, cache 또는 신규 외부 시스템 도입
+- DRS 제거 migration의 production preflight·적용, historical Jobs/Artifacts retention 또는 제거된 contract 복구
+- telemetry collector, TSDB, alert delivery 또는 신규 monitoring dependency 도입
 
 처리 workflow는 [`AGENTS.md`](../AGENTS.md)의 “위험과 승인”을 따른다. live 작업은 정확한 target과 side effect를 별도로 승인받는다.
 
@@ -84,6 +89,7 @@ Backend formatter, Lint와 type-check 전용 명령은 현재 확인되지 않�
 | API·DB | [`api/current-api-v1.md`](api/current-api-v1.md), [`database/current-schema-and-ownership.md`](database/current-schema-and-ownership.md) |
 | Operation lifecycle·운영·복구 | [`flows/verified-operation-lifecycle.md`](flows/verified-operation-lifecycle.md), [`operations/runbook.md`](operations/runbook.md) |
 | Durable lock·recovery 결정 | [`ADR-004`](decisions/adr-004-postgresql-durable-operation-recovery.md) |
+| 현재 Architecture Decision | [`decisions/README.md`](decisions/README.md), [`ADR-007`](decisions/adr-007-observe-first-operations-intelligence.md) |
 | 활성 전환과 세부 Plan | [`plans/`](plans/) |
 | Historical live evidence | [`evidence/legacy-live-smoke/README.md`](evidence/legacy-live-smoke/README.md) |
 

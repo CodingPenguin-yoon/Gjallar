@@ -44,19 +44,9 @@ class ForbiddenMvpEndpointTests(unittest.TestCase):
         offenders = [path for path in self.paths if path.startswith("/api/v1/runtime-targets")]
         self.assertEqual([], offenders, f"Runtime Target write/API is deferred from MVP: {offenders}")
 
-    def test_drs_unsafe_recommendation_aliases_and_broad_shortcuts_are_absent(self):
-        forbidden_drs_paths = {
-            "/api/v1/drs/recommendations/{recommendation_id}/approve",
-            "/api/v1/drs/recommendations/{recommendation_id}/approve-migrate",
-            "/api/v1/drs/recommendations/{recommendation_id}/migrate",
-            "/api/v1/drs/recommendations/{recommendation_id}/migration",
-            "/api/v1/drs/recommendations/{recommendation_id}/live-migrate",
-            "/api/v1/drs/recommendations/{recommendation_id}/check-now",
-            "/api/v1/drs/live-migrate",
-            "/api/v1/drs/migrate",
-        }
-        offenders = sorted(forbidden_drs_paths & set(self.paths))
-        self.assertEqual([], offenders, f"Unsafe DRS recommendation aliases and broad live-migrate shortcuts must stay absent: {offenders}")
+    def test_removed_drs_api_surface_is_not_exposed(self):
+        offenders = [path for path in self.paths if path.startswith("/api/v1/drs")]
+        self.assertEqual([], offenders, f"Removed DRS API routes must stay absent: {offenders}")
 
 
 if __name__ == "__main__":

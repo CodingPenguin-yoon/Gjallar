@@ -788,7 +788,7 @@ const screenSource = readFileSync(new URL('../src/components/NetworkReadinessScr
 assert.match(screenSource, /네트워크 준비도/)
 assert.match(screenSource, /마이그레이션 전 네트워크 근거/)
 assert.match(screenSource, /Proxmox 네트워크 설정을 변경/)
-assert.match(screenSource, /DRS 실행 권한/)
+assert.match(screenSource, /migration 실행 권한/)
 assert.match(screenSource, /마이그레이션 원본/)
 assert.match(screenSource, /대상 네트워크 비교/)
 assert.match(screenSource, /대상 노드/)

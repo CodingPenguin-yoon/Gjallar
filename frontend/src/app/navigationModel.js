@@ -25,7 +25,6 @@ export const primaryNavItems = Object.freeze([
 
 export const workloadNavItems = Object.freeze([
   { label: 'Inventory', path: '/instances', icon: List, aliasPaths: ['/infra'] },
-  { label: 'DRS Policies', path: '/instances/drs-policies', icon: ClipboardCheck },
   { label: 'Create VM', path: '/instances/create', icon: Plus, aliasPaths: ['/create'] },
   { label: 'Network readiness', path: '/instances/networks', icon: Network, aliasPaths: ['/networks'] },
 ])

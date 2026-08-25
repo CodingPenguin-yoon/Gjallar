@@ -8,8 +8,8 @@ Gjallar의 FastAPI backend입니다. 현재 `/api/v1`과 local auth/admin API를
 - read-only Proxmox inventory와 normalization
 - Create VM draft/preflight/plan/approval/native create
 - VM Start, graceful VM Shutdown과 post-create readiness evidence
+- 공통 Operations 조회·evidence timeline과 Guided `qm unlock`
 - PostgreSQL durable target coordination과 opt-in VM Start/Shutdown observation recovery
-- DRS recommendation/policy/approval/migration/reconciliation
 - DB-backed jobs, artifacts, risks
 - risk/readiness/capacity/placement의 observe-only Insights aggregate
 - production React SPA serving
@@ -22,7 +22,7 @@ Gjallar의 FastAPI backend입니다. 현재 `/api/v1`과 local auth/admin API를
 
 ## 로컬 준비
 
-저장소 root에서 실행합니다. `python3.13`이 다른 이름·경로에 설치됐다면 첫 명령의 실행 파일만 해당 Python 3.13 경로로 바꿉니다.
+저장소 root에서 실행합니다. `python3.13`이 다른 이름·경로에 설치됐다면 첫 명령의 실행 파일만 해당 Python 3.13 경로로 바꿉니다. 아래 migration 명령은 새 빈 로컬 DB 기준입니다. 기존 또는 production DB에는 `20260824_0029` hard-zero preflight와 별도 적용 승인 전 실행하지 말고, row가 있으면 삭제·강제 stamp하지 마십시오.
 
 ```bash
 cp .env.example .env
@@ -65,7 +65,6 @@ PYTHONPATH=. venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port "${BAC
 - inventory/mutation tuning: `PROXMOX_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_API_READ_TIMEOUT_SECONDS`, legacy fallback `PROXMOX_API_TIMEOUT_SECONDS`, `PROXMOX_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_TASK_TIMEOUT_SECONDS`와 `GJALLAR_PROXMOX_TASK_*` alias.
 - auth/cookie: `GJALLAR_ENV`, `GJALLAR_ALLOWED_ORIGINS`, `GJALLAR_SESSION_COOKIE_NAME`, `GJALLAR_SESSION_TTL_SECONDS`, `GJALLAR_SESSION_COOKIE_SECURE`, `GJALLAR_SESSION_COOKIE_SAMESITE`.
 - Create VM access default: `GJALLAR_DEFAULT_SSH_PUBLIC_KEY`, `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64`, `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE`.
-- existing DRS backend: `PROXMOX_DRS_API_URL`, `PROXMOX_DRS_API_TOKEN_ID`, `PROXMOX_DRS_API_TOKEN_SECRET`, `PROXMOX_DRS_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_DRS_API_READ_TIMEOUT_SECONDS`, `PROXMOX_DRS_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_DRS_TASK_TIMEOUT_SECONDS`.
 
 product inventory는 authoritative Proxmox API만 사용합니다. `GJALLAR_INVENTORY_MODE=live`가 기본이며 `auto`는 live-only 호환 alias입니다. 필수 connection 설정이 빠지면 `unconfigured`, 설정 후 read가 실패하면 `degraded`를 반환하고 fixture inventory로 fallback하지 않습니다. 상태는 authenticated `GET /api/v1/setup/proxmox/connection`에서 확인합니다.
 
@@ -108,9 +107,11 @@ root Dockerfile은 frontend를 build한 뒤 FastAPI runtime에 포함합니다. 
 3. configured bootstrap admin 생성
 4. Uvicorn 실행
 
+따라서 기존 또는 production DB를 연결한 새 image는 [`운영 Runbook`](../project-docs/operations/runbook.md)의 `20260824_0029` read-only preflight와 별도 DB 적용 승인 전 배포·실행하지 않습니다.
+
 `GJALLAR_SKIP_STARTUP_INIT=1`은 migration/seed/bootstrap을 모두 건너뛰므로 일반 운영 시작에 사용하지 않습니다.
 
-recovery runner는 기본 `false`이며 FastAPI lifespan 안에서 concurrency 1로 동작합니다. enable 전 모든 API replica가 migration head `20260721_0028`과 durable lock code를 사용하고 있는지 확인해야 합니다. VM Start/Shutdown handler는 저장된 UPID/task와 direct VM status만 읽으며 Proxmox mutation을 재호출하지 않습니다.
+recovery runner는 기본 `false`이며 FastAPI lifespan 안에서 concurrency 1로 동작합니다. enable 전 별도 승인된 DB preflight·upgrade가 끝나고 모든 API replica가 migration head `20260824_0029`와 durable lock code를 사용하는지 확인해야 합니다. VM Start/Shutdown handler는 저장된 UPID/task와 direct VM status만 읽으며 Proxmox mutation을 재호출하지 않습니다.
 
 ## 변경 시 지켜야 할 경계
 
