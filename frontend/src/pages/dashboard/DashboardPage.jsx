@@ -94,12 +94,41 @@ function UsageBar({ value, tone = 'blue' }) {
   )
 }
 
-function buildDashboardModel({ cluster = {}, nodes = [], vms = [], storages = [], networks = [], jobs = [], risks = [] }) {
-  const nodeRows = asArray(nodes).map((node) => {
+function buildDashboardModel({
+  cluster = {},
+  nodes = [],
+  vms = [],
+  storages = [],
+  networks = [],
+  jobs = [],
+  risks = [],
+  availability = {},
+}) {
+  const clusterAvailable = availability.cluster === true
+  const nodesAvailable = availability.nodes === true
+  const vmsAvailable = availability.vms === true
+  const storagesAvailable = availability.storages === true
+  const networksAvailable = availability.networks === true
+  const observedNodes = nodesAvailable ? asArray(nodes) : []
+  const observedVms = vmsAvailable ? asArray(vms) : []
+  const observedStorages = storagesAvailable ? asArray(storages) : []
+  const observedNetworks = networksAvailable ? asArray(networks) : []
+
+  const nodeRows = observedNodes.map((node) => {
     const id = nodeIdOf(node)
-    const nodeVms = asArray(vms).filter((vm) => (vm.node_id || vm.nodeId || vm.node) === id)
-    const nodeStorages = asArray(node.storage).length ? asArray(node.storage) : asArray(storages).filter((storage) => (storage.node_id || storage.nodeId) === id)
-    const nodeNetworks = asArray(node.networks).length ? asArray(node.networks) : asArray(networks).filter((network) => (network.node_id || network.nodeId) === id)
+    const nodeVms = vmsAvailable
+      ? observedVms.filter((vm) => (vm.node_id || vm.nodeId || vm.node) === id)
+      : []
+    const nodeStorages = storagesAvailable
+      ? asArray(node.storage).length
+        ? asArray(node.storage)
+        : observedStorages.filter((storage) => (storage.node_id || storage.nodeId) === id)
+      : []
+    const nodeNetworks = networksAvailable
+      ? asArray(node.networks).length
+        ? asArray(node.networks)
+        : observedNetworks.filter((network) => (network.node_id || network.nodeId) === id)
+      : []
     const memoryTotalGb = asNumber(node.memory_total_mb ?? node.memoryTotalMb) / 1024
     const cpuUsagePercent = optionalNumber(node.cpu_usage_percent ?? node.cpuUsagePercent)
     const memoryUsedGb = asNumber(node.memory_used_mb ?? node.memoryUsedMb) / 1024
@@ -111,39 +140,58 @@ function buildDashboardModel({ cluster = {}, nodes = [], vms = [], storages = []
       name: nodeNameOf(node),
       status: node.status || 'unknown',
       tone: statusTone(node.status),
-      vmCount: nodeVms.length,
-      runningVmCount: nodeVms.filter((vm) => String(vm.status || '').toLowerCase() === 'running').length,
+      vmCount: vmsAvailable ? nodeVms.length : null,
+      runningVmCount: vmsAvailable
+        ? nodeVms.filter((vm) => String(vm.status || '').toLowerCase() === 'running').length
+        : null,
       cpuLabel: cpuUsagePercent !== null ? `${Math.round(cpuUsagePercent)}%` : '-',
       cpuPercent: cpuUsagePercent !== null ? cpuUsagePercent : Number.NaN,
       memoryLabel: memoryUsagePercent !== null && memoryTotalGb > 0
         ? `${Math.round(memoryUsedGb)} / ${Math.round(memoryTotalGb)} GB`
         : '-',
       memoryPercent: memoryUsagePercent !== null ? memoryUsagePercent : Number.NaN,
-      storageLabel: storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : '-',
+      storageLabel: storagesAvailable && storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : '-',
       networks: nodeNetworks.map((network) => network.bridge_id || network.bridgeId).filter(Boolean),
+      vmsAvailable,
+      storagesAvailable,
+      networksAvailable,
     }
   })
 
   const onlineNodes = nodeRows.filter((node) => node.tone === 'green').length
-  const runningVms = asArray(vms).filter((vm) => String(vm.status || '').toLowerCase() === 'running').length
-  const storageTotalGb = asArray(storages).reduce((sum, storage) => sum + Math.max(0, asNumber(storage.total_gb ?? storage.totalGb)), 0)
-  const storageFreeGb = asArray(storages).reduce((sum, storage) => sum + Math.max(0, asNumber(storage.free_gb ?? storage.freeGb)), 0)
-  const hasNfs = asArray(storages).some((storage) => String(storage.type || '').toLowerCase() === 'nfs')
-  const bridgeCount = new Set(asArray(networks).map((network) => `${network.node_id || network.nodeId}:${network.bridge_id || network.bridgeId}`).filter(Boolean)).size
+  const runningVms = vmsAvailable
+    ? observedVms.filter((vm) => String(vm.status || '').toLowerCase() === 'running').length
+    : null
+  const storageTotalGb = observedStorages.reduce((sum, storage) => sum + Math.max(0, asNumber(storage.total_gb ?? storage.totalGb)), 0)
+  const storageFreeGb = observedStorages.reduce((sum, storage) => sum + Math.max(0, asNumber(storage.free_gb ?? storage.freeGb)), 0)
+  const hasNfs = observedStorages.some((storage) => String(storage.type || '').toLowerCase() === 'nfs')
+  const bridgeCount = networksAvailable
+    ? new Set(observedNetworks.map((network) => `${network.node_id || network.nodeId}:${network.bridge_id || network.bridgeId}`).filter(Boolean)).size
+    : null
 
   return {
-    clusterId: cluster.cluster_id || 'gjallar-mvp',
+    clusterId: clusterAvailable ? cluster.cluster_id || 'gjallar-mvp' : 'unavailable',
     nodeRows,
     summary: {
-      nodes: `${onlineNodes}/${nodeRows.length}`,
-      quorum: onlineNodes === nodeRows.length && nodeRows.length > 0 ? 'OK' : 'Check',
-      vms: String(asArray(vms).length),
+      nodesAvailable,
+      nodes: nodesAvailable ? `${onlineNodes}/${nodeRows.length}` : '-',
+      nodeStatus: nodesAvailable && nodeRows.length > 0 ? `${onlineNodes}/${nodeRows.length} online` : 'unavailable',
+      allObservedNodesOnline: nodesAvailable && nodeRows.length > 0 && onlineNodes === nodeRows.length,
+      vms: vmsAvailable ? String(observedVms.length) : '-',
       runningVms,
-      storage: hasNfs ? 'NFS' : `${Math.max(0, Math.round(storageTotalGb - storageFreeGb)).toLocaleString()} GB`,
-      storageSub: storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : 'storage inventory',
+      storage: storagesAvailable
+        ? hasNfs ? 'NFS' : `${Math.max(0, Math.round(storageTotalGb - storageFreeGb)).toLocaleString()} GB`
+        : '-',
+      storageSub: !storagesAvailable
+        ? 'storage unavailable'
+        : storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : 'storage inventory',
       bridges: bridgeCount,
-      activeJobs: asArray(jobs).filter((job) => ['running', 'pending', 'in_progress', 'processing'].includes(String(job.status || '').toLowerCase())).length,
-      redRisks: asArray(risks).filter((risk) => String(risk.level || risk.risk_level || '').toLowerCase() === 'red').length,
+      activeJobs: availability.jobs === true
+        ? asArray(jobs).filter((job) => ['running', 'pending', 'in_progress', 'processing'].includes(String(job.status || '').toLowerCase())).length
+        : null,
+      redRisks: availability.risks === true
+        ? asArray(risks).filter((risk) => String(risk.level || risk.risk_level || '').toLowerCase() === 'red').length
+        : null,
     },
   }
 }
@@ -158,6 +206,15 @@ export default function Dashboard() {
     networks: [],
     jobs: [],
     risks: [],
+    availability: {
+      cluster: false,
+      nodes: false,
+      vms: false,
+      storages: false,
+      networks: false,
+      jobs: false,
+      risks: false,
+    },
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -183,6 +240,15 @@ export default function Dashboard() {
       networks: settledValue(networks, previous.networks || []),
       jobs: settledValue(jobs, previous.jobs || []),
       risks: settledValue(risks, previous.risks || []),
+      availability: {
+        cluster: cluster.status === 'fulfilled',
+        nodes: nodes.status === 'fulfilled',
+        vms: vms.status === 'fulfilled',
+        storages: storages.status === 'fulfilled',
+        networks: networks.status === 'fulfilled',
+        jobs: jobs.status === 'fulfilled',
+        risks: risks.status === 'fulfilled',
+      },
     }))
     setError(dashboardPartialError(results))
     setLoading(false)
@@ -193,7 +259,17 @@ export default function Dashboard() {
   }, [])
 
   const model = useMemo(() => buildDashboardModel(snapshot), [snapshot])
-  const healthTone = model.summary.quorum === 'OK' && model.summary.redRisks === 0 ? 'green' : 'yellow'
+  const healthTone = model.nodeRows.length === 0 ? 'slate' : model.summary.allObservedNodesOnline ? 'green' : 'yellow'
+  const riskMetricValue = model.summary.redRisks === null ? '-' : model.summary.redRisks
+  const riskMetricTone = model.summary.redRisks > 0 ? 'red' : 'slate'
+  const jobMetricContext = model.summary.activeJobs === null ? 'jobs unavailable' : `${model.summary.activeJobs} active jobs`
+  const riskMetricContext = model.summary.redRisks === null
+    ? `${jobMetricContext} · risks unavailable`
+    : `current response · ${jobMetricContext}`
+  const vmMetricContext = model.summary.runningVms === null ? 'VM inventory unavailable' : `${model.summary.runningVms} running`
+  const nodeSummaryLabel = !model.summary.nodesAvailable
+    ? 'Node inventory unavailable'
+    : model.nodeRows.length > 0 ? onlineNodeLabel(model.nodeRows) : 'No nodes observed'
 
   return (
     <section className="space-y-5">
@@ -201,9 +277,9 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-2">
             <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
-              Cluster {model.summary.quorum}
+              Node inventory {model.summary.nodeStatus}
             </span>
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Live read-only</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Read-only inventory view</span>
           </div>
           <h2 className="mt-3 text-3xl font-semibold text-slate-950">Proxmox 클러스터 운영 화면</h2>
         </div>
@@ -229,9 +305,9 @@ export default function Dashboard() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricTile label="Nodes" value={model.summary.nodes} sub={model.clusterId} tone={healthTone} icon={Server} />
-        <MetricTile label="VMs" value={model.summary.vms} sub={`${model.summary.runningVms} running`} tone="slate" icon={Activity} />
+        <MetricTile label="VMs" value={model.summary.vms} sub={vmMetricContext} tone="slate" icon={Activity} />
         <MetricTile label="Storage" value={model.summary.storage} sub={model.summary.storageSub} tone="slate" icon={HardDrive} />
-        <MetricTile label="Risks" value={model.summary.redRisks} sub={`${model.summary.activeJobs} active jobs`} tone={model.summary.redRisks > 0 ? 'red' : 'green'} icon={AlertTriangle} />
+        <MetricTile label="Red risks" value={riskMetricValue} sub={riskMetricContext} tone={riskMetricTone} icon={AlertTriangle} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
@@ -256,14 +332,14 @@ export default function Dashboard() {
                 <Network className="h-4 w-4 text-slate-500" />
                 Network readiness
               </span>
-              <span className="text-xs font-semibold text-slate-500">{model.summary.bridges}</span>
+              <span className="text-xs font-semibold text-slate-500">{model.summary.bridges ?? '-'}</span>
             </button>
             <button type="button" onClick={() => navigate('/operations/jobs')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
               <span className="flex items-center gap-3">
                 <Clock3 className="h-4 w-4 text-slate-500" />
                 Jobs
               </span>
-              <span className="text-xs font-semibold text-slate-500">{model.summary.activeJobs}</span>
+              <span className="text-xs font-semibold text-slate-500">{model.summary.activeJobs ?? '-'}</span>
             </button>
           </div>
         </aside>
@@ -272,10 +348,10 @@ export default function Dashboard() {
           <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-slate-950">Cluster Summary</h3>
-              <div className="mt-1 text-xs text-slate-500">노드별 VM 상태, 실시간 CPU/메모리 사용량, 스토리지 여유 공간, 브리지 상태</div>
+              <div className="mt-1 text-xs text-slate-500">노드별 VM 상태, 관찰된 CPU/메모리 사용량, 스토리지 여유 공간, 브리지 상태</div>
             </div>
             <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
-              {onlineNodeLabel(model.nodeRows)}
+              {nodeSummaryLabel}
             </span>
           </div>
 
@@ -295,7 +371,9 @@ export default function Dashboard() {
               <tbody className="divide-y divide-slate-100">
                 {model.nodeRows.length === 0 ? (
                   <tr>
-                    <td className="px-5 py-6 text-sm text-slate-500" colSpan={7}>노드 데이터가 없습니다.</td>
+                    <td className="px-5 py-6 text-sm text-slate-500" colSpan={7}>
+                      {model.summary.nodesAvailable ? '노드 데이터가 없습니다.' : '노드 inventory가 unavailable 상태입니다.'}
+                    </td>
                   </tr>
                 ) : model.nodeRows.map((node) => (
                   <tr key={node.id} className="hover:bg-slate-50">
@@ -310,8 +388,10 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      <div className="font-medium text-slate-900">{node.runningVmCount}/{node.vmCount}</div>
-                      <div className="text-xs text-slate-500">running / total</div>
+                      <div className="font-medium text-slate-900">
+                        {node.vmsAvailable ? `${node.runningVmCount}/${node.vmCount}` : '-'}
+                      </div>
+                      <div className="text-xs text-slate-500">{node.vmsAvailable ? 'running / total' : 'VM inventory unavailable'}</div>
                     </td>
                     <td className="px-5 py-4">
                       <div className="font-medium text-slate-900">{node.cpuLabel}</div>
@@ -321,8 +401,10 @@ export default function Dashboard() {
                       <div className="font-medium text-slate-900">{node.memoryLabel}</div>
                       <UsageBar value={node.memoryPercent} tone={node.memoryPercent > 85 ? 'red' : node.memoryPercent > 65 ? 'yellow' : 'green'} />
                     </td>
-                    <td className="px-5 py-4 text-slate-700">{node.networks.length ? node.networks.join(' / ') : '-'}</td>
-                    <td className="px-5 py-4 text-slate-700">{node.storageLabel}</td>
+                    <td className="px-5 py-4 text-slate-700">
+                      {node.networksAvailable ? node.networks.length ? node.networks.join(' / ') : '-' : 'unavailable'}
+                    </td>
+                    <td className="px-5 py-4 text-slate-700">{node.storagesAvailable ? node.storageLabel : 'unavailable'}</td>
                   </tr>
                 ))}
               </tbody>

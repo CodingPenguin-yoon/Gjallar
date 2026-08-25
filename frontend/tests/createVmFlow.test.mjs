@@ -529,6 +529,7 @@ assert.ok(wizardSource.includes('sshPublicKey'), 'Create VM wizard must expose S
 assert.ok(wizardSource.includes('cloudInitUser'), 'Create VM wizard must expose cloud-init user input')
 assert.ok(wizardSource.includes('/operations/${encodeURIComponent(operationId)}'), 'Create VM must open the common Operation timeline when linkage exists')
 assert.ok(wizardSource.includes('/operations/jobs?job=${encodeURIComponent(jobId)}'), 'Create VM must retain the legacy Jobs fallback')
+assert.match(wizardSource, /compatibility=operation/, 'Create VM Jobs fallback must identify the compatibility view')
 assert.ok(!wizardSource.includes(['apiV1Client.getNetwork', 'Policy()'].join('')), 'Create VM wizard must use live bridge inventory as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')

@@ -89,6 +89,7 @@ const apiSource = readFileSync(new URL('../src/shared/api/apiV1.js', import.meta
 const planPage = readFileSync(new URL('../src/pages/operations/GuidedQmUnlockPage.jsx', import.meta.url), 'utf8')
 const actionSource = readFileSync(new URL('../src/features/guided-qm-unlock/GuidedQmOperationActions.jsx', import.meta.url), 'utf8')
 const detailPage = readFileSync(new URL('../src/pages/operations/OperationDetailPage.jsx', import.meta.url), 'utf8')
+const listPage = readFileSync(new URL('../src/pages/operations/OperationsListPage.jsx', import.meta.url), 'utf8')
 const inventory = readFileSync(new URL('../src/features/workloads/inventory/WorkloadInventory.jsx', import.meta.url), 'utf8')
 
 assert.match(apiSource, /listOperations/)
@@ -104,6 +105,9 @@ assert.match(actionSource, /이 화면의 명령을 지금 실행하지 마세�
 assert.match(detailPage, /Evidence timeline/)
 assert.match(detailPage, /Recovery coordination/)
 assert.doesNotMatch(detailPage, /leaseToken|lease_token/, 'Private recovery lease token must not be rendered')
+for (const operationType of ['vm_create', 'vm_start', 'vm_shutdown', 'guided_qm_vm_unlock']) {
+  assert.match(listPage, new RegExp(`value=["']${operationType}["']`), `Operations filter must expose ${operationType}`)
+}
 assert.match(inventory, /operations\/guided-qm\/vm-unlock\?node_id=/, 'Workload row must link to a typed Guided qm plan')
 
 console.log('operations UI contract exercised')

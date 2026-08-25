@@ -129,6 +129,14 @@ function filterRisks(items, query) {
   return items.filter((risk) => [risk.id, risk.jobId, risk.level, risk.code, risk.message].some((value) => String(value ?? '').toLowerCase().includes(normalized)))
 }
 
+function riskOverviewState({ hasRiskData, loading, summary }) {
+  if (!hasRiskData) return { label: loading ? 'Risk loading' : 'Risk unavailable', level: 'unknown' }
+  if (summary.red > 0) return { label: 'Risk Check', level: 'red' }
+  if (summary.yellow > 0 || summary.unknown > 0) return { label: 'Risk Check', level: 'yellow' }
+  if (summary.total > 0) return { label: 'Risk OK', level: 'green' }
+  return { label: 'No risks in response', level: 'unknown' }
+}
+
 function OperationalRiskDashboard() {
   const [model, setModel] = useState(null)
   const [query, setQuery] = useState('')
@@ -144,6 +152,8 @@ function OperationalRiskDashboard() {
       setModel(nextModel)
       setActiveRiskId((currentId) => currentId || nextModel.items[0]?.id || null)
     } catch (nextError) {
+      setModel(null)
+      setActiveRiskId(null)
       setError(nextError instanceof Error ? nextError.message : 'Unable to load Risks')
     } finally {
       setLoading(false)
@@ -154,19 +164,21 @@ function OperationalRiskDashboard() {
     loadModel()
   }, [loadModel])
 
-  const summary = model?.summary || { total: 0, red: 0, yellow: 0, green: 0, unknown: 0 }
+  const hasRiskData = model !== null
+  const summary = model?.summary || { total: '-', red: '-', yellow: '-', green: '-', unknown: '-' }
   const risks = useMemo(() => filterRisks(model?.items || [], query), [model, query])
   const activeRisk = risks.find((risk) => risk.id === activeRiskId) || risks[0] || null
+  const riskOverview = riskOverviewState({ hasRiskData, loading, summary })
 
   return (
     <section className="space-y-5">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${summary.red > 0 ? riskToneClass('red') : riskToneClass('green')}`}>
-              Risk {summary.red > 0 ? 'Check' : 'OK'}
+            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${riskToneClass(riskOverview.level)}`}>
+              {riskOverview.label}
             </span>
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Live read-only</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Read-only view</span>
           </div>
           <h2 className="mt-3 text-3xl font-semibold text-slate-950">Risks / Alerts</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">VM 생성 검토와 작업 경계에서 나온 위험 신호를 읽기 전용으로 확인합니다.</p>
@@ -183,9 +195,9 @@ function OperationalRiskDashboard() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Total" value={summary.total} hint="전체 알림" />
-        <SummaryCard label="Red" value={summary.red} hint="즉시 확인" level="red" icon={AlertTriangle} />
-        <SummaryCard label="Yellow" value={summary.yellow} hint="주의 필요" level="yellow" icon={AlertTriangle} />
-        <SummaryCard label="Green" value={summary.green} hint="정상 판단" level="green" icon={ShieldCheck} />
+        <SummaryCard label="Red" value={summary.red} hint="즉시 확인" level={hasRiskData ? 'red' : 'unknown'} icon={AlertTriangle} />
+        <SummaryCard label="Yellow" value={summary.yellow} hint="주의 필요" level={hasRiskData ? 'yellow' : 'unknown'} icon={AlertTriangle} />
+        <SummaryCard label="Green" value={summary.green} hint="정상 판단" level={hasRiskData ? 'green' : 'unknown'} icon={ShieldCheck} />
         <SummaryCard label="Unknown" value={summary.unknown} hint="분류 대기" />
       </div>
 
@@ -222,6 +234,8 @@ function OperationalRiskDashboard() {
           <div className="space-y-3 p-4">
             {loading && !model ? (
               <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">알림 데이터를 불러오는 중입니다.</div>
+            ) : !model ? (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">위험 데이터가 unavailable 상태입니다.</div>
             ) : risks.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">조건에 맞는 위험 항목이 없습니다.</div>
             ) : (

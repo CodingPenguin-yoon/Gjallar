@@ -80,7 +80,7 @@ function firstCommandError(detail) {
   return String(text).replace(/\u001b\[[0-9;]*m/g, '').trim()
 }
 
-export function unwrapApiV1Envelope(envelope) {
+function validateApiV1Envelope(envelope) {
   if (!envelope || typeof envelope !== 'object' || typeof envelope.ok !== 'boolean') {
     throw new Error('Malformed /api/v1 response envelope: missing ok boolean')
   }
@@ -92,10 +92,22 @@ export function unwrapApiV1Envelope(envelope) {
     wrapped.details = error.details
     throw wrapped
   }
-  return envelope.data
+  return envelope
 }
 
-async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body }) {
+export function unwrapApiV1Envelope(envelope) {
+  return validateApiV1Envelope(envelope).data
+}
+
+export function unwrapApiV1EnvelopeWithMeta(envelope) {
+  const validated = validateApiV1Envelope(envelope)
+  const meta = validated.meta && typeof validated.meta === 'object' && !Array.isArray(validated.meta)
+    ? validated.meta
+    : {}
+  return { data: validated.data, meta }
+}
+
+async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body, includeMeta = false }) {
   const options = { method, credentials: 'include', headers: { Accept: 'application/json' } }
   if (body !== undefined) {
     options.headers['Content-Type'] = 'application/json'
@@ -121,7 +133,7 @@ async function requestJson({ baseUrl, fetchImpl, path, method = 'GET', body }) {
     error.envelope = envelope
     throw error
   }
-  return unwrapApiV1Envelope(envelope)
+  return includeMeta ? unwrapApiV1EnvelopeWithMeta(envelope) : unwrapApiV1Envelope(envelope)
 }
 
 async function readResponsePayload(response) {
@@ -140,6 +152,7 @@ async function readResponsePayload(response) {
 export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defaultFetchImpl() } = {}) {
   const clientConfig = { baseUrl: normalizeBaseUrl(baseUrl), fetchImpl }
   const get = (path) => requestJson({ ...clientConfig, path })
+  const getWithMeta = (path) => requestJson({ ...clientConfig, path, includeMeta: true })
   const post = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'POST', body })
   const patch = (path, body = {}) => requestJson({ ...clientConfig, path, method: 'PATCH', body })
 
@@ -158,7 +171,9 @@ export function createApiV1Client({ baseUrl = API_V1_BASE_URL, fetchImpl = defau
     proxmoxConnection: () => get(API_V1_ENDPOINTS.proxmoxConnection),
     clusterSummary: () => get(API_V1_ENDPOINTS.clusterSummary),
     listNodes: () => get(API_V1_ENDPOINTS.nodes),
+    listNodesWithMeta: () => getWithMeta(API_V1_ENDPOINTS.nodes),
     listVms: () => get(API_V1_ENDPOINTS.vms),
+    listVmsWithMeta: () => getWithMeta(API_V1_ENDPOINTS.vms),
     getVm: (vmid) => get(API_V1_ENDPOINTS.vm(vmid)),
     startVm: (nodeId, vmid, payload = {}) => post(API_V1_ENDPOINTS.vmStart(nodeId, vmid), payload),
     shutdownVm: (nodeId, vmid, payload = {}) => post(API_V1_ENDPOINTS.vmShutdown(nodeId, vmid), payload),

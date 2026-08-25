@@ -107,8 +107,12 @@ function compileInstanceListSource(source) {
       'const { authFailureMessage } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.auth'
     )
     .replace(
-      /import\s+\{\s*loadInfraExplorerModel\s*\}\s+from\s+'\.\/model'/,
-      'const { loadInfraExplorerModel } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.loader'
+      /import\s+\{\s*formatOperationTime,\s*operationStatusTone\s*\}\s+from\s+'\.\.\/\.\.\/\.\.\/entities\/operation\/model'/,
+      'const { formatOperationTime, operationStatusTone } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.operation'
+    )
+    .replace(
+      /import\s+\{\s*loadInfraExplorerModel,\s*operationIdFromActionError,\s*operationResultDestination,?\s*\}\s+from\s+'\.\/model'/,
+      'const { loadInfraExplorerModel, operationIdFromActionError, operationResultDestination } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.loader'
     )
 }
 
@@ -128,26 +132,39 @@ function findElement(node, predicate) {
   return findElement(children, predicate)
 }
 
-const { loadInfraExplorerModel } = await importExpected(
+const {
+  buildWorkloadCockpitModel,
+  loadInfraExplorerModel,
+  operationIdFromActionError,
+  operationResultDestination,
+} = await importExpected(
   '../src/utils/infraExplorerScreen.js',
   'Infra Explorer screen loader'
+)
+const { formatOperationTime, operationStatusTone } = await importExpected(
+  '../src/entities/operation/model.js',
+  'Operation display helpers'
 )
 
 const calls = []
 const startCalls = []
 const shutdownCalls = []
+const operationLookups = []
 const fakeClient = {
-  async listNodes() {
-    calls.push('listNodes')
-    return [
-      { node_id: 'yoonmanserver2', name: 'yoonmanserver2', display_name: 'Yoonman Server 2', status: 'online' },
-      { node_id: 'yoonmanserver3', name: 'yoonmanserver3', status: 'online' },
-    ]
+  async listNodesWithMeta() {
+    calls.push('listNodesWithMeta')
+    return {
+      data: [
+        { node_id: 'yoonmanserver2', name: 'yoonmanserver2', display_name: 'Yoonman Server 2', status: 'online' },
+        { node_id: 'yoonmanserver3', name: 'yoonmanserver3', status: 'online' },
+      ],
+      meta: { source: 'live_read_only', observed_at: '2026-08-25T01:00:00Z', freshness: 'fresh' },
+    }
   },
-  async listVms() {
-    calls.push('listVms')
-    return [
-      {
+  async listVmsWithMeta() {
+    calls.push('listVmsWithMeta')
+    return {
+      data: [{
         vmid: 141,
         name: 'app-01',
         node_id: 'yoonmanserver2',
@@ -173,8 +190,7 @@ const fakeClient = {
             discard: 'on',
           },
         ],
-      },
-      {
+      }, {
         vmid: 142,
         name: 'stopped-app',
         node_id: 'yoonmanserver2',
@@ -187,8 +203,101 @@ const fakeClient = {
         disk_gb: 40,
         storage_id: 'local-lvm',
         disks: [],
+      }],
+      meta: { source: 'live_read_only', observed_at: '2026-08-25T01:00:01Z', freshness: 'fresh' },
+    }
+  },
+  async getInsights() {
+    calls.push('getInsights')
+    return {
+      generated_at: '2026-08-25T01:00:02Z',
+      status: 'attention',
+      sections: {
+        readiness: {
+          status: 'attention',
+          available: true,
+          source: 'live_read_only',
+          observed_at: '2026-08-25T01:00:01Z',
+          freshness: 'fresh',
+          rule_version: 'operational-readiness.v1',
+          summary: { finding_count: 250, returned_finding_count: 2, truncated: true },
+          findings: [{
+            finding_id: 'finding-vm-141',
+            severity: 'warning',
+            status: 'active',
+            code: 'guest_agent_unavailable',
+            title: 'app-01 readiness',
+            message: 'Guest-agent evidence needs review.',
+            target: { type: 'proxmox_vm', id: 'vmid:141' },
+            source: 'live_read_only',
+            observed_at: '2026-08-25T01:00:01Z',
+            freshness: 'fresh',
+            rule_version: 'operational-readiness.v1',
+            evidence: { vmid: 141 },
+          }, {
+            finding_id: 'finding-vm-999',
+            severity: 'critical',
+            status: 'active',
+            code: 'unrelated_workload',
+            title: 'another workload readiness',
+            message: 'This finding belongs to another VM.',
+            target: { type: 'proxmox_vm', id: 'vmid:999' },
+            source: 'live_read_only',
+            observed_at: '2026-08-25T01:00:01Z',
+            freshness: 'fresh',
+            rule_version: 'operational-readiness.v1',
+            evidence: { vmid: 999 },
+          }],
+        },
+        placement: {
+          status: 'attention',
+          available: true,
+          source: 'drs_advisor',
+          observed_at: '2026-08-25T00:59:00Z',
+          freshness: 'recorded',
+          rule_version: 'placement.v1',
+          summary: { finding_count: 1 },
+          findings: [{
+            finding_id: 'placement-vm-141',
+            severity: 'critical',
+            status: 'active',
+            code: 'placement_pressure',
+            title: 'app-01 placement pressure',
+            message: 'Placement evidence needs review.',
+            target: { type: 'proxmox_vm', id: 'vmid:141' },
+            source: 'drs_advisor',
+            observed_at: '2026-08-25T00:59:00Z',
+            freshness: 'recorded',
+            rule_version: 'placement.v1',
+            evidence: { vmid: 141 },
+          }],
+        },
       },
-    ]
+    }
+  },
+  async listOperations(filters) {
+    calls.push(`listOperations:${filters.limit}`)
+    return [{
+      operation_id: 'vm-start-older-141',
+      operation_type: 'vm_start',
+      execution_mode: 'managed_api',
+      status: 'succeeded',
+      target_type: 'proxmox_vm',
+      target_id: 'vmid:141',
+      updated_at: '2026-08-25T00:58:00Z',
+    }, {
+      operation_id: 'vm-shutdown-existing-141',
+      operation_type: 'vm_shutdown',
+      execution_mode: 'managed_api',
+      status: 'succeeded',
+      target_type: 'proxmox_vm',
+      target_id: 'vmid:141',
+      updated_at: '2026-08-25T01:02:00Z',
+    }]
+  },
+  async getOperation(operationId) {
+    operationLookups.push(operationId)
+    return { operation: { operation_id: operationId } }
   },
   async startVm(nodeId, vmid, payload) {
     startCalls.push({ nodeId, vmid, payload })
@@ -209,7 +318,7 @@ const fakeClient = {
 }
 
 const model = await loadInfraExplorerModel(fakeClient)
-assert.deepEqual(calls.sort(), ['listNodes', 'listVms'])
+assert.deepEqual(calls.sort(), ['getInsights', 'listNodesWithMeta', 'listOperations:200', 'listVmsWithMeta'])
 assert.equal(model.readOnly, true)
 assert.deepEqual(model.allowedActions, [])
 assert.equal(model.summary.totalNodes, 2)
@@ -230,6 +339,185 @@ assert.equal(model.nodes[0].vms[0].guestAgent.available, true)
 assert.equal(model.nodes[0].vms[0].primaryIp, '192.168.2.141')
 assert.deepEqual(model.nodes[0].vms[0].hiddenIpAddresses, ['172.17.0.1', '172.18.0.1'])
 assert.equal(model.nodes[0].vms[0].hiddenIpCount, 2)
+assert.deepEqual(model.observations, [
+  { scope: 'Nodes', source: 'live_read_only', observedAt: '2026-08-25T01:00:00Z', freshness: 'fresh' },
+  { scope: 'VMs', source: 'live_read_only', observedAt: '2026-08-25T01:00:01Z', freshness: 'fresh' },
+])
+assert.equal(model.context.insightsAvailable, true)
+assert.equal(model.context.insightsStatus, 'available')
+assert.deepEqual(model.context.unavailableInsightCategories, [])
+assert.deepEqual(model.context.uncertainInsightCategories, [])
+assert.equal(model.context.insightsTruncated, true)
+assert.deepEqual(model.context.truncatedInsightCategories, ['readiness'])
+assert.equal(model.context.operationsAvailable, true)
+assert.equal(model.context.operationsStatus, 'available')
+assert.equal(model.context.operationWindow, 200)
+assert.equal(model.summary.relatedFindingCount, 2)
+assert.equal(model.summary.workloadsWithRecentOperations, 1)
+assert.deepEqual(model.nodes[0].vms[0].relatedFindings.map((finding) => finding.id), [
+  'placement-vm-141',
+  'finding-vm-141',
+])
+assert.equal(model.nodes[0].vms[0].recentOperation.id, 'vm-shutdown-existing-141')
+assert.equal(model.nodes[0].vms[1].relatedFindings.length, 0)
+assert.equal(model.nodes[0].vms[1].recentOperation, null)
+
+const degradedModel = await loadInfraExplorerModel({
+  ...fakeClient,
+  async getInsights() {
+    throw new Error('Insights unavailable')
+  },
+  async listOperations() {
+    throw new Error('Operations unavailable')
+  },
+})
+assert.equal(degradedModel.summary.totalVms, 2, 'Optional context failures must not hide inventory')
+assert.equal(degradedModel.context.insightsAvailable, false)
+assert.equal(degradedModel.context.insightsStatus, 'unavailable')
+assert.deepEqual(degradedModel.context.unavailableInsightCategories, ['readiness', 'placement'])
+assert.equal(degradedModel.context.operationsAvailable, false)
+assert.equal(degradedModel.summary.relatedFindingCount, 0)
+assert.equal(degradedModel.summary.workloadsWithRecentOperations, 0)
+
+const partialInsightsModel = buildWorkloadCockpitModel({
+  insights: {
+    sections: {
+      readiness: {
+        status: 'ready', available: true, source: 'live_read_only', observed_at: '2026-08-25T01:00:00Z',
+        freshness: 'fresh', rule_version: 'operational-readiness.v1', summary: { finding_count: 0 }, findings: [],
+      },
+      placement: {
+        status: 'unavailable', available: false, source: 'unavailable', observed_at: null,
+        freshness: 'unavailable', rule_version: 'placement.v1', summary: { finding_count: 0 }, findings: [],
+      },
+    },
+  },
+})
+assert.equal(partialInsightsModel.context.insightsAvailable, false)
+assert.equal(partialInsightsModel.context.insightsStatus, 'partial')
+assert.deepEqual(partialInsightsModel.context.unavailableInsightCategories, ['placement'])
+assert.deepEqual(partialInsightsModel.context.uncertainInsightCategories, [])
+
+const uncertainInsightsModel = buildWorkloadCockpitModel({
+  insights: {
+    sections: {
+      readiness: {
+        status: 'unknown', available: true, source: 'live_read_only', observed_at: '2026-08-25T01:00:00Z',
+        freshness: 'fresh', rule_version: 'operational-readiness.v1', summary: { finding_count: 0 }, findings: [],
+      },
+      placement: {
+        status: 'ready', available: true, source: 'drs_advisor', observed_at: '2026-08-25T01:00:00Z',
+        freshness: 'recorded', rule_version: 'placement.v1', summary: { finding_count: 0 }, findings: [],
+      },
+    },
+  },
+})
+assert.equal(uncertainInsightsModel.context.insightsAvailable, false)
+assert.equal(uncertainInsightsModel.context.insightsStatus, 'partial')
+assert.deepEqual(uncertainInsightsModel.context.unavailableInsightCategories, [])
+assert.deepEqual(uncertainInsightsModel.context.uncertainInsightCategories, ['readiness'])
+
+const canonicalDestination = await operationResultDestination({
+  async getOperation() {
+    return { operation: { operation_id: 'op/a' } }
+  },
+}, 'op/a')
+assert.deepEqual(canonicalDestination, {
+  path: '/operations/op%2Fa',
+  compatibilityFallback: false,
+})
+
+const notFoundError = new Error('Operation not found')
+notFoundError.status = 404
+const compatibilityDestination = await operationResultDestination({
+  async getOperation() {
+    throw notFoundError
+  },
+}, 'legacy/a')
+assert.deepEqual(compatibilityDestination, {
+  path: '/operations/jobs?job=legacy%2Fa&compatibility=operation',
+  compatibilityFallback: true,
+})
+
+const lookupError = new Error('Operation API unavailable')
+lookupError.status = 500
+const unavailableDestination = await operationResultDestination({
+  async getOperation() {
+    throw lookupError
+  },
+}, 'op-500')
+assert.equal(unavailableDestination.path, null)
+assert.equal(unavailableDestination.compatibilityFallback, false)
+assert.equal(unavailableDestination.lookupError, lookupError)
+assert.equal(operationIdFromActionError({ details: { operation_id: 'op-direct' } }), 'op-direct')
+assert.equal(operationIdFromActionError({ details: { details: { job_id: 'op-nested' } } }), 'op-nested')
+
+let resolveInsights
+let resolveOperations
+let presentedInventory = null
+const pendingInsights = new Promise((resolve) => {
+  resolveInsights = resolve
+})
+const pendingOperations = new Promise((resolve) => {
+  resolveOperations = resolve
+})
+const progressiveLoad = loadInfraExplorerModel({
+  async listNodesWithMeta() {
+    return { data: [], meta: { source: 'live_read_only', observed_at: '2026-08-25T02:00:00Z', freshness: 'fresh' } }
+  },
+  async listVmsWithMeta() {
+    return { data: [], meta: { source: 'live_read_only', observed_at: '2026-08-25T02:00:01Z', freshness: 'fresh' } }
+  },
+  getInsights() {
+    return pendingInsights
+  },
+  listOperations() {
+    return pendingOperations
+  },
+}, {
+  onInventoryLoaded(nextModel) {
+    presentedInventory = nextModel
+  },
+})
+
+await new Promise((resolve) => setImmediate(resolve))
+assert.ok(presentedInventory, 'Required inventory must render before optional context settles')
+assert.equal(presentedInventory.context.insightsStatus, 'loading')
+assert.equal(presentedInventory.context.operationsStatus, 'loading')
+
+resolveInsights({
+  sections: {
+    readiness: {
+      status: 'ready', available: true, source: 'live_read_only', observed_at: '2026-08-25T02:00:01Z',
+      freshness: 'fresh', rule_version: 'operational-readiness.v1', summary: { finding_count: 0 }, findings: [],
+    },
+    placement: {
+      status: 'ready', available: true, source: 'drs_advisor', observed_at: '2026-08-25T02:00:01Z',
+      freshness: 'recorded', rule_version: 'placement.v1', summary: { finding_count: 0 }, findings: [],
+    },
+  },
+})
+resolveOperations([])
+const progressiveModel = await progressiveLoad
+assert.equal(progressiveModel.context.insightsStatus, 'available')
+assert.equal(progressiveModel.context.operationsStatus, 'available')
+
+const timedOutContextModel = await loadInfraExplorerModel({
+  async listNodesWithMeta() {
+    return { data: [], meta: {} }
+  },
+  async listVmsWithMeta() {
+    return { data: [], meta: {} }
+  },
+  getInsights() {
+    return new Promise(() => {})
+  },
+  listOperations() {
+    return new Promise(() => {})
+  },
+}, { contextTimeoutMs: 5 })
+assert.equal(timedOutContextModel.context.insightsStatus, 'unavailable')
+assert.equal(timedOutContextModel.context.operationsStatus, 'unavailable')
 
 const sourcePath = new URL('../src/features/workloads/inventory/WorkloadInventory.jsx', import.meta.url)
 const instanceListSource = readFileSync(sourcePath, 'utf8')
@@ -238,6 +526,12 @@ assert.match(instanceListSource, /loadInfraExplorerModel/)
 assert.match(instanceListSource, /useNavigate/)
 assert.match(instanceListSource, /apiV1Client\.startVm/)
 assert.match(instanceListSource, /apiV1Client\.shutdownVm/)
+assert.match(instanceListSource, /operationResultDestination\(apiV1Client,/)
+assert.match(instanceListSource, /unknown\/stale:/, 'Unknown or stale Insight sections must not render as a healthy zero')
+assert.match(instanceListSource, /Retry Operation detail/, 'Temporary Operation lookup failures must retain a visible retry path')
+assert.match(instanceListSource, /operationIdFromActionError\(error\)/, 'Recorded action errors with an Operation id must use the common detail handoff')
+assert.match(instanceListSource, /formatOperationTime\(recentOperation\.updatedAt \|\| recentOperation\.createdAt\)/)
+assert.match(instanceListSource, /operationStatusTone\(recentOperation\.status\)/)
 assert.match(instanceListSource, /canMutateVms/)
 assert.doesNotMatch(instanceListSource, /from ['"]\.\.\/services\/api(?:\.js)?['"]/, 'InstanceList must not import the legacy /api client')
 assert.match(
@@ -322,8 +616,8 @@ assert.match(
 )
 assert.match(
   instanceListSource,
-  /<td className="px-4 py-2 text-slate-600">[\s\S]*?<SignalStack vm=\{vm\} \/>/,
-  'InstanceList Signals cell must show guest-agent and storage evidence'
+  /<td className="px-4 py-2 text-slate-600">[\s\S]*?<WorkloadContextStack vm=\{vm\} navigate=\{navigate\} \/>/,
+  'InstanceList Signals cell must combine inventory signals with workload findings and Operations'
 )
 
 const compiled = transformSync(compileInstanceListSource(instanceListSource), {
@@ -352,7 +646,12 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
   },
   api: { apiV1Client: fakeClient },
   auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
-  loader: { loadInfraExplorerModel: async () => model },
+  operation: { formatOperationTime, operationStatusTone },
+  loader: {
+    loadInfraExplorerModel: async () => model,
+    operationIdFromActionError,
+    operationResultDestination,
+  },
 }
 
 const compiledModule = loadCommonJsModule(compiled, String(sourcePath))
@@ -394,12 +693,22 @@ assert.match(html, /env:dev/)
 assert.match(html, /running \/ total/)
 assert.match(html, /IP visibility/)
 assert.match(html, /Guest agent/)
+assert.match(html, /Nodes observation/)
+assert.match(html, /VMs observation/)
+assert.match(html, /live_read_only · fresh/)
+assert.match(html, /Insights: 2 findings linked to listed workloads in the current response; truncated: readiness/)
+assert.match(html, /Operations: 1 workloads linked within the latest 200/)
+assert.match(html, /2 findings · placement_pressure/)
+assert.match(html, /VM Shutdown · succeeded/)
 assert.match(html, /scsi0/)
 assert.match(html, /local-lvm: vm-141-disk-0/)
 assert.match(html, /boot/)
 assert.match(html, /raw/)
 assert.match(html, /discard/)
 assert.match(html, /local-lvm/)
+
+assert.match(instanceListSource, /navigate\(`\/insights\/\$\{encodeURIComponent\(primaryFinding\.category\)\}`\)/)
+assert.match(instanceListSource, /navigate\(`\/operations\/\$\{encodeURIComponent\(recentOperation\.id\)\}`\)/)
 
 for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals', 'Actions']) {
   assert.match(html, new RegExp(`>${heading}<`), `InstanceList must show ${heading} in the grouped inventory table`)
@@ -442,7 +751,8 @@ assert.equal(startCalls[0].payload.vm_start_acknowledged, true)
 assert.equal(startCalls[0].payload.expected_name, 'stopped-app')
 assert.equal(startCalls[0].payload.expected_status, 'stopped')
 assert.match(startCalls[0].payload.idempotency_key, /^infra-explorer:start:yoonmanserver2:142:/)
-assert.deepEqual(navigateCalls, ['/operations/jobs?job=vm-start-node-a-142'])
+assert.deepEqual(operationLookups, ['vm-start-node-a-142'])
+assert.deepEqual(navigateCalls, ['/operations/vm-start-node-a-142'])
 
 hookHarness.beginRender()
 tree = InstanceList({})
@@ -484,8 +794,9 @@ assert.equal(shutdownCalls[0].payload.vm_shutdown_acknowledged, true)
 assert.equal(shutdownCalls[0].payload.expected_name, 'app-01')
 assert.equal(shutdownCalls[0].payload.expected_status, 'running')
 assert.match(shutdownCalls[0].payload.idempotency_key, /^infra-explorer:shutdown:yoonmanserver2:141:/)
+assert.deepEqual(operationLookups, ['vm-start-node-a-142', 'vm-shutdown-node-a-141'])
 assert.deepEqual(navigateCalls, [
-  '/operations/jobs?job=vm-start-node-a-142',
+  '/operations/vm-start-node-a-142',
   '/operations/vm-shutdown-node-a-141',
 ])
 

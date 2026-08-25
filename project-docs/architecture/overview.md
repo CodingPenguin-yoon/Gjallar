@@ -1,14 +1,14 @@
 # 현재 아키텍처 기준선
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-24`
+- 최종 검토일: `2026-08-25`
 - 관련 ADR: 승인된 목표 [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md); 역사적 결정은 [`ADR index`](../decisions/README.md) 참조
 
-이 문서는 2026-08-24 코드에 구현된 현재 구조를 설명한다. `ADR-007`의 observe-first 목표 방향에 따라 DRS 전용 frontend·API·runtime·schema contract를 제거한 상태를 기록한다. applied migration과 Jobs/Artifacts의 historical evidence, `/insights` legacy source·ID compatibility는 active DRS 기능과 구분해 보존한다.
+이 문서는 2026-08-25 코드에 구현된 현재 구조를 설명한다. `ADR-007`의 observe-first 목표 방향에 따라 DRS 전용 frontend·API·runtime·schema contract를 제거한 상태를 기록한다. applied migration과 Jobs/Artifacts의 historical evidence, `/insights` legacy source·ID compatibility는 active DRS 기능과 구분해 보존한다.
 
 ## 1. 시스템 목적과 경계
 
-- 현재 해결 범위: React UI는 인증된 운영자에게 Workload Cockpit, 공통 Operations 목록·evidence timeline, Create VM, VM Start, graceful VM Shutdown, 첫 Guided `qm unlock`, observe-only Insights와 jobs/legacy risks를 제공한다. DRS 전용 route, control, backend API/runtime과 persistence model은 없다.
+- 현재 해결 범위: React UI는 인증된 운영자에게 endpoint별 source·observed time·freshness와 현재 응답에서 직접 연결 가능한 Readiness/Placement finding·최근 반환 Operation을 함께 보여 주는 Workload Cockpit, 공통 Operations 목록·evidence timeline, Create VM, VM Start, graceful VM Shutdown, 첫 Guided `qm unlock`, observe-only Insights와 jobs/legacy risks를 제공한다. DRS 전용 route, control, backend API/runtime과 persistence model은 없다.
 - 제품 경계: Workloads observation과 Insights explanation을 기본 경로로 두고 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`만 verified action으로 유지한다. DRS policy·approval·execution·reconciliation과 migration은 제공하지 않는다.
 - 현재 시스템 책임: local user/session, Gjallar-owned operational records, `/api/v1`, React operator UI, Proxmox API 연동.
 - 외부 책임: VM/node/task/config actual state와 실제 hypervisor mutation은 Proxmox가 소유한다.
@@ -63,7 +63,7 @@ flowchart LR
 | `jobs` | job projection과 artifact metadata/content | helper functions, `/jobs`, `/risks` | `job_runs`, `job_artifacts` | DB |
 | `insights` | risk/readiness/capacity과 infrastructure-free neutral placement의 availability-aware derived read model | `InsightsQueryService`, `build_placement_model`, `/insights` | persistent data 없음 | Workloads observation, strict job read |
 | `frontend/src/app` | auth/session, connection-aware route gate, shell, navigation composition | canonical route와 legacy alias | browser-local transient state | pages, shared |
-| `frontend/src/pages`, `features`, `entities`, `shared` | route composition, Workload inventory, Operations·Guided `qm` 흐름, observe-only Insights, Operation·Insight read model, API/auth/connection 공통 계약 | `/instances`, `/operations*`, `/insights*`, `/api/v1` consumer | browser-local transient state | backend API; 미전환 page adapter는 기존 components/utils |
+| `frontend/src/pages`, `features`, `entities`, `shared` | route composition, provenance-aware Workload inventory와 VMID 기반 finding·최근 Operation context, Operations·Guided `qm` 흐름, observe-only Insights, Operation·Insight read model, API/auth/connection 공통 계약 | `/instances`, `/operations*`, `/insights*`, `/api/v1` consumer | browser-local transient state | backend API; 미전환 page adapter는 기존 components/utils |
 
 ## 5. 현재 의존성 규칙
 

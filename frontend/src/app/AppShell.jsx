@@ -19,8 +19,8 @@ export default function AppShell({ currentUser, connectionBadge, navItems, pathn
             <div className="flex min-w-0 items-center gap-3">
               <Server className="h-8 w-8 shrink-0 text-slate-700" />
               <div className="min-w-0">
-                <h1 className="truncate text-xl font-semibold text-gray-900 sm:text-2xl">Gjallar Operations Console</h1>
-                <p className="text-sm text-gray-500">Proxmox VM 운영 관리</p>
+                <h1 className="truncate text-xl font-semibold text-gray-900 sm:text-2xl">Gjallar</h1>
+                <p className="text-sm text-gray-500">Observe-first Operations Intelligence · Verified Actions</p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-4">

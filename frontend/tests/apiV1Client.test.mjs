@@ -14,6 +14,7 @@ const {
   API_V1_ENDPOINTS,
   createApiV1Client,
   unwrapApiV1Envelope,
+  unwrapApiV1EnvelopeWithMeta,
 } = await importExpected('../src/services/apiV1.js', 'PRD /api/v1 client')
 
 assert.equal(API_V1_BASE_URL, '/api/v1')
@@ -49,6 +50,13 @@ assert.equal(API_V1_ENDPOINTS.vmCreateProxmoxPreview('draft/1'), '/vm-create/dra
 assert.equal(API_V1_ENDPOINTS.vmCreateProxmoxCreate('draft/1'), '/vm-create/draft%2F1/proxmox-create')
 
 const calls = []
+const responseMeta = {
+  mode: 'read_only',
+  source: 'live_read_only',
+  observed_at: '2026-08-25T01:00:00Z',
+  freshness: 'fresh',
+  connection: { state: 'connected', source: 'live_read_only', freshness: 'fresh' },
+}
 const fakeFetch = async (url, options = {}) => {
   calls.push({ url, options })
   return {
@@ -57,7 +65,7 @@ const fakeFetch = async (url, options = {}) => {
     json: async () => ({
       ok: true,
       data: { url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null },
-      meta: { mode: 'read_only' },
+      meta: responseMeta,
     }),
   }
 }
@@ -110,6 +118,14 @@ assert.deepEqual((await client.verifyOperation('operation/a', { plan_digest: 'sh
 assert.equal(calls.at(-1).url, '/custom/api/v1/operations/operation%2Fa/verification')
 assert.equal((await client.listNodes()).url, '/custom/api/v1/nodes')
 assert.equal((await client.listVms()).url, '/custom/api/v1/vms')
+assert.deepEqual(await client.listNodesWithMeta(), {
+  data: { url: '/custom/api/v1/nodes', method: 'GET', body: null },
+  meta: responseMeta,
+})
+assert.deepEqual(await client.listVmsWithMeta(), {
+  data: { url: '/custom/api/v1/vms', method: 'GET', body: null },
+  meta: responseMeta,
+})
 assert.equal((await client.getVm(101)).url, '/custom/api/v1/vms/101')
 assert.deepEqual((await client.startVm('node/a', 306, { vm_start_acknowledged: true })).body, { vm_start_acknowledged: true })
 assert.equal(calls.at(-1).options.method, 'POST')
@@ -173,6 +189,11 @@ await assert.rejects(
 )
 
 assert.deepEqual(unwrapApiV1Envelope({ ok: true, data: [1, 2] }), [1, 2])
+assert.deepEqual(
+  unwrapApiV1EnvelopeWithMeta({ ok: true, data: [1, 2], meta: { source: 'live_read_only' } }),
+  { data: [1, 2], meta: { source: 'live_read_only' } },
+)
+assert.deepEqual(unwrapApiV1EnvelopeWithMeta({ ok: true, data: [] }), { data: [], meta: {} })
 assert.throws(
   () => unwrapApiV1Envelope({ ok: false, error: { code: 'blocked', message: 'red risk' } }),
   /red risk/,

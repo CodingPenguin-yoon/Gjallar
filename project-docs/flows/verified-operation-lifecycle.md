@@ -1,7 +1,7 @@
 # 기능 흐름: Verified Operation Lifecycle
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-24`
+- 최종 검토일: `2026-08-25`
 - 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)
 
 이 문서는 선택적 Verified Action의 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, graceful VM Shutdown, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용한다. DRS와 migration은 action/API/runtime에서 제거됐고 이 lifecycle에 포함되지 않는다.
@@ -13,7 +13,8 @@
 - Create VM은 plan에서 common Operation을 준비하고 exact approval, preview, dispatch, task/result, workload linkage를 event로 기록한다. completed replay, same-key intent conflict, VMID owner guard와 명확한 실패/불명확한 결과의 구분을 유지한다.
 - VM Start/Shutdown은 API compatibility facade에서 infrastructure-free command와 use case로 진입하고 Workloads, mutation, Jobs, Evidence, lock/recovery를 명시적 port로 받는다. 검증 workflow는 각각 `operations/vm_start/workflow.py`, `operations/vm_shutdown/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
-- Workload Cockpit에서 VM context를 Guided plan에 전달하고, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
+- Workload Cockpit은 Nodes/VMs endpoint의 observation provenance를 각각 보존하고, `proxmox_vm`·`vmid:<VMID>`가 정확히 일치하는 Readiness/Placement finding과 최신 200개 반환 범위의 최근 Operation을 VM에 연결한다. Insights·Operations 보조 조회의 HTTP 실패, section unavailable·unknown/stale와 finding truncation은 정상 0건으로 축소하지 않고 inventory availability와 분리한다. VM context는 Guided plan에 전달하며, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
+- VM Start/Shutdown 성공 결과와 오류 응답에 `operation_id` 또는 `job_id`가 포함된 recorded outcome은 common Operation이 조회되면 공통 상세로 이동하고, historical Job-only replay처럼 Operation projection이 없는 경우에는 명시적으로 Jobs compatibility 화면을 사용한다. 현재 target-lock-busy 오류는 common Operation을 먼저 기록하지만 응답에 correlation ID가 없어 Workload Cockpit이 해당 오류 결과를 직접 인계하지 못하며, 완전한 인계에는 additive backend 오류 계약이 필요하다.
 - VM Start, VM Shutdown, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다.
 - VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다.
 

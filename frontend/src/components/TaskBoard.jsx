@@ -309,6 +309,7 @@ function filterJobs(jobs, query) {
 function TaskBoard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const queryJobId = searchParams.get('job')
+  const compatibilityFallback = searchParams.get('compatibility') === 'operation'
   const [model, setModel] = useState(null)
   const [selectedJobId, setSelectedJobId] = useState(queryJobId)
   const [query, setQuery] = useState('')
@@ -394,6 +395,12 @@ function TaskBoard() {
           </div>
         </div>
       </div>
+
+      {compatibilityFallback ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Common Operation detail was not found for this historical result. Gjallar is showing the compatibility Job evidence instead.
+        </div>
+      ) : null}
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>

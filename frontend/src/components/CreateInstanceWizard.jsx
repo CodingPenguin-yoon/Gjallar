@@ -600,7 +600,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
     })
     navigate(operationId
       ? `/operations/${encodeURIComponent(operationId)}`
-      : `/operations/jobs?job=${encodeURIComponent(jobId)}`)
+      : `/operations/jobs?job=${encodeURIComponent(jobId)}&compatibility=operation`)
     try {
       const result = await createPromise
       setCreateResult(result)

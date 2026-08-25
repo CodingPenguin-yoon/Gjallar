@@ -84,7 +84,9 @@ export default function OperationsListPage({ canExecute = false }) {
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             <option value="">All types</option>
+            <option value="vm_create">Create VM</option>
             <option value="vm_start">VM Start</option>
+            <option value="vm_shutdown">VM Shutdown</option>
             <option value="guided_qm_vm_unlock">Guided qm unlock</option>
           </select>
         </label>

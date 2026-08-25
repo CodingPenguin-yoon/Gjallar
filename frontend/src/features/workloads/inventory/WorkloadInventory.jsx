@@ -15,7 +15,12 @@ import {
 } from 'lucide-react'
 import { apiV1Client } from '../../../shared/api/apiV1'
 import { authFailureMessage } from '../../../shared/auth/permissions'
-import { loadInfraExplorerModel } from './model'
+import { formatOperationTime, operationStatusTone } from '../../../entities/operation/model'
+import {
+  loadInfraExplorerModel,
+  operationIdFromActionError,
+  operationResultDestination,
+} from './model'
 
 function formatNumber(value, digits = 0) {
   const parsed = Number(value)
@@ -40,6 +45,60 @@ function statusLabel(status) {
   const normalized = String(status || '').trim()
   if (!normalized) return 'Unknown'
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function formatObservedAt(value) {
+  if (!value) return 'observed time unavailable'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString()
+}
+
+function workloadOperationLabel(type) {
+  const labels = {
+    vm_create: 'Create VM',
+    vm_start: 'VM Start',
+    vm_shutdown: 'VM Shutdown',
+    guided_qm_vm_unlock: 'Guided qm unlock',
+  }
+  return labels[type] || String(type || 'Operation').replaceAll('_', ' ')
+}
+
+function findingTone(severity) {
+  if (severity === 'critical') return 'border-red-200 bg-red-50 text-red-700'
+  if (severity === 'warning') return 'border-amber-200 bg-amber-50 text-amber-800'
+  return 'border-slate-200 bg-slate-50 text-slate-700'
+}
+
+function insightsContextLabel(model) {
+  const truncation = model.context.insightsTruncated
+    ? `; truncated: ${model.context.truncatedInsightCategories.join(', ')}`
+    : ''
+  if (model.context.insightsStatus === 'loading') {
+    return 'loading — inventory is already available'
+  }
+  if (model.context.insightsStatus === 'available') {
+    return `${model.summary.relatedFindingCount} findings linked to listed workloads in the current response${truncation}`
+  }
+  if (model.context.insightsStatus === 'partial') {
+    const limitations = [
+      model.context.unavailableInsightCategories.length > 0
+        ? `unavailable: ${model.context.unavailableInsightCategories.join(', ')}`
+        : '',
+      model.context.uncertainInsightCategories.length > 0
+        ? `unknown/stale: ${model.context.uncertainInsightCategories.join(', ')}`
+        : '',
+    ].filter(Boolean).join('; ')
+    return `partial — ${model.summary.relatedFindingCount} findings linked to listed workloads; ${limitations}${truncation}`
+  }
+  return 'unavailable — inventory remains usable'
+}
+
+function operationsContextLabel(model) {
+  if (model.context.operationsStatus === 'loading') return 'loading — inventory is already available'
+  if (model.context.operationsStatus === 'available') {
+    return `${model.summary.workloadsWithRecentOperations} workloads linked within the latest ${model.context.operationWindow}`
+  }
+  return 'unavailable — inventory remains usable'
 }
 
 function canStartVm(vm = {}) {
@@ -198,6 +257,39 @@ function SignalStack({ vm }) {
   )
 }
 
+function WorkloadContextStack({ vm, navigate }) {
+  const findings = Array.isArray(vm.relatedFindings) ? vm.relatedFindings : []
+  const primaryFinding = findings[0]
+  const recentOperation = vm.recentOperation
+
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1.5">
+      <SignalStack vm={vm} />
+      {primaryFinding ? (
+        <button
+          type="button"
+          onClick={() => navigate(`/insights/${encodeURIComponent(primaryFinding.category)}`)}
+          title={`${primaryFinding.message} · ${primaryFinding.source} · ${primaryFinding.freshness} · ${formatObservedAt(primaryFinding.observedAt)}`}
+          className={`inline-flex max-w-full rounded border px-1.5 py-0.5 text-left text-[11px] font-medium ${findingTone(primaryFinding.severity)}`}
+        >
+          <span className="truncate">{findings.length} finding{findings.length === 1 ? '' : 's'} · {primaryFinding.code}</span>
+        </button>
+      ) : null}
+      {recentOperation ? (
+        <button
+          type="button"
+          onClick={() => navigate(`/operations/${encodeURIComponent(recentOperation.id)}`)}
+          title={`${workloadOperationLabel(recentOperation.type)} · ${recentOperation.status} · updated ${formatOperationTime(recentOperation.updatedAt || recentOperation.createdAt)}`}
+          className={`inline-flex max-w-full flex-col items-start rounded border px-1.5 py-0.5 text-left text-[11px] font-medium ${operationStatusTone(recentOperation.status)}`}
+        >
+          <span className="truncate">{workloadOperationLabel(recentOperation.type)} · {recentOperation.status}</span>
+          <span className="max-w-full truncate text-[10px] font-normal opacity-80">updated {formatOperationTime(recentOperation.updatedAt || recentOperation.createdAt)}</span>
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function WorkloadInventory({
   onLogsUpdate = () => {},
   onStatusChange = () => {},
@@ -218,6 +310,7 @@ function WorkloadInventory({
   const [shutdownAcknowledged, setShutdownAcknowledged] = useState(false)
   const [shutdownSubmitting, setShutdownSubmitting] = useState(false)
   const [shutdownError, setShutdownError] = useState('')
+  const [actionNotice, setActionNotice] = useState(null)
 
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString()
@@ -225,14 +318,25 @@ function WorkloadInventory({
   }
 
   const fetchInfra = async () => {
+    let inventoryPresented = false
     setRefreshing(true)
     setErrorMessage('')
     try {
-      const nextModel = await loadInfraExplorerModel(apiV1Client)
+      const presentInventory = (nextModel) => {
+        inventoryPresented = true
+        setModel(nextModel)
+        setExpandedGroups(Object.fromEntries((nextModel.nodes || []).map((node) => [node.id, true])))
+        onStatusChange('idle')
+        setLoading(false)
+        addLog(`Loaded ${nextModel.summary.totalVms} VMs across ${nextModel.summary.totalNodes} nodes; related context is loading`, 'success')
+      }
+      const nextModel = await loadInfraExplorerModel(apiV1Client, { onInventoryLoaded: presentInventory })
       setModel(nextModel)
       setExpandedGroups(Object.fromEntries((nextModel.nodes || []).map((node) => [node.id, true])))
       onStatusChange('idle')
-      addLog(`Loaded ${nextModel.summary.totalVms} VMs across ${nextModel.summary.totalNodes} nodes`, 'success')
+      if (!inventoryPresented) {
+        addLog(`Loaded ${nextModel.summary.totalVms} VMs across ${nextModel.summary.totalNodes} nodes`, 'success')
+      }
     } catch (error) {
       const message = error?.message || 'Failed to load Infra Explorer data'
       setErrorMessage(message)
@@ -275,6 +379,7 @@ function WorkloadInventory({
     setPendingStartVm({ ...vm, startIdempotencyKey: makeVmStartIdempotencyKey(vm) })
     setStartAcknowledged(false)
     setStartError('')
+    setActionNotice(null)
   }
 
   const closeStartDialog = () => {
@@ -299,12 +404,43 @@ function WorkloadInventory({
       setPendingStartVm(null)
       setStartAcknowledged(false)
       if (result?.job_id) {
-        navigate(`/operations/jobs?job=${encodeURIComponent(result.job_id)}`)
+        const destination = await operationResultDestination(apiV1Client, result.job_id)
+        if (destination.compatibilityFallback) {
+          addLog(`Common Operation detail is unavailable for ${result.job_id}; opened the compatibility Job view.`, 'warning')
+        }
+        if (destination.lookupError) {
+          const lookupMessage = authFailureMessage(destination.lookupError, 'Operation detail lookup failed')
+          setActionNotice({
+            message: `VM start was submitted, but its common Operation detail could not be loaded: ${lookupMessage}`,
+            operationId: result.job_id,
+          })
+          addLog(`VM start submitted but Operation lookup failed for ${result.job_id}: ${lookupMessage}`, 'warning')
+          void fetchInfra()
+        } else {
+          navigate(destination.path)
+        }
       } else {
         await fetchInfra()
       }
     } catch (error) {
       const message = authFailureMessage(error, 'Failed to start VM')
+      const operationId = operationIdFromActionError(error)
+      if (operationId) {
+        const destination = await operationResultDestination(apiV1Client, operationId)
+        if (!destination.lookupError) {
+          addLog(`VM start did not return success; opened recorded outcome ${operationId}.`, 'warning')
+          navigate(destination.path)
+          return
+        }
+        const lookupMessage = authFailureMessage(destination.lookupError, 'Operation detail lookup failed')
+        setStartError(`${message}. Recorded Operation ${operationId} could not be loaded: ${lookupMessage}`)
+        setActionNotice({
+          message: `VM start outcome was recorded, but Operation ${operationId} could not be loaded: ${lookupMessage}`,
+          operationId,
+        })
+        addLog(`VM start failed and Operation lookup failed for ${operationId}: ${lookupMessage}`, 'error')
+        return
+      }
       setStartError(message)
       addLog(`VM start failed for ${pendingStartVm.name}: ${message}`, 'error')
     } finally {
@@ -320,6 +456,7 @@ function WorkloadInventory({
     setPendingShutdownVm({ ...vm, shutdownIdempotencyKey: makeVmShutdownIdempotencyKey(vm) })
     setShutdownAcknowledged(false)
     setShutdownError('')
+    setActionNotice(null)
   }
 
   const closeShutdownDialog = () => {
@@ -344,12 +481,43 @@ function WorkloadInventory({
       setPendingShutdownVm(null)
       setShutdownAcknowledged(false)
       if (result?.job_id) {
-        navigate(`/operations/${encodeURIComponent(result.job_id)}`)
+        const destination = await operationResultDestination(apiV1Client, result.job_id)
+        if (destination.compatibilityFallback) {
+          addLog(`Common Operation detail is unavailable for ${result.job_id}; opened the compatibility Job view.`, 'warning')
+        }
+        if (destination.lookupError) {
+          const lookupMessage = authFailureMessage(destination.lookupError, 'Operation detail lookup failed')
+          setActionNotice({
+            message: `VM shutdown was submitted, but its common Operation detail could not be loaded: ${lookupMessage}`,
+            operationId: result.job_id,
+          })
+          addLog(`VM shutdown submitted but Operation lookup failed for ${result.job_id}: ${lookupMessage}`, 'warning')
+          void fetchInfra()
+        } else {
+          navigate(destination.path)
+        }
       } else {
         await fetchInfra()
       }
     } catch (error) {
       const message = authFailureMessage(error, 'Failed to shut down VM')
+      const operationId = operationIdFromActionError(error)
+      if (operationId) {
+        const destination = await operationResultDestination(apiV1Client, operationId)
+        if (!destination.lookupError) {
+          addLog(`VM shutdown did not return success; opened recorded outcome ${operationId}.`, 'warning')
+          navigate(destination.path)
+          return
+        }
+        const lookupMessage = authFailureMessage(destination.lookupError, 'Operation detail lookup failed')
+        setShutdownError(`${message}. Recorded Operation ${operationId} could not be loaded: ${lookupMessage}`)
+        setActionNotice({
+          message: `VM shutdown outcome was recorded, but Operation ${operationId} could not be loaded: ${lookupMessage}`,
+          operationId,
+        })
+        addLog(`VM shutdown failed and Operation lookup failed for ${operationId}: ${lookupMessage}`, 'error')
+        return
+      }
       setShutdownError(message)
       addLog(`VM shutdown failed for ${pendingShutdownVm.name}: ${message}`, 'error')
     } finally {
@@ -398,6 +566,27 @@ function WorkloadInventory({
         </div>
       </div>
 
+      {model?.observations?.length > 0 ? (
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-6 py-4 sm:grid-cols-2">
+          {model.observations.map((observation) => (
+            <div key={observation.scope} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+              <div className="font-semibold uppercase tracking-wide text-slate-500">{observation.scope} observation</div>
+              <div className="mt-1 font-medium text-slate-800">{observation.source} · {observation.freshness}</div>
+              <div className="mt-0.5">{formatObservedAt(observation.observedAt)}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {model?.context ? (
+        <div className={`border-b px-6 py-3 text-sm ${model.context.insightsStatus === 'available' && !model.context.insightsTruncated && model.context.operationsStatus === 'available' ? 'border-slate-200 bg-white text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            <span>Insights: {insightsContextLabel(model)}</span>
+            <span>Operations: {operationsContextLabel(model)}</span>
+          </div>
+        </div>
+      ) : null}
+
       {errorMessage && (
         <div className="border-b border-red-100 bg-red-50 px-6 py-4">
           <div className="flex items-start gap-3 text-sm text-red-800">
@@ -406,6 +595,26 @@ function WorkloadInventory({
           </div>
         </div>
       )}
+
+      {actionNotice ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-6 py-4">
+          <div className="flex items-start gap-3 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4" />
+            <div>
+              <div>{actionNotice.message}</div>
+              {actionNotice.operationId ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/operations/${encodeURIComponent(actionNotice.operationId)}`)}
+                  className="mt-2 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                >
+                  Retry Operation detail · {actionNotice.operationId}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!canMutateVms ? (
         <div className="border-b border-yellow-100 bg-yellow-50 px-6 py-3 text-sm text-yellow-800">
@@ -687,7 +896,7 @@ function WorkloadInventory({
                                       <DiskStack vm={vm} />
                                     </td>
                                     <td className="px-4 py-2 text-slate-600">
-                                      <SignalStack vm={vm} />
+                                      <WorkloadContextStack vm={vm} navigate={navigate} />
                                     </td>
                                     <td className="px-4 py-2 text-center">
                                       <div className="flex items-center justify-center gap-1.5">
