@@ -16,9 +16,9 @@ function StatusPill({ tone = 'slate', children }) {
 
 function SummaryCard({ label, value, sublabel }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="text-xs font-semibold text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold text-slate-950">{value}</div>
+    <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-3 text-3xl font-semibold text-slate-950">{value}</div>
       {sublabel && <div className="mt-1 text-xs text-slate-500">{sublabel}</div>}
     </div>
   )
@@ -463,11 +463,11 @@ function NetworkReadinessScreen() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <Network className="h-4 w-4" />
-            네트워크 준비도
+            Read-only evidence
           </div>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">네트워크 준비도</h1>
+          <h2 className="mt-2 text-3xl font-semibold text-slate-950">네트워크 준비도</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
             기존 live inventory 응답을 조합해 마이그레이션 전 네트워크 근거를 읽기 전용으로 보여줍니다. Proxmox 네트워크 설정을 변경하거나 migration 실행 권한을 부여하지 않습니다.
           </p>
@@ -475,14 +475,15 @@ function NetworkReadinessScreen() {
         <button
           type="button"
           onClick={loadModel}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          disabled={loading}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           새로고침
         </button>
       </header>
 
-      {error && <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">{error}</div>}
+      {error && <div role="status" className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">{error}</div>}
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">

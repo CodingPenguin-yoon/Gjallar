@@ -290,6 +290,46 @@ function WorkloadContextStack({ vm, navigate }) {
   )
 }
 
+function VmActionButtons({ vm, canMutateVms, openStartDialog, openShutdownDialog, navigate }) {
+  if (!canMutateVms) return null
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {canStartVm(vm) ? (
+        <button
+          type="button"
+          onClick={() => openStartDialog(vm)}
+          aria-label={`Start ${vm.name}`}
+          title={`Start ${vm.name}`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+        >
+          <Play className="h-4 w-4" />
+        </button>
+      ) : null}
+      {canShutdownVm(vm) ? (
+        <button
+          type="button"
+          onClick={() => openShutdownDialog(vm)}
+          aria-label={`Gracefully shut down ${vm.name}`}
+          title={`Gracefully shut down ${vm.name}`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+        >
+          <Power className="h-4 w-4" />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => navigate(`/operations/guided-qm/vm-unlock?node_id=${encodeURIComponent(vm.nodeId)}&vmid=${encodeURIComponent(vm.vmid)}`)}
+        aria-label={`Plan qm unlock for ${vm.name}`}
+        title={`Plan qm unlock for ${vm.name}`}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+      >
+        <Terminal className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
 function WorkloadInventory({
   onLogsUpdate = () => {},
   onStatusChange = () => {},
@@ -340,7 +380,6 @@ function WorkloadInventory({
     } catch (error) {
       const message = error?.message || 'Failed to load Infra Explorer data'
       setErrorMessage(message)
-      setModel(null)
       onStatusChange('error')
       addLog(`Infra Explorer load failed: ${message}`, 'error')
     } finally {
@@ -526,16 +565,15 @@ function WorkloadInventory({
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl bg-blue-50 p-3 text-blue-700">
-            <Server className="h-5 w-5" />
+    <section className="space-y-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Server className="h-4 w-4" />
+            Observed workloads
           </div>
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-950">Workload Cockpit</h2>
-            <p className="mt-1 text-sm text-slate-600">Inspect VM state and start verified operations from one workload context.</p>
-          </div>
+          <h2 className="mt-2 text-3xl font-semibold text-slate-950">Workload Cockpit</h2>
+          <p className="mt-1 text-sm text-slate-600">Inspect VM state and start verified operations from one workload context.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -567,9 +605,9 @@ function WorkloadInventory({
       </div>
 
       {model?.observations?.length > 0 ? (
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-6 py-4 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           {model.observations.map((observation) => (
-            <div key={observation.scope} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            <div key={observation.scope} className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
               <div className="font-semibold uppercase tracking-wide text-slate-500">{observation.scope} observation</div>
               <div className="mt-1 font-medium text-slate-800">{observation.source} · {observation.freshness}</div>
               <div className="mt-0.5">{formatObservedAt(observation.observedAt)}</div>
@@ -579,7 +617,7 @@ function WorkloadInventory({
       ) : null}
 
       {model?.context ? (
-        <div className={`border-b px-6 py-3 text-sm ${model.context.insightsStatus === 'available' && !model.context.insightsTruncated && model.context.operationsStatus === 'available' ? 'border-slate-200 bg-white text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+        <div className={`rounded-lg border px-4 py-3 text-sm shadow-sm ${model.context.insightsStatus === 'available' && !model.context.insightsTruncated && model.context.operationsStatus === 'available' ? 'border-slate-200 bg-white text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
           <div className="flex flex-wrap gap-x-5 gap-y-1">
             <span>Insights: {insightsContextLabel(model)}</span>
             <span>Operations: {operationsContextLabel(model)}</span>
@@ -588,16 +626,23 @@ function WorkloadInventory({
       ) : null}
 
       {errorMessage && (
-        <div className="border-b border-red-100 bg-red-50 px-6 py-4">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 shadow-sm">
           <div className="flex items-start gap-3 text-sm text-red-800">
             <AlertTriangle className="mt-0.5 h-4 w-4" />
-            <div>{errorMessage}</div>
+            <div className="flex-1">
+              <div>{model ? `Refresh failed. Previous observation remains visible. ${errorMessage}` : errorMessage}</div>
+              {!model ? (
+                <button type="button" onClick={fetchInfra} className="mt-2 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500">
+                  Retry inventory
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       )}
 
       {actionNotice ? (
-        <div className="border-b border-amber-200 bg-amber-50 px-6 py-4">
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
           <div className="flex items-start gap-3 text-sm text-amber-900">
             <AlertTriangle className="mt-0.5 h-4 w-4" />
             <div>
@@ -617,13 +662,13 @@ function WorkloadInventory({
       ) : null}
 
       {!canMutateVms ? (
-        <div className="border-b border-yellow-100 bg-yellow-50 px-6 py-3 text-sm text-yellow-800">
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 shadow-sm">
           VM lifecycle actions require operator or admin role. Current role: {currentUser?.role || 'unknown'}.
         </div>
       ) : null}
 
       {pendingShutdownVm ? (
-        <div className="border-b border-amber-100 bg-amber-50 px-6 py-4">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <div className="max-w-3xl rounded-lg border border-amber-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
@@ -692,7 +737,7 @@ function WorkloadInventory({
       ) : null}
 
       {pendingStartVm ? (
-        <div className="border-b border-blue-100 bg-blue-50 px-6 py-4">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-sm">
           <div className="max-w-3xl rounded-lg border border-blue-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
@@ -756,44 +801,44 @@ function WorkloadInventory({
         </div>
       ) : null}
 
-      <div className="px-6 py-5">
+      <div className="space-y-5">
         {model?.summary ? (
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase text-slate-500">VMs</div>
-              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.runningVms} / {model.summary.totalVms}</div>
-              <div className="text-xs text-slate-500">running / total</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.runningVms} / {model.summary.totalVms}</div>
+              <div className="mt-1 text-xs text-slate-500">running / total</div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase text-slate-500">Nodes</div>
-              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.totalNodes}</div>
-              <div className="text-xs text-slate-500">observed nodes</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.totalNodes}</div>
+              <div className="mt-1 text-xs text-slate-500">observed nodes</div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase text-slate-500">IP visibility</div>
-              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.visibleIpCount}</div>
-              <div className="text-xs text-slate-500">VMs with IP evidence</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.visibleIpCount}</div>
+              <div className="mt-1 text-xs text-slate-500">VMs with IP evidence</div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-xs font-medium uppercase text-slate-500">Guest agent</div>
-              <div className="mt-1 text-xl font-semibold text-slate-950">{model.summary.guestAgentCount}</div>
-              <div className="text-xs text-slate-500">with network evidence</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.guestAgentCount}</div>
+              <div className="mt-1 text-xs text-slate-500">with network evidence</div>
             </div>
           </div>
         ) : null}
 
-        {nodes.length === 0 ? (
+        {!model && errorMessage ? null : nodes.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
             No instances available.
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             {nodes.map((node) => {
               const isExpanded = expandedGroups[node.id] ?? true
               const nodeLabel = statusLabel(node.status)
 
               return (
-                <section key={node.id} className="overflow-hidden rounded-xl border border-slate-200">
+                <section key={node.id} className="overflow-hidden rounded-lg border border-slate-200">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
                     <button
                       type="button"
@@ -823,8 +868,52 @@ function WorkloadInventory({
                       {node.vms.length === 0 ? (
                         <div className="px-4 py-4 text-sm text-slate-500">No instances observed on this server.</div>
                       ) : (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-[80rem] w-full table-fixed divide-y divide-slate-200 text-sm">
+                        <>
+                          <div className="divide-y divide-slate-100 lg:hidden">
+                            {node.vms.map((vm) => (
+                              <article key={`mobile-${vm.nodeId}:${vm.vmid ?? vm.id}`} className="space-y-3 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate font-semibold text-slate-950" title={vm.name}>{vm.name}</div>
+                                    <div className="mt-0.5 text-xs text-slate-500">VMID {vm.vmid ?? '-'}</div>
+                                  </div>
+                                  <span className={`inline-flex shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusTone(vm.status)}`}>
+                                    {statusLabel(vm.status)}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3 rounded-lg bg-slate-50 p-3 text-sm">
+                                  <div className="min-w-0">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">IP</div>
+                                    <div className="mt-1"><IpStack vm={vm} /></div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CPU</div>
+                                    <div className="mt-1 font-medium text-slate-800">{formatNumber(vm.cpuCores)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Memory</div>
+                                    <div className="mt-1 font-medium text-slate-800">{formatGb(vm.memoryGb)}</div>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap items-end justify-between gap-3">
+                                  <WorkloadContextStack vm={vm} navigate={navigate} />
+                                  <VmActionButtons
+                                    vm={vm}
+                                    canMutateVms={canMutateVms}
+                                    openStartDialog={openStartDialog}
+                                    openShutdownDialog={openShutdownDialog}
+                                    navigate={navigate}
+                                  />
+                                </div>
+                                <details className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                                  <summary className="cursor-pointer font-medium text-slate-700">Disk details · {formatGb(vm.diskGb)}</summary>
+                                  <div className="mt-2"><DiskStack vm={vm} /></div>
+                                </details>
+                              </article>
+                            ))}
+                          </div>
+                          <div className="hidden overflow-x-auto lg:block">
+                          <table className="min-w-[73rem] w-full table-fixed divide-y divide-slate-200 text-sm">
                             <colgroup>
                               <col className="w-[15%] min-w-[12rem]" />
                               <col className="w-[7%] min-w-[6rem]" />
@@ -906,7 +995,7 @@ function WorkloadInventory({
                                             onClick={() => openStartDialog(vm)}
                                             aria-label={`Start ${vm.name}`}
                                             title={`Start ${vm.name}`}
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
                                           >
                                             <Play className="h-4 w-4" />
                                           </button>
@@ -917,7 +1006,7 @@ function WorkloadInventory({
                                             onClick={() => openShutdownDialog(vm)}
                                             aria-label={`Gracefully shut down ${vm.name}`}
                                             title={`Gracefully shut down ${vm.name}`}
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100"
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
                                           >
                                             <Power className="h-4 w-4" />
                                           </button>
@@ -928,7 +1017,7 @@ function WorkloadInventory({
                                             onClick={() => navigate(`/operations/guided-qm/vm-unlock?node_id=${encodeURIComponent(vm.nodeId)}&vmid=${encodeURIComponent(vm.vmid)}`)}
                                             aria-label={`Plan qm unlock for ${vm.name}`}
                                             title={`Plan qm unlock for ${vm.name}`}
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100"
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                           >
                                             <Terminal className="h-4 w-4" />
                                           </button>
@@ -940,7 +1029,8 @@ function WorkloadInventory({
                               })}
                             </tbody>
                           </table>
-                        </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}

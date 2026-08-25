@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AlertTriangle, Clock3, Eye, FileSearch, RefreshCw, ShieldCheck } from 'lucide-react'
 import {
   INSIGHT_CATEGORIES,
@@ -28,9 +29,17 @@ function summaryValue(section) {
   return section.summary.finding_count ?? section.findings.length
 }
 
-function SectionCard({ section, active }) {
+function insightCategoryPath(category) {
+  return `/insights/${category === 'risk' ? 'risks' : category}`
+}
+
+function SectionCard({ section }) {
   return (
-    <article className={`rounded-lg border bg-white p-4 shadow-sm ${active ? 'border-slate-950 ring-2 ring-slate-100' : 'border-slate-200'}`}>
+    <Link
+      to={insightCategoryPath(section.category)}
+      className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+      aria-label={`${section.label} findings ${summaryValue(section)}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{section.label}</div>
@@ -44,7 +53,7 @@ function SectionCard({ section, active }) {
         <div className="truncate">rule {section.ruleVersion}</div>
         <div className="truncate">freshness {section.freshness}</div>
       </div>
-    </article>
+    </Link>
   )
 }
 
@@ -79,10 +88,10 @@ function FindingCard({ finding }) {
         </div>
         <div className="shrink-0 text-xs text-slate-500">{finding.targetType} / {finding.targetId}</div>
       </div>
-      <div className="mt-4 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
-        <div className="rounded-md border border-slate-200 px-3 py-2">source <strong className="text-slate-800">{finding.source}</strong></div>
-        <div className="rounded-md border border-slate-200 px-3 py-2">freshness <strong className="text-slate-800">{finding.freshness}</strong></div>
-        <div className="rounded-md border border-slate-200 px-3 py-2">rule <strong className="text-slate-800">{finding.ruleVersion}</strong></div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+        <span>source <strong className="text-slate-700">{finding.source}</strong></span>
+        <span>freshness <strong className="text-slate-700">{finding.freshness}</strong></span>
+        <span>rule <strong className="text-slate-700">{finding.ruleVersion}</strong></span>
       </div>
       <details className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
         <summary className="cursor-pointer text-sm font-semibold text-slate-700">Evidence 보기</summary>
@@ -142,6 +151,9 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
     return INSIGHT_CATEGORIES.map((category) => model.sections[category])
   }, [activeCategory, model])
   const findings = visibleSections.flatMap((section) => section.findings)
+  const renderedFindingCount = activeCategory === 'overview'
+    ? visibleSections.reduce((total, section) => total + Math.min(section.findings.length, 2), 0)
+    : findings.length
 
   return (
     <section className="space-y-5">
@@ -159,13 +171,15 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
         <button
           type="button"
           onClick={loadModel}
-          className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          disabled={loading}
+          className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           새로고침
         </button>
       </header>
 
+      {activeCategory === 'overview' ? (
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
@@ -175,11 +189,12 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
           </div>
         </div>
       </div>
+      ) : null}
 
-      {model && (
+      {model && activeCategory === 'overview' && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {INSIGHT_CATEGORIES.map((category) => (
-            <SectionCard key={category} section={model.sections[category]} active={activeCategory === category} />
+            <SectionCard key={category} section={model.sections[category]} />
           ))}
         </div>
       )}
@@ -192,11 +207,12 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
         </div>
       )}
 
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-      {loading && !model && <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Insights를 불러오는 중입니다.</div>}
+      {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{model ? `새로고침에 실패해 이전 관찰 결과를 표시합니다. ${error}` : error}</div>}
+      {loading && !model && <div role="status" aria-live="polite" className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Insights를 불러오는 중입니다.</div>}
 
-      {model && visibleSections.map((section) => (
-        <div key={section.category} className="space-y-3">
+      {model && visibleSections.map((section) => {
+        const displayedFindings = activeCategory === 'overview' ? section.findings.slice(0, 2) : section.findings
+        return <div key={section.category} className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-xl font-semibold text-slate-950">{section.label}</h3>
@@ -209,6 +225,11 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
                 </span>
               )}
               <StatusBadge value={section.status} />
+              {activeCategory === 'overview' && section.findings.length > 0 ? (
+                <Link to={insightCategoryPath(section.category)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500">
+                  전체 {section.findings.length}건 보기
+                </Link>
+              ) : null}
             </div>
           </div>
           {!section.available ? (
@@ -217,13 +238,13 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
             <EmptyPanel section={section} />
           ) : (
             <div className="space-y-3">
-              {section.findings.map((finding) => <FindingCard key={finding.id} finding={finding} />)}
+              {displayedFindings.map((finding) => <FindingCard key={finding.id} finding={finding} />)}
             </div>
           )}
         </div>
-      ))}
+      })}
 
-      {model && findings.length > 0 && <div className="text-right text-xs text-slate-500">현재 보기 {findings.length} findings</div>}
+      {model && findings.length > 0 && <div className="text-right text-xs text-slate-500">현재 보기 {renderedFindingCount} / 전체 {findings.length} findings</div>}
     </section>
   )
 }

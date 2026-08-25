@@ -39,7 +39,7 @@ export default function GuidedQmUnlockPage({ canExecute = false }) {
         <p className="mt-2 text-sm text-slate-600">Gjallar가 사전 점검과 allowlisted instruction을 만들고, 실제 실행은 Proxmox node shell에서 운영자가 수행합니다.</p>
       </div>
 
-      <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <form onSubmit={submit} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-sm font-semibold text-slate-700">Node ID</span>
@@ -47,7 +47,7 @@ export default function GuidedQmUnlockPage({ canExecute = false }) {
               value={form.nodeId}
               onChange={(event) => update('nodeId', event.target.value)}
               placeholder="node-a"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
             />
           </label>
           <label className="space-y-1">
@@ -58,7 +58,7 @@ export default function GuidedQmUnlockPage({ canExecute = false }) {
               value={form.vmid}
               onChange={(event) => update('vmid', event.target.value)}
               placeholder="306"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
             />
           </label>
         </div>
@@ -88,13 +88,13 @@ export default function GuidedQmUnlockPage({ canExecute = false }) {
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">operator/admin 권한과 live Proxmox 연결이 필요합니다.</div>
         ) : null}
         {error ? (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>
+          <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>
         ) : null}
 
         <button
           type="submit"
           disabled={!canExecute || !form.acknowledged || submitting}
-          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Terminal className="h-4 w-4" />
           {submitting ? 'Planning...' : 'Create instruction bundle'}

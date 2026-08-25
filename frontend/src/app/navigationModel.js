@@ -13,7 +13,7 @@ import {
   UserCog,
 } from 'lucide-react'
 
-export const APP_SHELL_CLASS = 'mx-auto w-full max-w-7xl px-8'
+export const APP_SHELL_CLASS = 'mx-auto w-full max-w-7xl px-4 sm:px-8'
 
 export const primaryNavItems = Object.freeze([
   { label: 'Overview', path: '/', icon: LayoutDashboard },
@@ -30,7 +30,7 @@ export const workloadNavItems = Object.freeze([
 ])
 
 export const operationsNavItems = Object.freeze([
-  { label: 'Operations', path: '/operations', icon: List },
+  { label: 'Operations', path: '/operations', icon: List, activePrefixes: ['/operations'], aliasPaths: ['/risks'] },
   { label: 'Jobs', path: '/operations/jobs', icon: Clock3, aliasPaths: ['/jobs'] },
   { label: 'Guided qm', path: '/operations/guided-qm/vm-unlock', icon: Terminal, requiresOperator: true },
 ])
@@ -47,7 +47,7 @@ export const accountNavItem = { label: 'Account', path: '/settings/account', ico
 export const adminNavItem = { label: 'Admin Users', path: '/settings/admin/users', icon: UserCog, aliasPaths: ['/admin/users'] }
 
 export function navClass({ isActive }) {
-  return `flex shrink-0 items-center gap-2 px-6 py-4 font-medium transition-colors border-b-2 ${
+  return `flex shrink-0 items-center justify-center gap-2 border-b-2 px-4 py-3 font-medium transition-colors sm:px-6 sm:py-4 ${
     isActive
       ? 'text-slate-900 border-slate-900 bg-slate-50'
       : 'text-gray-600 border-transparent hover:text-gray-900 hover:bg-gray-50'
@@ -59,14 +59,25 @@ function normalizePathname(pathname) {
   return normalized || '/'
 }
 
+function navItemExact(item, pathname) {
+  const current = normalizePathname(pathname)
+  if (current === normalizePathname(item.path)) return true
+  return (item.aliasPaths || []).map(normalizePathname).includes(current)
+}
+
 export function navItemActive(item, pathname) {
   const current = normalizePathname(pathname)
   const itemPath = normalizePathname(item.path)
   if (itemPath === '/') return current === '/'
-  if (current === itemPath) return true
-  if ((item.aliasPaths || []).map(normalizePathname).includes(current)) return true
+  if (navItemExact(item, current)) return true
   return (item.activePrefixes || []).some((prefix) => {
     const normalizedPrefix = normalizePathname(prefix)
     return current === normalizedPrefix || current.startsWith(`${normalizedPrefix}/`)
   })
+}
+
+export function resolveSectionNavItems(items, pathname) {
+  const activeItem = items.find((item) => navItemExact(item, pathname))
+    || items.find((item) => navItemActive(item, pathname))
+  return items.map((item) => ({ ...item, isActive: item === activeItem }))
 }

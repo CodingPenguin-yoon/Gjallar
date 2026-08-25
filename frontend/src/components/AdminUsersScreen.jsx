@@ -177,28 +177,29 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
 
   return (
     <section className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <ShieldCheck className="h-4 w-4" />
             Admin
           </div>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">User Management</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-950">User Management</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">로컬 사용자 권한과 로그인 세션을 한곳에서 관리합니다.</p>
         </div>
-        <button type="button" onClick={loadUsers} disabled={loading} className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
+        <button type="button" onClick={loadUsers} disabled={loading} className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
-      </div>
+      </header>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
       {notice && (
-        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+        <div role="status" aria-live="polite" className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{notice}</span>
         </div>
@@ -214,7 +215,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
             <span className="text-sm font-medium text-slate-700">Username</span>
             <input
               aria-label="Create username"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
               value={createForm.username}
               onChange={(event) => setCreateForm((current) => ({ ...current, username: event.target.value }))}
               autoComplete="off"
@@ -225,7 +226,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
             <input
               aria-label="Create password"
               type="password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
               value={createForm.password}
               onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))}
               autoComplete="new-password"
@@ -235,14 +236,14 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
             <span className="text-sm font-medium text-slate-700">Role</span>
             <select
               aria-label="Create role"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
               value={createForm.role}
               onChange={(event) => setCreateForm((current) => ({ ...current, role: event.target.value }))}
             >
               {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
             </select>
           </label>
-          <button type="submit" disabled={busyKey === 'create' || !createForm.username || !createForm.password} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="submit" disabled={busyKey === 'create' || !createForm.username || !createForm.password} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
             {busyKey === 'create' ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
             Create
           </button>
@@ -258,7 +259,43 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{sortedUsers.length} users</span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-slate-100 md:hidden">
+          {loading && sortedUsers.length === 0 ? <div role="status" aria-live="polite" className="p-4 text-sm text-slate-500">Loading users...</div> : null}
+          {!loading && !error && sortedUsers.length === 0 ? <div className="p-4 text-sm text-slate-500">No local users found.</div> : null}
+          {sortedUsers.map((user) => (
+            <article key={`mobile-${user.username}`} className="space-y-4 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-950" title={user.username}>{user.username}</div>
+                  {user.username === currentUser?.username ? <div className="mt-1 text-xs font-medium text-blue-700">Current session</div> : null}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2"><RolePill role={user.role} /><StatusPill enabled={user.enabled} /></div>
+              </div>
+              <dl className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-xs">
+                <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Created</dt><dd className="mt-1 text-slate-700">{formatTimestamp(user.created_at)}</dd></div>
+                <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Last login</dt><dd className="mt-1 text-slate-700">{formatTimestamp(user.last_login_at)}</dd></div>
+              </dl>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <select
+                  aria-label={`Change role for ${user.username}`}
+                  className="min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
+                  value={user.role}
+                  disabled={busyKey === `role:${user.username}` || user.enabled === false}
+                  onChange={(event) => handleRoleChange(user.username, event.target.value)}
+                >
+                  {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+                </select>
+                <button type="button" aria-label={`Disable ${user.username}`} onClick={() => handleDisable(user.username)} disabled={busyKey === `disable:${user.username}` || user.enabled === false} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-60">Disable</button>
+              </div>
+              <form className="flex gap-2" data-testid={`mobile-reset-password-${user.username}`} onSubmit={(event) => handleResetPassword(event, user.username)}>
+                <input aria-label={`Mobile new password for ${user.username}`} type="password" className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100" value={resetPasswords[user.username] || ''} onChange={(event) => setResetPasswords((current) => ({ ...current, [user.username]: event.target.value }))} autoComplete="new-password" placeholder="New password" />
+                <button type="submit" disabled={busyKey === `reset:${user.username}` || !(resetPasswords[user.username] || '')} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-60"><KeyRound className="h-3.5 w-3.5" /> Reset</button>
+              </form>
+            </article>
+          ))}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <colgroup>
               <col className="w-[14rem]" />
@@ -271,22 +308,22 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
             </colgroup>
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold">Username</th>
-                <th className="px-4 py-3 text-left font-semibold">Role</th>
-                <th className="px-4 py-3 text-left font-semibold">Enabled</th>
-                <th className="px-4 py-3 text-left font-semibold">Created</th>
-                <th className="px-4 py-3 text-left font-semibold">Updated</th>
-                <th className="px-4 py-3 text-left font-semibold">Last login</th>
-                <th className="px-4 py-3 text-left font-semibold">Actions</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Username</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Role</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Enabled</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Created</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Updated</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Last login</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && sortedUsers.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-sm text-slate-500" colSpan={7}>Loading users...</td>
+                  <td className="px-4 py-6 text-sm text-slate-500" colSpan={7}><span role="status" aria-live="polite">Loading users...</span></td>
                 </tr>
               ) : null}
-              {!loading && sortedUsers.length === 0 ? (
+              {!loading && !error && sortedUsers.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-sm text-slate-500" colSpan={7}>No local users found.</td>
                 </tr>
@@ -307,7 +344,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
                       <div className="flex gap-2">
                         <select
                           aria-label={`Change role for ${user.username}`}
-                          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                          className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
                           value={user.role}
                           disabled={busyKey === `role:${user.username}` || user.enabled === false}
                           onChange={(event) => handleRoleChange(user.username, event.target.value)}
@@ -319,7 +356,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
                           aria-label={`Disable ${user.username}`}
                           onClick={() => handleDisable(user.username)}
                           disabled={busyKey === `disable:${user.username}` || user.enabled === false}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Disable
                         </button>
@@ -328,7 +365,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
                         <input
                           aria-label={`New password for ${user.username}`}
                           type="password"
-                          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                          className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
                           value={resetPasswords[user.username] || ''}
                           onChange={(event) => setResetPasswords((current) => ({ ...current, [user.username]: event.target.value }))}
                           autoComplete="new-password"
@@ -337,7 +374,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
                         <button
                           type="submit"
                           disabled={busyKey === `reset:${user.username}` || !(resetPasswords[user.username] || '')}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           <KeyRound className="h-3.5 w-3.5" />
                           Reset
@@ -361,7 +398,29 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{sortedSessions.length} sessions</span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-slate-100 md:hidden">
+          {loading && sortedSessions.length === 0 ? <div role="status" aria-live="polite" className="p-4 text-sm text-slate-500">Loading sessions...</div> : null}
+          {!loading && !error && sortedSessions.length === 0 ? <div className="p-4 text-sm text-slate-500">No sessions found.</div> : null}
+          {sortedSessions.map((session) => (
+            <article key={`mobile-${session.session_id}`} className="space-y-4 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="break-all font-mono text-xs font-semibold text-slate-800">{session.session_id}</div>
+                  <div className="mt-2 font-semibold text-slate-950">{session.username}</div>
+                </div>
+                <SessionStatusPill status={session.status} isCurrent={session.is_current_session} />
+              </div>
+              <div className="flex items-center justify-between gap-3"><RolePill role={session.role} /><span className="text-xs text-slate-500">{session.enabled ? 'Enabled user' : 'Disabled user'}</span></div>
+              <dl className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-xs">
+                <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Created</dt><dd className="mt-1 text-slate-700">{formatTimestamp(session.created_at)}</dd></div>
+                <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Expires</dt><dd className="mt-1 text-slate-700">{formatTimestamp(session.expires_at)}</dd></div>
+              </dl>
+              <button type="button" aria-label={`Revoke session ${session.session_id} on mobile`} onClick={() => handleRevokeSession(session)} disabled={busyKey === `session:${session.session_id}` || session.status !== 'active'} className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-60">{busyKey === `session:${session.session_id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />} Revoke</button>
+            </article>
+          ))}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <colgroup>
               <col className="w-[14rem]" />
@@ -375,23 +434,23 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
             </colgroup>
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold">Session</th>
-                <th className="px-4 py-3 text-left font-semibold">User</th>
-                <th className="px-4 py-3 text-left font-semibold">Role</th>
-                <th className="px-4 py-3 text-left font-semibold">Status</th>
-                <th className="px-4 py-3 text-left font-semibold">Created</th>
-                <th className="px-4 py-3 text-left font-semibold">Expires</th>
-                <th className="px-4 py-3 text-left font-semibold">Revoked</th>
-                <th className="px-4 py-3 text-left font-semibold">Action</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Session</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">User</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Role</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Status</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Created</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Expires</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Revoked</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && sortedSessions.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-sm text-slate-500" colSpan={8}>Loading sessions...</td>
+                  <td className="px-4 py-6 text-sm text-slate-500" colSpan={8}><span role="status" aria-live="polite">Loading sessions...</span></td>
                 </tr>
               ) : null}
-              {!loading && sortedSessions.length === 0 ? (
+              {!loading && !error && sortedSessions.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-sm text-slate-500" colSpan={8}>No sessions found.</td>
                 </tr>
@@ -416,7 +475,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
                       aria-label={`Revoke session ${session.session_id}`}
                       onClick={() => handleRevokeSession(session)}
                       disabled={busyKey === `session:${session.session_id}` || session.status !== 'active'}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {busyKey === `session:${session.session_id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
                       Revoke

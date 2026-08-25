@@ -1,5 +1,6 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { accountNavItem, adminNavItem, insightsNavItems, navItemActive, operationsNavItems, workloadNavItems } from './navigationModel'
+import { useEffect, useRef } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { accountNavItem, adminNavItem, insightsNavItems, operationsNavItems, resolveSectionNavItems, workloadNavItems } from './navigationModel'
 
 function subnavClass({ isActive }) {
   return `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -11,14 +12,21 @@ function subnavClass({ isActive }) {
 
 function SectionSubnav({ items, ariaLabel }) {
   const location = useLocation()
+  const activeItemRef = useRef(null)
+  const resolvedItems = resolveSectionNavItems(items, location.pathname)
+
+  useEffect(() => {
+    activeItemRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [location.pathname])
+
   return (
     <nav className="overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm" aria-label={ariaLabel}>
       <div className="flex gap-1">
-        {items.map(({ label, path, icon: Icon, aliasPaths }) => (
-          <NavLink key={path} to={path} className={() => subnavClass({ isActive: navItemActive({ path, aliasPaths }, location.pathname) })}>
+        {resolvedItems.map(({ label, path, icon: Icon, isActive }) => (
+          <Link ref={isActive ? activeItemRef : null} key={path} to={path} aria-current={isActive ? 'page' : undefined} className={subnavClass({ isActive })}>
             <Icon className="h-4 w-4" />
             {label}
-          </NavLink>
+          </Link>
         ))}
       </div>
     </nav>

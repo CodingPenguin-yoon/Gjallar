@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import {
+  accountNavItem,
+  adminNavItem,
+  insightsNavItems,
+  operationsNavItems,
+  resolveSectionNavItems,
+  workloadNavItems,
+} from '../src/app/navigationModel.js'
 
 const srcRoot = new URL('../src', import.meta.url)
 const appFacade = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
@@ -23,6 +31,38 @@ for (const label of ['Inventory', 'Create VM', 'Network readiness', 'Jobs', 'Ris
 }
 assert.doesNotMatch(navigation, /label: 'DRS Advisor'/, 'DRS must not remain a primary product navigation item')
 assert.doesNotMatch(navigation, /label: 'DRS Policies'/, 'DRS Policies must not remain a Workloads navigation item')
+
+for (const [items, pathname, expectedLabel] of [
+  [workloadNavItems, '/instances', 'Inventory'],
+  [workloadNavItems, '/instances/create', 'Create VM'],
+  [workloadNavItems, '/instances/networks', 'Network readiness'],
+  [workloadNavItems, '/infra', 'Inventory'],
+  [workloadNavItems, '/create', 'Create VM'],
+  [workloadNavItems, '/networks', 'Network readiness'],
+  [insightsNavItems, '/insights', 'Overview'],
+  [insightsNavItems, '/insights/risks', 'Risks'],
+  [insightsNavItems, '/insights/readiness', 'Readiness'],
+  [insightsNavItems, '/insights/capacity', 'Capacity'],
+  [insightsNavItems, '/insights/placement', 'Placement'],
+  [operationsNavItems, '/operations', 'Operations'],
+  [operationsNavItems, '/operations/operation-123', 'Operations'],
+  [operationsNavItems, '/operations/jobs', 'Jobs'],
+  [operationsNavItems, '/jobs', 'Jobs'],
+  [operationsNavItems, '/operations/guided-qm/vm-unlock', 'Guided qm'],
+  [operationsNavItems, '/operations/risks', 'Operations'],
+  [operationsNavItems, '/risks', 'Operations'],
+  [[accountNavItem, adminNavItem], '/settings/account', 'Account'],
+  [[accountNavItem, adminNavItem], '/account', 'Account'],
+  [[accountNavItem, adminNavItem], '/settings/admin/users', 'Admin Users'],
+  [[accountNavItem, adminNavItem], '/admin/users', 'Admin Users'],
+]) {
+  const activeItems = resolveSectionNavItems(items, pathname).filter((item) => item.isActive)
+  assert.equal(activeItems.length, 1, `${pathname} must activate exactly one section navigation item`)
+  assert.equal(activeItems[0].label, expectedLabel, `${pathname} must activate ${expectedLabel}`)
+}
+assert.match(navigation, /aria-current=\{isActive \? 'page' : undefined\}/, 'Section navigation must expose its single resolved active item as the current page')
+assert.match(navigation, /className=\{subnavClass\(\{ isActive \}\)\}/, 'Section navigation styling must use the same resolved active item')
+assert.doesNotMatch(navigation, /<NavLink/, 'Section navigation must not reintroduce an independent router active-state calculation')
 
 for (const route of [
   'path="/"',
@@ -62,10 +102,11 @@ assert.match(app, /canOperate\(currentUser\) && proxmoxOperational/, 'Mutation a
 assert.doesNotMatch(app, /from ['"]\.\.\/components\//, 'App layer must compose pages rather than legacy screen components')
 assert.doesNotMatch(app, /from ['"]\.\.\/(?:services|utils)\//, 'App layer must use shared public modules')
 
-assert.match(navigation, /APP_SHELL_CLASS = 'mx-auto w-full max-w-7xl px-8'/, 'Authenticated layout must define one shell width')
-assert.ok(shell.includes('<div className={`${APP_SHELL_CLASS} py-5`}>'), 'Header must use shared shell width')
+assert.match(navigation, /APP_SHELL_CLASS = 'mx-auto w-full max-w-7xl px-4 sm:px-8'/, 'Authenticated layout must define one responsive shell width')
+assert.ok(shell.includes('<div className={`${APP_SHELL_CLASS} py-4 sm:py-5`}>'), 'Header must use shared shell width')
 assert.ok(shell.includes('<div className={APP_SHELL_CLASS}>'), 'Primary navigation must use shared shell width')
-assert.ok(shell.includes('<main className={`${APP_SHELL_CLASS} py-8`}>'), 'Main content must use shared shell width')
+assert.ok(shell.includes('<main id="main-content" className={`${APP_SHELL_CLASS} py-6 sm:py-8`}>'), 'Main content must use shared shell width')
+assert.match(shell, /Skip to main content/, 'Authenticated shell must expose a keyboard skip link')
 assert.match(shell, />Gjallar</, 'App shell must lead with the current product identity')
 assert.match(shell, /Observe-first Operations Intelligence · Verified Actions/, 'App shell must state the observe-first identity')
 assert.doesNotMatch(shell, /Gjallar Operations Console|Proxmox VM 운영 관리/, 'App shell must not revive the old console-only identity')

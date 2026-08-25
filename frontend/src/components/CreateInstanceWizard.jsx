@@ -624,14 +624,21 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
 
   return (
     <div className="space-y-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Server className="h-4 w-4" />
+            Verified creation
+          </div>
+          <h2 className="mt-2 text-3xl font-semibold text-slate-950">새 VM 만들기</h2>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">프로필과 live inventory 근거를 검토한 뒤 승인된 Native 생성만 실행합니다.</p>
+        </div>
+        <StatusPill tone="blue">생성 전 검토</StatusPill>
+      </header>
+
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <Server className="h-5 w-5 text-slate-700" />
-              <h2 className="text-xl font-semibold text-slate-950">새 VM 만들기</h2>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
               <StatusPill tone="slate">{form.profileId || 'general-vm'}</StatusPill>
               <StatusPill tone="slate">{cpuValue} CPU</StatusPill>
               <StatusPill tone="slate">{memoryMb} MB</StatusPill>
@@ -639,8 +646,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               <StatusPill tone="slate">{firstBootLabel}</StatusPill>
               {currentUser?.role && <StatusPill tone={canExecuteLiveMutation ? 'green' : 'yellow'}>{currentUser.role}</StatusPill>}
             </div>
-          </div>
-          <StatusPill tone="blue">생성 전 검토</StatusPill>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Request summary</span>
         </div>
 
         <div className="mt-5">
@@ -845,7 +851,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={runReview} disabled={!canExecuteLiveMutation || loading || options.loading || !profilesReady || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="button" onClick={runReview} disabled={!canExecuteLiveMutation || loading || options.loading || !profilesReady || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
             검토 시작
           </button>
@@ -855,13 +861,13 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       </section>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
 
       {options.error && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+        <div role="status" className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
           {options.error}
         </div>
       )}

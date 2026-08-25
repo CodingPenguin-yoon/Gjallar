@@ -38,14 +38,16 @@ export default function AccountSettingsScreen({ currentUser, onPasswordChanged }
 
   return (
     <section className="mx-auto max-w-2xl space-y-5">
-      <div>
-        <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+      <header>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
           <UserCircle className="h-4 w-4" />
           Account
         </div>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-950">{currentUser?.username}</h2>
-        <div className="mt-1 text-sm text-slate-500">{currentUser?.role}</div>
-      </div>
+        <h2 className="mt-3 text-3xl font-semibold text-slate-950">{currentUser?.username}</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          현재 역할 <span className="font-semibold text-slate-800">{currentUser?.role}</span> · 비밀번호를 변경하고 다른 로그인 세션을 안전하게 해지합니다.
+        </p>
+      </header>
 
       <form className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" onSubmit={submitPasswordChange}>
         <div className="mb-4 flex items-center gap-2">
@@ -59,7 +61,7 @@ export default function AccountSettingsScreen({ currentUser, onPasswordChanged }
               aria-label="Current password"
               type="password"
               autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
               value={form.currentPassword}
               onChange={(event) => updateField('currentPassword', event.target.value)}
             />
@@ -70,7 +72,7 @@ export default function AccountSettingsScreen({ currentUser, onPasswordChanged }
               aria-label="New password"
               type="password"
               autoComplete="new-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
               value={form.newPassword}
               onChange={(event) => updateField('newPassword', event.target.value)}
             />
@@ -81,20 +83,20 @@ export default function AccountSettingsScreen({ currentUser, onPasswordChanged }
               aria-label="Confirm new password"
               type="password"
               autoComplete="new-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus-visible:border-slate-500 focus-visible:ring-2 focus-visible:ring-slate-100"
               value={form.confirmPassword}
               onChange={(event) => updateField('confirmPassword', event.target.value)}
             />
           </label>
         </div>
         {error ? (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
         ) : null}
         {notice ? (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+          <div role="status" aria-live="polite" className="mt-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{notice}</span>
           </div>
@@ -102,7 +104,7 @@ export default function AccountSettingsScreen({ currentUser, onPasswordChanged }
         <button
           type="submit"
           disabled={!canSubmit}
-          className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <KeyRound className="h-4 w-4" />
           {submitting ? 'Changing...' : 'Change password'}
