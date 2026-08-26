@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.v1.inventory_context import inventory_adapter as _inventory_adapter
+from app.api.v1.inventory_context import mutation_inventory_adapter as _mutation_inventory_adapter
 from app.api.v1.responses import success_response
 from app.auth.dependencies import require_operator
 from app.auth.roles import AuthenticatedUser
@@ -158,7 +159,7 @@ async def create_vm_draft_proxmox_native(
             draft_id,
             payload,
             actor=actor,
-            inventory_adapter=_inventory_adapter(),
+            inventory_adapter=_mutation_inventory_adapter(),
             mutation_client_factory=_mutation_client_factory,
         )
     )

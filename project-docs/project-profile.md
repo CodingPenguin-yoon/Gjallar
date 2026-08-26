@@ -1,7 +1,7 @@
 # 프로젝트 프로필
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-24`
+- 최종 검토일: `2026-08-26`
 - 문서 기준 언어: 한국어
 
 이 문서는 Codex가 매 작업 전에 확인하는 안정 정보 인덱스다. 구현 상세, 실행별 검증 결과와 변경 이력은 누적하지 않고 아래 현재 문서와 Git·CI·evidence에서 관리한다.
@@ -9,7 +9,7 @@
 ## 프로젝트와 기준 문서
 
 - 프로젝트명: `Gjallar`
-- 목적: Proxmox의 actual state와 실행 권위를 존중하면서 상태·변화·freshness와 운영 evidence를 설명하고, 필요한 경우 제한된 검증 action을 제공하는 Observe-first Operations Intelligence
+- 목적: Proxmox의 actual state와 실행 권위를 존중하면서 `Observe → Explain → Verified Action`으로 상태·변화·freshness와 운영 evidence를 설명하고, 필요한 경우 제한된 검증 action을 제공하는 Observe-first Operations Intelligence
 - 주요 사용자: Proxmox 인프라 운영자와 관리자(`viewer`, `operator`, `admin`)
 - 저장소 형태: React SPA, FastAPI backend, PostgreSQL/Alembic과 Docker runtime을 함께 관리하는 monorepo
 - 제품 범위와 현재 구조: [`specifications/project-specification.md`](specifications/project-specification.md), [`architecture/overview.md`](architecture/overview.md)
@@ -29,11 +29,11 @@
 ## 현재 방향과 경계
 
 - 기능별 monolith에서 domain-oriented modular monolith로 작은 vertical slice 단위 전환 중이다. 현재와 목표 구조를 섞지 않는다.
-- 제품의 기본 경로는 `Proxmox observation → 상태·변화·위험 설명 → 필요한 경우 verified action`이다. 상세 제품·권한 경계는 [`ADR-007`](decisions/adr-007-observe-first-operations-intelligence.md)을 따른다.
+- 제품의 기본 경로는 `Workloads(대상 관찰) → Insights(원인·근거) → Operations(작업 결과·증거)`다. exact VM 문맥은 `/instances/:vmid`와 `proxmox_vm`·`vmid:<VMID>` identity로 연결한다. 상세 제품·권한 경계는 [`ADR-007`](decisions/adr-007-observe-first-operations-intelligence.md)을 따른다.
 - Proxmox가 actual state와 low-level execution을 소유하며 Gjallar는 local metadata, observation provenance/freshness, derived finding과 지원 action의 intent·verification·evidence·audit를 소유한다.
 - 지원 action은 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`으로 제한한다. Insights는 operation을 자동 생성하거나 dispatch하지 않는다.
 - 목표 도메인과 의존성 방향은 [`ADR-002`](decisions/adr-002-modular-monolith-domain-boundaries.md)와 [`domains/domain-map.md`](domains/domain-map.md)를 따른다.
-- product runtime은 Proxmox 연결 실패를 fake inventory로 대체하지 않는다. `unconfigured`·`live`·`degraded` 의미는 [`ADR-003`](decisions/adr-003-production-inventory-connection-truth.md)을 따른다.
+- product runtime은 Proxmox 연결 실패를 fake inventory로 대체하지 않는다. complete snapshot은 `live/fresh`, base snapshot의 일부 source 실패는 `degraded/partial`과 source별 availability, snapshot 부재는 `degraded`로 구분한다. partial snapshot은 read 화면에서 정상 source를 유지하지만 Create VM 실행과 VM mutation은 backend/frontend 모두 complete `live`만 허용한다. 상세 의미는 [`ADR-003`](decisions/adr-003-production-inventory-connection-truth.md)을 따른다.
 - DRS policy·approval·execution·reconciliation, 전용 UI/API/runtime/schema contract는 제거됐다. historical Jobs/Artifacts renderer와 `/insights` legacy source·ID 값은 active DRS 기능으로 해석하거나 확장하지 않는다.
 - generic TSDB·독립 alerting platform, automatic remediation과 multi-provider 지원은 현재 비범위다.
 - 현재 구현 사실은 [`architecture/overview.md`](architecture/overview.md)를 따른다. 이후 공개 계약·data ownership·architecture 전환은 다시 승인된 고위험 Plan으로만 수행한다.

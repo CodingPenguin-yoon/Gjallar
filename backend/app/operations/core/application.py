@@ -25,16 +25,26 @@ class OperationListQuery:
     status: str | None = None
     operation_type: str | None = None
     limit: int = 50
+    target_type: str | None = None
+    target_id: str | None = None
 
     def normalized(self) -> "OperationListQuery":
         status = str(self.status or "").strip() or None
         operation_type = str(self.operation_type or "").strip() or None
+        target_type = str(self.target_type or "").strip() or None
+        target_id = str(self.target_id or "").strip() or None
         limit = int(self.limit)
         if status is not None and status not in OPERATION_STATUSES:
             raise InvalidOperationQuery(f"Unsupported operation status: {status}")
         if limit < 1 or limit > 200:
             raise InvalidOperationQuery("Operation list limit must be between 1 and 200")
-        return OperationListQuery(status=status, operation_type=operation_type, limit=limit)
+        return OperationListQuery(
+            status=status,
+            operation_type=operation_type,
+            target_type=target_type,
+            target_id=target_id,
+            limit=limit,
+        )
 
 
 class OperationQueryService:
@@ -46,6 +56,8 @@ class OperationQueryService:
         operations = self._operations.list(
             status=normalized.status,
             operation_type=normalized.operation_type,
+            target_type=normalized.target_type,
+            target_id=normalized.target_id,
             limit=normalized.limit,
         )
         return [operation_payload(operation, include_details=False) for operation in operations]

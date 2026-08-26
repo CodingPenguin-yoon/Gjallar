@@ -20,6 +20,7 @@ const navigation = [
 const shell = readFileSync(new URL('../src/app/AppShell.jsx', import.meta.url), 'utf8')
 const dashboard = readFileSync(new URL('../src/pages/dashboard/DashboardPage.jsx', import.meta.url), 'utf8')
 const workloadPage = readFileSync(new URL('../src/pages/workloads/WorkloadCockpitPage.jsx', import.meta.url), 'utf8')
+const vmDetailPage = readFileSync(new URL('../src/pages/workloads/VmDetailPage.jsx', import.meta.url), 'utf8')
 
 assert.match(appFacade, /from ['"]\.\/app\/App['"]/, 'Root App must be a compatibility entrypoint into the app layer')
 
@@ -34,6 +35,7 @@ assert.doesNotMatch(navigation, /label: 'DRS Policies'/, 'DRS Policies must not 
 
 for (const [items, pathname, expectedLabel] of [
   [workloadNavItems, '/instances', 'Inventory'],
+  [workloadNavItems, '/instances/306', 'Inventory'],
   [workloadNavItems, '/instances/create', 'Create VM'],
   [workloadNavItems, '/instances/networks', 'Network readiness'],
   [workloadNavItems, '/infra', 'Inventory'],
@@ -69,6 +71,7 @@ for (const route of [
   'path="/instances"',
   'path="/instances/create"',
   'path="/instances/networks"',
+  'path="/instances/:vmid"',
   'path="/insights"',
   'path="/insights/risks"',
   'path="/insights/readiness"',
@@ -93,11 +96,13 @@ assert.match(navigation, /!item\.requiresOperator \|\| canExecute/, 'Guided qm n
 assert.match(app, /function AdminGuard/, 'Direct admin route access must be guarded')
 assert.match(app, /path="\/jobs"\s+element=\{jobsRoute\}/, 'Legacy Jobs alias must direct-render so query strings are preserved')
 assert.match(app, /visiblePrimaryNavItems/, 'Unavailable Proxmox navigation must be hidden')
+assert.match(app, /isProxmoxInventoryAvailable/, 'Partial authoritative inventory must keep read navigation available')
 assert.match(app, /<InsightsPage category=\{category\}/, 'Insights routes must compose the dedicated page boundary')
 assert.doesNotMatch(app, /operationalRoute\(\s*insightsRoute/, 'Insights must remain visible for partial source availability')
 assert.doesNotMatch(app, /path="\/(?:drs|instances\/drs-policies)"/, 'Removed DRS URLs must follow the unknown-path fallback')
 assert.match(app, /<Route path="\*" element=\{<Navigate to="\/" replace \/>\} \/>/, 'Authenticated unknown paths must continue to redirect to Overview')
-assert.match(app, /operationalRoute\(<Dashboard \/>\)/, 'Dashboard must require authoritative Proxmox connection truth')
+assert.match(app, /inventoryRoute\(<Dashboard \/>\)/, 'Dashboard must accept readable partial inventory')
+assert.match(app, /<ProxmoxConnectionBoundary \{\.\.\.connectionBoundaryProps\} requireLive>/, 'Create and mutation-backed routes must retain a complete-live boundary')
 assert.match(app, /canOperate\(currentUser\) && proxmoxOperational/, 'Mutation affordances must require role and live connection truth')
 assert.doesNotMatch(app, /from ['"]\.\.\/components\//, 'App layer must compose pages rather than legacy screen components')
 assert.doesNotMatch(app, /from ['"]\.\.\/(?:services|utils)\//, 'App layer must use shared public modules')
@@ -111,6 +116,7 @@ assert.match(shell, />Gjallar</, 'App shell must lead with the current product i
 assert.match(shell, /Observe-first Operations Intelligence · Verified Actions/, 'App shell must state the observe-first identity')
 assert.doesNotMatch(shell, /Gjallar Operations Console|Proxmox VM 운영 관리/, 'App shell must not revive the old console-only identity')
 assert.match(workloadPage, /WorkloadInventory/, 'Workload Cockpit page must consume the workload feature boundary')
+assert.match(vmDetailPage, /VmDetail/, 'VM detail page must consume the exact workload detail feature boundary')
 
 assert.match(dashboard, /cpu_usage_percent/, 'Dashboard must prefer live Proxmox CPU usage')
 assert.match(dashboard, /memory_usage_percent/, 'Dashboard must prefer live Proxmox memory usage')
@@ -126,9 +132,14 @@ assert.match(dashboard, /risks unavailable/, 'Dashboard must identify unavailabl
 assert.match(dashboard, /activeJobs === null \? 'jobs unavailable'/, 'Unavailable Jobs must not render as zero')
 assert.match(dashboard, /label="Red risks"/, 'Dashboard must name the metric as the red-risk count it actually reports')
 assert.match(dashboard, /redRisks > 0 \? 'red' : 'slate'/, 'A zero legacy Risk response must remain neutral rather than green')
-for (const source of ['cluster', 'nodes', 'vms', 'storages', 'networks', 'jobs', 'risks']) {
+for (const source of ['jobs', 'risks']) {
   assert.ok(dashboard.includes(`${source}: ${source}.status === 'fulfilled'`), `Dashboard must track ${source} source availability`)
 }
+for (const source of ['cluster', 'nodes', 'vms']) {
+  assert.ok(dashboard.includes(`${source}: inventoryResultAvailable(${source})`), `Dashboard must require availability meta for ${source}`)
+}
+assert.match(dashboard, /storages: inventorySourceComplete\(storages, 'storage'\)/, 'Dashboard must not trust incomplete storage observation')
+assert.match(dashboard, /networks: inventorySourceComplete\(networks, 'network'\)/, 'Dashboard must not trust incomplete network observation')
 assert.match(dashboard, /node\.vmsAvailable \?/, 'Unavailable VM inventory must not render retained per-node counts')
 assert.match(dashboard, /node\.networksAvailable \?/, 'Unavailable Network inventory must not render retained bridges')
 assert.match(dashboard, /node\.storagesAvailable \?/, 'Unavailable Storage inventory must not render retained capacity')

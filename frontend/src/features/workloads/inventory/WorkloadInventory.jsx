@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   ChevronDown,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { apiV1Client } from '../../../shared/api/apiV1'
 import { authFailureMessage } from '../../../shared/auth/permissions'
+import { insightFindingPath, normalizeVmid, vmDetailPath } from '../../../shared/navigation/targetPaths'
 import { formatOperationTime, operationStatusTone } from '../../../entities/operation/model'
 import {
   loadInfraExplorerModel,
@@ -268,7 +269,7 @@ function WorkloadContextStack({ vm, navigate }) {
       {primaryFinding ? (
         <button
           type="button"
-          onClick={() => navigate(`/insights/${encodeURIComponent(primaryFinding.category)}`)}
+          onClick={() => navigate(insightFindingPath(primaryFinding))}
           title={`${primaryFinding.message} · ${primaryFinding.source} · ${primaryFinding.freshness} · ${formatObservedAt(primaryFinding.observedAt)}`}
           className={`inline-flex max-w-full rounded border px-1.5 py-0.5 text-left text-[11px] font-medium ${findingTone(primaryFinding.severity)}`}
         >
@@ -337,6 +338,10 @@ function WorkloadInventory({
   canMutateVms = true,
 }) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedVmid = normalizeVmid(searchParams.get('vmid'))
+  const requestedAction = String(searchParams.get('action') || '').trim().toLowerCase()
+  const handledActionRequest = useRef('')
   const [model, setModel] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -391,6 +396,43 @@ function WorkloadInventory({
   useEffect(() => {
     fetchInfra()
   }, [])
+
+  useEffect(() => {
+    if (!model || !requestedVmid || !['start', 'shutdown'].includes(requestedAction)) return
+    const requestKey = `${requestedVmid}:${requestedAction}`
+    if (handledActionRequest.current === requestKey) return
+    handledActionRequest.current = requestKey
+
+    const requestedVm = model.nodes
+      .flatMap((node) => node.vms)
+      .find((vm) => normalizeVmid(vm.vmid) === requestedVmid)
+    if (!requestedVm) {
+      setActionNotice({ message: `VMID ${requestedVmid}를 현재 Workloads 관찰 결과에서 찾지 못했습니다.`, operationId: '' })
+      return
+    }
+    if (!canMutateVms) {
+      setActionNotice({ message: `${requestedVm.name} 작업에는 operator 또는 admin 권한과 live 연결이 필요합니다.`, operationId: '' })
+      return
+    }
+    if (requestedAction === 'start' && canStartVm(requestedVm)) {
+      setPendingStartVm({ ...requestedVm, startIdempotencyKey: makeVmStartIdempotencyKey(requestedVm) })
+      setStartAcknowledged(false)
+      setStartError('')
+      setActionNotice(null)
+      return
+    }
+    if (requestedAction === 'shutdown' && canShutdownVm(requestedVm)) {
+      setPendingShutdownVm({ ...requestedVm, shutdownIdempotencyKey: makeVmShutdownIdempotencyKey(requestedVm) })
+      setShutdownAcknowledged(false)
+      setShutdownError('')
+      setActionNotice(null)
+      return
+    }
+    setActionNotice({
+      message: `${requestedVm.name}의 현재 상태 ${requestedVm.status}에서는 ${requestedAction} 작업을 시작할 수 없습니다.`,
+      operationId: '',
+    })
+  }, [canMutateVms, model, requestedAction, requestedVmid])
 
   if (loading) {
     return (
@@ -663,7 +705,7 @@ function WorkloadInventory({
 
       {!canMutateVms ? (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 shadow-sm">
-          VM lifecycle actions require operator or admin role. Current role: {currentUser?.role || 'unknown'}.
+          VM lifecycle actions require operator or admin role and a complete live Proxmox observation. Current role: {currentUser?.role || 'unknown'}.
         </div>
       ) : null}
 
@@ -874,7 +916,7 @@ function WorkloadInventory({
                               <article key={`mobile-${vm.nodeId}:${vm.vmid ?? vm.id}`} className="space-y-3 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">
-                                    <div className="truncate font-semibold text-slate-950" title={vm.name}>{vm.name}</div>
+                                    <Link to={vmDetailPath(vm.vmid) || '/instances'} className="block truncate font-semibold text-blue-800 hover:text-blue-950 hover:underline" title={`Open exact VM ${vm.name}`}>{vm.name}</Link>
                                     <div className="mt-0.5 text-xs text-slate-500">VMID {vm.vmid ?? '-'}</div>
                                   </div>
                                   <span className={`inline-flex shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusTone(vm.status)}`}>
@@ -950,7 +992,9 @@ function WorkloadInventory({
                                 return (
                                   <tr key={`${vm.nodeId}:${vm.vmid ?? vm.id}`} className="align-top">
                                     <td className="px-4 py-2">
-                                      <div className="truncate font-medium text-slate-950" title={vm.name}>{vm.name}</div>
+                                      <Link to={vmDetailPath(vm.vmid) || '/instances'} className="block text-blue-800 hover:text-blue-950 hover:underline" aria-label={`Open exact VM ${vm.name}`}>
+                                        <div className="truncate font-medium text-slate-950" title={vm.name}>{vm.name}</div>
+                                      </Link>
                                       <div className="mt-0.5 text-xs text-slate-500">VMID {vm.vmid ?? '-'}</div>
                                       {vm.tags.length > 0 ? (
                                         <div className="mt-1 flex flex-wrap gap-1">

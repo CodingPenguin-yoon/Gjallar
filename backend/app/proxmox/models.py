@@ -11,6 +11,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+_INVENTORY_SOURCE_NAMES = ("storage", "network", "vm_config", "guest_agent", "vm_detail")
+
+
 @dataclass(frozen=True)
 class StorageInventory:
     storage_id: str
@@ -183,6 +186,66 @@ class TemplateInventory:
 
 
 @dataclass(frozen=True)
+class InventorySourceAvailability:
+    """Availability and completeness of one optional snapshot sub-source."""
+
+    source: str
+    expected_targets: int = 0
+    observed_targets: int = 0
+    failed_targets: tuple[str, ...] = ()
+
+    @property
+    def available(self) -> bool:
+        return self.expected_targets == 0 or self.observed_targets > 0
+
+    @property
+    def complete(self) -> bool:
+        return not self.failed_targets and self.observed_targets >= self.expected_targets
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "available": self.available,
+            "complete": self.complete,
+            "expected_targets": self.expected_targets,
+            "observed_targets": self.observed_targets,
+            "failed_targets": list(self.failed_targets),
+        }
+
+
+@dataclass(frozen=True)
+class InventoryAvailability:
+    """Completeness of an existing base snapshot.
+
+    A missing base snapshot is represented by no ``InventorySnapshot`` and a
+    503 response. Therefore ``available`` is true whenever this value exists,
+    while ``complete`` and each source describe partial observations.
+    """
+
+    sources: tuple[InventorySourceAvailability, ...] = ()
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def complete(self) -> bool:
+        return all(source.complete for source in self.sources)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "available": self.available,
+            "complete": self.complete,
+            "sources": {source.source: source.to_dict() for source in self.sources},
+        }
+
+
+def complete_inventory_availability() -> InventoryAvailability:
+    return InventoryAvailability(
+        sources=tuple(InventorySourceAvailability(source=name) for name in _INVENTORY_SOURCE_NAMES)
+    )
+
+
+@dataclass(frozen=True)
 class InventorySnapshot:
     source: str
     observed_at: str
@@ -190,6 +253,7 @@ class InventorySnapshot:
     vms: tuple[VmInventory, ...]
     templates: tuple[TemplateInventory, ...]
     connection: dict[str, Any] = field(default_factory=dict)
+    availability: InventoryAvailability = field(default_factory=complete_inventory_availability)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -199,4 +263,5 @@ class InventorySnapshot:
             "vms": [vm.to_dict() for vm in self.vms],
             "templates": [template.to_dict() for template in self.templates],
             "connection": self.connection,
+            "availability": self.availability.to_dict(),
         }

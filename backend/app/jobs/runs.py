@@ -31,6 +31,13 @@ VM_START_STEP_LABELS = {
     "task_poll": "Proxmox 작업 확인",
     "post_check": "시작 후 확인",
 }
+VM_SHUTDOWN_STEP_ORDER = ["precheck", "shutdown", "task_poll", "post_check"]
+VM_SHUTDOWN_STEP_LABELS = {
+    "precheck": "종료 사전 확인",
+    "shutdown": "VM 종료 요청",
+    "task_poll": "Proxmox 작업 확인",
+    "post_check": "종료 후 확인",
+}
 DRS_MIGRATION_STEP_ORDER = [
     "recommendation",
     "final_precheck",
@@ -65,6 +72,8 @@ TERMINAL_STATUSES = {"completed", "failed", "blocked", "timed_out", "ambiguous",
 def _step_order(job_type: str) -> list[str]:
     if job_type == "vm_start":
         return VM_START_STEP_ORDER
+    if job_type == "vm_shutdown":
+        return VM_SHUTDOWN_STEP_ORDER
     if job_type == "drs_migration":
         return DRS_MIGRATION_STEP_ORDER
     if job_type == "post_create_readiness":
@@ -75,6 +84,8 @@ def _step_order(job_type: str) -> list[str]:
 def _step_labels(job_type: str) -> dict[str, str]:
     if job_type == "vm_start":
         return VM_START_STEP_LABELS
+    if job_type == "vm_shutdown":
+        return VM_SHUTDOWN_STEP_LABELS
     if job_type == "drs_migration":
         return DRS_MIGRATION_STEP_LABELS
     if job_type == "post_create_readiness":
@@ -362,8 +373,13 @@ def list_job_runs() -> list[dict[str, Any]]:
         return []
 
 
+def get_job_run_strict(job_id: str) -> dict[str, Any] | None:
+    """Return one job run while preserving source failures for availability-aware callers."""
+    return _load_status(job_id)
+
+
 def get_job_run(job_id: str) -> dict[str, Any] | None:
     try:
-        return _load_status(job_id)
+        return get_job_run_strict(job_id)
     except Exception:
         return None

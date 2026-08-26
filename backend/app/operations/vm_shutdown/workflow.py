@@ -160,6 +160,12 @@ def _lock_evidence(handle: VmShutdownTargetLockHandle | None, *, retained: bool 
     return result
 
 
+def _conflicting_operation_id(lock: dict[str, Any]) -> str | None:
+    existing = lock.get("existing") if isinstance(lock.get("existing"), dict) else {}
+    operation_id = str(existing.get("owner_id") or existing.get("operation_id") or "").strip()
+    return operation_id or None
+
+
 def _compact_task(task: dict[str, Any], *, node_id: str, upid: str) -> dict[str, Any]:
     return {
         "node": str(task.get("node") or node_id),
@@ -474,22 +480,34 @@ def _execute(command: VmShutdownCommand, ports: VmShutdownExecutionPorts) -> dic
         try:
             target_lock = ports.locks.acquire_target("proxmox_vm", vm_shutdown_target_lock_id(vmid), job_id)
         except VmShutdownTargetLockBusy as exc:
-            ports.operations.append_event(
+            lock = dict(exc.evidence)
+            conflict_evidence: dict[str, Any] = {"target_operation_lock": lock}
+            conflicting_operation_id = _conflicting_operation_id(lock)
+            if conflicting_operation_id is not None:
+                conflict_evidence["conflicting_operation_id"] = conflicting_operation_id
+            transition_vm_shutdown_operation(
+                ports.operations,
                 job_id,
+                next_status="blocked",
                 event_type="target_lock_blocked",
                 stage="precheck",
-                payload={"target_operation_lock": exc.evidence},
+                payload=conflict_evidence,
+                details_patch=conflict_evidence,
                 expected_statuses=["planned"],
             )
+            details = {
+                "operation_id": prepared.operation.operation_id,
+                "target": vm_shutdown_target(node_id=node_id, vmid=vmid),
+                "target_operation_lock": lock,
+                "proxmox_mutation_enabled": False,
+                "side_effects": [],
+            }
+            if conflicting_operation_id is not None:
+                details["conflicting_operation_id"] = conflicting_operation_id
             raise VmShutdownError(
                 "VM_SHUTDOWN_TARGET_LOCK_BUSY",
                 "Another VM mutation for this target is already in progress or awaiting reconciliation",
-                details={
-                    "target": vm_shutdown_target(node_id=node_id, vmid=vmid),
-                    "target_operation_lock": dict(exc.evidence),
-                    "proxmox_mutation_enabled": False,
-                    "side_effects": [],
-                },
+                details=details,
             ) from exc
 
         target = vm_shutdown_target(

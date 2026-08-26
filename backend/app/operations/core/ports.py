@@ -23,6 +23,8 @@ class OperationStorePort(Protocol):
         *,
         status: str | None = None,
         operation_type: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
         limit: int = 50,
     ) -> list[OperationSnapshot]: ...
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Clock3, List, Plus, RefreshCw } from 'lucide-react'
 import { apiV1Client } from '../../shared/api/apiV1'
 import { authFailureMessage } from '../../shared/auth/permissions'
+import { vmDetailPathFromTarget } from '../../shared/navigation/targetPaths'
 import {
   formatOperationTime,
   normalizeOperation,
@@ -12,29 +13,42 @@ import {
 import OperationStatusBadge from '../../entities/operation/ui/OperationStatusBadge'
 
 export default function OperationsListPage({ canExecute = false }) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState({ status: '', operation_type: '' })
   const [operations, setOperations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestedTargetType = String(searchParams.get('target_type') || '').trim()
+  const requestedTargetId = String(searchParams.get('target_id') || '').trim()
+  const hasTargetFilter = Boolean(requestedTargetType && requestedTargetId)
 
   const loadOperations = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const items = await apiV1Client.listOperations({ ...filters, limit: 100 })
+      const items = await apiV1Client.listOperations({
+        ...filters,
+        ...(hasTargetFilter ? { target_type: requestedTargetType, target_id: requestedTargetId } : {}),
+        limit: 100,
+      })
       setOperations((Array.isArray(items) ? items : []).map(normalizeOperation))
     } catch (err) {
       setError(authFailureMessage(err, 'Operation 목록을 불러오지 못했습니다.'))
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [filters, hasTargetFilter, requestedTargetId, requestedTargetType])
 
   useEffect(() => {
     loadOperations()
   }, [loadOperations])
 
-  const hasFilters = Boolean(filters.status || filters.operation_type)
+  const hasFilters = Boolean(filters.status || filters.operation_type || hasTargetFilter)
+  const clearTargetFilter = () => setSearchParams(new URLSearchParams())
+  const clearFilters = () => {
+    setFilters({ status: '', operation_type: '' })
+    clearTargetFilter()
+  }
 
   return (
     <section className="space-y-5">
@@ -94,6 +108,13 @@ export default function OperationsListPage({ canExecute = false }) {
         </label>
       </div>
 
+      {hasTargetFilter ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <div>Exact target filter: <span className="font-mono font-semibold">{requestedTargetType} / {requestedTargetId}</span></div>
+          <button type="button" onClick={clearTargetFilter} className="font-semibold underline">target filter 해제</button>
+        </div>
+      ) : null}
+
       {error ? (
         <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -120,7 +141,7 @@ export default function OperationsListPage({ canExecute = false }) {
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {hasFilters ? (
-                <button type="button" onClick={() => setFilters({ status: '', operation_type: '' })} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500">
+                <button type="button" onClick={clearFilters} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500">
                   필터 초기화
                 </button>
               ) : (
@@ -149,21 +170,26 @@ export default function OperationsListPage({ canExecute = false }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {operations.map((operation) => (
-                  <tr key={operation.id}>
+                {operations.map((operation) => {
+                  const targetPath = vmDetailPathFromTarget(operation.targetType, operation.targetId)
+                  return (
+                    <tr key={operation.id}>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-slate-950">{operationTypeLabel(operation.type)}</div>
                       <div className="mt-1 max-w-xs truncate font-mono text-xs text-slate-500" title={operation.id}>{operation.id}</div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{operation.targetId}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                      {targetPath ? <Link to={targetPath} className="font-semibold text-blue-700 hover:text-blue-900 hover:underline">{operation.targetId}</Link> : operation.targetId}
+                    </td>
                     <td className="px-4 py-3"><OperationStatusBadge status={operation.status} /></td>
                     <td className="px-4 py-3 text-slate-600">{operation.executionMode}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatOperationTime(operation.updatedAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <Link to={`/operations/${encodeURIComponent(operation.id)}`} className="font-semibold text-blue-700 hover:text-blue-900">Open</Link>
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

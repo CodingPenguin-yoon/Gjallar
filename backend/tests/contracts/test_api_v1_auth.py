@@ -708,7 +708,7 @@ def test_vm_start_job_and_artifact_include_flat_actor_fields(monkeypatch):
             return {"node": node, "vmid": vmid, "name": "stopped-app", "status": "running"}
 
     with patch(
-        "app.api.v1.vm_actions.inventory_context.inventory_adapter",
+        "app.api.v1.vm_actions.inventory_context.mutation_inventory_adapter",
         return_value=StubInventoryAdapter(),
     ), patch(
         "app.api.v1.vm_actions.get_default_proxmox_mutation_client",

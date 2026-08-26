@@ -189,6 +189,8 @@ class SqlAlchemyOperationStore:
         *,
         status: str | None = None,
         operation_type: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
         limit: int = 50,
     ) -> list[OperationSnapshot]:
         statement = select(OperationRecord)
@@ -196,6 +198,10 @@ class SqlAlchemyOperationStore:
             statement = statement.where(OperationRecord.status == status)
         if operation_type:
             statement = statement.where(OperationRecord.operation_type == operation_type)
+        if target_type:
+            statement = statement.where(OperationRecord.target_type == target_type)
+        if target_id:
+            statement = statement.where(OperationRecord.target_id == target_id)
         statement = statement.order_by(
             OperationRecord.updated_at.desc(),
             OperationRecord.operation_id.desc(),

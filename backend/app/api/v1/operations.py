@@ -20,9 +20,17 @@ def list_operations_route(
     status: str | None = None,
     operation_type: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
+    target_type: str | None = None,
+    target_id: str | None = None,
 ) -> dict:
     try:
-        result = list_operations(status=status, operation_type=operation_type, limit=limit)
+        result = list_operations(
+            status=status,
+            operation_type=operation_type,
+            target_type=target_type,
+            target_id=target_id,
+            limit=limit,
+        )
     except InvalidOperationQuery as exc:
         raise HTTPException(
             status_code=422,
@@ -32,7 +40,13 @@ def list_operations_route(
         result,
         meta={
             "mode": "operation_read",
-            "filters": {"status": status, "operation_type": operation_type, "limit": limit},
+            "filters": {
+                "status": status,
+                "operation_type": operation_type,
+                "target_type": target_type,
+                "target_id": target_id,
+                "limit": limit,
+            },
         },
     )
 

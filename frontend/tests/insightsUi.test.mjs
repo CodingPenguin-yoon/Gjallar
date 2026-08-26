@@ -16,9 +16,13 @@ function sourceFiles(root) {
 
 const {
   INSIGHT_CATEGORIES,
+  insightSectionCoverageComplete,
   normalizeInsightsSnapshot,
 } = await import('../src/entities/insight/model.js')
-const { loadInsightsModel } = await import('../src/features/insights/model.js')
+const {
+  loadInsightsModel,
+  selectExactTargetFindingView,
+} = await import('../src/features/insights/model.js')
 
 const payload = {
   generated_at: '2026-07-21T02:00:00+00:00',
@@ -103,9 +107,43 @@ assert.equal(model.sections.placement.available, true)
 assert.equal(model.sections.placement.source, 'drs_advisor', 'Insight source identifiers must remain opaque compatibility values')
 assert.equal(model.sections.placement.findings[0].id, 'drs-rec-vm-101-node-a-node-b', 'Insight finding IDs must remain opaque compatibility values')
 assert.equal(model.sections.placement.findings[0].source, 'drs_advisor')
+assert.equal(insightSectionCoverageComplete({
+  available: true,
+  status: 'ready',
+  freshness: 'fresh',
+  summary: { finding_count: 0, returned_finding_count: 0, truncated: false },
+}), true)
+for (const incompleteSection of [
+  { available: true, status: 'unknown', freshness: 'fresh', summary: {} },
+  { available: true, status: 'ready', freshness: 'partial', summary: {} },
+  { available: true, status: 'ready', freshness: 'stale', summary: {} },
+  { available: true, status: 'error', freshness: 'fresh', summary: {} },
+  { available: true, status: 'ready', freshness: 'expired', summary: {} },
+  { available: true, status: 'ready', freshness: 'fresh', summary: { finding_count: 201, returned_finding_count: 200, truncated: true } },
+]) {
+  assert.equal(insightSectionCoverageComplete(incompleteSection), false)
+}
 
 const loaded = await loadInsightsModel({ getInsights: async () => payload })
 assert.equal(loaded.sections.risk.findings.length, 1)
+
+const exactTargetSections = [{
+  category: 'readiness',
+  findings: [
+    { id: 'finding-current', targetType: 'proxmox_vm', targetId: 'vmid:101' },
+    { id: 'finding-other-target', targetType: 'proxmox_vm', targetId: 'vmid:102' },
+  ],
+}]
+const matchedFindingView = selectExactTargetFindingView(exactTargetSections, {
+  targetType: 'proxmox_vm', targetId: 'vmid:101', findingId: 'finding-current',
+})
+assert.equal(matchedFindingView.requestedFindingMatched, true)
+assert.deepEqual(matchedFindingView.sections[0].findings.map((finding) => finding.id), ['finding-current'])
+const staleFindingView = selectExactTargetFindingView(exactTargetSections, {
+  targetType: 'proxmox_vm', targetId: 'vmid:101', findingId: 'finding-stale',
+})
+assert.equal(staleFindingView.requestedFindingMatched, false)
+assert.deepEqual(staleFindingView.sections[0].findings.map((finding) => finding.id), ['finding-current'])
 
 const explorer = readFileSync(new URL('../src/features/insights/InsightsExplorer.jsx', import.meta.url), 'utf8')
 const featureModel = readFileSync(new URL('../src/features/insights/model.js', import.meta.url), 'utf8')
@@ -116,6 +154,8 @@ assert.match(explorer, /빈 결과를 정상 상태로 해석하지 않습니다
 assert.match(explorer, /section\.ruleVersion/, 'Every section view must expose its rule version')
 assert.match(explorer, /finding\.evidence/, 'Finding details must expose evidence')
 assert.match(explorer, /section\.summary\.truncated/, 'Bounded finding results must disclose truncation in the UI')
+assert.match(explorer, /finding 부재를 확정할 수 없습니다/, 'Incomplete exact-target coverage must not render as a definitive no-finding state')
+assert.match(explorer, /현재 반환된 exact-target finding을 대신 표시합니다/, 'A stale finding link must preserve current exact-target evidence')
 assert.match(featureModel, /client\.getInsights\(\)/, 'Insights feature must use the additive read client')
 for (const forbidden of ['createDrsApprovalPacket', 'recordJobRun', 'executeDrsMigration', 'approveVmDraft', 'createVmDraft']) {
   assert.equal(explorer.includes(forbidden), false, `Insights UI must not expose command capability: ${forbidden}`)

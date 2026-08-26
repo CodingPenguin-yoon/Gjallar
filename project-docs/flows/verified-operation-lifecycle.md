@@ -1,7 +1,7 @@
 # 기능 흐름: Verified Operation Lifecycle
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-25`
+- 최종 검토일: `2026-08-26`
 - 관련 요구사항·도메인: [`Project Specification`](../specifications/project-specification.md), [`Domain Map`](../domains/domain-map.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)
 
 이 문서는 선택적 Verified Action의 공통 흐름과 현재 구현된 slice를 함께 설명한다. VM Start, graceful VM Shutdown, Create VM과 Guided `qm unlock`은 공통 Operation core를 사용한다. DRS와 migration은 action/API/runtime에서 제거됐고 이 lifecycle에 포함되지 않는다.
@@ -13,8 +13,8 @@
 - Create VM은 plan에서 common Operation을 준비하고 exact approval, preview, dispatch, task/result, workload linkage를 event로 기록한다. completed replay, same-key intent conflict, VMID owner guard와 명확한 실패/불명확한 결과의 구분을 유지한다.
 - VM Start/Shutdown은 API compatibility facade에서 infrastructure-free command와 use case로 진입하고 Workloads, mutation, Jobs, Evidence, lock/recovery를 명시적 port로 받는다. 검증 workflow는 각각 `operations/vm_start/workflow.py`, `operations/vm_shutdown/workflow.py`에 있고 공통 projection/event와 기존 job/artifact를 함께 기록한다.
 - 첫 Guided Manual action `qm unlock <vmid>`은 typed plan, 5분 expiry, trusted attestation, Proxmox API verification과 reconciliation을 공통 Operation으로 기록한다. backend command executor는 없다.
-- Workload Cockpit은 Nodes/VMs endpoint의 observation provenance를 각각 보존하고, `proxmox_vm`·`vmid:<VMID>`가 정확히 일치하는 Readiness/Placement finding과 최신 200개 반환 범위의 최근 Operation을 VM에 연결한다. Insights·Operations 보조 조회의 HTTP 실패, section unavailable·unknown/stale와 finding truncation은 정상 0건으로 축소하지 않고 inventory availability와 분리한다. VM context는 Guided plan에 전달하며, Operations UI가 공통 projection 목록·상세 evidence timeline·attestation·API verification을 제공한다. viewer는 조회만 가능하고 mutation control은 `operator+`와 live connection을 함께 요구한다.
-- VM Start/Shutdown 성공 결과와 오류 응답에 `operation_id` 또는 `job_id`가 포함된 recorded outcome은 common Operation이 조회되면 공통 상세로 이동하고, historical Job-only replay처럼 Operation projection이 없는 경우에는 명시적으로 Jobs compatibility 화면을 사용한다. 현재 target-lock-busy 오류는 common Operation을 먼저 기록하지만 응답에 correlation ID가 없어 Workload Cockpit이 해당 오류 결과를 직접 인계하지 못하며, 완전한 인계에는 additive backend 오류 계약이 필요하다.
+- Workload Cockpit은 endpoint별 observation provenance와 source availability를 보존하고, exact `/instances/:vmid`에서 VM data와 같은 응답의 availability를 유지한 채 `proxmox_vm`·`vmid:<VMID>`가 정확히 일치하는 Readiness/Placement finding과 target-filtered Operation을 연결한다. Insights·Operations 보조 조회의 HTTP 실패, section unavailable·unknown/stale와 finding truncation은 정상 0건으로 축소하지 않는다. partial base snapshot은 read 화면에서 보존하지만 VM context를 기존 Start/Shutdown acknowledgement dialog와 Guided plan에 전달하는 mutation capability는 `operator+`와 complete live connection을 함께 요구한다.
+- VM Start/Shutdown 성공 결과와 오류 응답에 `operation_id` 또는 `job_id`가 포함된 recorded outcome은 common Operation이 조회되면 공통 상세로 이동하고, historical Job-only replay처럼 Operation projection이 없는 경우에는 명시적으로 Jobs compatibility 화면을 사용한다. common Operation을 기록한 뒤 target lock이 충돌하면 현재 요청 Operation을 `blocked`로 닫고 `operation_id`와 확인 가능한 lock owner의 `conflicting_operation_id`를 additive error detail로 반환한다. non-terminal Operation 상세는 5초 간격 최대 60회 갱신하며 terminal·오류·unmount에서 중단하고, request generation이 늦은 이전 응답을 폐기한다.
 - VM Start, VM Shutdown, Create VM과 Guided `qm`이 이 문서의 공통 Operation aggregate를 사용한다.
 - VM Start/Shutdown에는 PostgreSQL recovery item/lease와 opt-in observation runner가 있다. generic operator recovery API와 Create VM/Guided 자동 handler는 아직 없으며 lease expiry나 process restart만으로 side effect가 없다고 판단하지 않는다.
 
@@ -137,7 +137,7 @@ HTTP payload
 |---|---|---|---|---|
 | validation/RBAC/capability | 실행 불가 | `blocked`, side effect 없음 | 입력 수정 후 새 plan | block reason과 해결 조건 |
 | policy/approval | 거절·만료·drift | `rejected`/`expired` | 재평가·재승인 | 변경된 evidence 표시 |
-| lock conflict | 동일 target 충돌 | `blocked` 또는 대기 | 기존 operation 확인 | conflicting operation link |
+| lock conflict | 동일 target 충돌 | 현재 side-effect 없는 요청은 `blocked`; 기존 lock owner는 현재 상태 유지 | 현재 `operation_id`와 확인 가능한 `conflicting_operation_id`로 두 operation 확인 | recorded/current owner operation link |
 | API explicit reject | side effect 없음이 명확 | `failed` | 정책에 따른 명시적 retry | Proxmox error의 안전한 mapping |
 | timeout/missing task ref | side effect 불명 | `needs_reconciliation` | 자동 mutation retry 금지 | verification/reconcile action |
 | task terminal failure | external failure 확인 | `failed` 또는 effect 불명 시 reconcile | action별 정책 | task evidence |
@@ -168,13 +168,13 @@ canonical target coordination은 `(GJALLAR_CLUSTER_ID, VMID)`의 PostgreSQL part
 | VM Shutdown application | `backend/app/operations/vm_shutdown/` | graceful shutdown command·stable intent, running pre-check, use case와 외부 port 계약 |
 | VM Shutdown compatibility | `backend/app/vm_actions/shutdown.py` | 공개 facade, Proxmox/Jobs/Evidence/Lock/Recovery adapter 조립 |
 | Create VM tracking | `backend/app/operations/vm_create/` | stable redacted intent, plan·approval·dispatch·result·replay 상태/event mapping |
-| Create VM compatibility | `backend/app/api/v1/router.py`, `backend/app/vm_create/` | 기존 `/vm-create/*`, runner, request/workload/job/artifact dual record 조립 |
+| Create VM compatibility | `backend/app/api/v1/vm_create_compat.py`, `backend/app/vm_create/` | 기존 `/vm-create/*`, runner, request/workload/job/artifact dual record 조립 |
 | Guided `qm` | `backend/app/operations/guided_qm/` | fixed template, typed validation, handoff, attestation, API verification |
 | workload observation | `backend/app/proxmox/inventory.py` | Workloads query + Integration read port |
 | managed dispatch | `backend/app/proxmox/client.py` | Integration mutation adapter |
 | local persistence | `backend/app/operations/core/infrastructure/`, `operations/recovery/infrastructure/`, `jobs/*` | common operation/event/recovery와 기존 Jobs/Artifacts compatibility 저장을 병행 |
-| UI composition | `frontend/src/app/`, `pages/operations/`, `pages/workloads/` | route shell, Workload context, operation list/detail/timeline |
-| UI feature/entity/shared | `frontend/src/features/guided-qm-unlock/`, `features/workloads/`, `entities/operation/`, `shared/` | typed plan, expiry-safe handoff, attestation/verification, read model과 API/RBAC/connection 계약 |
+| UI composition | `frontend/src/app/`, `pages/operations/`, `pages/workloads/` | route shell, Workload/exact VM context, target-filtered operation list, detail/timeline과 bounded polling |
+| UI feature/entity/shared | `frontend/src/features/guided-qm-unlock/`, `features/workloads/`, `entities/operation/`, `shared/` | typed plan, target path, expiry-safe handoff, digest/checksum evidence, attestation/verification, read model과 API/RBAC/connection 계약 |
 
 ## 검증
 
@@ -185,4 +185,4 @@ canonical target coordination은 `(GJALLAR_CLUSTER_ID, VMID)`의 PostgreSQL part
 - recovery: registration failure의 no-dispatch, lease takeover/fencing, stored-UPID GET-only resume, cross-operation locator conflict.
 - manual: unsupported field/lock/secret 거부, exact command, expiry, digest binding, trusted attestation, API verification, crash-resume와 lock retention.
 - 계약: 기존 endpoint facade와 신규 operation API가 같은 application result를 표현.
-- UI: viewer/operator 경계, 기존 route alias, server-generated command only, expiry/late evidence, architecture import 방향을 contract test로 보호한다.
+- UI: partial read/complete-live mutation 경계, viewer/operator 경계, 기존 route alias와 availability-aware exact VM route, target deep link/filter, digest/checksum payload 보존, bounded polling과 out-of-order response 폐기, server-generated command only, expiry/late evidence, architecture import 방향을 contract test로 보호한다.

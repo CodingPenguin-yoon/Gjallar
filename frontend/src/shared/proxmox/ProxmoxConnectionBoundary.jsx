@@ -1,5 +1,5 @@
 import { AlertTriangle, RefreshCw, Server } from 'lucide-react'
-import { isProxmoxOperational, normalizeProxmoxConnection } from './connection'
+import { isProxmoxInventoryAvailable, isProxmoxOperational, normalizeProxmoxConnection } from './connection'
 
 const reasonMessages = Object.freeze({
   proxmox_inventory_configuration_missing: 'Proxmox API 연결 설정이 아직 완료되지 않았습니다.',
@@ -10,9 +10,10 @@ const reasonMessages = Object.freeze({
   proxmox_authentication_failed: 'Proxmox API 인증에 실패했습니다.',
   proxmox_api_rejected: 'Proxmox API가 inventory 요청을 거부했습니다.',
   proxmox_inventory_unavailable: 'Proxmox inventory를 불러오지 못했습니다.',
+  proxmox_inventory_partial: '일부 Proxmox inventory source를 완전히 관찰하지 못했습니다.',
 })
 
-export default function ProxmoxConnectionBoundary({ requestStatus, connection, onRetry, children }) {
+export default function ProxmoxConnectionBoundary({ requestStatus, connection, onRetry, requireLive = false, children }) {
   if (requestStatus === 'loading' || requestStatus === 'idle') {
     return (
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm" aria-live="polite">
@@ -24,7 +25,10 @@ export default function ProxmoxConnectionBoundary({ requestStatus, connection, o
     )
   }
 
-  if (requestStatus === 'ready' && isProxmoxOperational(connection)) return children
+  const boundaryReady = requireLive
+    ? isProxmoxOperational(connection)
+    : isProxmoxInventoryAvailable(connection)
+  if (requestStatus === 'ready' && boundaryReady) return children
 
   const status = normalizeProxmoxConnection(connection)
   const unconfigured = status.state === 'unconfigured'
@@ -41,7 +45,9 @@ export default function ProxmoxConnectionBoundary({ requestStatus, connection, o
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Proxmox {status.state}</div>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">{message}</h2>
           <p className="mt-2 text-sm text-slate-600">
-            실제 Proxmox inventory를 확인할 수 있을 때만 Workloads inventory, Create, Network 화면을 엽니다. Insights, Operations, Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다.
+            {status.inventoryAvailable && requireLive
+              ? '읽기 가능한 partial inventory는 유지하지만 Create와 mutation에는 complete live observation이 필요합니다.'
+              : '실제 Proxmox inventory를 확인할 수 있을 때만 Overview와 Workloads 읽기 화면을 엽니다. Insights, Operations, Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다.'}
           </p>
 
           {status.missingConfiguration.length > 0 ? (

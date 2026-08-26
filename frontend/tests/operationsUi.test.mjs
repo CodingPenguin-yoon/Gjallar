@@ -2,11 +2,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const {
+  createOperationRequestGuard,
   GUIDED_QM_UNLOCK_OPERATION_TYPE,
   normalizeOperation,
   normalizeOperationDetail,
+  OPERATION_POLL_MAX_ATTEMPTS,
   operationTypeLabel,
   operationStatusTone,
+  shouldPollOperation,
 } = await import('../src/entities/operation/model.js')
 const {
   buildGuidedQmUnlockPayload,
@@ -60,10 +63,29 @@ assert.throws(() => buildGuidedQmUnlockPayload({ nodeId: 'node-a', vmid: 0, idem
 assert.throws(() => buildGuidedQmUnlockPayload({ nodeId: 'node-a', vmid: 306, idempotencyKey: 'x', acknowledged: false }), /위험 확인/)
 
 const detail = normalizeOperationDetail({
-  operation: { operation_id: 'guided-1', operation_type: GUIDED_QM_UNLOCK_OPERATION_TYPE },
+  operation: {
+    operation_id: 'guided-1',
+    operation_type: GUIDED_QM_UNLOCK_OPERATION_TYPE,
+    intent_digest: 'sha256:intent',
+    last_event_checksum: 'sha256:event-2',
+  },
   events: [
-    { event_id: 'event-2', sequence: 2, event_type: 'verification_started' },
-    { event_id: 'event-1', sequence: 1, event_type: 'operation_created' },
+    {
+      event_id: 'event-2',
+      sequence: 2,
+      event_type: 'verification_started',
+      payload: { authority: 'proxmox_api' },
+      previous_checksum: 'sha256:event-1',
+      checksum: 'sha256:event-2',
+    },
+    {
+      event_id: 'event-1',
+      sequence: 1,
+      event_type: 'operation_created',
+      payload: { target: { vmid: 306 } },
+      previous_checksum: '',
+      checksum: 'sha256:event-1',
+    },
   ],
   instruction_bundle: { command: { display: 'qm unlock 306' } },
   recovery: {
@@ -80,10 +102,28 @@ const detail = normalizeOperationDetail({
   },
 })
 assert.deepEqual(detail.events.map((event) => event.sequence), [1, 2])
+assert.equal(detail.operation.intentDigest, 'sha256:intent')
+assert.equal(detail.operation.lastEventChecksum, 'sha256:event-2')
+assert.deepEqual(detail.events[0].payload, { target: { vmid: 306 } })
+assert.equal(detail.events[1].previousChecksum, 'sha256:event-1')
+assert.equal(detail.events[1].checksum, 'sha256:event-2')
 assert.equal(detail.instructionBundle.command.display, 'qm unlock 306')
 assert.equal(detail.recovery.status, 'retry_wait')
 assert.equal(detail.recovery.leaseGeneration, 3)
 assert.equal(detail.targetLock.operationType, 'vm_start')
+assert.equal(shouldPollOperation('running', 0), true)
+assert.equal(shouldPollOperation('needs_reconciliation', 0), true)
+assert.equal(shouldPollOperation('succeeded', 0), false)
+assert.equal(shouldPollOperation('unknown', 0), false)
+assert.equal(shouldPollOperation('running', OPERATION_POLL_MAX_ATTEMPTS), false)
+
+const requestGuard = createOperationRequestGuard()
+const olderRequest = requestGuard.next()
+const newerRequest = requestGuard.next()
+assert.equal(requestGuard.isCurrent(olderRequest), false, 'An out-of-order older response must not replace current evidence')
+assert.equal(requestGuard.isCurrent(newerRequest), true)
+requestGuard.invalidate()
+assert.equal(requestGuard.isCurrent(newerRequest), false, 'Unmount or local mutation must invalidate in-flight reads')
 
 const apiSource = readFileSync(new URL('../src/shared/api/apiV1.js', import.meta.url), 'utf8')
 const planPage = readFileSync(new URL('../src/pages/operations/GuidedQmUnlockPage.jsx', import.meta.url), 'utf8')
@@ -103,6 +143,13 @@ assert.match(actionSource, /plan_digest: operation\.planDigest/)
 assert.match(actionSource, /Gjallar는 이 명령을 실행하지 않습니다/)
 assert.match(actionSource, /이 화면의 명령을 지금 실행하지 마세요/)
 assert.match(detailPage, /Evidence timeline/)
+assert.match(detailPage, /Intent digest/)
+assert.match(detailPage, /Last event checksum/)
+assert.match(detailPage, /Event payload/)
+assert.match(detailPage, /setTimeout/)
+assert.match(detailPage, /clearTimeout/)
+assert.match(detailPage, /requestGuardRef\.current\.isCurrent\(requestGeneration\)/)
+assert.match(detailPage, /vmDetailPathFromTarget/)
 assert.match(detailPage, /Recovery coordination/)
 assert.doesNotMatch(detailPage, /leaseToken|lease_token/, 'Private recovery lease token must not be rendered')
 for (const operationType of ['vm_create', 'vm_start', 'vm_shutdown', 'guided_qm_vm_unlock']) {

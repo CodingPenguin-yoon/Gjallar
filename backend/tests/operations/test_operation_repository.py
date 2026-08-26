@@ -26,6 +26,8 @@ def operation_spec(
     intent_suffix: str = "same",
     operation_id: str = "operation-vm-start-306",
     operation_type: str = "vm_start",
+    target_type: str = "proxmox_vm",
+    target_id: str = "vmid:306",
     initial_status: str = "planned",
 ) -> OperationSpec:
     intent = {
@@ -38,8 +40,8 @@ def operation_spec(
         operation_id=operation_id,
         operation_type=operation_type,
         execution_mode="managed_api",
-        target_type="proxmox_vm",
-        target_id="vmid:306",
+        target_type=target_type,
+        target_id=target_id,
         idempotency_key=f"idem-{operation_id}",
         intent_digest=operation_digest(intent),
         plan_digest=operation_digest({"intent": intent, "plan_version": 1}),
@@ -174,6 +176,7 @@ def test_list_returns_latest_projection_with_bounded_filters():
         operation_spec(
             operation_id="operation-c",
             operation_type="guided_qm_vm_unlock",
+            target_id="vmid:307",
             initial_status="awaiting_operator",
         )
     )
@@ -187,3 +190,17 @@ def test_list_returns_latest_projection_with_bounded_filters():
         item.operation_id
         for item in store.list(status="planned", limit=50)
     ] == ["operation-a"]
+    assert [
+        item.operation_id
+        for item in store.list(target_type="proxmox_vm", target_id="vmid:306", limit=2)
+    ] == ["operation-b", "operation-a"]
+    assert [
+        item.operation_id
+        for item in store.list(
+            status="awaiting_operator",
+            operation_type="guided_qm_vm_unlock",
+            target_type="proxmox_vm",
+            target_id="vmid:307",
+            limit=1,
+        )
+    ] == ["operation-c"]

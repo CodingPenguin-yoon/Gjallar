@@ -1,14 +1,14 @@
 # 현재 아키텍처 기준선
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-25`
+- 최종 검토일: `2026-08-26`
 - 관련 ADR: 승인된 목표 [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md); 역사적 결정은 [`ADR index`](../decisions/README.md) 참조
 
-이 문서는 2026-08-25 코드에 구현된 현재 구조를 설명한다. `ADR-007`의 observe-first 목표 방향에 따라 DRS 전용 frontend·API·runtime·schema contract를 제거한 상태를 기록한다. applied migration과 Jobs/Artifacts의 historical evidence, `/insights` legacy source·ID compatibility는 active DRS 기능과 구분해 보존한다.
+이 문서는 2026-08-26 코드에 구현된 현재 구조를 설명한다. `ADR-007`의 observe-first 목표 방향에 따라 DRS 전용 frontend·API·runtime·schema contract를 제거하고 `Workloads(대상) → Insights(원인·근거) → Operations(작업 결과·증거)`의 exact target 흐름을 연결한 상태를 기록한다. applied migration과 Jobs/Artifacts의 historical evidence, `/insights` legacy source·ID compatibility는 active DRS 기능과 구분해 보존한다.
 
 ## 1. 시스템 목적과 경계
 
-- 현재 해결 범위: React UI는 인증된 운영자에게 endpoint별 source·observed time·freshness와 현재 응답에서 직접 연결 가능한 Readiness/Placement finding·최근 반환 Operation을 함께 보여 주는 Workload Cockpit, 공통 Operations 목록·evidence timeline, Create VM, VM Start, graceful VM Shutdown, 첫 Guided `qm unlock`, observe-only Insights와 jobs/legacy risks를 제공한다. DRS 전용 route, control, backend API/runtime과 persistence model은 없다.
+- 현재 해결 범위: React UI는 인증된 운영자에게 source별 availability·observed time·freshness, exact `/instances/:vmid` 문맥, 대상별 Readiness/Placement finding과 Operations 이력을 연결하는 Workload Cockpit, checksum-linked evidence와 제한적 polling을 제공하는 Operations 상세, Create VM, VM Start, graceful VM Shutdown, 첫 Guided `qm unlock`, observe-only Insights와 jobs/legacy risks를 제공한다. DRS 전용 route, control, backend API/runtime과 persistence model은 없다.
 - 제품 경계: Workloads observation과 Insights explanation을 기본 경로로 두고 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`만 verified action으로 유지한다. DRS policy·approval·execution·reconciliation과 migration은 제공하지 않는다.
 - 현재 시스템 책임: local user/session, Gjallar-owned operational records, `/api/v1`, React operator UI, Proxmox API 연동.
 - 외부 책임: VM/node/task/config actual state와 실제 hypervisor mutation은 Proxmox가 소유한다.
@@ -32,7 +32,7 @@ flowchart LR
 
 - production image는 built React SPA를 FastAPI가 같은 origin에서 제공한다.
 - startup은 Alembic upgrade, Create VM profile seed, optional bootstrap admin 후 Uvicorn을 시작한다.
-- product runtime의 inventory는 authoritative Proxmox API만 사용한다. 필수 설정 누락은 `unconfigured`, snapshot 성공은 `live`, configured connection 실패는 `degraded`로 노출하며 fake fixture로 fallback하지 않는다.
+- product runtime의 inventory는 authoritative Proxmox API만 사용한다. 필수 설정 누락은 `unconfigured`, complete snapshot은 `live/fresh`, base snapshot의 sub-source 일부 실패는 `degraded/partial`과 source별 availability, snapshot 부재는 `degraded`로 노출하며 fake fixture로 fallback하지 않는다.
 
 ## 3. 현재 아키텍처
 
@@ -63,7 +63,7 @@ flowchart LR
 | `jobs` | job projection과 artifact metadata/content | helper functions, `/jobs`, `/risks` | `job_runs`, `job_artifacts` | DB |
 | `insights` | risk/readiness/capacity과 infrastructure-free neutral placement의 availability-aware derived read model | `InsightsQueryService`, `build_placement_model`, `/insights` | persistent data 없음 | Workloads observation, strict job read |
 | `frontend/src/app` | auth/session, connection-aware route gate, shell, navigation composition | canonical route와 legacy alias | browser-local transient state | pages, shared |
-| `frontend/src/pages`, `features`, `entities`, `shared` | route composition, provenance-aware Workload inventory와 VMID 기반 finding·최근 Operation context, Operations·Guided `qm` 흐름, observe-only Insights, Operation·Insight read model, API/auth/connection 공통 계약 | `/instances`, `/operations*`, `/insights*`, `/api/v1` consumer | browser-local transient state | backend API; 미전환 page adapter는 기존 components/utils |
+| `frontend/src/pages`, `features`, `entities`, `shared` | route composition, provenance-aware Workload inventory와 exact VM detail, target 기반 finding·Operation context, Operations evidence/polling·Guided `qm` 흐름, observe-only Insights, Operation·Insight read model, API/auth/connection 공통 계약 | `/instances`, `/instances/:vmid`, `/operations*`, `/insights*`, `/api/v1` consumer | browser-local transient state | backend API; 미전환 page adapter는 기존 components/utils |
 
 ## 5. 현재 의존성 규칙
 
@@ -73,7 +73,7 @@ flowchart LR
 - `api/v1/router.py`가 공통 prefix/dependency를 가진 composition root이며 query·VM action·Guided `qm`·Create VM child router만 포함한다. inventory query/adapter 선택은 `api/v1/inventory_context.py` provider 경계로 공유한다. 39개 route의 method·path·name·status와 viewer/operator/admin dependency는 `test_api_v1_route_registry.py` characterization contract로 보호한다.
 - inventory read adapter와 mutation client는 분리돼 있다.
 - product environment mode는 live-only이고 test fixture는 direct injection으로만 연결된다.
-- inventory-dependent route는 Workloads query boundary에서 non-live 상태를 `503`으로 차단한다.
+- inventory read route는 Workloads query boundary에서 base snapshot이 없는 상태를 `503`으로 차단한다. partial snapshot은 정상 source를 보존하고 endpoint meta의 source별 availability로 불완전성을 공개한다. Create VM 실행과 VM Start/Shutdown provider는 별도 complete-observation gate를 사용해 direct API에서도 partial 상태의 mutation 진입을 차단한다.
 - VM Start/Shutdown HTTP path는 `api/v1/vm_actions.py`에서 authenticated actor, inventory/client provider와 HTTP error를 mapping한 뒤 compatibility facade를 통해 infrastructure-free command와 application use case로 진입한다. use case가 사용하는 Workloads, mutation, Jobs, Evidence, lock, recovery 의존성은 명시적 port로 전달된다.
 - Create VM HTTP path는 `api/v1/vm_create_compat.py`가 operator dependency, inventory provider, success envelope와 `VmCreateApplicationError`→`HTTPException` 변환만 담당한다. `vm_create/application.py`가 기존 draft→preflight→plan→approval→preview/execute 순서, idempotency guard, target lock, Operation evidence와 compatibility DB/job/artifact 기록을 소유한다.
 - Guided `qm` HTTP path는 `api/v1/guided_qm.py`가 operator dependency, observation client provider와 `GuidedQmError`→`HTTPException` 변환을 담당하고 `operations/guided_qm` use case를 호출한다.
@@ -84,8 +84,8 @@ flowchart LR
 - Guided `qm`은 fixed template과 typed parameter만 받으며 backend shell/SSH executor가 없다. operator attestation만으로 성공하지 않고 Proxmox API의 config lock·active task를 다시 확인한다.
 - browser가 제출한 actor가 아니라 server-side session actor를 사용한다.
 - secret-like field를 API와 evidence에서 거부·redact하는 경로가 있다.
-- Insights는 `api facade → application → domain/read ports` 방향으로 risk와 inventory source를 독립 수집한다. `insights/placement.py`가 inventory normalization, pressure/candidate/route 계산을 소유하고 별도 identity/policy/lock persistence 또는 DB write에 의존하지 않는다. source 실패는 section별 `unavailable`로 격리하고 어떤 approval·operation·mutation port도 제공하지 않는다. `drs_advisor`와 `drs-rec-*` 문자열은 공개 compatibility 값으로만 유지한다.
-- frontend 전환 영역은 `app → pages/features → entities/shared` 방향을 source contract로 검사한다. app은 legacy component를 직접 import하지 않고, Workload inventory, Guided `qm`, Insights는 feature public boundary를 사용한다.
+- Insights는 `api facade → application → domain/read ports` 방향으로 risk와 inventory source를 독립 수집한다. `insights/placement.py`가 inventory normalization, pressure/candidate/route 계산을 소유하고 별도 identity/policy/lock persistence 또는 DB write에 의존하지 않는다. base source 실패는 section별 `unavailable`로 격리하고 partial snapshot의 exact VM config·guest/detail과 node storage 실패는 `unknown` evidence로 보존한다. 어떤 approval·operation·mutation port도 제공하지 않으며 `drs_advisor`와 `drs-rec-*` 문자열은 공개 compatibility 값으로만 유지한다.
+- frontend 전환 영역은 `app → pages/features → entities/shared` 방향을 source contract로 검사한다. app은 legacy component를 직접 import하지 않고, Workload inventory·exact VM detail, Guided `qm`, Insights는 feature public boundary를 사용한다. `proxmox_vm`·`vmid:<VMID>`만 VM route로 변환하며 target filter와 frontend 재검증을 함께 사용한다.
 - React SPA에는 DRS navigation, `/drs`·`/instances/drs-policies` route, screen 또는 shared API client method가 없다. 제거된 URL은 일반 unknown-path 규칙을 따른다. Jobs의 historical `drs_migration` renderer는 저장된 evidence 표시를 위해 유지한다.
 
 ### 일관되게 보호되지 않는 관계
@@ -136,8 +136,9 @@ Queue, scheduler, cache는 현재 active dependency가 아니다. recovery obser
 - VM Shutdown: 같은 의존 방향과 durable ordering을 사용하되 running non-template pre-check 뒤 QEMU `status/shutdown`만 호출한다. task `stopped/OK`와 direct VM `stopped`가 모두 확인되고 Jobs projection이 저장된 뒤 fenced completion과 lock release를 수행한다.
 - VM Shutdown restart recovery: `vm_shutdown_observation` handler는 stored UPID task와 direct VM status GET만 사용한다. shutdown POST, hard stop, reboot capability가 없으며 missing UPID·task/state mismatch는 paused reconciliation과 retained lock이다.
 - Guided `qm unlock`: Workload Cockpit 또는 Operations UI → typed input/ack → shared target lock → `Sys.Audit` 권한·active task·config lock pre-check → 5분 instruction bundle과 operation/event 저장 → 외부 node shell 실행 → trusted attestation → Proxmox API verification → lock 해제 또는 reconciliation 순서다. backend는 명령을 실행하지 않으며 UI는 만료·reconciliation instruction의 신규 실행을 경고한다.
-- Insights: authenticated read → strict Jobs risk와 Proxmox connection observation 독립 수집 → live이면 readiness/capacity와 neutral placement 계산 → source별 provenance·version·freshness·bounded finding 조합. placement는 DRS persistence를 호출하지 않는다. non-live에서는 stored risk만 유지하고 inventory section은 `unavailable`이며 실행 경로는 없다.
-- 공통 lifecycle 중 projection/event core, VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, Workload Cockpit·Operations list/detail/timeline UI가 구현됐다. DRS compatibility flow는 신규 Operations로 이전하지 않고 제거됐다.
+- Insights: authenticated read → strict Jobs risk와 Proxmox connection observation 독립 수집 → base snapshot이 있으면 source availability를 반영해 readiness/capacity와 neutral placement 계산 → provenance·version·freshness·bounded finding 조합. placement는 DRS persistence를 호출하지 않는다. snapshot이 없으면 stored risk만 유지하고 inventory section은 `unavailable`이며 실행 경로는 없다.
+- 사용자 read 흐름: Overview/Workloads observation → availability-aware `/instances/:vmid` exact 상태 → 같은 target identity의 Insights finding → 허용된 action → stable Operation detail → intent/plan digest와 event checksum chain 확인. Operation 목록은 exact `target_type`·`target_id`를 다른 filter와 결합하며 non-terminal detail은 5초 간격 최대 60회 polling한다. request generation guard는 route 변경·수동 refresh와 polling의 out-of-order 응답을 폐기한다.
+- 공통 lifecycle 중 projection/event core, VM Start·graceful VM Shutdown·Create VM·Guided `qm unlock`, Workload Cockpit·exact VM detail·Operations list/detail/timeline UI가 구현됐다. DRS compatibility flow는 신규 Operations로 이전하지 않고 제거됐다.
 
 ## 10. 런타임과 배포 제약
 
@@ -157,13 +158,13 @@ Queue, scheduler, cache는 현재 active dependency가 아니다. recovery obser
 
 - 조회·VM action·Guided `qm`·Create VM route는 `api/v1/{inventory,operations,guided_qm,insights,jobs_compat,vm_actions,vm_create_compat}.py`로 분리했다. Create VM application facade의 concrete workflow 의존과 미전환 큰 screen/view-model의 책임 집중은 계속된다.
 - VM Start/Shutdown과 Create VM lifecycle은 Operations에 연결됐지만 기존 `job_runs`/`job_artifacts`와 Create VM request/workload linkage가 남아 있다. `job_runs`는 VM Start/Shutdown의 멱등 replay와 recovery terminal projection에도 사용되고 common Operation detail은 artifact content 저장·metadata 조회를 아직 대체하지 않는다. 저장된 historical `drs_migration` job/artifact도 generic history 조회와 renderer를 통해 계속 읽을 수 있다.
-- 기존 `/jobs`·`/risks`가 사용하는 `list_job_runs()`의 DB exception → empty list fallback은 호환성 때문에 남아 있다. `/insights`는 `list_job_runs_strict()`로 risk source 장애를 `unavailable`로 표시한다.
+- public `/jobs`·job detail·artifacts와 `/risks`는 strict persistence read를 사용해 DB 장애를 각각 stable `503`으로 반환한다. 내부 compatibility helper의 fail-open 함수는 남아 있으나 이 public read route에서는 사용하지 않는다. `/insights`는 strict read 실패를 risk source `unavailable`로 격리한다.
 - `job_runs`는 최신 projection, `job_artifacts`는 upsert 성격이라 immutable operation audit가 아니다.
 - durable restart recovery는 VM Start/Shutdown observation에 구현됐다. Create VM과 Guided `qm`에는 공통 자동 handler가 없고 generic operator recovery/unlock API도 없다.
 - local file guard는 container 교체 시 유실될 수 있지만 canonical 충돌 방어는 PostgreSQL locator lock이다. rolling deploy에서 구버전 replica가 durable lock을 무시하지 않도록 mutation drain이 필요하다.
 - Guided instruction이 발급된 뒤 외부 Proxmox 도구가 별도 작업을 시작하는 경쟁은 local lock으로 차단할 수 없다. active-task double read, 짧은 expiry, API after-state verification으로 성공 오판을 방지하지만 live cluster 검증은 수행하지 않았다.
 - 현재 target identity는 한 configured cluster 안의 VMID를 전제한다. multi-cluster를 지원하려면 stable cluster identity를 포함해야 한다.
 - target identity는 configured `GJALLAR_CLUSTER_ID`와 VMID를 사용한다. multi-cluster connection profile과 cluster별 worker partition은 아직 없다.
-- stale snapshot persistence가 없어 Proxmox가 `degraded`이면 이전 inventory를 read-only로 열람할 수 없다.
+- stale snapshot persistence가 없어 base snapshot을 얻지 못한 `degraded` 상태에서는 이전 inventory를 read-only로 열람할 수 없다. 현재 partial snapshot은 stale fallback이 아니며 정상 source만 표시한다.
 - `live` connection은 inventory read 성공을 뜻할 뿐 token의 mutation permission discovery는 아직 제공하지 않는다. mutation은 기존 RBAC·approval·Proxmox response gate를 계속 사용한다.
 - backend dependency lock은 마련됐지만 formatter/lint/type-check 기준은 아직 없다.

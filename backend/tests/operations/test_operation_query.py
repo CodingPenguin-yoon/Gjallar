@@ -64,13 +64,35 @@ class RecordingStore:
 def test_list_normalizes_filters_and_returns_summary_read_model():
     store = RecordingStore()
     result = OperationQueryService(operations=store).list(
-        OperationListQuery(status=" succeeded ", operation_type=" vm_start ", limit=20)
+        OperationListQuery(
+            status=" succeeded ",
+            operation_type=" vm_start ",
+            target_type=" proxmox_vm ",
+            target_id=" vmid:306 ",
+            limit=20,
+        )
     )
 
-    assert store.filters == {"status": "succeeded", "operation_type": "vm_start", "limit": 20}
+    assert store.filters == {
+        "status": "succeeded",
+        "operation_type": "vm_start",
+        "target_type": "proxmox_vm",
+        "target_id": "vmid:306",
+        "limit": 20,
+    }
     assert result[0]["operation_id"] == "operation-1"
     assert result[0]["actor"]["username"] == "operator"
     assert "details" not in result[0]
+
+
+def test_list_query_keeps_existing_positional_status_type_limit_contract():
+    normalized = OperationListQuery("succeeded", "vm_start", 20).normalized()
+
+    assert normalized.status == "succeeded"
+    assert normalized.operation_type == "vm_start"
+    assert normalized.limit == 20
+    assert normalized.target_type is None
+    assert normalized.target_id is None
 
 
 @pytest.mark.parametrize(

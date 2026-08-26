@@ -114,13 +114,25 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         vms_response = self._run(v1_router.list_vms())
         vm_response = self._run(v1_router.get_vm(101))
         templates_response = self._run(v1_router.list_templates())
+        storage_response = self._run(v1_router.list_storage())
         networks_response = self._run(v1_router.list_networks())
+        cluster_response = self._run(v1_router.cluster_summary())
 
-        for response in (nodes_response, vms_response, vm_response, templates_response, networks_response):
+        for response in (
+            nodes_response,
+            vms_response,
+            vm_response,
+            templates_response,
+            storage_response,
+            networks_response,
+            cluster_response,
+        ):
             self.assertTrue(response["ok"])
             self.assertIn("meta", response)
             self.assertEqual("fake_read_only", response["meta"]["source"])
             self.assertEqual("test_fixture", response["meta"]["connection"]["state"])
+            self.assertTrue(response["meta"]["availability"]["available"])
+            self.assertTrue(response["meta"]["availability"]["complete"])
 
         self.assertIn("yoonmanserver2", {node["node_id"] for node in nodes_response["data"]})
         vm = vm_response["data"]
@@ -168,8 +180,10 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
 
         class StubLiveAdapter:
             source = "live_read_only"
+            cluster_id = "runtime-cluster-a"
 
             def __init__(self):
+                self.snapshot_calls = 0
                 storage = StorageInventory(
                     storage_id="local-lvm",
                     node_id="node-a",
@@ -241,6 +255,7 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
                 return {"source": self.source, "api_url": "https://root:[REDACTED]@pve.example.invalid:8006/api2/json"}
 
             def snapshot(self):
+                self.snapshot_calls += 1
                 return InventorySnapshot(
                     source=self.source,
                     observed_at="2026-05-09T10:00:00+09:00",
@@ -270,7 +285,11 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
                 items = list(self._nodes[0].networks)
                 return [item for item in items if node_id is None or item.node_id == node_id]
 
-        with patch.object(v1_router.inventory_context, "inventory_adapter", return_value=StubLiveAdapter()):
+        from app.workloads.inventory import WorkloadInventoryQuery
+
+        adapter = StubLiveAdapter()
+        query = WorkloadInventoryQuery(adapter)
+        with patch.object(v1_router.inventory_context, "inventory_query", return_value=query):
             cluster_response = self._run(v1_router.cluster_summary())
             vms_response = self._run(v1_router.list_vms())
             vm_response = self._run(v1_router.get_vm(301))
@@ -280,6 +299,7 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
         self.assertEqual("live", cluster_response["meta"]["connection"]["state"])
         self.assertEqual("2026-05-09T10:00:00+09:00", cluster_response["meta"]["observed_at"])
         self.assertEqual("fresh", cluster_response["meta"]["freshness"])
+        self.assertEqual("runtime-cluster-a", cluster_response["data"]["cluster_id"])
         self.assertEqual(1, cluster_response["data"]["vm_count"])
         self.assertEqual("live-app-01", vm_response["data"]["name"])
         self.assertEqual(["192.168.2.301"], vm_response["data"]["ip_addresses"])
@@ -293,12 +313,74 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
             [
                 name
                 for name in ("delete_vm", "perform_vm_action", "update_vm_resources")
-                if hasattr(v1_router.inventory_context.inventory_adapter(), name)
+                if hasattr(adapter, name)
             ],
         )
         self.assertEqual([301], [vm["vmid"] for vm in vms_response["data"]])
         self.assertIn("ip_evidence", vms_response["data"][0])
         self.assertEqual([], vms_response["data"][0]["nic_bridge_evidence"])
+        self.assertEqual(3, adapter.snapshot_calls, "each inventory response must project data and meta from one snapshot")
+
+    def test_partial_inventory_remains_readable_but_is_rejected_by_mutation_provider(self):
+        from app.api.v1 import inventory as v1_router
+        from app.proxmox.models import (
+            InventoryAvailability,
+            InventorySnapshot,
+            InventorySourceAvailability,
+            VmInventory,
+        )
+        from app.workloads.inventory import WorkloadInventoryQuery
+
+        class PartialLiveAdapter:
+            source = "live_read_only"
+            cluster_id = "runtime-cluster-a"
+            is_test_fixture = False
+
+            def snapshot(self):
+                return InventorySnapshot(
+                    source=self.source,
+                    observed_at="2026-08-26T12:00:00+09:00",
+                    nodes=(),
+                    vms=(
+                        VmInventory(
+                            vmid=301,
+                            name="partial-app",
+                            node_id="node-a",
+                            status="running",
+                            template=False,
+                            cpu=2,
+                            memory_mb=4096,
+                            disk_gb=40,
+                        ),
+                    ),
+                    templates=(),
+                    availability=InventoryAvailability(
+                        sources=(
+                            InventorySourceAvailability(
+                                source="vm_config",
+                                expected_targets=1,
+                                observed_targets=0,
+                                failed_targets=("node-a:301",),
+                            ),
+                        )
+                    ),
+                )
+
+        adapter = PartialLiveAdapter()
+        query = WorkloadInventoryQuery(adapter)
+        with patch.object(v1_router.inventory_context, "inventory_query", return_value=query):
+            read_response = self._run(v1_router.list_vms())
+            with self.assertRaises(HTTPException) as raised:
+                v1_router.inventory_context.mutation_inventory_adapter()
+
+        self.assertTrue(read_response["ok"])
+        self.assertEqual([301], [vm["vmid"] for vm in read_response["data"]])
+        self.assertEqual("partial", read_response["meta"]["freshness"])
+        self.assertFalse(read_response["meta"]["availability"]["complete"])
+        self.assertEqual(503, raised.exception.status_code)
+        self.assertEqual("PROXMOX_INVENTORY_DEGRADED", raised.exception.detail["code"])
+        self.assertEqual([], raised.exception.detail["side_effects"])
+        self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
 
 
 if __name__ == "__main__":

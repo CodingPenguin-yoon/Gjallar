@@ -105,10 +105,13 @@ def observe_proxmox_connection(adapter: Any) -> ProxmoxConnectionObservation:
         state = "test_fixture"
         freshness = "fixture"
         configured = False
+        reason = ""
     else:
-        state = "live"
-        freshness = "fresh"
+        complete = snapshot.availability.complete
+        state = "live" if complete else "degraded"
+        freshness = "fresh" if complete else "partial"
         configured = True
+        reason = "" if complete else "proxmox_inventory_partial"
     return ProxmoxConnectionObservation(
         status=ProxmoxConnectionStatus(
             state=state,
@@ -116,6 +119,7 @@ def observe_proxmox_connection(adapter: Any) -> ProxmoxConnectionObservation:
             cluster_id=cluster_id,
             observed_at=str(snapshot.observed_at or ""),
             freshness=freshness,
+            reason=reason,
             configured=configured,
             inventory_available=True,
         ),

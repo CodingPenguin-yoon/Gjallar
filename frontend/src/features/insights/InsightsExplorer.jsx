@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Clock3, Eye, FileSearch, RefreshCw, ShieldCheck } from 'lucide-react'
 import {
   INSIGHT_CATEGORIES,
+  insightSectionCoverageComplete,
   insightStatusTone,
   insightToneClass,
 } from '../../entities/insight/model'
 import { apiV1Client } from '../../shared/api/apiV1'
-import { loadInsightsModel } from './model'
+import { insightCategoryPath, vmDetailPathFromTarget } from '../../shared/navigation/targetPaths'
+import { loadInsightsModel, selectExactTargetFindingView } from './model'
 
 function StatusBadge({ value }) {
   const tone = insightStatusTone(value)
@@ -27,10 +29,6 @@ function formatObservedAt(value) {
 function summaryValue(section) {
   if (!section.available) return '-'
   return section.summary.finding_count ?? section.findings.length
-}
-
-function insightCategoryPath(category) {
-  return `/insights/${category === 'risk' ? 'risks' : category}`
 }
 
 function SectionCard({ section }) {
@@ -75,6 +73,7 @@ function EvidenceGrid({ finding }) {
 }
 
 function FindingCard({ finding }) {
+  const targetPath = vmDetailPathFromTarget(finding.targetType, finding.targetId)
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -86,7 +85,13 @@ function FindingCard({ finding }) {
           <h3 className="mt-3 text-base font-semibold text-slate-950">{finding.title}</h3>
           <p className="mt-1 text-sm leading-6 text-slate-600">{finding.message}</p>
         </div>
-        <div className="shrink-0 text-xs text-slate-500">{finding.targetType} / {finding.targetId}</div>
+        {targetPath ? (
+          <Link to={targetPath} className="shrink-0 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 font-mono text-xs font-semibold text-blue-800 hover:bg-blue-100">
+            {finding.targetType} / {finding.targetId} · VM 열기
+          </Link>
+        ) : (
+          <div className="shrink-0 text-xs text-slate-500">{finding.targetType} / {finding.targetId}</div>
+        )}
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
         <span>source <strong className="text-slate-700">{finding.source}</strong></span>
@@ -124,7 +129,24 @@ function EmptyPanel({ section }) {
   )
 }
 
+function TargetEmptyPanel({ section, targetType, targetId }) {
+  const coverageComplete = insightSectionCoverageComplete(section)
+  if (!coverageComplete) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+        {section.label} coverage가 unknown, partial, stale 또는 truncated 상태이므로 exact target {targetType} / {targetId}의 finding 부재를 확정할 수 없습니다.
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+      사용 가능한 {section.label} 응답에서 exact target {targetType} / {targetId}와 일치하는 finding이 없습니다.
+    </div>
+  )
+}
+
 export default function InsightsExplorer({ activeCategory = 'overview' }) {
+  const [searchParams] = useSearchParams()
   const [model, setModel] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -150,9 +172,19 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
     if (INSIGHT_CATEGORIES.includes(activeCategory)) return [model.sections[activeCategory]]
     return INSIGHT_CATEGORIES.map((category) => model.sections[category])
   }, [activeCategory, model])
-  const findings = visibleSections.flatMap((section) => section.findings)
+  const targetType = String(searchParams.get('target_type') || '').trim()
+  const targetId = String(searchParams.get('target_id') || '').trim()
+  const findingId = String(searchParams.get('finding') || '').trim()
+  const hasExactTarget = Boolean(targetType && targetId)
+  const findingView = useMemo(() => selectExactTargetFindingView(visibleSections, {
+    targetType: hasExactTarget ? targetType : '',
+    targetId: hasExactTarget ? targetId : '',
+    findingId,
+  }), [findingId, hasExactTarget, targetId, targetType, visibleSections])
+  const filteredSections = findingView.sections
+  const findings = filteredSections.flatMap((section) => section.findings)
   const renderedFindingCount = activeCategory === 'overview'
-    ? visibleSections.reduce((total, section) => total + Math.min(section.findings.length, 2), 0)
+    ? filteredSections.reduce((total, section) => total + Math.min(section.findings.length, 2), 0)
     : findings.length
 
   return (
@@ -207,10 +239,26 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
         </div>
       )}
 
+      {model && hasExactTarget ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+          <div>
+            Exact target context: <span className="font-mono font-semibold">{targetType} / {targetId}</span>
+            {findingId ? <span> · finding <span className="font-mono">{findingId}</span></span> : null}
+          </div>
+          <Link to={insightCategoryPath(activeCategory)} className="font-semibold underline">target filter 해제</Link>
+        </div>
+      ) : null}
+
+      {model && hasExactTarget && findingId && !findingView.requestedFindingMatched ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          요청한 finding은 현재 반환된 응답에 없습니다. coverage가 불완전하면 소멸을 확정하지 않으며, 현재 반환된 exact-target finding을 대신 표시합니다.
+        </div>
+      ) : null}
+
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{model ? `새로고침에 실패해 이전 관찰 결과를 표시합니다. ${error}` : error}</div>}
       {loading && !model && <div role="status" aria-live="polite" className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">Insights를 불러오는 중입니다.</div>}
 
-      {model && visibleSections.map((section) => {
+      {model && filteredSections.map((section) => {
         const displayedFindings = activeCategory === 'overview' ? section.findings.slice(0, 2) : section.findings
         return <div key={section.category} className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -235,7 +283,9 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
           {!section.available ? (
             <UnavailablePanel section={section} />
           ) : section.findings.length === 0 ? (
-            <EmptyPanel section={section} />
+            hasExactTarget
+              ? <TargetEmptyPanel section={section} targetType={targetType} targetId={targetId} />
+              : <EmptyPanel section={section} />
           ) : (
             <div className="space-y-3">
               {displayedFindings.map((finding) => <FindingCard key={finding.id} finding={finding} />)}

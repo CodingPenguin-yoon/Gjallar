@@ -21,51 +21,51 @@ def get_proxmox_connection_status() -> dict:
 @router.get("/cluster/summary")
 def cluster_summary() -> dict:
     """Return a read-only MVP cluster summary."""
-    adapter = inventory_context.inventory_adapter()
-    snapshot = adapter.snapshot()
+    observation = inventory_context.inventory_observation()
+    snapshot = observation.snapshot
     return success_response(
         {
-            "cluster_id": "gjallar-mvp",
+            "cluster_id": observation.status.cluster_id,
             "mode": "read_only_inventory",
             "node_count": len(snapshot.nodes),
             "vm_count": len(snapshot.vms),
             "template_count": len(snapshot.templates),
             "risk_level": "unknown",
         },
-        meta=inventory_context.inventory_meta(adapter),
+        meta=inventory_context.inventory_meta(observation),
     )
 
 
 @router.get("/nodes")
 def list_nodes() -> dict:
     """Return read-only node inventory."""
-    adapter = inventory_context.inventory_adapter()
-    nodes = adapter.list_nodes()
+    observation = inventory_context.inventory_observation()
+    nodes = observation.snapshot.nodes
     return success_response(
         [node.to_dict() for node in nodes],
-        meta=inventory_context.inventory_meta(adapter),
+        meta=inventory_context.inventory_meta(observation),
     )
 
 
 @router.get("/vms")
 def list_vms() -> dict:
     """Return read-only VM inventory."""
-    adapter = inventory_context.inventory_adapter()
-    vms = adapter.list_vms()
+    observation = inventory_context.inventory_observation()
+    vms = observation.snapshot.vms
     return success_response(
         [vm.to_dict() for vm in vms],
-        meta=inventory_context.inventory_meta(adapter),
+        meta=inventory_context.inventory_meta(observation),
     )
 
 
 @router.get("/vms/{vmid}")
 def get_vm(vmid: int) -> dict:
     """Return a read-only VM detail for the requested VMID."""
-    adapter = inventory_context.inventory_adapter()
-    vm = adapter.get_vm(vmid)
+    observation = inventory_context.inventory_observation()
+    vm = next((item for item in observation.snapshot.vms if item.vmid == vmid), None)
     if vm is None:
         raise HTTPException(status_code=404, detail="VM inventory item not found")
-    return success_response(vm.to_dict(), meta=inventory_context.inventory_meta(adapter))
+    return success_response(vm.to_dict(), meta=inventory_context.inventory_meta(observation))
 
 
 @router.get("/profiles")
@@ -77,31 +77,31 @@ async def list_profiles() -> dict:
 @router.get("/templates")
 def list_templates() -> dict:
     """Return read-only template inventory."""
-    adapter = inventory_context.inventory_adapter()
-    templates = adapter.list_templates()
+    observation = inventory_context.inventory_observation()
+    templates = observation.snapshot.templates
     return success_response(
         [template.to_dict() for template in templates],
-        meta=inventory_context.inventory_meta(adapter),
+        meta=inventory_context.inventory_meta(observation),
     )
 
 
 @router.get("/storage")
 def list_storage() -> dict:
     """Return read-only storage candidates from inventory."""
-    adapter = inventory_context.inventory_adapter()
-    storages = adapter.list_storage()
+    observation = inventory_context.inventory_observation()
+    storages = [storage for node in observation.snapshot.nodes for storage in node.storage]
     return success_response(
         [storage.to_dict() for storage in storages],
-        meta=inventory_context.inventory_meta(adapter),
+        meta=inventory_context.inventory_meta(observation),
     )
 
 
 @router.get("/networks")
 def list_networks() -> dict:
     """Return read-only network bridge inventory."""
-    adapter = inventory_context.inventory_adapter()
-    networks = adapter.list_networks()
+    observation = inventory_context.inventory_observation()
+    networks = [network for node in observation.snapshot.nodes for network in node.networks]
     return success_response(
         [network.to_dict() for network in networks],
-        meta=inventory_context.inventory_meta(adapter),
+        meta=inventory_context.inventory_meta(observation),
     )

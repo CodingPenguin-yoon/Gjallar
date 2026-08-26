@@ -9,16 +9,49 @@ function asArray(value) {
   return Array.isArray(value) ? value : []
 }
 
-function settledValue(result, fallback) {
-  return result.status === 'fulfilled' ? result.value : fallback
+function settledInventoryValue(result, fallback) {
+  return result.status === 'fulfilled' && result.value && typeof result.value === 'object'
+    ? result.value.data
+    : fallback
 }
 
-function dashboardPartialError(results) {
+function inventoryAvailability(result) {
+  const availability = result.status === 'fulfilled' ? result.value?.meta?.availability : null
+  return availability && typeof availability === 'object' && !Array.isArray(availability)
+    ? availability
+    : null
+}
+
+function inventoryObservation(results) {
+  for (const result of results) {
+    const availability = inventoryAvailability(result)
+    if (availability) return availability
+  }
+  return { available: false, complete: false, sources: {} }
+}
+
+function inventoryResultAvailable(result) {
+  return inventoryAvailability(result)?.available === true
+}
+
+function inventorySourceComplete(result, source) {
+  return inventoryAvailability(result)?.sources?.[source]?.complete === true
+}
+
+function dashboardPartialError(results, observation) {
   const failed = results
     .map((result, index) => (result.status === 'rejected' ? DASHBOARD_DATA_LABELS[index] : null))
     .filter(Boolean)
-  return failed.length
-    ? `일부 Dashboard 데이터를 불러오지 못했습니다: ${failed.join(', ')}. 사용 가능한 inventory 데이터는 계속 표시합니다.`
+  const incompleteSources = Object.entries(observation?.sources || {})
+    .filter(([, source]) => source?.complete !== true)
+    .map(([source]) => source)
+  const messages = []
+  if (failed.length) messages.push(`불러오기 실패: ${failed.join(', ')}`)
+  if (observation?.complete !== true) {
+    messages.push(`관찰 불완전: ${incompleteSources.length ? incompleteSources.join(', ') : 'inventory source metadata unavailable'}`)
+  }
+  return messages.length
+    ? `일부 Dashboard 데이터를 신뢰할 수 없습니다 (${messages.join(' · ')}). 사용 가능한 inventory 데이터는 계속 표시합니다.`
     : null
 }
 
@@ -103,6 +136,7 @@ function buildDashboardModel({
   jobs = [],
   risks = [],
   availability = {},
+  observation = {},
 }) {
   const clusterAvailable = availability.cluster === true
   const nodesAvailable = availability.nodes === true
@@ -168,6 +202,9 @@ function buildDashboardModel({
   const bridgeCount = networksAvailable
     ? new Set(observedNetworks.map((network) => `${network.node_id || network.nodeId}:${network.bridge_id || network.bridgeId}`).filter(Boolean)).size
     : null
+  const incompleteSources = Object.entries(observation?.sources || {})
+    .filter(([, source]) => source?.complete !== true)
+    .map(([source]) => source)
 
   return {
     clusterId: clusterAvailable ? cluster.cluster_id || 'gjallar-mvp' : 'unavailable',
@@ -192,6 +229,8 @@ function buildDashboardModel({
       redRisks: availability.risks === true
         ? asArray(risks).filter((risk) => String(risk.level || risk.risk_level || '').toLowerCase() === 'red').length
         : null,
+      observationComplete: observation?.complete === true,
+      incompleteSources,
     },
   }
 }
@@ -206,6 +245,11 @@ export default function Dashboard() {
     networks: [],
     jobs: [],
     risks: [],
+    observation: {
+      available: false,
+      complete: false,
+      sources: {},
+    },
     availability: {
       cluster: false,
       nodes: false,
@@ -223,34 +267,36 @@ export default function Dashboard() {
     setLoading(true)
     setError(null)
     const results = await Promise.allSettled([
-      apiV1Client.clusterSummary(),
-      apiV1Client.listNodes(),
-      apiV1Client.listVms(),
-      apiV1Client.listStorage(),
-      apiV1Client.listNetworks(),
+      apiV1Client.clusterSummaryWithMeta(),
+      apiV1Client.listNodesWithMeta(),
+      apiV1Client.listVmsWithMeta(),
+      apiV1Client.listStorageWithMeta(),
+      apiV1Client.listNetworksWithMeta(),
       apiV1Client.listJobs(),
       apiV1Client.listRisks(),
     ])
     const [cluster, nodes, vms, storages, networks, jobs, risks] = results
+    const observation = inventoryObservation(results.slice(0, 5))
     setSnapshot((previous) => ({
-      cluster: settledValue(cluster, previous.cluster || {}),
-      nodes: settledValue(nodes, previous.nodes || []),
-      vms: settledValue(vms, previous.vms || []),
-      storages: settledValue(storages, previous.storages || []),
-      networks: settledValue(networks, previous.networks || []),
-      jobs: settledValue(jobs, previous.jobs || []),
-      risks: settledValue(risks, previous.risks || []),
+      cluster: settledInventoryValue(cluster, previous.cluster || {}),
+      nodes: settledInventoryValue(nodes, previous.nodes || []),
+      vms: settledInventoryValue(vms, previous.vms || []),
+      storages: settledInventoryValue(storages, previous.storages || []),
+      networks: settledInventoryValue(networks, previous.networks || []),
+      jobs: jobs.status === 'fulfilled' ? jobs.value : previous.jobs || [],
+      risks: risks.status === 'fulfilled' ? risks.value : previous.risks || [],
+      observation,
       availability: {
-        cluster: cluster.status === 'fulfilled',
-        nodes: nodes.status === 'fulfilled',
-        vms: vms.status === 'fulfilled',
-        storages: storages.status === 'fulfilled',
-        networks: networks.status === 'fulfilled',
+        cluster: inventoryResultAvailable(cluster),
+        nodes: inventoryResultAvailable(nodes),
+        vms: inventoryResultAvailable(vms),
+        storages: inventorySourceComplete(storages, 'storage'),
+        networks: inventorySourceComplete(networks, 'network'),
         jobs: jobs.status === 'fulfilled',
         risks: risks.status === 'fulfilled',
       },
     }))
-    setError(dashboardPartialError(results))
+    setError(dashboardPartialError(results, observation))
     setLoading(false)
   }
 
@@ -259,14 +305,19 @@ export default function Dashboard() {
   }, [])
 
   const model = useMemo(() => buildDashboardModel(snapshot), [snapshot])
-  const healthTone = model.nodeRows.length === 0 ? 'slate' : model.summary.allObservedNodesOnline ? 'green' : 'yellow'
+  const healthTone = model.nodeRows.length === 0
+    ? 'slate'
+    : model.summary.observationComplete && model.summary.allObservedNodesOnline ? 'green' : 'yellow'
   const riskMetricValue = model.summary.redRisks === null ? '-' : model.summary.redRisks
   const riskMetricTone = model.summary.redRisks > 0 ? 'red' : 'slate'
   const jobMetricContext = model.summary.activeJobs === null ? 'jobs unavailable' : `${model.summary.activeJobs} active jobs`
   const riskMetricContext = model.summary.redRisks === null
     ? `${jobMetricContext} · risks unavailable`
     : `current response · ${jobMetricContext}`
-  const vmMetricContext = model.summary.runningVms === null ? 'VM inventory unavailable' : `${model.summary.runningVms} running`
+  const incompleteVmSources = model.summary.incompleteSources.filter((source) => ['vm_config', 'guest_agent', 'vm_detail'].includes(source))
+  const vmMetricContext = model.summary.runningVms === null
+    ? 'VM inventory unavailable'
+    : `${model.summary.runningVms} running${incompleteVmSources.length ? ` · detail partial (${incompleteVmSources.join(', ')})` : ''}`
   const nodeSummaryLabel = !model.summary.nodesAvailable
     ? 'Node inventory unavailable'
     : model.nodeRows.length > 0 ? onlineNodeLabel(model.nodeRows) : 'No nodes observed'
@@ -277,7 +328,7 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-2">
             <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
-              Node inventory {model.summary.nodeStatus}
+              Node inventory {model.summary.nodeStatus}{model.summary.observationComplete ? '' : ' · partial observation'}
             </span>
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Read-only inventory view</span>
           </div>

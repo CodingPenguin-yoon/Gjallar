@@ -9,8 +9,9 @@ import InsightsPage from '../pages/insights/InsightsPage'
 import JobsPage from '../pages/operations/JobsPage'
 import { apiV1Client } from '../shared/api/apiV1'
 import { canAdmin, canOperate } from '../shared/auth/permissions'
-import { isProxmoxOperational, proxmoxConnectionBadge } from '../shared/proxmox/connection'
+import { isProxmoxInventoryAvailable, isProxmoxOperational, proxmoxConnectionBadge } from '../shared/proxmox/connection'
 import WorkloadCockpitPage from '../pages/workloads/WorkloadCockpitPage'
+import VmDetailPage from '../pages/workloads/VmDetailPage'
 import OperationsListPage from '../pages/operations/OperationsListPage'
 import OperationDetailPage from '../pages/operations/OperationDetailPage'
 import GuidedQmUnlockPage from '../pages/operations/GuidedQmUnlockPage'
@@ -131,6 +132,8 @@ function App() {
   const currentUser = authState.user
   const proxmoxOperational = proxmoxConnectionState.status === 'ready'
     && isProxmoxOperational(proxmoxConnectionState.data)
+  const proxmoxInventoryAvailable = proxmoxConnectionState.status === 'ready'
+    && isProxmoxInventoryAvailable(proxmoxConnectionState.data)
   const canMutate = canOperate(currentUser) && proxmoxOperational
   const isAdmin = canAdmin(currentUser)
   const connectionBoundaryProps = {
@@ -139,10 +142,13 @@ function App() {
     onRetry: refreshProxmoxConnection,
   }
   const operationalRoute = (children) => (
+    <ProxmoxConnectionBoundary {...connectionBoundaryProps} requireLive>{children}</ProxmoxConnectionBoundary>
+  )
+  const inventoryRoute = (children) => (
     <ProxmoxConnectionBoundary {...connectionBoundaryProps}>{children}</ProxmoxConnectionBoundary>
   )
   const vmInventoryRoute = (
-    operationalRoute(
+    inventoryRoute(
       <WorkloadsShell>
         <WorkloadCockpitPage currentUser={currentUser} canMutate={canMutate} />
       </WorkloadsShell>,
@@ -152,6 +158,13 @@ function App() {
     operationalRoute(
       <WorkloadsShell>
         <CreateVmPage currentUser={currentUser} canExecuteLiveMutation={canMutate} />
+      </WorkloadsShell>,
+    )
+  )
+  const vmDetailRoute = (
+    inventoryRoute(
+      <WorkloadsShell>
+        <VmDetailPage canMutate={canMutate} />
       </WorkloadsShell>,
     )
   )
@@ -205,7 +218,7 @@ function App() {
     </SettingsShell>
   )
   const connectionBadge = proxmoxConnectionBadge(proxmoxConnectionState.status, proxmoxConnectionState.data)
-  const visiblePrimaryNavItems = primaryNavItems.filter((item) => !item.requiresProxmox || proxmoxOperational)
+  const visiblePrimaryNavItems = primaryNavItems.filter((item) => !item.requiresProxmox || proxmoxInventoryAvailable)
 
   return (
     <AppShell
@@ -216,10 +229,11 @@ function App() {
       onLogout={handleLogout}
     >
       <Routes>
-          <Route path="/" element={operationalRoute(<Dashboard />)} />
+          <Route path="/" element={inventoryRoute(<Dashboard />)} />
           <Route path="/instances" element={vmInventoryRoute} />
           <Route path="/instances/create" element={createVmRoute} />
           <Route path="/instances/networks" element={networkReadinessRoute} />
+          <Route path="/instances/:vmid" element={vmDetailRoute} />
           <Route path="/insights" element={insightsRoute()} />
           <Route path="/insights/risks" element={insightsRoute('risk')} />
           <Route path="/insights/readiness" element={insightsRoute('readiness')} />

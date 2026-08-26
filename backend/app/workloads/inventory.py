@@ -51,6 +51,15 @@ class WorkloadInventoryQuery:
         self.require_observation()
         return self.adapter
 
+    def require_mutation_adapter(self) -> Any:
+        observation = self.require_observation()
+        if (
+            observation.status.state not in {"live", "test_fixture"}
+            or not observation.snapshot.availability.complete
+        ):
+            raise WorkloadInventoryUnavailableError(observation)
+        return self.adapter
+
 
 def get_default_workload_inventory_query() -> WorkloadInventoryQuery:
     return WorkloadInventoryQuery(proxmox_inventory.get_default_inventory_adapter())

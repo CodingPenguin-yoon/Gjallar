@@ -74,7 +74,7 @@ def run_shutdown(*, client=None, inventory=None, payload=None):
 
     client = client or ShutdownClient()
     inventory = inventory or Inventory()
-    with patch.object(router.inventory_context, "inventory_adapter", return_value=inventory), patch.object(
+    with patch.object(router.inventory_context, "mutation_inventory_adapter", return_value=inventory), patch.object(
         router,
         "get_default_proxmox_mutation_client",
         return_value=client,
@@ -212,6 +212,8 @@ def test_shutdown_same_key_with_different_intent_is_conflict_without_second_post
 
 
 def test_shutdown_is_blocked_by_existing_vm_start_target_lock_before_post():
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+    from app.operations.vm_shutdown.domain import build_vm_shutdown_job_id
     from app.operations.target_lock import acquire_target_operation_lock, release_target_operation_lock
 
     lock = acquire_target_operation_lock(
@@ -221,13 +223,15 @@ def test_shutdown_is_blocked_by_existing_vm_start_target_lock_before_post():
         operation_type="vm_start",
     )
     client = ShutdownClient()
+    idempotency_key = "shutdown-cross-action-lock"
+    operation_id = build_vm_shutdown_job_id(node_id="node-a", vmid=306, idempotency_key=idempotency_key)
     try:
         with pytest.raises(HTTPException) as raised:
             run_shutdown(
                 client=client,
                 payload={
                     "vm_shutdown_acknowledged": True,
-                    "idempotency_key": "shutdown-cross-action-lock",
+                    "idempotency_key": idempotency_key,
                     "expected_name": "app",
                     "expected_status": "running",
                 },
@@ -236,6 +240,19 @@ def test_shutdown_is_blocked_by_existing_vm_start_target_lock_before_post():
         release_target_operation_lock(lock)
 
     assert raised.value.detail["code"] == "VM_SHUTDOWN_TARGET_LOCK_BUSY"
+    assert raised.value.detail["operation_id"] == operation_id
+    assert raised.value.detail["conflicting_operation_id"] == "existing-vm-start"
+    operation_store = SqlAlchemyOperationStore()
+    operation = operation_store.get(operation_id)
+    events = operation_store.list_events(operation_id)
+    assert operation.status == "blocked"
+    assert operation.current_stage == "precheck"
+    assert operation.details["conflicting_operation_id"] == "existing-vm-start"
+    assert operation.details["target_operation_lock"]["existing"]["owner_id"] == "existing-vm-start"
+    assert events[-1].event_type == "target_lock_blocked"
+    assert events[-1].from_status == "planned"
+    assert events[-1].to_status == "blocked"
+    assert events[-1].payload["conflicting_operation_id"] == "existing-vm-start"
     assert raised.value.detail["target_operation_lock"]["existing"]["operation_type"] == "vm_start"
     assert client.calls == []
 
@@ -272,7 +289,7 @@ def test_shutdown_missing_mutation_client_is_failed_without_post_or_retained_loc
     from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
     from app.operations.target_lock import get_target_operation_lock
 
-    with patch.object(router.inventory_context, "inventory_adapter", return_value=Inventory()), patch.object(
+    with patch.object(router.inventory_context, "mutation_inventory_adapter", return_value=Inventory()), patch.object(
         router,
         "get_default_proxmox_mutation_client",
         return_value=None,

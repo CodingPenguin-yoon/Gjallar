@@ -48,6 +48,12 @@ function createHookHarness() {
         }
         return [state[index], setState]
       },
+      useRef(initialValue) {
+        const index = cursor
+        if (state[index] === undefined) state[index] = { current: initialValue }
+        cursor += 1
+        return state[index]
+      },
       useEffect(effect) {
         effects.push(effect)
       },
@@ -75,12 +81,12 @@ function icon(name) {
 function compileInstanceListSource(source) {
   return source
     .replace(
-      /import\s+\{\s*useEffect,\s*useState\s*\}\s+from\s+'react'/,
-      'const { useEffect, useState } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.reactHooks'
+      /import\s+\{\s*useEffect,\s*useRef,\s*useState\s*\}\s+from\s+'react'/,
+      'const { useEffect, useRef, useState } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.reactHooks'
     )
     .replace(
-      /import\s+\{\s*useNavigate\s*\}\s+from\s+'react-router-dom'/,
-      'const { useNavigate } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.router'
+      /import\s+\{\s*Link,\s*useNavigate,\s*useSearchParams\s*\}\s+from\s+'react-router-dom'/,
+      'const { Link, useNavigate, useSearchParams } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.router'
     )
     .replace(
       /import\s+\{\s*([\s\S]*?)\s*\}\s+from\s+'lucide-react'/,
@@ -105,6 +111,10 @@ function compileInstanceListSource(source) {
     .replace(
       /import\s+\{\s*authFailureMessage\s*\}\s+from\s+'..\/..\/..\/shared\/auth\/permissions'/,
       'const { authFailureMessage } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.auth'
+    )
+    .replace(
+      /import\s+\{\s*insightFindingPath,\s*normalizeVmid,\s*vmDetailPath\s*\}\s+from\s+'..\/..\/..\/shared\/navigation\/targetPaths'/,
+      'const { insightFindingPath, normalizeVmid, vmDetailPath } = globalThis.__INSTANCE_LIST_TEST_MOCKS__.targetPaths'
     )
     .replace(
       /import\s+\{\s*formatOperationTime,\s*operationStatusTone\s*\}\s+from\s+'\.\.\/\.\.\/\.\.\/entities\/operation\/model'/,
@@ -144,6 +154,10 @@ const {
 const { formatOperationTime, operationStatusTone } = await importExpected(
   '../src/entities/operation/model.js',
   'Operation display helpers'
+)
+const { insightFindingPath, normalizeVmid, vmDetailPath } = await importExpected(
+  '../src/shared/navigation/targetPaths.js',
+  'Exact target navigation helpers'
 )
 
 const calls = []
@@ -630,7 +644,11 @@ const hookHarness = createHookHarness()
 const navigateCalls = []
 globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
   reactHooks: hookHarness.hooks,
-  router: { useNavigate: () => (path) => navigateCalls.push(path) },
+  router: {
+    Link: ({ to, children, ...props }) => jsx('a', { ...props, href: to, children }),
+    useNavigate: () => (path) => navigateCalls.push(path),
+    useSearchParams: () => [new URLSearchParams(), () => {}],
+  },
   icons: {
     AlertTriangle: icon('AlertTriangle'),
     ChevronDown: icon('ChevronDown'),
@@ -646,6 +664,7 @@ globalThis.__INSTANCE_LIST_TEST_MOCKS__ = {
   },
   api: { apiV1Client: fakeClient },
   auth: { authFailureMessage: (error, fallback) => error?.message || fallback },
+  targetPaths: { insightFindingPath, normalizeVmid, vmDetailPath },
   operation: { formatOperationTime, operationStatusTone },
   loader: {
     loadInfraExplorerModel: async () => model,
@@ -707,7 +726,7 @@ assert.match(html, /raw/)
 assert.match(html, /discard/)
 assert.match(html, /local-lvm/)
 
-assert.match(instanceListSource, /navigate\(`\/insights\/\$\{encodeURIComponent\(primaryFinding\.category\)\}`\)/)
+assert.match(instanceListSource, /navigate\(insightFindingPath\(primaryFinding\)\)/)
 assert.match(instanceListSource, /navigate\(`\/operations\/\$\{encodeURIComponent\(recentOperation\.id\)\}`\)/)
 
 for (const heading of ['Name', 'Status', 'IP', 'CPU', 'Memory', 'Disk', 'Signals', 'Actions']) {

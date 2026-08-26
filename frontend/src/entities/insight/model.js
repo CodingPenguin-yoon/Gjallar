@@ -83,6 +83,24 @@ export function insightStatusTone(status) {
   return 'slate'
 }
 
+export function insightSectionCoverageComplete(section = {}) {
+  const normalized = asObject(section)
+  const summary = asObject(normalized.summary)
+  const status = asText(normalized.status, 'unavailable').toLowerCase()
+  const freshness = asText(normalized.freshness, 'unavailable').toLowerCase()
+  const findingCount = Number(summary.finding_count)
+  const returnedFindingCount = Number(summary.returned_finding_count)
+  const truncated = summary.truncated === true
+    || (Number.isFinite(findingCount)
+      && Number.isFinite(returnedFindingCount)
+      && returnedFindingCount < findingCount)
+
+  return normalized.available === true
+    && ['ready', 'attention'].includes(status)
+    && ['fresh', 'recorded', 'fixture'].includes(freshness)
+    && !truncated
+}
+
 export function insightToneClass(tone) {
   if (tone === 'red') return 'border-red-200 bg-red-50 text-red-800'
   if (tone === 'amber') return 'border-amber-200 bg-amber-50 text-amber-800'

@@ -38,6 +38,7 @@ assert.equal(API_V1_ENDPOINTS.guidedQmVmUnlock, '/operations/guided-qm/vm-unlock
 assert.equal(API_V1_ENDPOINTS.operationAttestation('operation/a'), '/operations/operation%2Fa/operator-attestation')
 assert.equal(API_V1_ENDPOINTS.operationVerification('operation/a'), '/operations/operation%2Fa/verification')
 assert.equal(API_V1_ENDPOINTS.vms, '/vms')
+assert.equal(API_V1_ENDPOINTS.vm('30/6'), '/vms/30%2F6')
 assert.equal(API_V1_ENDPOINTS.nodes, '/nodes')
 assert.equal(API_V1_ENDPOINTS.vmStart('node/a', 306), '/nodes/node%2Fa/vms/306/actions/start')
 assert.equal(API_V1_ENDPOINTS.vmShutdown('node/a', 306), '/nodes/node%2Fa/vms/306/actions/shutdown')
@@ -109,6 +110,10 @@ assert.equal((await client.listJobArtifacts('job/a b')).url, '/custom/api/v1/job
 assert.equal((await client.listRisks()).url, '/custom/api/v1/risks')
 assert.equal((await client.getInsights()).url, '/custom/api/v1/insights')
 assert.equal((await client.listOperations({ status: 'awaiting_operator', limit: 25 })).url, '/custom/api/v1/operations?status=awaiting_operator&limit=25')
+assert.equal(
+  (await client.listOperations({ target_type: 'proxmox_vm', target_id: 'vmid:306', limit: 100 })).url,
+  '/custom/api/v1/operations?target_type=proxmox_vm&target_id=vmid%3A306&limit=100',
+)
 assert.equal((await client.getOperation('operation/a')).url, '/custom/api/v1/operations/operation%2Fa')
 assert.deepEqual((await client.planGuidedQmVmUnlock({ node_id: 'node-a', vmid: 306 })).body, { node_id: 'node-a', vmid: 306 })
 assert.equal(calls.at(-1).url, '/custom/api/v1/operations/guided-qm/vm-unlock')
@@ -126,7 +131,15 @@ assert.deepEqual(await client.listVmsWithMeta(), {
   data: { url: '/custom/api/v1/vms', method: 'GET', body: null },
   meta: responseMeta,
 })
+assert.deepEqual(await client.clusterSummaryWithMeta(), {
+  data: { url: '/custom/api/v1/cluster/summary', method: 'GET', body: null },
+  meta: responseMeta,
+})
 assert.equal((await client.getVm(101)).url, '/custom/api/v1/vms/101')
+assert.deepEqual(await client.getVmWithMeta(101), {
+  data: { url: '/custom/api/v1/vms/101', method: 'GET', body: null },
+  meta: responseMeta,
+})
 assert.deepEqual((await client.startVm('node/a', 306, { vm_start_acknowledged: true })).body, { vm_start_acknowledged: true })
 assert.equal(calls.at(-1).options.method, 'POST')
 assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/306/actions/start')
@@ -139,7 +152,15 @@ assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/306/post-creat
 assert.equal((await client.listProfiles()).url, '/custom/api/v1/profiles')
 assert.equal((await client.listTemplates()).url, '/custom/api/v1/templates')
 assert.equal((await client.listStorage()).url, '/custom/api/v1/storage')
+assert.deepEqual(await client.listStorageWithMeta(), {
+  data: { url: '/custom/api/v1/storage', method: 'GET', body: null },
+  meta: responseMeta,
+})
 assert.equal((await client.listNetworks()).url, '/custom/api/v1/networks')
+assert.deepEqual(await client.listNetworksWithMeta(), {
+  data: { url: '/custom/api/v1/networks', method: 'GET', body: null },
+  meta: responseMeta,
+})
 assert.deepEqual((await client.createVmDraft({ operator_id: 'hermes' })).body, { operator_id: 'hermes' })
 assert.equal(calls.at(-1).options.method, 'POST')
 assert.deepEqual((await client.preflightVmDraft('draft/1', { static_ip: '192.168.2.141' })).body, { static_ip: '192.168.2.141' })

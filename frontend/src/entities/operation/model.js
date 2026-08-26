@@ -17,6 +17,18 @@ export const OPERATION_STATUSES = Object.freeze([
   'cancelled',
 ])
 
+export const TERMINAL_OPERATION_STATUSES = Object.freeze([
+  'succeeded',
+  'blocked',
+  'rejected',
+  'expired',
+  'failed',
+  'cancelled',
+])
+
+export const OPERATION_POLL_INTERVAL_MS = 5000
+export const OPERATION_POLL_MAX_ATTEMPTS = 60
+
 export const GUIDED_QM_UNLOCK_OPERATION_TYPE = 'guided_qm_vm_unlock'
 
 export function normalizeOperation(value = {}) {
@@ -29,6 +41,7 @@ export function normalizeOperation(value = {}) {
     targetType: String(value?.target_type || 'unknown'),
     targetId: String(value?.target_id || 'unknown'),
     idempotencyKey: String(value?.idempotency_key || ''),
+    intentDigest: String(value?.intent_digest || ''),
     planDigest: String(value?.plan_digest || ''),
     stage: String(value?.current_stage || 'unknown'),
     actor: {
@@ -39,6 +52,7 @@ export function normalizeOperation(value = {}) {
     details: value?.details && typeof value.details === 'object' ? value.details : {},
     expiresAt: value?.expires_at || null,
     version: Number(value?.version || 0),
+    lastEventChecksum: String(value?.last_event_checksum || ''),
     createdAt: value?.created_at || null,
     updatedAt: value?.updated_at || null,
   }
@@ -59,6 +73,11 @@ export function normalizeOperationDetail(value = {}) {
         toStatus: String(event?.to_status || 'unknown'),
         stage: String(event?.stage || 'unknown'),
         actor: event?.actor && typeof event.actor === 'object' ? event.actor : {},
+        payload: event?.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+          ? event.payload
+          : {},
+        previousChecksum: String(event?.previous_checksum || ''),
+        checksum: String(event?.checksum || ''),
         createdAt: event?.created_at || null,
       }))
       .sort((left, right) => left.sequence - right.sequence),
@@ -87,6 +106,29 @@ export function normalizeOperationDetail(value = {}) {
           acquiredAt: targetLock.acquired_at || targetLock?.durable?.created_at || null,
         }
       : null,
+  }
+}
+
+export function shouldPollOperation(status, attemptCount = 0) {
+  const normalizedAttempts = Number.isFinite(Number(attemptCount)) ? Number(attemptCount) : 0
+  return OPERATION_STATUSES.includes(status)
+    && !TERMINAL_OPERATION_STATUSES.includes(status)
+    && normalizedAttempts < OPERATION_POLL_MAX_ATTEMPTS
+}
+
+export function createOperationRequestGuard() {
+  let generation = 0
+  return {
+    next() {
+      generation += 1
+      return generation
+    },
+    invalidate() {
+      generation += 1
+    },
+    isCurrent(candidate) {
+      return candidate === generation
+    },
   }
 }
 

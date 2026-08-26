@@ -107,6 +107,17 @@ const observedSnapshot = {
     jobs: true,
     risks: true,
   },
+  observation: {
+    available: true,
+    complete: true,
+    sources: {
+      storage: { available: true, complete: true },
+      network: { available: true, complete: true },
+      vm_config: { available: true, complete: true },
+      guest_agent: { available: true, complete: true },
+      vm_detail: { available: true, complete: true },
+    },
+  },
 }
 
 const observedModel = buildDashboardModel(observedSnapshot)
@@ -121,6 +132,8 @@ assert.equal(observedModel.summary.bridges, 1)
 assert.equal(observedModel.summary.activeJobs, 1)
 assert.equal(observedModel.summary.redRisks, 1)
 assert.equal(observedModel.nodeRows[0].vmCount, 1)
+assert.equal(observedModel.summary.observationComplete, true)
+assert.deepEqual(observedModel.summary.incompleteSources, [])
 
 const failedRefreshModel = buildDashboardModel({
   ...observedSnapshot,
@@ -161,6 +174,34 @@ assert.equal(partialRefreshModel.nodeRows[0].vmCount, null)
 assert.equal(partialRefreshModel.nodeRows[0].vmsAvailable, false)
 assert.equal(partialRefreshModel.nodeRows[0].storagesAvailable, false)
 assert.equal(partialRefreshModel.nodeRows[0].networksAvailable, false)
+
+const incompleteObservationModel = buildDashboardModel({
+  ...observedSnapshot,
+  availability: {
+    ...observedSnapshot.availability,
+    storages: false,
+  },
+  observation: {
+    available: true,
+    complete: false,
+    sources: {
+      storage: { available: false, complete: false, failed_targets: ['node-a'] },
+      network: { available: true, complete: true },
+      vm_config: { available: true, complete: false, failed_targets: ['node-a:101'] },
+      guest_agent: { available: false, complete: false, failed_targets: ['node-a:101'] },
+      vm_detail: { available: true, complete: true },
+    },
+  },
+})
+assert.equal(incompleteObservationModel.summary.observationComplete, false)
+assert.deepEqual(incompleteObservationModel.summary.incompleteSources, ['storage', 'vm_config', 'guest_agent'])
+assert.equal(incompleteObservationModel.summary.storage, '-', 'Incomplete storage observation must not look like a valid empty total')
+
+const dashboardSource = readFileSync(sourcePath, 'utf8')
+assert.match(dashboardSource, /clusterSummaryWithMeta/)
+assert.match(dashboardSource, /listStorageWithMeta/)
+assert.match(dashboardSource, /listNetworksWithMeta/)
+assert.match(dashboardSource, /meta\?\.availability/)
 
 delete globalThis.__DASHBOARD_TEST_MOCKS__
 

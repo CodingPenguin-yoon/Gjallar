@@ -25,17 +25,43 @@ def test_operation_list_route_forwards_bounded_filters_and_envelope():
         response = api.list_operations_route(
             status="succeeded",
             operation_type="vm_start",
+            target_type="proxmox_vm",
+            target_id="vmid:306",
             limit=25,
         )
 
-    query.assert_called_once_with(status="succeeded", operation_type="vm_start", limit=25)
+    query.assert_called_once_with(
+        status="succeeded",
+        operation_type="vm_start",
+        target_type="proxmox_vm",
+        target_id="vmid:306",
+        limit=25,
+    )
     assert response["ok"] is True
     assert response["data"] == summaries
     assert response["meta"]["filters"] == {
         "status": "succeeded",
         "operation_type": "vm_start",
+        "target_type": "proxmox_vm",
+        "target_id": "vmid:306",
         "limit": 25,
     }
+
+
+def test_operation_list_route_keeps_existing_positional_status_type_limit_contract():
+    from app.api.v1 import operations as api
+
+    with patch.object(api, "list_operations", return_value=[]) as query:
+        response = api.list_operations_route("succeeded", "vm_start", 25)
+
+    query.assert_called_once_with(
+        status="succeeded",
+        operation_type="vm_start",
+        target_type=None,
+        target_id=None,
+        limit=25,
+    )
+    assert response["meta"]["filters"]["limit"] == 25
 
 
 def test_operation_list_route_maps_invalid_query_to_422():

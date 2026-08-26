@@ -77,6 +77,36 @@ def _observed_at(snapshot: Mapping[str, Any]) -> str | None:
     return value or None
 
 
+def _failed_source_evidence(
+    snapshot: Mapping[str, Any],
+    *,
+    target: str,
+    source_names: Sequence[str],
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    availability = _as_mapping(snapshot.get("availability"))
+    sources = _as_mapping(availability.get("sources"))
+    failed_sources: list[str] = []
+    source_evidence: dict[str, dict[str, Any]] = {}
+    for source_name in source_names:
+        source_availability = _as_mapping(sources.get(source_name))
+        failed_targets = {
+            _as_text(item)
+            for item in _as_list(source_availability.get("failed_targets"))
+            if _as_text(item)
+        }
+        if target not in failed_targets:
+            continue
+        failed_sources.append(source_name)
+        source_evidence[source_name] = {
+            "available": source_availability.get("available"),
+            "complete": source_availability.get("complete"),
+            "expected_targets": source_availability.get("expected_targets"),
+            "observed_targets": source_availability.get("observed_targets"),
+            "failed_target": target,
+        }
+    return failed_sources, source_evidence
+
+
 def build_risk_section(jobs: Sequence[Mapping[str, Any]]) -> tuple[InsightSection, list[dict[str, Any]]]:
     findings: list[InsightFinding] = []
     raw_risks: list[dict[str, Any]] = []
@@ -161,6 +191,13 @@ def build_readiness_section(
     ready_count = 0
     for vm in vms:
         target_id, name, vmid = _vm_target(vm)
+        node_id = _as_text(vm.get("node_id") or vm.get("nodeId"))
+        availability_target = f"{node_id}:{vmid}" if node_id and vmid > 0 else ""
+        failed_sources, source_availability = _failed_source_evidence(
+            snapshot,
+            target=availability_target,
+            source_names=("vm_config", "guest_agent", "vm_detail"),
+        )
         status = _as_text(vm.get("status"), "unknown").lower()
         lock = _as_text(vm.get("config_lock") or vm.get("configLock"))
         guest_agent = _as_mapping(vm.get("guest_agent") or vm.get("guestAgent"))
@@ -170,11 +207,58 @@ def build_readiness_section(
             for item in _as_list(vm.get("ip_addresses") or vm.get("ipAddresses"))
             if _as_text(item)
         ]
+        failed_source_set = set(failed_sources)
+        base_evidence = {
+            "node_id": node_id or None,
+            "vmid": vmid or None,
+            "name": name,
+            "power_status": status,
+            "config_lock": lock or None if "vm_config" not in failed_source_set else None,
+            "guest_agent_available": (
+                guest_agent_available if "guest_agent" not in failed_source_set else None
+            ),
+            "observed_ip_count": len(ip_addresses),
+        }
+        if failed_sources:
+            findings.append(
+                InsightFinding(
+                    finding_id=_finding_id(
+                        "readiness",
+                        READINESS_RULE_VERSION,
+                        source,
+                        target_id,
+                        "vm_readiness_observation_failed",
+                    ),
+                    category="readiness",
+                    severity="unknown",
+                    status="unknown",
+                    code="vm_readiness_observation_failed",
+                    title=f"{name}: vm readiness observation failed",
+                    message=(
+                        "VM readiness is unknown because one or more detail sources "
+                        "could not be observed."
+                    ),
+                    target_type="proxmox_vm",
+                    target_id=target_id,
+                    source=source,
+                    observed_at=observed_at,
+                    freshness=freshness,
+                    rule_version=READINESS_RULE_VERSION,
+                    evidence={
+                        **base_evidence,
+                        "observation_state": "failed",
+                        "failed_target": availability_target,
+                        "failed_sources": failed_sources,
+                        "source_availability": source_availability,
+                    },
+                )
+            )
+
         code = ""
         severity = "info"
         finding_status = "clear"
         message = "No operational readiness issue was detected from the current observation."
-        if lock:
+        if lock and "vm_config" not in failed_source_set:
             code = "vm_config_locked"
             severity = "critical"
             finding_status = "active"
@@ -184,18 +268,27 @@ def build_readiness_section(
             severity = "unknown"
             finding_status = "unknown"
             message = "VM power state is not available from the current observation."
-        elif status == "running" and not guest_agent_available:
+        elif (
+            status == "running"
+            and "guest_agent" not in failed_source_set
+            and not guest_agent_available
+        ):
             code = "guest_agent_unavailable"
             severity = "warning"
             finding_status = "active"
             message = "Running VM does not expose available guest-agent evidence."
-        elif status == "running" and not ip_addresses:
+        elif (
+            status == "running"
+            and not {"vm_config", "guest_agent"}.intersection(failed_source_set)
+            and not ip_addresses
+        ):
             code = "usable_ip_unavailable"
             severity = "warning"
             finding_status = "active"
             message = "Running VM has no observed IP address evidence."
         if not code:
-            ready_count += 1
+            if not failed_sources:
+                ready_count += 1
             continue
         findings.append(
             InsightFinding(
@@ -212,15 +305,7 @@ def build_readiness_section(
                 observed_at=observed_at,
                 freshness=freshness,
                 rule_version=READINESS_RULE_VERSION,
-                evidence={
-                    "node_id": vm.get("node_id") or vm.get("nodeId"),
-                    "vmid": vmid or None,
-                    "name": name,
-                    "power_status": status,
-                    "config_lock": lock or None,
-                    "guest_agent_available": guest_agent_available,
-                    "observed_ip_count": len(ip_addresses),
-                },
+                evidence=base_evidence,
             )
         )
     returned_findings, finding_summary = _bounded_findings(findings)
@@ -295,6 +380,30 @@ def build_capacity_section(
     for node in nodes:
         node_id = _as_text(node.get("node_id") or node.get("nodeId") or node.get("id"), "unknown")
         node_name = _as_text(node.get("display_name") or node.get("displayName") or node.get("name"), node_id)
+        failed_sources, source_availability = _failed_source_evidence(
+            snapshot,
+            target=node_id,
+            source_names=("storage",),
+        )
+        if failed_sources:
+            findings.append(_capacity_finding(
+                code="storage_observation_failed",
+                severity="unknown",
+                title=f"{node_name}: storage observation failed",
+                message="Storage capacity is unknown because the node storage source could not be observed.",
+                target_type="proxmox_node",
+                target_id=node_id,
+                source=source,
+                observed_at=observed_at,
+                freshness=freshness,
+                evidence={
+                    "node_id": node_id,
+                    "observation_state": "failed",
+                    "failed_target": node_id,
+                    "failed_sources": failed_sources,
+                    "source_availability": source_availability,
+                },
+            ))
         node_status = _as_text(node.get("status"), "unknown").lower()
         cpu = _as_float(node.get("cpu_usage_percent", node.get("cpuUsagePercent")))
         memory = _as_float(node.get("memory_usage_percent", node.get("memoryUsagePercent")))

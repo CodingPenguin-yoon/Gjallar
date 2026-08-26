@@ -396,6 +396,150 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual(303, adapter.suggest_next_vmid())
         self.assertEqual(1, call_counts["/cluster/nextid"])
 
+    def test_live_adapter_reports_partial_source_failures_without_presenting_fresh_empty_data(self):
+        from app.proxmox.inventory import LiveProxmoxInventoryAdapter
+        from app.setup_integration.proxmox_connection import observe_proxmox_connection
+
+        payloads = {
+            "/nodes": [
+                {
+                    "node": "node-a",
+                    "status": "online",
+                    "maxcpu": 8,
+                    "cpu": 0.1,
+                    "mem": 1024,
+                    "maxmem": 2048,
+                },
+                {
+                    "node": "node-b",
+                    "status": "online",
+                    "maxcpu": 8,
+                    "cpu": 0.1,
+                    "mem": 1024,
+                    "maxmem": 2048,
+                },
+            ],
+            "/nodes/node-a/qemu": [
+                {
+                    "vmid": 301,
+                    "name": "partial-vm",
+                    "status": "running",
+                    "template": 0,
+                    "cpus": 2,
+                    "maxmem": 4294967296,
+                }
+            ],
+            "/nodes/node-b/qemu": [],
+            "/nodes/node-b/storage": [],
+            "/nodes/node-b/network": [],
+        }
+
+        def fake_get(path, *, timeout=None):
+            if path in {
+                "/nodes/node-a/storage",
+                "/nodes/node-a/network",
+                "/nodes/node-a/qemu/301/config",
+                "/nodes/node-a/qemu/301/agent/network-get-interfaces",
+            }:
+                raise RuntimeError(f"sensitive upstream failure: {path}")
+            if path not in payloads:
+                raise AssertionError(f"unexpected path requested: {path}")
+            return payloads[path]
+
+        adapter = LiveProxmoxInventoryAdapter(
+            api_url="https://pve.example.invalid:8006/api2/json",
+            token_id="root@pam!inventory",
+            token_secret="top-secret",
+            request_get=fake_get,
+            cache_ttl_seconds=0,
+        )
+
+        snapshot = adapter.snapshot().to_dict()
+        availability = snapshot["availability"]
+        observation = observe_proxmox_connection(adapter)
+
+        self.assertTrue(availability["available"])
+        self.assertFalse(availability["complete"])
+        self.assertEqual(
+            {
+                "available": True,
+                "complete": False,
+                "expected_targets": 2,
+                "observed_targets": 1,
+                "failed_targets": ["node-a"],
+            },
+            availability["sources"]["storage"],
+        )
+        self.assertEqual(["node-a"], availability["sources"]["network"]["failed_targets"])
+        self.assertEqual(["node-a:301"], availability["sources"]["vm_config"]["failed_targets"])
+        self.assertEqual(["node-a:301"], availability["sources"]["guest_agent"]["failed_targets"])
+        self.assertTrue(availability["sources"]["vm_detail"]["complete"])
+        self.assertEqual([], snapshot["nodes"][0]["storage"])
+        self.assertEqual([], snapshot["nodes"][0]["networks"])
+        self.assertFalse(snapshot["vms"][0]["guest_agent"]["available"])
+        self.assertEqual("degraded", observation.status.state)
+        self.assertEqual("partial", observation.status.freshness)
+        self.assertEqual("proxmox_inventory_partial", observation.status.reason)
+        self.assertTrue(observation.status.inventory_available)
+        self.assertNotIn("sensitive upstream failure", repr(snapshot))
+
+    def test_live_adapter_reports_detail_worker_failure_and_keeps_target_identity(self):
+        from app.proxmox.inventory import LiveProxmoxInventoryAdapter
+
+        payloads = {
+            "/nodes": [
+                {
+                    "node": "node-a",
+                    "status": "online",
+                    "maxcpu": 8,
+                    "cpu": 0.1,
+                    "mem": 1024,
+                    "maxmem": 2048,
+                }
+            ],
+            "/nodes/node-a/qemu": [
+                {
+                    "vmid": 302,
+                    "name": "detail-failed-vm",
+                    "status": "stopped",
+                    "template": 0,
+                    "cpus": 2,
+                    "maxmem": 4294967296,
+                }
+            ],
+            "/nodes/node-a/storage": [],
+            "/nodes/node-a/network": [],
+        }
+
+        def fake_get(path, *, timeout=None):
+            if path not in payloads:
+                raise AssertionError(f"unexpected path requested: {path}")
+            return payloads[path]
+
+        adapter = LiveProxmoxInventoryAdapter(
+            api_url="https://pve.example.invalid:8006/api2/json",
+            token_id="root@pam!inventory",
+            token_secret="top-secret",
+            request_get=fake_get,
+            cache_ttl_seconds=0,
+        )
+
+        with patch.object(adapter, "_load_vm_detail", side_effect=RuntimeError("sensitive detail failure")):
+            snapshot = adapter.snapshot().to_dict()
+
+        self.assertEqual([302], [vm["vmid"] for vm in snapshot["vms"]])
+        self.assertFalse(snapshot["availability"]["complete"])
+        self.assertEqual(
+            ["node-a:302"],
+            snapshot["availability"]["sources"]["vm_detail"]["failed_targets"],
+        )
+        self.assertEqual(
+            ["node-a:302"],
+            snapshot["availability"]["sources"]["vm_config"]["failed_targets"],
+        )
+        self.assertTrue(snapshot["availability"]["sources"]["guest_agent"]["complete"])
+        self.assertNotIn("sensitive detail failure", repr(snapshot))
+
     def test_live_adapter_normalizes_network_active_values(self):
         from app.proxmox.inventory import LiveProxmoxInventoryAdapter
 

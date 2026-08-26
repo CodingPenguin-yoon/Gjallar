@@ -8,6 +8,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -21,7 +22,9 @@ from app.proxmox.models import (
     DiskInventory,
     GuestAgentInventory,
     IpEvidenceInventory,
+    InventoryAvailability,
     InventorySnapshot,
+    InventorySourceAvailability,
     NetworkInventory,
     NicBridgeEvidenceInventory,
     NodeInventory,
@@ -58,6 +61,53 @@ _NIC_CONFIG_OPTION_NAMES = {
     "mtu",
     "model",
 }
+
+
+@dataclass(frozen=True)
+class _VmDetailObservation:
+    detail: dict[str, Any]
+    config_available: bool
+    guest_agent_applicable: bool
+    guest_agent_available: bool
+
+
+def _empty_vm_detail_observation(*, guest_agent_applicable: bool) -> _VmDetailObservation:
+    return _VmDetailObservation(
+        detail={
+            "disk_gb": 0,
+            "disks": (),
+            "ip_addresses": (),
+            "ip_evidence": (),
+            "nic_bridge_evidence": (),
+            "guest_agent": GuestAgentInventory(available=False),
+            "guest_agent_configured": False,
+            "cloud_init_ready": False,
+            "tags": (),
+            "storage_id": "unknown",
+            "smbios1": "",
+            "vmgenid": "",
+            "mac_addresses": (),
+            "config_lock": "",
+        },
+        config_available=False,
+        guest_agent_applicable=guest_agent_applicable,
+        guest_agent_available=False,
+    )
+
+
+def _source_availability(
+    source: str,
+    *,
+    expected_targets: list[str],
+    observed_targets: list[str],
+    failed_targets: list[str],
+) -> InventorySourceAvailability:
+    return InventorySourceAvailability(
+        source=source,
+        expected_targets=len(expected_targets),
+        observed_targets=len(observed_targets),
+        failed_targets=tuple(failed_targets),
+    )
 
 
 def _load_project_env() -> None:
@@ -1068,7 +1118,7 @@ class LiveProxmoxInventoryAdapter:
         self._snapshot_cached_at = 0.0
         self._snapshot_cache: InventorySnapshot | None = None
         self._detail_cache_lock = threading.Lock()
-        self._detail_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+        self._detail_cache: dict[tuple[str, int], tuple[float, _VmDetailObservation]] = {}
         self._source_config = {
             "mode": self.source,
             "cluster_id": self.cluster_id,
@@ -1109,50 +1159,66 @@ class LiveProxmoxInventoryAdapter:
         payload = self._get_json(f"/nodes/{node_id}/qemu")
         return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
 
-    def _list_storage_payload(self, node_id: str) -> list[dict[str, Any]]:
+    def _list_storage_payload(self, node_id: str) -> tuple[list[dict[str, Any]], bool]:
         try:
             payload = self._get_json(f"/nodes/{node_id}/storage")
         except Exception:
-            return []
-        return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+            return [], False
+        if not isinstance(payload, list):
+            return [], False
+        return [item for item in payload if isinstance(item, dict)], True
 
-    def _list_network_payload(self, node_id: str) -> list[dict[str, Any]]:
+    def _list_network_payload(self, node_id: str) -> tuple[list[dict[str, Any]], bool]:
         try:
             payload = self._get_json(f"/nodes/{node_id}/network")
         except Exception:
-            return []
-        return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+            return [], False
+        if not isinstance(payload, list):
+            return [], False
+        return [item for item in payload if isinstance(item, dict)], True
 
-    def _load_vm_detail(self, node_id: str, vm_row: dict[str, Any]) -> dict[str, Any]:
+    def _load_vm_detail(self, node_id: str, vm_row: dict[str, Any]) -> _VmDetailObservation:
         vmid = _safe_int(vm_row.get("vmid"))
         cache_key = (node_id, vmid)
         now = time.time()
         with self._detail_cache_lock:
             cached = self._detail_cache.get(cache_key)
             if cached and now - cached[0] <= self.cache_ttl_seconds:
-                return dict(cached[1])
+                observation = cached[1]
+                return _VmDetailObservation(
+                    detail=dict(observation.detail),
+                    config_available=observation.config_available,
+                    guest_agent_applicable=observation.guest_agent_applicable,
+                    guest_agent_available=observation.guest_agent_available,
+                )
 
         config_timeout = (self.connect_timeout_seconds, min(self.read_timeout_seconds, 5.0))
         guest_timeout = (self.connect_timeout_seconds, min(self.guest_agent_timeout_seconds, self.read_timeout_seconds))
         config_data: dict[str, Any] = {}
+        config_available = False
         guest_ips: tuple[str, ...] = ()
         guest_ip_evidence: tuple[IpEvidenceInventory, ...] = ()
+        guest_agent_applicable = str(vm_row.get("status") or "").lower() == "running"
+        guest_agent_available = False
 
         try:
             payload = self._get_json(f"/nodes/{node_id}/qemu/{vmid}/config", timeout=config_timeout)
             if isinstance(payload, dict):
                 config_data = payload
+                config_available = True
         except Exception:
             config_data = {}
 
-        if str(vm_row.get("status") or "").lower() == "running":
+        if guest_agent_applicable:
             try:
                 payload = self._get_json(
                     f"/nodes/{node_id}/qemu/{vmid}/agent/network-get-interfaces",
                     timeout=guest_timeout,
                 )
-                guest_ip_evidence = _extract_guest_agent_ip_evidence(payload)
-                guest_ips = _merge_ip_addresses([item.ip_address for item in guest_ip_evidence])
+                if isinstance(payload, (dict, list)):
+                    guest_agent_available = True
+                    guest_ip_evidence = _extract_guest_agent_ip_evidence(payload)
+                    guest_ips = _merge_ip_addresses([item.ip_address for item in guest_ip_evidence])
             except Exception:
                 guest_ips = ()
                 guest_ip_evidence = ()
@@ -1167,6 +1233,8 @@ class LiveProxmoxInventoryAdapter:
             "ip_addresses": _merge_ip_addresses(list(configured_ips), list(guest_ips)),
             "ip_evidence": configured_ip_evidence + guest_ip_evidence,
             "nic_bridge_evidence": nic_bridge_evidence,
+            # Preserve the existing VM payload meaning (usable IP evidence).
+            # Source reachability is reported separately in snapshot availability.
             "guest_agent": GuestAgentInventory(available=bool(guest_ips), ip_addresses=guest_ips),
             "guest_agent_configured": _config_guest_agent_enabled(config_data),
             "cloud_init_ready": _config_cloud_init_ready(config_data),
@@ -1177,14 +1245,30 @@ class LiveProxmoxInventoryAdapter:
             "mac_addresses": _extract_mac_addresses(config_data),
             "config_lock": str(config_data.get("lock") or "").strip(),
         }
+        observation = _VmDetailObservation(
+            detail=detail,
+            config_available=config_available,
+            guest_agent_applicable=guest_agent_applicable,
+            guest_agent_available=guest_agent_available,
+        )
         with self._detail_cache_lock:
-            self._detail_cache[cache_key] = (time.time(), detail)
-        return dict(detail)
+            self._detail_cache[cache_key] = (time.time(), observation)
+        return _VmDetailObservation(
+            detail=dict(observation.detail),
+            config_available=observation.config_available,
+            guest_agent_applicable=observation.guest_agent_applicable,
+            guest_agent_available=observation.guest_agent_available,
+        )
 
-    def _template_from_row(self, node_id: str, vm_row: dict[str, Any]) -> TemplateInventory:
+    def _template_from_row(
+        self,
+        node_id: str,
+        vm_row: dict[str, Any],
+        detail_observation: _VmDetailObservation,
+    ) -> TemplateInventory:
         vmid = _safe_int(vm_row.get("vmid"))
         name = str(vm_row.get("name") or f"template-{vmid}")
-        detail = self._load_vm_detail(node_id, vm_row)
+        detail = detail_observation.detail
         return TemplateInventory(
             template_id=name,
             vmid=vmid,
@@ -1199,11 +1283,17 @@ class LiveProxmoxInventoryAdapter:
             disk_gb=_safe_int(detail.get("disk_gb")),
         )
 
-    def _vm_from_row(self, node_id: str, vm_row: dict[str, Any], detail: dict[str, Any]) -> VmInventory:
+    def _vm_from_row(
+        self,
+        node_id: str,
+        vm_row: dict[str, Any],
+        detail_observation: _VmDetailObservation,
+    ) -> VmInventory:
         vmid = _safe_int(vm_row.get("vmid"))
         name = str(vm_row.get("name") or f"vm-{vmid}")
         cpu = _safe_int(vm_row.get("cpus") or vm_row.get("cpu") or vm_row.get("cores"))
         memory_mb = _bytes_to_mb(vm_row.get("maxmem") or vm_row.get("mem") or vm_row.get("memory"))
+        detail = detail_observation.detail
         guest_agent = detail.get("guest_agent")
         if not isinstance(guest_agent, GuestAgentInventory):
             guest_agent = GuestAgentInventory(available=False)
@@ -1236,9 +1326,21 @@ class LiveProxmoxInventoryAdapter:
         node_vm_rows: dict[str, list[dict[str, Any]]] = {}
         template_rows: list[tuple[str, dict[str, Any]]] = []
         live_vm_rows: list[tuple[str, dict[str, Any]]] = []
+        storage_expected: list[str] = []
+        storage_observed: list[str] = []
+        storage_failed: list[str] = []
+        network_expected: list[str] = []
+        network_observed: list[str] = []
+        network_failed: list[str] = []
 
         for node_row in node_rows:
             node_id = str(node_row.get("node") or node_row.get("id") or "unknown")
+            storage_expected.append(node_id)
+            storage_payload, storage_available = self._list_storage_payload(node_id)
+            if storage_available:
+                storage_observed.append(node_id)
+            else:
+                storage_failed.append(node_id)
             storages = [
                 StorageInventory(
                     storage_id=str(item.get("storage") or item.get("storage_id") or "unknown"),
@@ -1252,10 +1354,16 @@ class LiveProxmoxInventoryAdapter:
                         if piece.strip()
                     ),
                 )
-                for item in self._list_storage_payload(node_id)
+                for item in storage_payload
             ]
             node_storage[node_id] = tuple(storages)
 
+            network_expected.append(node_id)
+            network_payload, network_available = self._list_network_payload(node_id)
+            if network_available:
+                network_observed.append(node_id)
+            else:
+                network_failed.append(node_id)
             networks = [
                 NetworkInventory(
                     bridge_id=str(item.get("iface") or item.get("bridge") or item.get("id") or "unknown"),
@@ -1264,7 +1372,7 @@ class LiveProxmoxInventoryAdapter:
                     active=_proxmox_network_active(item.get("active")),
                     **_network_bridge_config_evidence(item),
                 )
-                for item in self._list_network_payload(node_id)
+                for item in network_payload
                 if str(item.get("iface") or item.get("bridge") or "").startswith("vmbr")
             ]
             node_networks[node_id] = tuple(networks)
@@ -1277,30 +1385,66 @@ class LiveProxmoxInventoryAdapter:
                 else:
                     live_vm_rows.append((node_id, vm_row))
 
-        detail_map: dict[tuple[str, int], dict[str, Any]] = {}
+        detail_map: dict[tuple[str, int], _VmDetailObservation] = {}
+        all_vm_rows = live_vm_rows + template_rows
+        detail_expected = [f"{node_id}:{_safe_int(vm_row.get('vmid'))}" for node_id, vm_row in all_vm_rows]
+        detail_observed: list[str] = []
+        detail_failed: list[str] = []
+        config_expected = list(detail_expected)
+        config_observed: list[str] = []
+        config_failed: list[str] = []
+        guest_expected = [
+            f"{node_id}:{_safe_int(vm_row.get('vmid'))}"
+            for node_id, vm_row in all_vm_rows
+            if str(vm_row.get("status") or "").lower() == "running"
+        ]
+        guest_observed: list[str] = []
+        guest_failed: list[str] = []
+
+        def record_detail(
+            node_id: str,
+            vm_row: dict[str, Any],
+            observation: _VmDetailObservation | None,
+        ) -> None:
+            vmid = _safe_int(vm_row.get("vmid"))
+            target = f"{node_id}:{vmid}"
+            guest_applicable = str(vm_row.get("status") or "").lower() == "running"
+            if observation is None:
+                detail_failed.append(target)
+                config_failed.append(target)
+                if guest_applicable:
+                    guest_failed.append(target)
+                observation = _empty_vm_detail_observation(guest_agent_applicable=guest_applicable)
+            else:
+                detail_observed.append(target)
+                if observation.config_available:
+                    config_observed.append(target)
+                else:
+                    config_failed.append(target)
+                if observation.guest_agent_applicable:
+                    if observation.guest_agent_available:
+                        guest_observed.append(target)
+                    else:
+                        guest_failed.append(target)
+            detail_map[(node_id, vmid)] = observation
+
         if live_vm_rows:
             with ThreadPoolExecutor(max_workers=self.detail_workers) as executor:
                 future_map = {
-                    executor.submit(self._load_vm_detail, node_id, vm_row): (node_id, _safe_int(vm_row.get("vmid")))
+                    executor.submit(self._load_vm_detail, node_id, vm_row): (node_id, vm_row)
                     for node_id, vm_row in live_vm_rows
                 }
-                for future, cache_key in future_map.items():
+                for future, (node_id, vm_row) in future_map.items():
                     try:
-                        detail_map[cache_key] = future.result()
+                        record_detail(node_id, vm_row, future.result())
                     except Exception:
-                        detail_map[cache_key] = {
-                            "disk_gb": _bytes_to_gb(0),
-                            "ip_addresses": (),
-                            "ip_evidence": (),
-                            "nic_bridge_evidence": (),
-                            "guest_agent": GuestAgentInventory(available=False),
-                            "tags": (),
-                            "storage_id": "unknown",
-                            "smbios1": "",
-                            "vmgenid": "",
-                            "mac_addresses": (),
-                            "config_lock": "",
-                        }
+                        record_detail(node_id, vm_row, None)
+
+        for node_id, vm_row in template_rows:
+            try:
+                record_detail(node_id, vm_row, self._load_vm_detail(node_id, vm_row))
+            except Exception:
+                record_detail(node_id, vm_row, None)
 
         nodes = []
         for node_id, node_row in (
@@ -1327,7 +1471,14 @@ class LiveProxmoxInventoryAdapter:
             )
 
         vms = [
-            self._vm_from_row(node_id, vm_row, detail_map.get((node_id, _safe_int(vm_row.get("vmid"))), {}))
+            self._vm_from_row(
+                node_id,
+                vm_row,
+                detail_map.get((node_id, _safe_int(vm_row.get("vmid"))))
+                or _empty_vm_detail_observation(
+                    guest_agent_applicable=str(vm_row.get("status") or "").lower() == "running"
+                ),
+            )
             for node_id, vm_row in sorted(
                 live_vm_rows,
                 key=lambda item: (
@@ -1338,7 +1489,12 @@ class LiveProxmoxInventoryAdapter:
             )
         ]
         templates = [
-            self._template_from_row(node_id, vm_row)
+            self._template_from_row(
+                node_id,
+                vm_row,
+                detail_map.get((node_id, _safe_int(vm_row.get("vmid"))))
+                or _empty_vm_detail_observation(guest_agent_applicable=False),
+            )
             for node_id, vm_row in sorted(
                 template_rows,
                 key=lambda item: (
@@ -1356,6 +1512,40 @@ class LiveProxmoxInventoryAdapter:
             vms=tuple(vms),
             templates=tuple(templates),
             connection=self.redacted_connection_context(),
+            availability=InventoryAvailability(
+                sources=(
+                    _source_availability(
+                        "storage",
+                        expected_targets=storage_expected,
+                        observed_targets=storage_observed,
+                        failed_targets=storage_failed,
+                    ),
+                    _source_availability(
+                        "network",
+                        expected_targets=network_expected,
+                        observed_targets=network_observed,
+                        failed_targets=network_failed,
+                    ),
+                    _source_availability(
+                        "vm_config",
+                        expected_targets=config_expected,
+                        observed_targets=config_observed,
+                        failed_targets=config_failed,
+                    ),
+                    _source_availability(
+                        "guest_agent",
+                        expected_targets=guest_expected,
+                        observed_targets=guest_observed,
+                        failed_targets=guest_failed,
+                    ),
+                    _source_availability(
+                        "vm_detail",
+                        expected_targets=detail_expected,
+                        observed_targets=detail_observed,
+                        failed_targets=detail_failed,
+                    ),
+                )
+            ),
         )
 
     def snapshot(self) -> InventorySnapshot:

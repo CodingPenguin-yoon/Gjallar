@@ -146,7 +146,7 @@ function hasConcreteVmid(value) {
   return Number.isInteger(Number(text))
 }
 
-function normalizeVm(source = {}) {
+export function normalizeVm(source = {}) {
   const disks = asArray(source.disks).map(normalizeDisk)
   const status = normalizeStatus(source.status) || 'unknown'
   const template = Boolean(source.template)

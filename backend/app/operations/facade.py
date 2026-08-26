@@ -20,10 +20,18 @@ def list_operations(
     *,
     status: str | None = None,
     operation_type: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     return OperationQueryService(operations=SqlAlchemyOperationStore()).list(
-        OperationListQuery(status=status, operation_type=operation_type, limit=limit)
+        OperationListQuery(
+            status=status,
+            operation_type=operation_type,
+            target_type=target_type,
+            target_id=target_id,
+            limit=limit,
+        )
     )
 
 

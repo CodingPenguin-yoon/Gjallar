@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException
 
+from app.setup_integration.proxmox_connection import ProxmoxConnectionObservation
 from app.workloads.inventory import (
     WorkloadInventoryQuery,
     WorkloadInventoryUnavailableError,
@@ -24,15 +25,26 @@ def inventory_adapter():
         raise inventory_unavailable_http(exc) from exc
 
 
-def inventory_meta(adapter) -> dict:
+def mutation_inventory_adapter():
     try:
-        observation = WorkloadInventoryQuery(adapter).require_observation()
+        return inventory_query().require_mutation_adapter()
     except WorkloadInventoryUnavailableError as exc:
         raise inventory_unavailable_http(exc) from exc
+
+
+def inventory_observation() -> ProxmoxConnectionObservation:
+    try:
+        return inventory_query().require_observation()
+    except WorkloadInventoryUnavailableError as exc:
+        raise inventory_unavailable_http(exc) from exc
+
+
+def inventory_meta(observation: ProxmoxConnectionObservation) -> dict:
     return {
         "source": observation.status.source,
         "mode": "read_only",
         "observed_at": observation.status.observed_at or None,
         "freshness": observation.status.freshness,
         "connection": observation.status.to_dict(),
+        "availability": observation.snapshot.availability.to_dict(),
     }

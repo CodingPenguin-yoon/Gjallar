@@ -217,6 +217,169 @@ def test_missing_capacity_metrics_and_unknown_power_are_not_counted_as_ready():
     assert "vm_power_state_unknown" in {finding["code"] for finding in readiness["findings"]}
 
 
+def test_failed_guest_agent_observation_is_unknown_not_confirmed_unavailable():
+    snapshot = _snapshot()
+    snapshot["availability"] = {
+        "available": True,
+        "complete": False,
+        "sources": {
+            "guest_agent": {
+                "available": False,
+                "complete": False,
+                "expected_targets": 1,
+                "observed_targets": 0,
+                "failed_targets": ["node-hot:101"],
+            },
+        },
+    }
+
+    readiness = build_readiness_section(snapshot, freshness="partial").to_dict()
+
+    assert readiness["status"] == "unknown"
+    assert readiness["summary"]["ready_count"] == 0
+    assert [finding["code"] for finding in readiness["findings"]] == [
+        "vm_readiness_observation_failed"
+    ]
+    finding = readiness["findings"][0]
+    assert finding["severity"] == "unknown"
+    assert finding["status"] == "unknown"
+    assert finding["evidence"]["failed_target"] == "node-hot:101"
+    assert finding["evidence"]["failed_sources"] == ["guest_agent"]
+    assert "guest_agent_unavailable" not in {
+        item["code"] for item in readiness["findings"]
+    }
+
+
+def test_failed_guest_agent_observation_does_not_hide_observed_config_lock():
+    snapshot = _snapshot()
+    snapshot["vms"][0]["config_lock"] = "backup"
+    snapshot["availability"] = {
+        "available": True,
+        "complete": False,
+        "sources": {
+            "vm_config": {
+                "available": True,
+                "complete": True,
+                "expected_targets": 1,
+                "observed_targets": 1,
+                "failed_targets": [],
+            },
+            "guest_agent": {
+                "available": False,
+                "complete": False,
+                "expected_targets": 1,
+                "observed_targets": 0,
+                "failed_targets": ["node-hot:101"],
+            },
+        },
+    }
+
+    readiness = build_readiness_section(snapshot, freshness="partial").to_dict()
+
+    assert readiness["status"] == "attention"
+    assert readiness["summary"]["ready_count"] == 0
+    assert {finding["code"] for finding in readiness["findings"]} == {
+        "vm_readiness_observation_failed",
+        "vm_config_locked",
+    }
+    locked = next(
+        finding
+        for finding in readiness["findings"]
+        if finding["code"] == "vm_config_locked"
+    )
+    assert locked["severity"] == "critical"
+    assert locked["evidence"]["config_lock"] == "backup"
+
+
+def test_complete_or_unrelated_availability_preserves_existing_guest_agent_rule():
+    for failed_targets in ([], ["node-hot:999"]):
+        snapshot = _snapshot()
+        snapshot["availability"] = {
+            "available": True,
+            "complete": not failed_targets,
+            "sources": {
+                "guest_agent": {
+                    "available": not failed_targets,
+                    "complete": not failed_targets,
+                    "expected_targets": 1,
+                    "observed_targets": 1 if not failed_targets else 0,
+                    "failed_targets": failed_targets,
+                },
+            },
+        }
+
+        readiness = build_readiness_section(snapshot, freshness="live").to_dict()
+
+        assert readiness["status"] == "attention"
+        assert [finding["code"] for finding in readiness["findings"]] == [
+            "guest_agent_unavailable"
+        ]
+
+
+def test_failed_vm_config_and_detail_observation_are_unknown_for_exact_vm():
+    snapshot = _snapshot()
+    snapshot["vms"][0]["status"] = "stopped"
+    snapshot["availability"] = {
+        "available": True,
+        "complete": False,
+        "sources": {
+            source: {
+                "available": False,
+                "complete": False,
+                "expected_targets": 1,
+                "observed_targets": 0,
+                "failed_targets": ["node-hot:101"],
+            }
+            for source in ("vm_config", "vm_detail")
+        },
+    }
+
+    readiness = build_readiness_section(snapshot, freshness="partial").to_dict()
+
+    assert readiness["status"] == "unknown"
+    assert readiness["summary"]["ready_count"] == 0
+    finding = readiness["findings"][0]
+    assert finding["code"] == "vm_readiness_observation_failed"
+    assert finding["target"] == {"type": "proxmox_vm", "id": "vmid:101"}
+    assert finding["evidence"]["failed_sources"] == ["vm_config", "vm_detail"]
+    assert set(finding["evidence"]["source_availability"]) == {
+        "vm_config",
+        "vm_detail",
+    }
+
+
+def test_failed_storage_observation_is_unknown_for_exact_node():
+    snapshot = _snapshot()
+    snapshot["nodes"] = [snapshot["nodes"][1]]
+    snapshot["availability"] = {
+        "available": True,
+        "complete": False,
+        "sources": {
+            "storage": {
+                "available": True,
+                "complete": False,
+                "expected_targets": 1,
+                "observed_targets": 0,
+                "failed_targets": ["node-cool"],
+            },
+        },
+    }
+
+    capacity = build_capacity_section(snapshot, freshness="partial").to_dict()
+
+    assert capacity["status"] == "unknown"
+    finding = next(
+        item
+        for item in capacity["findings"]
+        if item["code"] == "storage_observation_failed"
+    )
+    assert finding["target"] == {"type": "proxmox_node", "id": "node-cool"}
+    assert finding["severity"] == "unknown"
+    assert finding["status"] == "unknown"
+    assert finding["evidence"]["failed_target"] == "node-cool"
+    assert finding["evidence"]["failed_sources"] == ["storage"]
+
+
 def test_one_missing_pressure_metric_and_empty_node_inventory_are_unknown():
     snapshot = _snapshot()
     snapshot["nodes"] = [{

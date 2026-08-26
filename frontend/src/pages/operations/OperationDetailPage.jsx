@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, RefreshCw } from 'lucide-react'
 import { apiV1Client } from '../../shared/api/apiV1'
 import { authFailureMessage } from '../../shared/auth/permissions'
+import { vmDetailPathFromTarget } from '../../shared/navigation/targetPaths'
 import {
+  createOperationRequestGuard,
   formatOperationTime,
   normalizeOperationDetail,
+  OPERATION_POLL_INTERVAL_MS,
+  OPERATION_POLL_MAX_ATTEMPTS,
   operationTypeLabel,
+  shouldPollOperation,
+  TERMINAL_OPERATION_STATUSES,
 } from '../../entities/operation/model'
 import OperationStatusBadge from '../../entities/operation/ui/OperationStatusBadge'
 import GuidedQmOperationActions from '../../features/guided-qm-unlock/GuidedQmOperationActions'
@@ -16,24 +22,61 @@ export default function OperationDetailPage({ canExecute = false }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const pollAttemptsRef = useRef(0)
+  const requestGuardRef = useRef(null)
+  if (!requestGuardRef.current) requestGuardRef.current = createOperationRequestGuard()
 
-  const loadOperation = useCallback(async () => {
-    setLoading(true)
+  const loadOperation = useCallback(async ({ background = false } = {}) => {
+    const requestGeneration = requestGuardRef.current.next()
+    if (!background) setLoading(true)
     setError('')
     try {
-      setDetail(normalizeOperationDetail(await apiV1Client.getOperation(operationId)))
+      const nextDetail = normalizeOperationDetail(await apiV1Client.getOperation(operationId))
+      if (!requestGuardRef.current.isCurrent(requestGeneration)) return null
+      setDetail(nextDetail)
+      return nextDetail
     } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestGeneration)) return null
       setError(authFailureMessage(err, 'Operation 상세를 불러오지 못했습니다.'))
+      return null
     } finally {
-      setLoading(false)
+      if (!background && requestGuardRef.current.isCurrent(requestGeneration)) setLoading(false)
     }
   }, [operationId])
 
   useEffect(() => {
+    pollAttemptsRef.current = 0
+    setDetail(null)
     loadOperation()
+    return () => requestGuardRef.current.invalidate()
   }, [loadOperation])
 
-  const acceptChanged = (next) => setDetail(normalizeOperationDetail(next))
+  const operationStatus = detail?.operation?.status || ''
+  const operationVersion = detail?.operation?.version || 0
+  const operationUpdatedAt = detail?.operation?.updatedAt || ''
+
+  useEffect(() => {
+    if (!detail || error || loading || !shouldPollOperation(operationStatus, pollAttemptsRef.current)) return undefined
+
+    const timer = window.setTimeout(() => {
+      pollAttemptsRef.current += 1
+      loadOperation({ background: true })
+    }, OPERATION_POLL_INTERVAL_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [detail, error, loadOperation, loading, operationStatus, operationUpdatedAt, operationVersion])
+
+  const refreshOperation = () => {
+    pollAttemptsRef.current = 0
+    loadOperation()
+  }
+
+  const acceptChanged = (next) => {
+    requestGuardRef.current.invalidate()
+    pollAttemptsRef.current = 0
+    setError('')
+    setDetail(normalizeOperationDetail(next))
+  }
 
   if (loading && !detail) return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading operation...</div>
 
@@ -47,6 +90,7 @@ export default function OperationDetailPage({ canExecute = false }) {
   }
 
   const operation = detail.operation
+  const targetPath = vmDetailPathFromTarget(operation.targetType, operation.targetId)
 
   return (
     <section className="space-y-5">
@@ -60,7 +104,7 @@ export default function OperationDetailPage({ canExecute = false }) {
         </div>
         <button
           type="button"
-          onClick={loadOperation}
+          onClick={refreshOperation}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
         >
@@ -77,7 +121,13 @@ export default function OperationDetailPage({ canExecute = false }) {
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Target</div>
-          <div className="mt-3 break-all font-mono text-sm text-slate-900">{operation.targetId}</div>
+          {targetPath ? (
+            <Link to={targetPath} className="mt-3 block break-all font-mono text-sm font-semibold text-blue-800 hover:text-blue-950 hover:underline">
+              {operation.targetId}
+            </Link>
+          ) : (
+            <div className="mt-3 break-all font-mono text-sm text-slate-900">{operation.targetId}</div>
+          )}
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Execution mode</div>
@@ -90,6 +140,27 @@ export default function OperationDetailPage({ canExecute = false }) {
       </div>
 
       <GuidedQmOperationActions detail={detail} canExecute={canExecute} onChanged={acceptChanged} />
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="operation-integrity-title">
+        <div>
+          <h2 id="operation-integrity-title" className="text-xl font-semibold text-slate-950">Evidence integrity</h2>
+          <p className="mt-1 text-sm text-slate-600">계획 의도와 append-only event chain을 식별하는 digest입니다.</p>
+        </div>
+        <dl className="mt-5 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 p-4">
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Intent digest</dt>
+            <dd className="mt-2 break-all font-mono text-xs text-slate-900">{operation.intentDigest || '-'}</dd>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-4">
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Plan digest</dt>
+            <dd className="mt-2 break-all font-mono text-xs text-slate-900">{operation.planDigest || '-'}</dd>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-4">
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Last event checksum</dt>
+            <dd className="mt-2 break-all font-mono text-xs text-slate-900">{operation.lastEventChecksum || '-'}</dd>
+          </div>
+        </dl>
+      </section>
 
       {detail.recovery || detail.targetLock ? (
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="operation-recovery-title">
@@ -139,7 +210,14 @@ export default function OperationDetailPage({ canExecute = false }) {
             <h2 id="operation-timeline-title" className="text-xl font-semibold text-slate-950">Evidence timeline</h2>
             <p className="mt-1 text-sm text-slate-600">projection version {operation.version} · actor {operation.actor.username}</p>
           </div>
-          <div className="text-xs text-slate-500">Updated {formatOperationTime(operation.updatedAt)}</div>
+          <div className="text-right text-xs text-slate-500">
+            <div>Updated {formatOperationTime(operation.updatedAt)}</div>
+            {shouldPollOperation(operation.status, pollAttemptsRef.current) && !error ? (
+              <div className="mt-1 text-blue-700">Auto-refreshing every {OPERATION_POLL_INTERVAL_MS / 1000}s</div>
+            ) : !TERMINAL_OPERATION_STATUSES.includes(operation.status) && pollAttemptsRef.current >= OPERATION_POLL_MAX_ATTEMPTS ? (
+              <div className="mt-1 text-amber-700">Auto-refresh paused after {OPERATION_POLL_MAX_ATTEMPTS} attempts</div>
+            ) : null}
+          </div>
         </div>
         <ol className="mt-5 space-y-3">
           {detail.events.map((event) => (
@@ -148,6 +226,24 @@ export default function OperationDetailPage({ canExecute = false }) {
               <div>
                 <div className="font-semibold text-slate-950">{event.type.replaceAll('_', ' ')}</div>
                 <div className="mt-1 text-xs text-slate-500">{event.stage} · {event.actor?.username || 'system'} · {event.fromStatus || 'created'} → {event.toStatus}</div>
+                <dl className="mt-3 grid gap-2 rounded-md bg-slate-50 p-3 text-xs sm:grid-cols-2">
+                  <div>
+                    <dt className="font-semibold uppercase tracking-wide text-slate-500">Previous checksum</dt>
+                    <dd className="mt-1 break-all font-mono text-slate-700">{event.previousChecksum || 'chain root'}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold uppercase tracking-wide text-slate-500">Event checksum</dt>
+                    <dd className="mt-1 break-all font-mono text-slate-700">{event.checksum || '-'}</dd>
+                  </div>
+                </dl>
+                {Object.keys(event.payload).length > 0 ? (
+                  <details className="mt-3 rounded-md border border-slate-200 bg-white">
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-700">Event payload</summary>
+                    <pre className="max-h-80 overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs text-slate-100">{JSON.stringify(event.payload, null, 2)}</pre>
+                  </details>
+                ) : (
+                  <div className="mt-3 text-xs text-slate-500">Event payload: none</div>
+                )}
               </div>
               <time className="text-xs text-slate-500">{formatOperationTime(event.createdAt)}</time>
             </li>

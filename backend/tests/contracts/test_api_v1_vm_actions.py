@@ -110,7 +110,7 @@ class ApiV1VmActionsTests(unittest.TestCase):
     def _run_start(self, *, adapter=None, client=None, payload=None, node_id="node-a", vmid=306):
         adapter = adapter or StubInventoryAdapter(vms=[stopped_vm(vmid=vmid, node_id=node_id)])
         client = client or RecordingStartClient()
-        with patch.object(self.api_v1_router.inventory_context, "inventory_adapter", return_value=adapter):
+        with patch.object(self.api_v1_router.inventory_context, "mutation_inventory_adapter", return_value=adapter):
             with patch.object(self.api_v1_router, "get_default_proxmox_mutation_client", return_value=client):
                 return asyncio.run(
                     self.api_v1_router.start_vm_action(
@@ -449,17 +449,21 @@ class ApiV1VmActionsTests(unittest.TestCase):
         self.assertEqual([], [call for call in client.calls if call[0] == "start_vm"])
 
     def test_target_lock_blocks_different_idempotency_key_for_same_vm(self):
+        from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
         from app.operations.target_lock import acquire_target_operation_lock, release_target_operation_lock
+        from app.vm_actions.start import build_vm_start_job_id
 
         handle = acquire_target_operation_lock("proxmox_vm", "vmid:306", "other-job")
         client = RecordingStartClient()
+        idempotency_key = "different-idem-while-target-busy"
+        operation_id = build_vm_start_job_id(node_id="node-a", vmid=306, idempotency_key=idempotency_key)
         try:
             with self.assertRaises(HTTPException) as raised:
                 self._run_start(
                     client=client,
                     payload={
                         "vm_start_acknowledged": True,
-                        "idempotency_key": "different-idem-while-target-busy",
+                        "idempotency_key": idempotency_key,
                         "expected_name": "stopped-app",
                         "expected_status": "stopped",
                     },
@@ -469,6 +473,22 @@ class ApiV1VmActionsTests(unittest.TestCase):
 
         self.assertEqual(409, raised.exception.status_code)
         self.assertEqual("VM_START_TARGET_LOCK_BUSY", raised.exception.detail["code"])
+        self.assertEqual(operation_id, raised.exception.detail["operation_id"])
+        self.assertEqual("other-job", raised.exception.detail["conflicting_operation_id"])
+        operation_store = SqlAlchemyOperationStore()
+        operation = operation_store.get(operation_id)
+        events = operation_store.list_events(operation_id)
+        self.assertEqual("blocked", operation.status)
+        self.assertEqual("precheck", operation.current_stage)
+        self.assertEqual("other-job", operation.details["conflicting_operation_id"])
+        self.assertEqual(
+            "other-job",
+            operation.details["target_operation_lock"]["existing"]["owner_id"],
+        )
+        self.assertEqual("target_lock_blocked", events[-1].event_type)
+        self.assertEqual("planned", events[-1].from_status)
+        self.assertEqual("blocked", events[-1].to_status)
+        self.assertEqual("other-job", events[-1].payload["conflicting_operation_id"])
         self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
         self.assertNotIn("path", raised.exception.detail["target_operation_lock"])
         self.assertEqual([], [call for call in client.calls if call[0] == "start_vm"])
