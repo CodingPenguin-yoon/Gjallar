@@ -28,8 +28,59 @@ export const TERMINAL_OPERATION_STATUSES = Object.freeze([
 
 export const OPERATION_POLL_INTERVAL_MS = 5000
 export const OPERATION_POLL_MAX_ATTEMPTS = 60
+export const OPEN_TARGET_LOCK_STATUSES = Object.freeze(['active', 'stale', 'reconciliation_required'])
 
 export const GUIDED_QM_UNLOCK_OPERATION_TYPE = 'guided_qm_vm_unlock'
+
+const RECOVERY_OBSERVE_ACTIONS = new Set(['observe', 'reobserve', 're_observe', 'observe_recovery', 'recovery_observe'])
+
+function asRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function normalizeRecoveryActions(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') {
+        const id = item.trim()
+        return id ? { id, label: id.replaceAll('_', ' '), description: '', enabled: true } : null
+      }
+      const action = asRecord(item)
+      const id = String(action.id || action.action || action.type || '').trim()
+      if (!id) return null
+      return {
+        id,
+        label: String(action.label || id.replaceAll('_', ' ')),
+        description: String(action.description || action.reason || ''),
+        enabled: action.enabled !== false && action.available !== false,
+      }
+    })
+    .filter(Boolean)
+}
+
+function latestRecoveryObservation(recovery, details) {
+  const explicit = asRecord(recovery.latest_observation)
+  if (Object.keys(explicit).length > 0) return explicit
+  const fromDetails = asRecord(details.latest_observation)
+  if (Object.keys(fromDetails).length > 0) return fromDetails
+  const observation = {}
+  if (details.phase) observation.phase = details.phase
+  if (details.last_task_status) observation.last_task_status = details.last_task_status
+  if (Object.keys(asRecord(details.task)).length > 0) observation.task = asRecord(details.task)
+  if (Object.keys(asRecord(details.observed_after)).length > 0) observation.observed_after = asRecord(details.observed_after)
+  return observation
+}
+
+function stableRecoveryObservationKey(operation) {
+  const source = `${operation.id}|${operation.version}|${operation.lastEventChecksum}`
+  let hash = 14695981039346656037n
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= BigInt(source.charCodeAt(index))
+    hash = BigInt.asUintN(64, hash * 1099511628211n)
+  }
+  return `recovery-observe:${operation.version}:${hash.toString(16).padStart(16, '0')}`
+}
 
 export function normalizeOperation(value = {}) {
   const actor = value?.actor && typeof value.actor === 'object' ? value.actor : {}
@@ -62,6 +113,15 @@ export function normalizeOperationDetail(value = {}) {
   const events = Array.isArray(value?.events) ? value.events : []
   const recovery = value?.recovery && typeof value.recovery === 'object' ? value.recovery : null
   const targetLock = value?.target_lock && typeof value.target_lock === 'object' ? value.target_lock : null
+  const recoveryDetails = asRecord(recovery?.details)
+  const instructionState = asRecord(value?.instruction_state)
+  const createReadiness = asRecord(value?.create_readiness)
+  const readiness = asRecord(createReadiness.readiness)
+  const readinessChecks = asRecord(readiness.checks)
+  const readinessArtifact = asRecord(createReadiness.artifact)
+  const readinessWorkload = asRecord(createReadiness.workload)
+  const readinessTarget = asRecord(createReadiness.workload_target)
+  const recoveryAvailableActions = normalizeRecoveryActions(value?.recovery_available_actions)
   return {
     operation: normalizeOperation(value?.operation),
     events: events
@@ -84,7 +144,49 @@ export function normalizeOperationDetail(value = {}) {
     instructionBundle: value?.instruction_bundle && typeof value.instruction_bundle === 'object'
       ? value.instruction_bundle
       : value?.operation?.details?.instruction_bundle || null,
+    instructionState: Object.keys(instructionState).length > 0
+      ? {
+          active: instructionState.active === true,
+          historical: instructionState.historical === true,
+          doNotExecute: instructionState.do_not_execute === true,
+          reason: String(instructionState.reason || ''),
+        }
+      : null,
+    createReadiness: Object.keys(createReadiness).length > 0
+      ? {
+          status: String(createReadiness.status || ''),
+          exists: createReadiness.exists === true,
+          fingerprintHash: String(createReadiness.fingerprint_hash || ''),
+          readiness: {
+            postCheckStatus: String(readiness.post_check_status || ''),
+            message: String(readiness.message || ''),
+            powerPolicy: String(readiness.power_policy || ''),
+            guestAgentAvailable: readiness.guest_agent_available === true,
+            cloudInitCompleted: readiness.cloud_init_completed === true,
+            bootVerificationSuccess: readiness.boot_verification_success === true,
+            checks: Object.fromEntries(
+              Object.entries(readinessChecks).map(([key, enabled]) => [String(key), enabled === true]),
+            ),
+          },
+          artifact: {
+            id: String(readinessArtifact.artifact_id || ''),
+            checksum: String(readinessArtifact.checksum || ''),
+          },
+          workload: {
+            id: String(readinessWorkload.vm_instance_id || ''),
+            nodeId: String(readinessWorkload.node_id || ''),
+            vmid: Number(readinessWorkload.vmid || 0),
+            status: String(readinessWorkload.status || ''),
+          },
+          workloadTarget: {
+            type: String(readinessTarget.target_type || ''),
+            id: String(readinessTarget.target_id || ''),
+          },
+        }
+      : null,
     idempotentReplay: value?.idempotent_replay === true,
+    coordinationIncomplete: value?.coordination_incomplete === true,
+    recoveryAvailableActions,
     recovery: recovery
       ? {
           kind: String(recovery.recovery_kind || 'unknown'),
@@ -95,25 +197,81 @@ export function normalizeOperationDetail(value = {}) {
           leaseExpiresAt: recovery.lease_expires_at || null,
           attemptCount: Number(recovery.attempt_count || 0),
           lastErrorCode: recovery.last_error_code ? String(recovery.last_error_code) : null,
+          phase: String(recovery.phase || recoveryDetails.phase || ''),
+          incomplete: recovery.incomplete === true,
+          manualActionRequired: recovery.manual_action_required === true || recovery.status === 'paused',
+          reason: String(
+            recovery.reason
+              || recoveryDetails.reason
+              || recoveryDetails.recovery_reason
+              || recoveryDetails.reconciliation_reason
+              || recovery.last_error_code
+              || '',
+          ),
+          details: recoveryDetails,
+          latestObservation: latestRecoveryObservation(recovery, recoveryDetails),
+          availableActions: normalizeRecoveryActions(recovery.available_actions),
           completedAt: recovery.completed_at || null,
         }
       : null,
     targetLock: targetLock
       ? {
-          status: String(targetLock?.durable?.status || targetLock.status || 'unknown'),
+          status: String(targetLock?.durable?.status || targetLock.status || 'active'),
           ownerId: String(targetLock.owner_id || targetLock?.durable?.owner_id || ''),
           operationType: String(targetLock?.durable?.operation_type || 'unknown'),
+          targetType: String(targetLock.target_type || ''),
+          targetId: String(targetLock.target_id || ''),
+          lockId: String(targetLock?.durable?.operation_lock_id || ''),
+          clusterId: String(targetLock?.durable?.cluster_id || ''),
           acquiredAt: targetLock.acquired_at || targetLock?.durable?.created_at || null,
         }
       : null,
   }
 }
 
-export function shouldPollOperation(status, attemptCount = 0) {
+export function isTargetLockOpen(targetLock) {
+  return OPEN_TARGET_LOCK_STATUSES.includes(String(targetLock?.status || ''))
+}
+
+export function isRecoveryIncomplete(recovery) {
+  const status = String(recovery?.status || '')
+  return Boolean(recovery)
+    && (recovery.incomplete === true || !['completed', 'paused'].includes(status))
+}
+
+export function shouldPollOperation(status, attemptCount = 0, coordination = {}) {
   const normalizedAttempts = Number.isFinite(Number(attemptCount)) ? Number(attemptCount) : 0
-  return OPERATION_STATUSES.includes(status)
-    && !TERMINAL_OPERATION_STATUSES.includes(status)
-    && normalizedAttempts < OPERATION_POLL_MAX_ATTEMPTS
+  if (!OPERATION_STATUSES.includes(status) || normalizedAttempts >= OPERATION_POLL_MAX_ATTEMPTS) return false
+  if (coordination?.recovery?.status === 'paused' || coordination?.recovery?.manualActionRequired === true) return false
+  if (!TERMINAL_OPERATION_STATUSES.includes(status)) return true
+  return coordination?.coordinationIncomplete === true
+    || isRecoveryIncomplete(coordination?.recovery)
+    || isTargetLockOpen(coordination?.targetLock)
+}
+
+export function recoveryObserveAction(detail = {}) {
+  const actions = detail?.recovery?.availableActions?.length > 0
+    ? detail.recovery.availableActions
+    : detail?.recoveryAvailableActions || []
+  return actions.find(
+    (action) => action.enabled && RECOVERY_OBSERVE_ACTIONS.has(action.id),
+  ) || null
+}
+
+export function buildRecoveryObservationPayload(operation = {}) {
+  const normalized = {
+    id: String(operation.id || '').trim(),
+    version: Number(operation.version || 0),
+    lastEventChecksum: String(operation.lastEventChecksum || '').trim(),
+  }
+  if (!normalized.id || !Number.isInteger(normalized.version) || normalized.version <= 0 || !normalized.lastEventChecksum) {
+    throw new Error('Operation version과 checksum이 있어야 recovery를 다시 관찰할 수 있습니다.')
+  }
+  return {
+    expected_version: normalized.version,
+    expected_checksum: normalized.lastEventChecksum,
+    idempotency_key: stableRecoveryObservationKey(normalized),
+  }
 }
 
 export function createOperationRequestGuard() {

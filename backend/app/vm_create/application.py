@@ -7,8 +7,9 @@ sequence. HTTP concerns stay in ``app.api.v1.vm_create_compat``.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from dataclasses import dataclass
+import re
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.auth.roles import AuthenticatedUser, actor_detail_fields, actor_evidence
@@ -18,16 +19,21 @@ from app.db.vm_runtime import (
     get_vm_create_request_record,
     get_vm_instance_record,
     record_vm_create_request,
-    record_vm_instance_from_create,
 )
 from app.jobs.runs import record_job_run, run_dir
-from app.operations.core.domain import OperationIntentConflict, OperationStateConflict
-from app.operations.target_lock import (
-    TargetOperationLockBusy,
-    acquire_target_operation_lock,
-    release_target_operation_lock,
+from app.operations.core.domain import (
+    OperationActor,
+    OperationIntentConflict,
+    OperationStateConflict,
 )
+from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+from app.operations.recovery.domain import PRE_DISPATCH_RECOVERY_CONTRACT
+from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
+from app.operations.target_lock import TargetOperationLockBusy, acquire_target_operation_lock, get_target_operation_lock, release_target_operation_lock
+from app.operations.vm_create.recovery import VmCreateRecoveryError, VmCreateRecoverySession
+from app.operations.vm_create.recovery_adapters import SqlAlchemyVmCreateRecoveryProjection
 from app.operations.vm_create.domain import vm_create_plan_intent
+from app.operations.vm_create.domain import compact_create_result
 from app.operations.vm_create.facade import (
     prepare_vm_create_operation,
     record_vm_create_approval,
@@ -35,14 +41,15 @@ from app.operations.vm_create.facade import (
     record_vm_create_dispatch_prepared,
     record_vm_create_guard_blocked,
     record_vm_create_preview,
-    record_vm_create_result,
-    record_vm_create_succeeded,
     vm_create_operation_link,
 )
-from app.proxmox.client import ProxmoxMutationError
 from app.vm_create.approval import validate_approval_request
+from app.operations.vm_create.domain import completed_workload_history
 from app.vm_create.drafts import build_default_vm_draft
-from app.vm_create.planner import build_vm_create_plan
+from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id
+from app.vm_create.planner import calculate_vm_create_plan
+from app.vm_create.plan_persistence import persist_vm_create_plan
+from app.workloads.inventory import WorkloadInventoryQuery, WorkloadInventoryUnavailableError
 from app.vm_create.preflight import run_preflight
 from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
 
@@ -71,6 +78,18 @@ def _details_with_actor(
     payload = dict(details or {})
     payload.update(actor_detail_fields(actor))
     return payload
+
+
+def _profiles_for_payload(payload):
+    payload = payload or {}
+    mode = payload.get("creation_mode", "profile")
+    if mode not in ("template", "profile"):
+        raise VmCreateApplicationError(422, {"code": "INVALID_CREATE_MODE", "message": "Unknown creation mode", "side_effects": []})
+    if mode == "template":
+        if payload.get("profile_id") or payload.get("profileId"):
+            raise VmCreateApplicationError(422, {"code": "AMBIGUOUS_CREATE_MODE", "message": "Template input cannot also select a profile", "side_effects": []})
+        return {}
+    return get_active_create_vm_profiles_by_id()
 
 
 def build_draft_from_payload(
@@ -104,12 +123,44 @@ def build_draft_from_payload(
                 return access_payload.get(key)
         return None
 
-    proposed_vmid = (
-        inventory_adapter.suggest_next_vmid()
-        if hasattr(inventory_adapter, "suggest_next_vmid")
-        else None
-    )
-    return build_default_vm_draft(
+    requested_vmid = payload.get("vmid")
+    if requested_vmid is not None:
+        if isinstance(requested_vmid, bool) or not re.fullmatch(r"[0-9]+", str(requested_vmid)):
+            raise VmCreateApplicationError(422, {"code": "INVALID_VM_ID", "message": "VMID must be an integer"})
+        proposed_vmid = int(requested_vmid)
+        if not 100 <= proposed_vmid <= 999999999:
+            raise VmCreateApplicationError(422, {"code": "INVALID_VM_ID", "message": "VMID must be between 100 and 999999999"})
+    else:
+        proposed_vmid = inventory_adapter.suggest_next_vmid() if hasattr(inventory_adapter, "suggest_next_vmid") else None
+    vm_name = payload.get("vm_name")
+    if vm_name is not None and (not isinstance(vm_name, str) or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", vm_name)):
+        raise VmCreateApplicationError(422, {"code": "INVALID_VM_NAME", "message": "VM name must be a hostname of 1 to 63 characters"})
+    profiles = _profiles_for_payload(payload)
+    template = None
+    if payload.get("creation_mode") == "template":
+        template = next((item for item in inventory_adapter.list_templates()
+                         if str(item.vmid) == str(payload.get("template_vmid"))
+                         and item.node_id == payload.get("template_node_id")), None)
+        if template is None:
+            raise VmCreateApplicationError(422, {
+                "code": "CREATE_TEMPLATE_UNAVAILABLE", "message": "Select an available template node and VMID", "side_effects": [],
+            })
+        if payload.get("template_id") and payload["template_id"] != template.template_id:
+            raise VmCreateApplicationError(422, {
+                "code": "CREATE_TEMPLATE_ID_MISMATCH", "message": "Template identifiers do not match", "side_effects": [],
+            })
+        aliases = {"memory_mb": "memoryMb", "disk_gb": "diskGb"}
+        hardware_payload = {
+            key: hardware_payload.get(key, hardware_payload.get(aliases.get(key), getattr(template, key)))
+            for key in ("cpu", "memory_mb", "disk_gb")
+        }
+        if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in hardware_payload.values()):
+            raise VmCreateApplicationError(422, {
+                "code": "INVALID_CREATE_HARDWARE", "message": "CPU, memory and disk must be positive integers", "side_effects": [],
+            })
+    draft = build_default_vm_draft(
+        profiles=profiles,
+        template=template,
         operator_id=str(payload.get("operator_id", "api-preview")),
         job_id=str(payload.get("job_id", draft_id)),
         profile_id=payload.get("profile_id") or payload.get("profileId"),
@@ -138,6 +189,8 @@ def build_draft_from_payload(
         power_policy=payload.get("power_policy") or payload.get("powerPolicy"),
     )
 
+    return replace(draft, vm_name=vm_name) if vm_name is not None else draft
+
 
 def preview_run_dir(job_id: str):
     return run_dir(job_id)
@@ -150,20 +203,43 @@ def build_preview_plan(
     inventory_adapter: Any,
 ):
     draft = build_draft_from_payload(draft_id, payload, inventory_adapter=inventory_adapter)
-    preflight = run_preflight(draft, inventory_adapter=inventory_adapter)
-    return build_vm_create_plan(draft, preflight, run_dir=preview_run_dir(draft.job_id))
+    preflight = run_preflight(draft, profiles=_profiles_for_payload(payload), inventory_adapter=inventory_adapter)
+    return persist_vm_create_plan(calculate_vm_create_plan(draft, preflight), run_dir=preview_run_dir(draft.job_id))
+
+
+def _validate_fresh_create_state(plan, payload, inventory_adapter) -> None:
+    """Recheck the approved target without overwriting its persisted evidence."""
+    try:
+        fresh = WorkloadInventoryQuery(inventory_adapter).require_create_adapter(fresh=True)
+    except WorkloadInventoryUnavailableError as exc:
+        raise VmCreateApplicationError(503, exc.to_detail()) from exc
+    try:
+        draft = build_draft_from_payload(plan.draft_id, payload, inventory_adapter=fresh)
+    except VmCreateApplicationError as exc:
+        raise VmCreateApplicationError(409, {
+            "code": "PROXMOX_CREATE_STATE_CHANGED", "message": "Create conditions changed; review a new plan", "side_effects": [],
+        }) from exc
+    # VMID belongs to the approved plan, not a new suggestion from fresh inventory.
+    draft = replace(draft, proposed_vmid=plan.vmid)
+    preflight = run_preflight(
+        draft, profiles=_profiles_for_payload(payload), inventory_adapter=fresh,
+    )
+    calculated = calculate_vm_create_plan(draft, preflight)
+    approved = {**plan.to_dict(), **plan.review_confirm}
+    if preflight.risk_level == "red" or any(
+        approved.get(key) != value for key, value in calculated.core.items()
+    ):
+        raise VmCreateApplicationError(409, {
+            "code": "PROXMOX_CREATE_STATE_CHANGED",
+            "message": "Proxmox conditions changed; review and approve a new Create VM plan",
+            "side_effects": [],
+        })
 
 
 def _native_error_summary(result: dict[str, Any] | None, fallback: str) -> str:
     if isinstance(result, dict):
-        message = str(result.get("message") or "").strip()
-        if message:
-            return message[:1000]
-        task = result.get("task") if isinstance(result.get("task"), dict) else {}
-        exitstatus = str(task.get("exitstatus") or "").strip()
-        if exitstatus:
-            return f"Proxmox task exitstatus: {exitstatus}"[:1000]
-    return str(fallback or "Native Proxmox create failed")[:1000]
+        return compact_create_result(result)["message"]
+    return "Native Proxmox create did not establish a verified result."
 
 
 def _vm_create_operation_conflict(
@@ -240,20 +316,12 @@ def _public_vm_create_request(record: dict[str, Any]) -> dict[str, Any]:
     return response
 
 
-def _vm_instance_from_existing_result(plan: Any, existing: dict[str, Any]) -> dict[str, Any]:
-    stored = get_vm_instance_record(plan.target_node_id, plan.vmid)
-    if stored is not None:
-        return stored
-    result = existing.get("result") if isinstance(existing.get("result"), dict) else {}
-    observed_after = result.get("observed_after") if isinstance(result.get("observed_after"), dict) else {}
-    return {
-        "vm_instance_id": f"{plan.target_node_id}:{int(plan.vmid)}",
-        "node_id": plan.target_node_id,
-        "vmid": int(plan.vmid),
-        "name": plan.vm_name,
-        "status": str(observed_after.get("status") or "not_recorded"),
-        "updated_at": existing.get("updated_at", ""),
-    }
+def _vm_instance_from_existing_result(plan: Any) -> dict[str, Any] | None:
+    operation = SqlAlchemyOperationStore().get(plan.job_id)
+    if operation is not None and operation.status == "succeeded":
+        return completed_workload_history(operation, node_id=plan.target_node_id, vmid=plan.vmid)
+    # Only legacy compatibility adoption still needs exact current linkage.
+    return get_vm_instance_record(plan.target_node_id, plan.vmid, create_job_id=plan.job_id)
 
 
 def _raise_vm_create_idempotency_block(
@@ -339,7 +407,7 @@ def _idempotent_create_replay_result(
             "proxmox_mutation_ran_previously": True,
             "proxmox_create_status": str(result.get("status") or "completed"),
             "vm_create_request": _public_vm_create_request(existing),
-            "vm_instance": _vm_instance_from_existing_result(plan, existing),
+            "vm_instance": _vm_instance_from_existing_result(plan),
             "proxmox_create_enabled": True,
             "proxmox_mutation_enabled": False,
             "side_effects": [],
@@ -376,6 +444,29 @@ def _existing_vm_create_result_if_blocked(
 
         status = str(existing.get("status") or "").strip()
         result = existing.get("result") if isinstance(existing.get("result"), dict) else {}
+        persisted_operation = SqlAlchemyOperationStore().get(plan.job_id)
+        if persisted_operation is not None and persisted_operation.status in {
+            "dispatching",
+            "running",
+            "verifying",
+            "needs_reconciliation",
+        }:
+            requires_reconciliation = persisted_operation.status == "needs_reconciliation"
+            _raise_vm_create_idempotency_block(
+                draft_id=draft_id,
+                existing=existing,
+                code=(
+                    "PROXMOX_CREATE_RECONCILIATION_REQUIRED"
+                    if requires_reconciliation
+                    else "PROXMOX_CREATE_TARGET_IN_PROGRESS"
+                ),
+                message=(
+                    "existing Create VM execution requires reconciliation before retry"
+                    if requires_reconciliation
+                    else "existing Create VM execution is awaiting local recovery completion"
+                ),
+                preview=preview,
+            )
         if status == "completed" and result.get("success") is True and result.get("observed_after_artifact"):
             return _idempotent_create_replay_result(
                 plan=plan,
@@ -419,6 +510,22 @@ def _existing_vm_create_result_if_blocked(
         return None
 
     target_status = str(existing_target.get("status") or "").strip()
+    target_operation = SqlAlchemyOperationStore().get(
+        str(existing_target.get("request_id") or "")
+    )
+    if (
+        target_status == "running"
+        and target_operation is not None
+        and target_operation.status == "needs_reconciliation"
+    ):
+        _raise_vm_create_target_block(
+            draft_id=draft_id,
+            plan=plan,
+            existing=existing_target,
+            code="PROXMOX_CREATE_RECONCILIATION_REQUIRED",
+            message="another Create VM request for this target requires reconciliation before reuse",
+            preview=preview,
+        )
     if target_status == "running":
         _raise_vm_create_target_block(
             draft_id=draft_id,
@@ -435,15 +542,6 @@ def _existing_vm_create_result_if_blocked(
             existing=existing_target,
             code="PROXMOX_CREATE_RECONCILIATION_REQUIRED",
             message="another Create VM request for this target requires reconciliation before reuse",
-            preview=preview,
-        )
-    if target_status == "completed":
-        _raise_vm_create_target_block(
-            draft_id=draft_id,
-            plan=plan,
-            existing=existing_target,
-            code="PROXMOX_CREATE_TARGET_CONFLICT",
-            message="this Proxmox VM target is already owned by a completed Create VM request",
             preview=preview,
         )
 
@@ -472,6 +570,65 @@ def _target_lock_busy_detail(
         "lock": lock,
         "side_effects": [],
     }
+
+
+def _recover_owned_pre_dispatch_lock_if_safe(
+    *,
+    operation: Any,
+    plan: Any,
+    decision: Any,
+    preview: dict[str, Any],
+    actor: AuthenticatedUser | dict | None,
+    actor_payload: dict[str, Any],
+) -> Any | None:
+    """Adopt only the provable no-item/no-request post-acquire crash window."""
+
+    if operation.status != "approved":
+        return None
+    if (
+        not isinstance(operation.details, Mapping)
+        or operation.details.get("recovery_contract") != PRE_DISPATCH_RECOVERY_CONTRACT
+    ):
+        return None
+    if get_vm_create_request_record(plan.job_id) is not None:
+        return None
+    recovery_store = SqlAlchemyRecoveryStore()
+    if recovery_store.get(plan.job_id) is not None:
+        return None
+    target_id = f"vmid:{int(plan.vmid)}"
+    target_lock = get_target_operation_lock("proxmox_vm", target_id)
+    if not isinstance(target_lock, dict) or str(target_lock.get("owner_id") or "") != plan.job_id:
+        return None
+    durable = target_lock.get("durable") if isinstance(target_lock.get("durable"), dict) else {}
+    if str(durable.get("operation_type") or "") != "vm_create":
+        return None
+
+    session = VmCreateRecoverySession.prepare(
+        recovery=recovery_store,
+        operations=SqlAlchemyOperationStore(),
+        operation=operation,
+        plan=plan,
+        preview=preview,
+        target_lock=target_lock,
+        actor=OperationActor.from_mapping(actor_payload),
+        lease_owner=f"foreground:vm-create-orphan:{plan.job_id}",
+        lease_seconds=60,
+    )
+    return session.complete_pre_dispatch_failure(
+        code="PROXMOX_CREATE_ORPHANED_PRE_DISPATCH_LOCK",
+        message="Recovered an owned target lock with no request, recovery item, or dispatched mutation",
+        record_compatibility_failure=lambda: _record_pre_dispatch_failure_projections(
+            plan,
+            decision=decision,
+            preview=preview,
+            target_lock=target_lock,
+            code="PROXMOX_CREATE_ORPHANED_PRE_DISPATCH_LOCK",
+            message="Recovered an owned target lock before any Proxmox mutation",
+            actor=actor,
+            actor_payload=actor_payload,
+        ),
+
+    )
 
 
 def _is_clear_clone_rejection(create_result: dict[str, Any]) -> bool:
@@ -607,6 +764,55 @@ def _artifacts_from_result(result: dict[str, Any]) -> list[Any]:
     return [artifact for artifact in result.get("artifacts") or [] if isinstance(artifact, dict)]
 
 
+def _record_pre_dispatch_failure_projections(
+    plan: Any,
+    *,
+    decision: Any,
+    preview: dict[str, Any],
+    target_lock: dict[str, Any],
+    code: str,
+    message: str,
+    error_type: str = "",
+    actor: AuthenticatedUser | dict | None,
+    actor_payload: dict[str, Any],
+) -> None:
+    result = {
+        "success": False,
+        "status": "failed",
+        "message": str(message)[:1000],
+        "code": str(code),
+        "error_type": str(error_type)[:200],
+        "external_effect": False,
+        "side_effects": [],
+        "target_lock": target_lock,
+    }
+    record_vm_create_request(
+        plan,
+        status="failed",
+        approval=decision.to_dict(),
+        result=result,
+        actor=actor_payload,
+    )
+    _record_plan_job(
+        plan,
+        status="failed",
+        stage="create",
+        step_status="failed",
+        message="Proxmox mutation 전에 Create VM 로컬 준비가 종료되었습니다.",
+        artifacts=[*plan.artifacts, *_artifacts_from_result(preview)],
+        details=_details_with_actor(
+            {
+                "approval": decision.to_dict(),
+                "proxmox_preview": preview,
+                "target_lock": target_lock,
+                "failure": result,
+            },
+            actor,
+        ),
+        actor=actor_payload,
+    )
+
+
 async def create_draft(
     payload: dict | None,
     *,
@@ -637,7 +843,9 @@ async def preflight_draft(
     inventory_adapter: Any,
 ) -> VmCreateApplicationResult:
     draft = build_draft_from_payload(draft_id, payload, inventory_adapter=inventory_adapter)
-    result = run_preflight(draft, inventory_adapter=inventory_adapter)
+    result = await asyncio.to_thread(
+        run_preflight, draft, profiles=_profiles_for_payload(payload), inventory_adapter=inventory_adapter,
+    )
     _record_preflight_job(
         draft,
         result,
@@ -661,8 +869,10 @@ async def plan_draft(
     inventory_adapter: Any,
 ) -> VmCreateApplicationResult:
     draft = build_draft_from_payload(draft_id, payload, inventory_adapter=inventory_adapter)
-    preflight = run_preflight(draft, inventory_adapter=inventory_adapter)
-    plan = build_vm_create_plan(draft, preflight, run_dir=preview_run_dir(draft.job_id))
+    preflight = await asyncio.to_thread(
+        run_preflight, draft, profiles=_profiles_for_payload(payload), inventory_adapter=inventory_adapter,
+    )
+    plan = persist_vm_create_plan(calculate_vm_create_plan(draft, preflight), run_dir=preview_run_dir(draft.job_id))
     operation = _prepare_vm_create_operation(plan, actor=actor)
     _record_plan_job(
         plan,
@@ -673,7 +883,7 @@ async def plan_draft(
         actor=actor,
     )
     return VmCreateApplicationResult(
-        _with_vm_create_operation(plan.to_dict(), operation),
+        _with_vm_create_operation({**plan.to_dict(), "preflight": preflight.to_dict()}, operation),
         "dry_run_plan_only",
     )
 
@@ -686,7 +896,7 @@ async def approve_draft(
     inventory_adapter: Any,
 ) -> VmCreateApplicationResult:
     payload = payload or {}
-    plan = build_preview_plan(draft_id, payload, inventory_adapter=inventory_adapter)
+    plan = await asyncio.to_thread(build_preview_plan, draft_id, payload, inventory_adapter=inventory_adapter)
     decision = validate_approval_request(
         plan,
         plan_artifact_id=str(payload.get("plan_artifact_id", "")),
@@ -723,7 +933,7 @@ async def preview_proxmox_create(
     inventory_adapter: Any,
 ) -> VmCreateApplicationResult:
     payload = payload or {}
-    plan = build_preview_plan(draft_id, payload, inventory_adapter=inventory_adapter)
+    plan = await asyncio.to_thread(build_preview_plan, draft_id, payload, inventory_adapter=inventory_adapter)
     decision = validate_approval_request(
         plan,
         plan_artifact_id=str(payload.get("plan_artifact_id", "")),
@@ -792,7 +1002,7 @@ async def execute_proxmox_create(
 ) -> VmCreateApplicationResult:
     payload = payload or {}
     actor_payload = actor_evidence(actor) if actor is not None else {}
-    plan = build_preview_plan(draft_id, payload, inventory_adapter=inventory_adapter)
+    plan = await asyncio.to_thread(build_preview_plan, draft_id, payload, inventory_adapter=inventory_adapter)
     decision = validate_approval_request(
         plan,
         plan_artifact_id=str(payload.get("plan_artifact_id", "")),
@@ -857,7 +1067,7 @@ async def execute_proxmox_create(
         raise
     if existing_result is not None:
         existing_data = dict(existing_result.data)
-        stored_workload = get_vm_instance_record(plan.target_node_id, plan.vmid)
+        stored_workload = existing_data.get("vm_instance")
         if stored_workload is None:
             operation = record_vm_create_guard_blocked(
                 plan.job_id,
@@ -868,6 +1078,18 @@ async def execute_proxmox_create(
                     "request_id": plan.job_id,
                 },
                 actor=actor,
+            )
+            raise VmCreateApplicationError(
+                409,
+                {
+                    "code": "PROXMOX_CREATE_RECONCILIATION_REQUIRED",
+                    "message": "completed Create VM evidence is missing its persisted workload projection",
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "request_id": plan.job_id,
+                    "side_effects": [],
+                },
             )
         else:
             try:
@@ -895,6 +1117,39 @@ async def execute_proxmox_create(
             operation_type="vm_create",
         )
     except TargetOperationLockBusy as exc:
+        try:
+            recovered_operation = _recover_owned_pre_dispatch_lock_if_safe(
+                operation=operation,
+                plan=plan,
+                decision=decision,
+                preview=preview,
+                actor=actor,
+                actor_payload=actor_payload,
+            )
+        except Exception as recovery_exc:
+            raise VmCreateApplicationError(
+                503,
+                {
+                    "code": "PROXMOX_CREATE_ORPHAN_RECOVERY_FAILED",
+                    "message": "An owned pre-dispatch Create VM lock was found but could not be safely closed",
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "side_effects": [],
+                },
+            ) from recovery_exc
+        if recovered_operation is not None:
+            raise VmCreateApplicationError(
+                503,
+                {
+                    "code": "PROXMOX_CREATE_ORPHANED_PRE_DISPATCH_LOCK_RECOVERED",
+                    "message": "A previous no-effect Create VM lock was closed; submit a newly planned operation to execute",
+                    "draft_id": draft_id,
+                    "operation_id": recovered_operation.operation_id,
+                    "operation_status": recovered_operation.status,
+                    "side_effects": [],
+                },
+            ) from exc
         detail = _target_lock_busy_detail(exc, target_id=target_id, owner_id=owner_id)
         record_vm_create_guard_blocked(plan.job_id, detail, actor=actor)
         raise VmCreateApplicationError(
@@ -902,116 +1157,373 @@ async def execute_proxmox_create(
             {**detail, "operation_id": plan.job_id},
         ) from exc
 
-    retain_target_lock = False
+    recovery_session: VmCreateRecoverySession | None = None
     try:
         target_lock_evidence = (
             target_lock.to_dict()
             if hasattr(target_lock, "to_dict")
             else {"handle": str(target_lock)}
         )
-        record_vm_create_request(
-            plan,
-            status="running",
-            approval=decision.to_dict(),
-            result={"proxmox_preview": preview, "target_lock": target_lock_evidence},
-            actor=actor_payload,
-        )
-
-        _record_plan_job(
-            plan,
-            status="running",
-            stage="create",
-            step_status="running",
-            message="Proxmox native VM 생성 작업을 시작했습니다.",
-            artifacts=[*plan.artifacts, *_artifacts_from_result(preview)],
-            details=_details_with_actor(
+        try:
+            recovery_session = VmCreateRecoverySession.prepare(
+                recovery=SqlAlchemyRecoveryStore(),
+                operations=SqlAlchemyOperationStore(),
+                operation=operation,
+                plan=plan,
+                preview=preview,
+                target_lock=target_lock_evidence,
+                actor=OperationActor.from_mapping(actor_payload),
+                lease_owner=f"foreground:vm-create:{plan.job_id}",
+                lease_seconds=60,
+            )
+        except Exception as exc:
+            code = (
+                exc.code
+                if isinstance(exc, VmCreateRecoveryError)
+                else "PROXMOX_CREATE_RECOVERY_UNAVAILABLE"
+            )
+            raise VmCreateApplicationError(
+                503,
                 {
-                    "approval": decision.to_dict(),
-                    "proxmox_preview": preview,
-                    "target_lock": target_lock_evidence,
+                    "code": code,
+                    "message": "Create VM durable recovery could not be prepared; no Proxmox mutation was dispatched",
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "side_effects": [],
                 },
-                actor_payload,
-            ),
-        )
+            ) from exc
+
+
 
         try:
+            record_vm_create_request(
+                plan,
+                status="running",
+                approval=decision.to_dict(),
+                result={"proxmox_preview": preview, "target_lock": target_lock_evidence},
+                actor=actor_payload,
+            )
+
+            _record_plan_job(
+                plan,
+                status="running",
+                stage="create",
+                step_status="running",
+                message="Proxmox native VM 생성 작업을 시작했습니다.",
+                artifacts=[*plan.artifacts, *_artifacts_from_result(preview)],
+                details=_details_with_actor(
+                    {
+                        "approval": decision.to_dict(),
+                        "proxmox_preview": preview,
+                        "target_lock": target_lock_evidence,
+                    },
+                    actor_payload,
+                ),
+            )
+
             operation = record_vm_create_dispatch_prepared(
                 plan.job_id,
                 preview=preview,
                 target_lock=target_lock_evidence,
                 actor=actor,
             )
-        except OperationStateConflict as exc:
-            raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
+            recovery_session.bind_operation(operation)
+            recovery_session.checkpoint(
+                "dispatch_prepared",
+                {
+                    "clone_endpoint": str(dict(preview.get("clone") or {}).get("endpoint") or ""),
+                    "mutation_dispatched": False,
+                },
+                event_type="vm_create_recovery_armed",
+            )
+            recovery_session.heartbeat()
+            await asyncio.to_thread(_validate_fresh_create_state, plan, payload, inventory_adapter)
+            recovery_session.heartbeat()
+            client = mutation_client_factory()
+        except Exception as exc:
+            code = (
+                exc.detail.get("code", "PROXMOX_CREATE_PRE_DISPATCH_FAILED")
+                if isinstance(exc, VmCreateApplicationError)
+                else "PROXMOX_CREATE_PRE_DISPATCH_FAILED"
+            )
+            failure_message = (
+                exc.detail.get("message", "Create VM pre-dispatch validation failed")
+                if isinstance(exc, VmCreateApplicationError)
+                else "Create VM local coordination failed before mutation dispatch"
+            )
+            error_type = type(exc).__name__
+            try:
+                operation = recovery_session.complete_pre_dispatch_failure(
+                    code=str(code),
+                    message=failure_message,
+                    error_type=error_type,
+                    record_compatibility_failure=lambda: _record_pre_dispatch_failure_projections(
+                        plan,
+                        decision=decision,
+                        preview=preview,
+                        target_lock=target_lock_evidence,
+                        code=str(code),
+                        message=failure_message,
+                        error_type=error_type,
+                        actor=actor,
+                        actor_payload=actor_payload,
+                    ),
+
+                )
+            except Exception as recovery_exc:
+                raise VmCreateApplicationError(
+                    503,
+                    {
+                        "code": "PROXMOX_CREATE_RECOVERY_PERSISTENCE_FAILED",
+                        "message": "Create VM pre-dispatch failure could not be durably closed",
+                        "draft_id": draft_id,
+                        "operation_id": operation.operation_id,
+                        "operation_status": operation.status,
+                        "side_effects": [],
+                    },
+                ) from recovery_exc
+            raise VmCreateApplicationError(
+                exc.status_code if isinstance(exc, VmCreateApplicationError) else 503,
+                {
+                    "code": code,
+                    "message": failure_message,
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "side_effects": [],
+                },
+            ) from exc
 
         try:
-            client = mutation_client_factory()
-            retain_target_lock = True
             create_result = redact_secrets(
                 await asyncio.to_thread(
                     run_proxmox_create,
                     plan,
                     run_dir=preview_run_dir(plan.job_id),
                     client=client,
+                    checkpoint=recovery_session.checkpoint,
+                    heartbeat=recovery_session.heartbeat,
                 )
             )
-        except ProxmoxMutationError as exc:
-            create_result = {
-                "success": False,
-                "status": "failed",
-                "message": str(exc),
-                "side_effects": [],
-            }
+        except Exception as exc:
+            if recovery_session.phase == "dispatch_prepared":
+                failure_message = "Create VM execution stopped before clone mutation dispatch"
+                error_type = type(exc).__name__
+                try:
+                    operation = recovery_session.complete_pre_dispatch_failure(
+                        code="PROXMOX_CREATE_MUTATION_NOT_DISPATCHED",
+                        message=failure_message,
+                        error_type=error_type,
+                        record_compatibility_failure=lambda: _record_pre_dispatch_failure_projections(
+                            plan,
+                            decision=decision,
+                            preview=preview,
+                            target_lock=target_lock_evidence,
+                            code="PROXMOX_CREATE_MUTATION_NOT_DISPATCHED",
+                            message=failure_message,
+                            error_type=error_type,
+                            actor=actor,
+                            actor_payload=actor_payload,
+                        ),
+
+                    )
+                except Exception as recovery_exc:
+                    raise VmCreateApplicationError(
+                        503,
+                        {
+                            "code": "PROXMOX_CREATE_RECOVERY_PERSISTENCE_FAILED",
+                            "message": "Create VM execution preparation failed and could not be durably closed",
+                            "draft_id": draft_id,
+                            "operation_id": operation.operation_id,
+                            "operation_status": operation.status,
+                            "side_effects": [],
+                        },
+                    ) from recovery_exc
+                raise VmCreateApplicationError(
+                    503,
+                    {
+                        "code": "PROXMOX_CREATE_MUTATION_NOT_DISPATCHED",
+                        "message": "Create VM stopped before the clone mutation was dispatched",
+                        "draft_id": draft_id,
+                        "operation_id": operation.operation_id,
+                        "operation_status": operation.status,
+                        "side_effects": [],
+                    },
+                ) from exc
+
+            try:
+                operation = recovery_session.pause_for_reconciliation(
+                    code="PROXMOX_CREATE_EXECUTION_INTERRUPTED",
+                    message="Create VM execution was interrupted after a possible external effect",
+                    evidence={
+                        "last_durable_phase": recovery_session.phase,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+            except Exception as recovery_exc:
+                raise VmCreateApplicationError(
+                    503,
+                    {
+                        "code": "PROXMOX_CREATE_RECOVERY_PERSISTENCE_FAILED",
+                        "message": "Create VM may have changed Proxmox, but reconciliation evidence could not be persisted",
+                        "draft_id": draft_id,
+                        "operation_id": operation.operation_id,
+                        "operation_status": operation.status,
+                        "side_effects": [],
+                    },
+                ) from recovery_exc
+            raise VmCreateApplicationError(
+                503,
+                {
+                    "code": "PROXMOX_CREATE_EXECUTION_INTERRUPTED",
+                    "message": "Create VM execution stopped after a possible external effect; mutation will not be retried automatically",
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "side_effects": [],
+                    "last_durable_phase": recovery_session.phase,
+                },
+            ) from exc
 
         if create_result.get("success") is not True or not create_result.get("observed_after_artifact"):
-            side_effect_free_failure = not retain_target_lock or _is_clear_clone_rejection(create_result)
+            side_effect_free_failure = _is_clear_clone_rejection(create_result)
             if create_result.get("status") == "needs_reconciliation":
                 phase = "needs_reconciliation"
             elif side_effect_free_failure:
                 phase = "failed"
             else:
                 phase = "apply_failed"
-            try:
-                operation = record_vm_create_result(
-                    plan.job_id,
-                    create_result,
-                    side_effect_free_failure=side_effect_free_failure,
-                    actor=actor,
-                )
-            except OperationStateConflict as exc:
-                raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
-            record_vm_create_request(
-                plan,
-                status=phase,
-                approval=decision.to_dict(),
-                result=create_result,
-                actor=actor_payload,
-            )
-            _record_plan_job(
-                plan,
-                status="failed",
-                stage="create",
-                step_status=phase,
-                message=(
-                    "Proxmox native VM 생성 확인이 실패했습니다: "
-                    f"{_native_error_summary(create_result, '')}"
-                ),
-                artifacts=[
-                    *plan.artifacts,
-                    *_artifacts_from_result(preview),
-                    *_artifacts_from_result(create_result),
-                ],
-                details=_details_with_actor(
-                    {
-                        "proxmox_preview": preview,
-                        "proxmox_create": create_result,
-                        "target_lock": target_lock_evidence,
-                    },
-                    actor_payload,
-                ),
-            )
             if side_effect_free_failure:
-                retain_target_lock = False
+                try:
+                    record_vm_create_request(
+                        plan,
+                        status=phase,
+                        approval=decision.to_dict(),
+                        result=create_result,
+                        actor=actor_payload,
+                    )
+                    _record_plan_job(
+                        plan,
+                        status="failed",
+                        stage="create",
+                        step_status=phase,
+                        message=(
+                            "Proxmox native VM 생성 확인이 실패했습니다: "
+                            f"{_native_error_summary(create_result, '')}"
+                        ),
+                        artifacts=[
+                            *plan.artifacts,
+                            *_artifacts_from_result(preview),
+                            *_artifacts_from_result(create_result),
+                        ],
+                        details=_details_with_actor(
+                            {
+                                "proxmox_preview": preview,
+                                "proxmox_create": create_result,
+                                "target_lock": target_lock_evidence,
+                            },
+                            actor_payload,
+                        ),
+                    )
+                    operation = recovery_session.complete_clear_failure(
+                        result=create_result,
+
+                    )
+                except Exception as exc:
+                    if recovery_session.lease.item.status == "leased":
+                        try:
+                            operation = recovery_session.checkpoint(
+                                "clone_rejection_completion_pending",
+                                {
+                                    "result_status": phase,
+                                    "external_effect": False,
+                                    "error_type": type(exc).__name__,
+                                },
+                                stage="reconciliation",
+                                event_type="vm_create_clear_rejection_completion_deferred",
+                                recovery_status="retry_wait",
+                                error_code="PROXMOX_CREATE_RECOVERY_PROJECTION_FAILED",
+                                recovery_details_patch={"clear_rejection": True},
+                            )
+                        except Exception:
+                            pass
+                    raise VmCreateApplicationError(
+                        503,
+                        {
+                            "code": "PROXMOX_CREATE_PROJECTION_FAILED",
+                            "message": "Create VM rejection was observed, but its local evidence could not be closed",
+                            "draft_id": draft_id,
+                            "operation_id": operation.operation_id,
+                            "operation_status": operation.status,
+                            "side_effects": list(create_result.get("side_effects") or []),
+                        },
+                    ) from exc
+            else:
+                try:
+                    operation = recovery_session.pause_for_reconciliation(
+                        code="PROXMOX_CREATE_NEEDS_RECONCILIATION",
+                        message=_native_error_summary(create_result, "native Proxmox create requires reconciliation"),
+                        evidence={
+                            "last_durable_phase": recovery_session.phase,
+                            "result": create_result,
+                        },
+                    )
+                except Exception as exc:
+                    raise VmCreateApplicationError(
+                        503,
+                        {
+                            "code": "PROXMOX_CREATE_RECOVERY_PERSISTENCE_FAILED",
+                            "message": "Create VM result requires reconciliation, but its durable evidence could not be persisted",
+                            "draft_id": draft_id,
+                            "operation_id": operation.operation_id,
+                            "operation_status": operation.status,
+                            "side_effects": list(create_result.get("side_effects") or []),
+                        },
+                    ) from exc
+                try:
+                    record_vm_create_request(
+                        plan,
+                        status=phase,
+                        approval=decision.to_dict(),
+                        result=create_result,
+                        actor=actor_payload,
+                    )
+                    _record_plan_job(
+                        plan,
+                        status="failed",
+                        stage="create",
+                        step_status=phase,
+                        message=(
+                            "Proxmox native VM 생성 확인이 실패했습니다: "
+                            f"{_native_error_summary(create_result, '')}"
+                        ),
+                        artifacts=[
+                            *plan.artifacts,
+                            *_artifacts_from_result(preview),
+                            *_artifacts_from_result(create_result),
+                        ],
+                        details=_details_with_actor(
+                            {
+                                "proxmox_preview": preview,
+                                "proxmox_create": create_result,
+                                "target_lock": target_lock_evidence,
+                            },
+                            actor_payload,
+                        ),
+                    )
+                except Exception as exc:
+                    raise VmCreateApplicationError(
+                        503,
+                        {
+                            "code": "PROXMOX_CREATE_PROJECTION_FAILED",
+                            "message": "Create VM reconciliation evidence is durable, but a compatibility projection failed",
+                            "draft_id": draft_id,
+                            "operation_id": operation.operation_id,
+                            "operation_status": operation.status,
+                            "side_effects": list(create_result.get("side_effects") or []),
+                        },
+                    ) from exc
             raise VmCreateApplicationError(
                 409,
                 {
@@ -1034,53 +1546,80 @@ async def execute_proxmox_create(
             )
 
         try:
-            operation = record_vm_create_result(
-                plan.job_id,
-                create_result,
-                side_effect_free_failure=False,
-                actor=actor,
-            )
-        except OperationStateConflict as exc:
-            raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
-        request_record = record_vm_create_request(
-            plan,
-            status="completed",
-            approval=decision.to_dict(),
-            result=create_result,
-            actor=actor_payload,
-        )
-        vm_instance = record_vm_instance_from_create(plan, create_result)
-        _record_plan_job(
-            plan,
-            status="completed",
-            stage="create",
-            step_status="completed",
-            message="Proxmox native VM 생성이 완료되었습니다.",
-            artifacts=[
-                *plan.artifacts,
-                *_artifacts_from_result(preview),
-                *_artifacts_from_result(create_result),
-            ],
-            details=_details_with_actor(
+            operation = recovery_session.record_success_observed(create_result)
+        except Exception as exc:
+            if recovery_session.lease.item.status == "leased":
+                try:
+                    operation = recovery_session.pause_for_reconciliation(
+                        code="PROXMOX_CREATE_SUCCESS_EVIDENCE_PERSISTENCE_FAILED",
+                        message="Create success evidence could not be durably checkpointed",
+                        evidence={
+                            "last_durable_phase": recovery_session.phase,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                except Exception:
+                    pass
+            raise VmCreateApplicationError(
+                503,
                 {
-                    "proxmox_preview": preview,
-                    "proxmox_create": create_result,
-                    "target_lock": target_lock_evidence,
+                    "code": "PROXMOX_CREATE_PROJECTION_FAILED",
+                    "message": "Proxmox Create was observed, but its success evidence could not be durably checkpointed",
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "side_effects": list(create_result.get("side_effects") or []),
                 },
-                actor_payload,
-            ),
-        )
+            ) from exc
+
         try:
-            operation = record_vm_create_succeeded(
-                plan.job_id,
+            projection = SqlAlchemyVmCreateRecoveryProjection()
+            operation = recovery_session.complete_success(
                 result=create_result,
-                request=request_record,
-                workload=vm_instance,
-                actor=actor,
+                project_compatibility=lambda transaction: (
+                    projection.record_verified_success_in_transaction(
+                        transaction,
+                        operation_id=plan.job_id,
+                        target={"node_id": plan.target_node_id, "vmid": plan.vmid},
+                        observed_after=dict(create_result.get("observed_after") or {}),
+                        observed_after_artifact=dict(
+                            create_result.get("observed_after_artifact") or {}
+                        ),
+                        completion_result=create_result,
+                        recovered_after_restart=False,
+                        job_details_patch=_details_with_actor(
+                            {
+                                "proxmox_preview": preview,
+                                "proxmox_create": create_result,
+                                "target_lock": target_lock_evidence,
+                            },
+                            actor_payload,
+                        ),
+                    )
+                ),
+
             )
-        except OperationStateConflict as exc:
-            raise _vm_create_operation_conflict(exc, draft_id=draft_id) from exc
-        retain_target_lock = False
+            request_record = dict(operation.details.get("vm_create_request") or {})
+            vm_instance = dict(operation.details.get("workload") or {})
+        except Exception as exc:
+            if recovery_session.lease.item.status == "leased":
+                try:
+                    operation = recovery_session.defer_verified_projection(
+                        error_type=type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+            raise VmCreateApplicationError(
+                503,
+                {
+                    "code": "PROXMOX_CREATE_PROJECTION_FAILED",
+                    "message": "Proxmox Create was observed, but terminal evidence or a compatibility projection could not be closed",
+                    "draft_id": draft_id,
+                    "operation_id": operation.operation_id,
+                    "operation_status": operation.status,
+                    "side_effects": list(create_result.get("side_effects") or []),
+                },
+            ) from exc
         return VmCreateApplicationResult(
             _with_vm_create_operation(
                 {
@@ -1101,5 +1640,5 @@ async def execute_proxmox_create(
             "proxmox_native_create_live_mutation",
         )
     finally:
-        if not retain_target_lock:
+        if recovery_session is None:
             release_target_operation_lock(target_lock)

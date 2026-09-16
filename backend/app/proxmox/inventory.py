@@ -106,7 +106,7 @@ def _source_availability(
         source=source,
         expected_targets=len(expected_targets),
         observed_targets=len(observed_targets),
-        failed_targets=tuple(failed_targets),
+        failed_targets=tuple(sorted(failed_targets)),
     )
 
 
@@ -1547,6 +1547,23 @@ class LiveProxmoxInventoryAdapter:
                 )
             ),
         )
+
+    def fresh_snapshot(self) -> InventorySnapshot:
+        """Collect without sharing snapshot/detail caches with concurrent readers."""
+        observer = LiveProxmoxInventoryAdapter(
+            api_url=self.api_url,
+            token_id=self.token_id,
+            token_secret=self.token_secret,
+            tls_insecure=self.tls_insecure,
+            request_get=self._request_get,
+            connect_timeout_seconds=self.connect_timeout_seconds,
+            read_timeout_seconds=self.read_timeout_seconds,
+            guest_agent_timeout_seconds=self.guest_agent_timeout_seconds,
+            cache_ttl_seconds=0,
+            detail_workers=self.detail_workers,
+            cluster_id=self.cluster_id,
+        )
+        return observer.snapshot()
 
     def snapshot(self) -> InventorySnapshot:
         now = time.time()

@@ -1,123 +1,47 @@
 # Gjallar Backend
 
-Gjallar의 FastAPI backend입니다. 현재 `/api/v1`과 local auth/admin API를 제공하고 PostgreSQL과 Proxmox VE API를 사용합니다.
+Gjallar의 FastAPI backend입니다. PostgreSQL에 사용자·작업·증거를 저장하고 Proxmox VE API로 인프라를 관찰하며 제한된 VM action을 실행합니다.
+
+- 현재 구현 확인일: `2026-09-07`
+- 기준 runtime: Python `3.13`, PostgreSQL, SQLAlchemy 2, psycopg 3
+- 전체 안내: [문서 홈](../project-docs/README.md)
 
 ## 현재 책임
 
-- local user, server-side session, `viewer < operator < admin` 권한
-- read-only Proxmox inventory와 normalization
-- Create VM draft/preflight/plan/approval/native create
-- VM Start, graceful VM Shutdown과 post-create readiness evidence
-- 공통 Operations 조회·evidence timeline과 Guided `qm unlock`
-- PostgreSQL durable target coordination과 opt-in VM Start/Shutdown observation recovery
-- DB-backed jobs, artifacts, risks
-- risk/readiness/capacity/placement의 observe-only Insights aggregate
-- production React SPA serving
+- local user/session과 `viewer < operator < admin` 권한
+- authoritative Proxmox inventory와 source별 partial observation
+- DB profile 기반 template clone, resize/config, 선택적 start와 생성 결과 검증
+- VM Start, graceful VM Shutdown, post-create readiness evidence
+- 공통 Operation·event timeline과 Guided `qm unlock`의 안내·attestation·API verification
+- durable target lock, fenced recovery lease와 네 action의 GET-only recovery
+- DB-backed Jobs/Artifacts/Risks와 observe-only Insights
+- production React SPA의 same-origin serving
 
-목표 backend 구조는 Workloads, Operations, Policy/Approval, Evidence/Audit, Insights domain을 사용하는 modular monolith입니다. Workloads/Operations 일부와 Insights read slice는 이 경계를 구현했지만 모든 기존 package/table이 전환된 것은 아닙니다.
+현재 Create VM은 기존 Proxmox template을 복제합니다. DB profile이 필요하며 draft/preflight/plan 단계에서도 Jobs/artifact를 기록합니다. template 우선 폼·profile 선택화·persistence 단순화는 [ADR-008의 후속 방향](../project-docs/decisions/adr-008-template-based-create-and-persistence-simplification.md)이고 아직 구현하지 않았습니다.
 
-- 현재 구조: [`../project-docs/architecture/overview.md`](../project-docs/architecture/overview.md)
-- 현재 API: [`../project-docs/api/current-api-v1.md`](../project-docs/api/current-api-v1.md)
-- DB 기준선: [`../project-docs/database/current-schema-and-ownership.md`](../project-docs/database/current-schema-and-ownership.md)
+partial snapshot은 읽기에 사용할 수 있지만 생성·시작·종료에는 complete `live`가 필요합니다. DB target lock은 서로 충돌하는 mutation을 막고 recovery lease는 관찰자의 처리 권한을 제한합니다. 전환 중인 파일 guard와 Create request/Jobs/workload projection도 여전히 병행합니다.
 
-## 로컬 준비
+Recovery handler는 `vm_start_observation`, `vm_shutdown_observation`, `vm_create_observation`, `guided_qm_unlock_observation`입니다. background runner는 기본 비활성, concurrency 1이며 operator-triggered observe와 같은 GET-only 경계를 사용합니다. 원래 Proxmox mutation·Guided 명령·보상 작업을 재실행하지 않습니다.
 
-저장소 root에서 실행합니다. `python3.13`이 다른 이름·경로에 설치됐다면 첫 명령의 실행 파일만 해당 Python 3.13 경로로 바꿉니다. 아래 migration 명령은 새 빈 로컬 DB 기준입니다. 기존 또는 production DB에는 `20260824_0029` hard-zero preflight와 별도 적용 승인 전 실행하지 말고, row가 있으면 삭제·강제 stamp하지 마십시오.
+## 코드와 계약 찾기
 
-```bash
-cp .env.example .env
-python3.13 -m venv backend/venv
-backend/venv/bin/pip install -r backend/requirements-dev.lock
-set -a
-. ./.env
-set +a
-PYTHONPATH=backend backend/venv/bin/alembic -c backend/alembic.ini upgrade head
-PYTHONPATH=backend backend/venv/bin/python -m app.db.seed_create_vm_profiles
-PYTHONPATH=backend backend/venv/bin/python -m app.auth.users create-admin --username admin
-```
+| 경로 | 책임 |
+|---|---|
+| `app/main.py` | FastAPI composition, lifespan recovery runner, SPA serving |
+| `app/api/v1/` | inventory, Operations, Insights, Jobs, VM action, Create 호환 HTTP route |
+| `app/auth/` | 인증·session·계정 관리 |
+| `app/workloads/`, `app/setup_integration/` | inventory query와 연결 상태 |
+| `app/operations/` | 공통 lifecycle·event·lock·recovery와 action별 검증 |
+| `app/vm_create/` | 기존 Create draft·preflight·plan·approval·Proxmox runner |
+| `app/insights/` | risk/readiness/capacity/placement 계산 |
+| `app/db/`, `app/jobs/`, `alembic/` | 현재 persistence·호환 projection·migration |
 
-`create-admin`은 password를 터미널에서 두 번 입력받습니다. CLI 인자에 평문 password를 넣지 마십시오.
+domain-oriented modular monolith로 전환 중이며 기존 package/table이 모두 새 경계로 옮겨진 것은 아닙니다. 상세 책임은 [현재 아키텍처](../project-docs/architecture/overview.md), 공개 계약은 [API](../project-docs/api/current-api-v1.md)와 [DB 문서](../project-docs/database/current-schema-and-ownership.md)를 봅니다.
 
-## 실행
+## 실행과 검증
 
-저장소 root의 script가 `.env`를 읽고 `backend/venv`를 사용합니다.
+환경 준비, lockfile 설치, DB migration·profile seed·계정 CLI, Docker entrypoint, 환경 변수와 검증 명령은 [운영 Runbook](../project-docs/operations/runbook.md)을 단일 기준으로 사용합니다. 준비된 환경에서 저장소 root의 `pnpm run backend`로 backend를 시작합니다.
 
-```bash
-pnpm run backend
-```
+direct dependency 선언은 `requirements*.txt`, 설치 기준은 Python 3.13/Linux에서 해석한 `requirements*.lock`입니다. SQLite는 명시적으로 허용한 test 전용이며 runtime DB가 아닙니다. `/health`는 DB·Proxmox deep readiness 검사가 아닙니다.
 
-직접 실행하려면:
-
-```bash
-set -a
-. ./.env
-set +a
-cd backend
-PYTHONPATH=. venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port "${BACKEND_PORT:-8000}"
-```
-
-## 주요 환경
-
-- 필수 runtime: `GJALLAR_DATABASE_URL` PostgreSQL URL. `postgresql://`과 `postgres://`는 psycopg driver URL로 normalize된다.
-- operation coordination: `GJALLAR_CLUSTER_ID`; opt-in recovery는 `GJALLAR_OPERATION_RECOVERY_ENABLED`, `GJALLAR_OPERATION_RECOVERY_POLL_SECONDS`, `GJALLAR_OPERATION_RECOVERY_LEASE_SECONDS`.
-- local dev: `FRONTEND_PORT`, `BACKEND_PORT`, `VITE_BACKEND_URL`.
-- connection: `GJALLAR_INVENTORY_MODE`, `PROXMOX_API_URL`, `PROXMOX_API_TOKEN_ID`, `PROXMOX_API_TOKEN_SECRET`, `PROXMOX_TLS_INSECURE`.
-- inventory/mutation tuning: `PROXMOX_API_CONNECT_TIMEOUT_SECONDS`, `PROXMOX_API_READ_TIMEOUT_SECONDS`, legacy fallback `PROXMOX_API_TIMEOUT_SECONDS`, `PROXMOX_TASK_POLL_INTERVAL_SECONDS`, `PROXMOX_TASK_TIMEOUT_SECONDS`와 `GJALLAR_PROXMOX_TASK_*` alias.
-- auth/cookie: `GJALLAR_ENV`, `GJALLAR_ALLOWED_ORIGINS`, `GJALLAR_SESSION_COOKIE_NAME`, `GJALLAR_SESSION_TTL_SECONDS`, `GJALLAR_SESSION_COOKIE_SECURE`, `GJALLAR_SESSION_COOKIE_SAMESITE`.
-- Create VM access default: `GJALLAR_DEFAULT_SSH_PUBLIC_KEY`, `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_B64`, `GJALLAR_DEFAULT_SSH_PUBLIC_KEY_FILE`.
-
-product inventory는 authoritative Proxmox API만 사용합니다. `GJALLAR_INVENTORY_MODE=live`가 기본이며 `auto`는 live-only 호환 alias입니다. 필수 connection 설정이 빠지면 `unconfigured`, 설정 후 read가 실패하면 `degraded`를 반환하고 fixture inventory로 fallback하지 않습니다. 상태는 authenticated `GET /api/v1/setup/proxmox/connection`에서 확인합니다.
-
-전체 기본값과 현재 지원 여부는 `.env.example`과 각 config/client 코드가 우선합니다. optional tuning 값을 이유 없이 설정하지 않습니다.
-
-SQLite는 runtime DB가 아닙니다. `GJALLAR_ALLOW_SQLITE_FOR_TESTS=1`인 test에서만 허용됩니다.
-
-## 계정 관리
-
-`backend` directory에서 `.env`를 load한 뒤 실행합니다.
-
-```bash
-PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username viewer1 --role viewer
-PYTHONPATH=. venv/bin/python -m app.auth.users create-user --username operator1 --role operator
-PYTHONPATH=. venv/bin/python -m app.auth.users list-users
-PYTHONPATH=. venv/bin/python -m app.auth.users set-role --username viewer1 --role operator
-PYTHONPATH=. venv/bin/python -m app.auth.users disable-user --username viewer1
-PYTHONPATH=. venv/bin/python -m app.auth.users reset-password --username operator1
-```
-
-disable과 password reset은 해당 사용자의 session을 revoke합니다. 마지막 enabled admin은 disable하거나 admin role에서 내릴 수 없습니다.
-
-## 검증
-
-저장소 root에서:
-
-```bash
-pnpm run test:backend
-pnpm run test:backend:container
-```
-
-`backend/requirements.txt`와 `backend/requirements-dev.txt`는 직접 dependency 선언입니다. 실제 runtime과 개발 설치는 Python 3.13/Linux에서 해석한 `requirements.lock`과 `requirements-dev.lock`을 사용합니다.
-
-## Docker runtime
-
-root Dockerfile은 frontend를 build한 뒤 FastAPI runtime에 포함합니다. entrypoint는 기본적으로 다음 순서를 실행합니다.
-
-1. `alembic upgrade head`
-2. Create VM profile seed
-3. configured bootstrap admin 생성
-4. Uvicorn 실행
-
-따라서 기존 또는 production DB를 연결한 새 image는 [`운영 Runbook`](../project-docs/operations/runbook.md)의 `20260824_0029` read-only preflight와 별도 DB 적용 승인 전 배포·실행하지 않습니다.
-
-`GJALLAR_SKIP_STARTUP_INIT=1`은 migration/seed/bootstrap을 모두 건너뛰므로 일반 운영 시작에 사용하지 않습니다.
-
-recovery runner는 기본 `false`이며 FastAPI lifespan 안에서 concurrency 1로 동작합니다. enable 전 별도 승인된 DB preflight·upgrade가 끝나고 모든 API replica가 migration head `20260824_0029`와 durable lock code를 사용하는지 확인해야 합니다. VM Start/Shutdown handler는 저장된 UPID/task와 direct VM status만 읽으며 Proxmox mutation을 재호출하지 않습니다.
-
-## 변경 시 지켜야 할 경계
-
-- trusted actor는 request payload가 아니라 server-side session에서 얻습니다.
-- inventory read adapter와 mutation client를 합치지 않습니다.
-- task 접수만으로 operation 성공을 선언하지 않습니다.
-- ambiguous external result를 자동 재시도하지 않습니다.
-- applied Alembic revision을 수정하지 않습니다.
-- DB schema, auth, public API, Proxmox mutation 변경은 승인된 Plan과 검증을 먼저 확인합니다.
+변경 시 trusted actor를 session에서 얻고, read adapter와 mutation capability를 분리하며, task 접수만으로 성공을 선언하지 않습니다. 구조·계약·lock/recovery 변경과 live 작업의 승인 경계는 [프로젝트 프로필](../project-docs/project-profile.md)을 따릅니다.

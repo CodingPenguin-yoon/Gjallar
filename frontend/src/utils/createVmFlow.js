@@ -184,7 +184,7 @@ export function validateTemplateSelection(templates = [], profile = {}, selected
     return { ok: false, reason: '템플릿 인벤토리가 비어 있습니다.', selected: null, options: decorated }
   }
   if (!passing.length) {
-    return { ok: false, reason: '선택한 프로필 요구사항을 만족하는 템플릿이 없습니다.', selected: null, options: decorated }
+    return { ok: false, reason: '생성 요구사항을 만족하는 템플릿이 없습니다.', selected: null, options: decorated }
   }
   if (!selected) {
     return { ok: false, reason: '요구사항을 만족하는 템플릿을 선택하세요.', selected: null, options: decorated }
@@ -200,7 +200,10 @@ export function buildCreateVmPayload(input = {}) {
   return pickDefined([
     ['operator_id', input.operatorId ?? input.operator_id],
     ['job_id', input.jobId ?? input.job_id],
-    ['profile_id', input.profileId ?? input.profile_id],
+    ['vmid', input.vmid === '' ? undefined : input.vmid],
+    ['vm_name', (input.vmName ?? input.vm_name) || undefined],
+    ['creation_mode', input.creationMode ?? input.creation_mode],
+    ['profile_id', (input.creationMode ?? input.creation_mode) === 'template' ? undefined : (input.profileId ?? input.profile_id)],
     ['target_node_id', input.targetNodeId ?? input.target_node_id],
     ['storage_id', input.storageId ?? input.storage_id],
     ['bridge_id', input.bridgeId ?? input.bridge_id ?? input.network?.bridgeId ?? input.network?.bridge_id],
@@ -220,10 +223,13 @@ export function buildCreateVmPayload(input = {}) {
 
 export function buildCreateVmInputFromConfig(config = {}, fallback = {}) {
   return {
+    creationMode: config.creationMode || fallback.creationMode || (config.profileId || config.profile_id || fallback.profileId ? 'profile' : 'template'),
     operatorId: config.operatorId || fallback.operatorId || 'ui-operator',
     jobId: config.jobId || fallback.jobId || `ui-${Date.now()}`,
-    profileId: config.profileId || config.profile_id || fallback.profileId || 'general-vm',
-    targetNodeId: config.targetNodeId || config.selectedServerId || fallback.targetNodeId || 'yoonmanserver2',
+    vmid: config.vmid ?? fallback.vmid ?? '',
+    vmName: config.vmName ?? config.vm_name ?? fallback.vmName ?? '',
+    profileId: config.profileId || config.profile_id || fallback.profileId || '',
+    targetNodeId: config.targetNodeId || config.selectedServerId || fallback.targetNodeId || '',
     storageId: config.storageId || config.storage_id || fallback.storageId || '',
     bridgeId: config.bridgeId || config.bridge_id || config.network?.bridgeId || config.network?.bridge_id || fallback.bridgeId || '',
     staticIp: config.staticIp || config.static_ip || config.network?.staticIp || config.network?.static_ip || fallback.staticIp || '',
@@ -234,10 +240,53 @@ export function buildCreateVmInputFromConfig(config = {}, fallback = {}) {
     templateVmid: config.templateVmid || config.template?.vmid || fallback.templateVmid || '',
     templateNodeId: config.templateNodeId || config.template?.nodeId || fallback.templateNodeId || '',
     templateKey: config.templateKey || fallback.templateKey || '',
-    cloudInitUser: config.cloudInitUser || config.cloud_init_user || config.username || config.access?.cloudInitUser || config.access?.cloud_init_user || config.access?.username || fallback.cloudInitUser || 'yoon',
+    cloudInitUser: config.cloudInitUser || config.cloud_init_user || config.username || config.access?.cloudInitUser || config.access?.cloud_init_user || config.access?.username || fallback.cloudInitUser || '',
     sshPublicKey: config.sshPublicKey || config.ssh_public_key || config.access?.sshPublicKey || config.access?.ssh_public_key || fallback.sshPublicKey || '',
     passwordLogin: false,
     powerPolicy: normalizePowerPolicy(config.powerPolicy || config.power_policy || fallback.powerPolicy || fallback.power_policy),
+  }
+}
+
+export function buildStaticIpObservation(check = {}) {
+  const detail = check.detail || {}
+  if (check.code !== 'static_ip_available' || (!detail.inventory && !detail.ping)) return null
+
+  const inventory = detail.inventory || {}
+  const ping = detail.ping || {}
+  const inUse = detail.result === 'in_use' || inventory.status === 'conflict' || ping.status === 'reply'
+  const unavailableReasons = {
+    ping_not_found: 'Gjallar 서버에 Ping 도구가 없어 확인하지 못했습니다.',
+    permission_denied: 'Gjallar 서버에서 Ping을 실행할 권한이 없어 확인하지 못했습니다.',
+    unsupported_platform: '현재 Gjallar 실행 환경에서 Ping 확인을 지원하지 않습니다.',
+    execution_error: 'Ping 실행에 실패해 확인하지 못했습니다.',
+    invalid_ipv4: '입력한 IP를 Ping으로 확인할 수 없습니다.',
+    invalid_target: '입력한 IP는 Ping 확인 대상이 아닙니다.',
+    process_timeout: 'Ping 확인 시간이 초과되어 사용 여부를 확인하지 못했습니다.',
+  }
+
+  return {
+    inUse,
+    tone: inUse ? 'red' : 'yellow',
+    statusLabel: inUse ? '사용 중' : '확인 필요',
+    message: inUse
+      ? `${detail.static_ip || '입력한 IP'}의 사용이 확인되어 생성을 진행할 수 없습니다.`
+      : '사용 여부를 확정할 수 없습니다. 직접 확보한 IP인지 확인해주세요.',
+    inventoryMessage: inventory.status === 'conflict'
+      ? '같은 IP를 사용하는 기존 VM이 있습니다.'
+      : inventory.status === 'no_conflict_observed'
+        ? '확인한 기존 VM 정보에서 같은 IP를 찾지 못했습니다.'
+        : '기존 VM의 IP 정보를 확인하지 못했습니다.',
+    inventoryIncomplete: inventory.guest_agent_complete === false,
+    failedTargets: Array.isArray(inventory.failed_targets) ? inventory.failed_targets : [],
+    conflicts: Array.isArray(detail.conflicts) ? detail.conflicts : [],
+    pingMessage: ping.status === 'reply'
+      ? '응답 있음 · 해당 IP가 사용 중입니다.'
+      : ping.status === 'no_reply'
+        ? '응답 없음 · 미사용 IP라는 뜻은 아닙니다.'
+        : Object.hasOwn(unavailableReasons, ping.reason)
+          ? unavailableReasons[ping.reason]
+          : 'Ping으로 사용 여부를 확인하지 못했습니다.',
+    pingLocation: ping.execution_location === 'gjallar_backend' ? 'Gjallar 서버에서 확인' : '',
   }
 }
 
@@ -245,8 +294,10 @@ export async function loadCreateVmReviewModel(client, input = {}) {
   const payload = buildCreateVmPayload(input)
   const draft = await client.createVmDraft(payload)
   const draftId = draft.draft_id || draft.id
-  const preflight = await client.preflightVmDraft(draftId, payload)
+  const initialPreflight = await client.preflightVmDraft(draftId, payload)
   const plan = await client.planVmDraft(draftId, payload)
+  const preflight = plan.preflight || initialPreflight
+  const preflightChecks = Array.isArray(preflight.checks) ? preflight.checks : []
   const review = plan.review_confirm || {}
   const powerPolicy = normalizePowerPolicy(review.power_policy ?? plan.power_policy ?? draft.power_policy ?? payload.power_policy)
   const accessEvidence = normalizeAccessEvidence(review.access || plan.access || preflight.access || draft.access || {})
@@ -276,7 +327,7 @@ export async function loadCreateVmReviewModel(client, input = {}) {
     },
     preflight: {
       level: preflight.risk_level || 'unknown',
-      checks: Array.isArray(preflight.checks) ? preflight.checks : [],
+      checks: preflightChecks,
       risks: Array.isArray(preflight.risks) ? preflight.risks : [],
       sideEffects: Array.isArray(preflight.side_effects) ? preflight.side_effects : [],
     },
@@ -306,6 +357,10 @@ export async function loadCreateVmReviewModel(client, input = {}) {
       smokeTimeoutSummary: summarizeSmokeTimeouts(review.smoke_timeout_summary || plan.smoke_timeout_summary),
       risks,
       riskLevel: plan.risk_summary?.level || preflight.risk_level || 'unknown',
+      requiresStaticIpConfirmation: preflightChecks.some((check) => {
+        const observation = buildStaticIpObservation(check)
+        return observation && !observation.inUse
+      }),
       planArtifactId: review.plan_artifact_id || planArtifact?.id || '',
       planArtifactLink: review.plan_artifact_id || planArtifact?.id || '',
       plannedGitDiffSummary: review.planned_git_diff_summary || '',

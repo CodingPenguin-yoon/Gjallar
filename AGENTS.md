@@ -25,13 +25,11 @@
 4. 현재 `APPROVED` Plan
 5. 코드와 테스트가 보여주는 실제 동작
 
-`SUPERSEDED`·`REJECTED` ADR과 `CANCELLED`·`ROLLED_BACK` Plan은 역사적 맥락일 뿐 현재 구현 권한이 아니다. 현재 존재하는 호환 경로나 제거 대상도 별도 승인 없이 장기 유지·확장 대상으로 해석하지 않는다.
+`SUPERSEDED`·`REJECTED` ADR과 종료된 `IMPLEMENTED`·`SUPERSEDED`·`CANCELLED`·`ROLLED_BACK` Plan은 역사적 맥락이며 새로운 변경의 구현 권한이 아니다. 현재 존재하는 호환 경로나 제거 대상도 별도 승인 없이 장기 유지·확장 대상으로 해석하지 않는다.
 
 ## 위험과 승인
 
 데이터·보안·공개 계약·외부 상태, 아키텍처·운영 의존성, 비동기·복구처럼 실패 영향이나 되돌리기 비용이 큰 변경은 고위험으로 본다. Gjallar의 구체적인 trigger와 live 작업 승인 경계는 [`project-docs/project-profile.md`](project-docs/project-profile.md)를 단일 기준으로 따른다.
-
-고위험 작업은 구현 전에 `$task-planning`으로 공유 Plan을 작성하고 사용자의 범위 승인을 받는다. 아키텍처 전환은 사용자가 명시적으로 요청하거나 승인한 경우에만 `$architecture-evolution`을 사용한다. 고위험 구현은 완료 전에 `$quality-review`로 구현과 분리된 검토를 수행한다.
 
 승인된 구조 안의 일반 구현, 테스트, 명확한 버그 수정, 호환 가능한 내부 리팩터링과 실제 변경에 따른 문서 갱신은 반복 승인 없이 진행한다.
 
@@ -60,5 +58,7 @@
 ## 문서와 완료
 
 공동 source of truth는 `project-docs/`다. 프로젝트 목적, 기술 스택, 아키텍처, 도메인, 공개 API·DB 계약 또는 주요 성공·실패 흐름이 실제로 바뀐 경우에만 관련 현재 상태 문서를 갱신한다. 일반 변경 이력은 Git이 담당하며 작업별 요약 문서를 만들지 않는다.
+
+문서 역할·상태·보관 규칙은 [`project-docs/README.md`](project-docs/README.md)를 따른다. 합의한 미구현 방향은 현재 동작과 구분한다. 종료 Plan은 `project-docs/archive/plans/`에 보관하고 [`계획 인덱스`](project-docs/plans/README.md)에서 후속 방향과 분리한다.
 
 완료 전에는 요구사항 충족, 최종 diff, 테스트·Lint·빌드 결과, 문서 영향과 남은 위험을 확인한다. 최종 응답에는 변경 결과, 주요 파일의 역할, 실행한 검증, 문서 변경과 잔여 위험을 간결하게 포함한다.

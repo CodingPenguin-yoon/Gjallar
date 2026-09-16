@@ -8,6 +8,7 @@ from app.operations.core.domain import OperationActor, OperationIntentConflict, 
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
 from app.operations.vm_create.application import VmCreateOperationTracker
 from app.operations.vm_create.domain import VmCreateOperationPlan, vm_create_plan_intent
+from app.operations.vm_create.domain import compact_create_result
 
 
 def operation_plan(*, suffix: str = "same", risk_level: str = "green") -> VmCreateOperationPlan:
@@ -53,6 +54,36 @@ def successful_result() -> dict:
         },
         "side_effects": ["proxmox_clone_invoked", "proxmox_post_check_observed"],
     }
+
+
+def test_compact_create_result_rejects_unknown_semantic_values():
+    marker = "opaque-create-result-token"
+    compact = compact_create_result(
+        {
+            "success": False,
+            "status": marker,
+            "message": marker,
+            "task": {"upid": marker, "status": marker, "exitstatus": marker},
+            "observed_after": {
+                "vmid": 306,
+                "target_node_id": "node-a",
+                "status": marker,
+                "post_check_status": marker,
+                "message": marker,
+                "power_policy": marker,
+            },
+            "side_effects": [marker],
+        }
+    )
+
+    assert compact["status"] == "unknown"
+    assert compact["task"]["upid"] == ""
+    assert compact["task"]["status"] == "unknown"
+    assert compact["task"]["exitstatus"] == "ERROR"
+    assert compact["observed_after"]["status"] == "unknown"
+    assert compact["observed_after"]["readiness"]["post_check_status"] == "needs_reconciliation"
+    assert compact["side_effects"] == []
+    assert marker not in repr(compact)
 
 
 def test_tracker_records_approved_dispatch_verification_and_workload_linkage():
@@ -140,6 +171,44 @@ def test_tracker_maps_ambiguous_result_to_reconciliation_and_preserves_lock_evid
     assert reconciled.status == "needs_reconciliation"
     assert reconciled.details["target_operation_lock"]["owner_id"] == operation_id
     assert store.list_events(operation_id)[-1].event_type == "reconciliation_required"
+
+
+def test_current_result_observation_second_checkpoint_failure_leaves_first_checkpoint_durable(monkeypatch):
+    store = SqlAlchemyOperationStore()
+    tracker = VmCreateOperationTracker(operations=store)
+    operation_id = tracker.prepare(operation_plan()).operation.operation_id
+    tracker.record_approval(
+        operation_id,
+        {"can_approve": True, "can_execute": True, "risk_level": "green", "reason": "approved"},
+    )
+    tracker.record_dispatch_prepared(
+        operation_id,
+        preview={"clone": {"endpoint": "/clone"}},
+        target_lock={"owner_id": operation_id, "status": "active"},
+    )
+    original_transition = store.transition
+
+    def fail_second_checkpoint(operation_id: str, **kwargs):
+        if kwargs.get("event_type") == "task_and_state_observed":
+            raise RuntimeError("operation event store unavailable")
+        return original_transition(operation_id, **kwargs)
+
+    monkeypatch.setattr(store, "transition", fail_second_checkpoint)
+
+    with pytest.raises(RuntimeError, match="operation event store unavailable"):
+        tracker.record_result_observed(
+            operation_id,
+            successful_result(),
+            side_effect_free_failure=False,
+        )
+
+    operation = store.get(operation_id)
+    events = store.list_events(operation_id)
+    assert operation is not None
+    assert operation.status == "running"
+    assert events[-1].event_type == "dispatch_result_observed"
+    assert events[-1].payload["task"]["upid"] == "UPID:node-a:1:create"
+    assert verify_event_chain(events) is True
 
 
 def test_red_plan_is_terminally_blocked_and_same_scope_changed_intent_conflicts():

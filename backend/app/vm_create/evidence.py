@@ -13,6 +13,8 @@ from sqlalchemy import select
 from app.core.redaction import redact_secrets
 from app.db.models import JobArtifactRecord, JobRunRecord, VmCreateRequestRecord, VmInstanceRecord
 from app.db.session import session_scope
+from app.operations.core.infrastructure.models import OperationRecord
+from app.operations.vm_create.domain import completed_workload_history
 
 NOT_RECORDED = "not_recorded"
 
@@ -315,12 +317,18 @@ def _runbook_fields(
     }
 
 
-def _load_vm_instance(session: Any, job_id: str) -> VmInstanceRecord | None:
-    return session.scalars(
-        select(VmInstanceRecord)
-        .where(VmInstanceRecord.create_job_id == job_id)
-        .order_by(VmInstanceRecord.updated_at.desc(), VmInstanceRecord.vm_instance_id.asc())
-    ).first()
+def _load_legacy_vm_instance(session: Any, job_id: str, request: VmCreateRequestRecord | None) -> VmInstanceRecord | None:
+    rows = session.scalars(
+        select(VmInstanceRecord).where(VmInstanceRecord.create_job_id == job_id)
+    ).all()
+    if len(rows) != 1:
+        return None
+    row = rows[0]
+    if row.vm_instance_id != f"{row.node_id}:{row.vmid}":
+        return None
+    if request is not None and (row.node_id != request.target_node_id or row.vmid != request.vmid):
+        return None
+    return row
 
 
 def build_create_vm_evidence_summary(job_id: str) -> dict[str, Any]:
@@ -328,7 +336,26 @@ def build_create_vm_evidence_summary(job_id: str) -> dict[str, Any]:
     with session_scope() as session:
         job = session.get(JobRunRecord, job_id)
         request = session.get(VmCreateRequestRecord, job_id)
-        vm_instance = _load_vm_instance(session, job_id)
+        operation = session.get(OperationRecord, job_id)
+        modern_history = operation is not None and operation.status == "succeeded"
+        vm_instance = None if modern_history else _load_legacy_vm_instance(session, job_id, request)
+        if modern_history:
+            target = operation.details.get("target")
+            vm_instance_payload = None
+            if isinstance(target, dict) and isinstance(target.get("node_id"), str) and type(target.get("vmid")) is int:
+                # Bind to the exact request target when legacy request data exists.
+                node_id = request.target_node_id if request is not None else target["node_id"]
+                vmid = request.vmid if request is not None else target["vmid"]
+                history = completed_workload_history(operation, node_id=node_id, vmid=vmid)
+                if history is not None:
+                    vm_instance_payload = {**history, "create_job_id": job_id}
+        else:
+            vm_instance_payload = _vm_instance_summary(vm_instance)
+        vm_instance_source = (
+            "operation_history" if modern_history and vm_instance_payload is not None
+            else "legacy_workload" if vm_instance_payload is not None
+            else NOT_RECORDED
+        )
         artifact_rows = session.scalars(
             select(JobArtifactRecord)
             .where(JobArtifactRecord.job_id == job_id)
@@ -343,13 +370,13 @@ def build_create_vm_evidence_summary(job_id: str) -> dict[str, Any]:
         observed_after = _observed_after_summary(observed_after_raw)
         job_payload = _job_summary(job)
         request_payload = _request_summary(request)
-        vm_instance_payload = _vm_instance_summary(vm_instance)
         artifact_payloads = [_artifact_summary(row) for row in artifact_rows]
         proxmox_payload = _proxmox_summary(request, observed_after_raw)
         summary = {
             "job_found": job is not None,
             "request_found": request is not None,
-            "vm_instance_found": vm_instance is not None,
+            "vm_instance_found": vm_instance_payload is not None,
+            "vm_instance_source": vm_instance_source,
             "job": job_payload,
             "request": request_payload,
             "vm_instance": vm_instance_payload,

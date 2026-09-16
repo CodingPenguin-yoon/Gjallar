@@ -183,7 +183,7 @@ function AdminUsersScreen({ currentUser = null, onCurrentUserChanged = null }) {
             <ShieldCheck className="h-4 w-4" />
             Admin
           </div>
-          <h2 className="mt-3 text-3xl font-semibold text-slate-950">User Management</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-950">Users &amp; sessions</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">로컬 사용자 권한과 로그인 세션을 한곳에서 관리합니다.</p>
         </div>
         <button type="button" onClick={loadUsers} disabled={loading} className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">

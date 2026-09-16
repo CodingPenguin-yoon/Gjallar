@@ -18,7 +18,7 @@ const live = {
 }
 assert.equal(isProxmoxOperational(live), true)
 assert.equal(isProxmoxInventoryAvailable(live), true)
-assert.deepEqual(proxmoxConnectionBadge('ready', live), { label: 'LIVE', tone: 'green' })
+assert.deepEqual(proxmoxConnectionBadge('ready', live), { label: '연결됨', tone: 'green', observation: '관찰 완료', observationTone: 'green' })
 
 const unconfigured = {
   state: 'unconfigured',
@@ -29,7 +29,7 @@ const unconfigured = {
 }
 assert.equal(isProxmoxOperational(unconfigured), false)
 assert.deepEqual(normalizeProxmoxConnection(unconfigured).missingConfiguration, ['PROXMOX_API_URL', 'PROXMOX_API_TOKEN_ID'])
-assert.deepEqual(proxmoxConnectionBadge('ready', unconfigured), { label: 'UNCONFIGURED', tone: 'yellow' })
+assert.deepEqual(proxmoxConnectionBadge('ready', unconfigured), { label: '설정 필요', tone: 'yellow' })
 
 const partial = {
   state: 'degraded',
@@ -41,7 +41,7 @@ const partial = {
 }
 assert.equal(isProxmoxInventoryAvailable(partial), true, 'Partial authoritative inventory must remain readable')
 assert.equal(isProxmoxOperational(partial), false, 'Partial inventory must not enable mutation')
-assert.deepEqual(proxmoxConnectionBadge('ready', partial), { label: 'PARTIAL', tone: 'yellow' })
+assert.deepEqual(proxmoxConnectionBadge('ready', partial), { label: '연결됨', tone: 'green', observation: '관찰 일부 누락', observationTone: 'yellow' })
 
 const fixture = {
   state: 'test_fixture',
@@ -50,7 +50,7 @@ const fixture = {
 }
 assert.equal(isProxmoxOperational(fixture), false, 'Fixture inventory must never open product operation screens')
 assert.equal(isProxmoxInventoryAvailable(fixture), false, 'Fixture inventory must never open product read screens')
-assert.deepEqual(proxmoxConnectionBadge('ready', fixture), { label: 'DEGRADED', tone: 'red' })
+assert.deepEqual(proxmoxConnectionBadge('ready', fixture), { label: '연결 확인 필요', tone: 'red' })
 
 const boundary = readFileSync(new URL('../src/shared/proxmox/ProxmoxConnectionBoundary.jsx', import.meta.url), 'utf8')
 assert.match(boundary, /isProxmoxInventoryAvailable/)
@@ -59,3 +59,8 @@ assert.doesNotMatch(boundary, /DRS 폐기 안내/)
 assert.doesNotMatch(boundary, /demo data|mock data|샘플 데이터/)
 
 console.log('proxmox connection truth contract exercised')
+
+assert.deepEqual(proxmoxConnectionBadge('loading', live), {label: '확인 중', tone: 'slate'})
+assert.equal(proxmoxConnectionBadge('ready', {...partial, inventory_available: false}).observation, undefined)
+
+assert.deepEqual(proxmoxConnectionBadge('error', live), {label: '연결 확인 필요', tone: 'red'})

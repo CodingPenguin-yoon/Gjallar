@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import re
 
-from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id, list_active_create_vm_profiles
+from collections.abc import Mapping
+
+from app.db.create_vm_profiles import list_active_create_vm_profiles
+from app.manifests.models import VmProfile
+from app.proxmox.models import TemplateInventory
 from app.vm_create.access import resolve_ssh_public_key
 from app.vm_create.models import (
     CreateProfileOption,
@@ -97,22 +101,14 @@ def _alias_value(values: dict, *keys: str):
     return None
 
 
-def _profiles_by_id():
-    return get_active_create_vm_profiles_by_id()
-
-
-def _load_general_profile():
-    profiles = _profiles_by_id()
-    profile = profiles.get(DEFAULT_PROFILE_ID)
-    if profile is None or not profile.create_enabled:
-        raise ValueError("general-vm profile must exist and be create-enabled")
-    return profile
-
-
-def _profile_for_draft_defaults(profile_id: str | None):
+def _profile_for_draft_defaults(profile_id: str | None, profiles: Mapping[str, VmProfile]):
     requested_profile_id = _optional_text(profile_id) or DEFAULT_PROFILE_ID
-    profiles = _profiles_by_id()
-    return requested_profile_id, profiles.get(requested_profile_id) or _load_general_profile()
+    profile = profiles.get(requested_profile_id)
+    if profile is None:
+        profile = profiles.get(DEFAULT_PROFILE_ID)
+        if profile is None or not profile.create_enabled:
+            raise ValueError("general-vm profile must exist and be create-enabled")
+    return requested_profile_id, profile
 
 
 def list_create_profile_options() -> list[CreateProfileOption]:
@@ -123,11 +119,12 @@ def list_create_profile_options() -> list[CreateProfileOption]:
 def build_default_vm_draft(
     *,
     operator_id: str,
+    profiles: Mapping[str, VmProfile],
+    template: TemplateInventory | None = None,
     job_id: str = "job-draft-preview",
     profile_id: str | None = None,
     target_node_id: str | None = None,
     storage_id: str | None = None,
-    network_id: str | None = None,
     bridge_id: str | None = None,
     static_ip: str | None = None,
     prefix: object | None = None,
@@ -147,12 +144,12 @@ def build_default_vm_draft(
     power_policy: object | None = None,
 ) -> VmCreateDraft:
     """Build a non-mutating default draft for the Create VM flow."""
-    requested_profile_id, profile = _profile_for_draft_defaults(profile_id)
+    requested_profile_id, profile = ("", None) if template is not None else _profile_for_draft_defaults(profile_id, profiles)
     hardware_override_values = dict(hardware_overrides or {})
     access_override_values = dict(access_overrides or {})
-    chosen_node = target_node_id or profile.target_node_candidates[0]
+    chosen_node = target_node_id or (template.node_id if template is not None else profile.target_node_candidates[0])
     selected_bridge_id = _optional_text(bridge_id)
-    requested_ip_mode = ip_mode or profile.default_ip_mode
+    requested_ip_mode = ip_mode or ("static" if template is not None else profile.default_ip_mode)
     if requested_ip_mode not in {"static", "dhcp"}:
         raise ValueError("ip_mode must be either 'static' or 'dhcp'")
     resolved_static_ip = None if requested_ip_mode == "dhcp" else _optional_text(static_ip)
@@ -165,7 +162,7 @@ def build_default_vm_draft(
         _optional_text(_alias_value(access_override_values, "cloud_init_user", "cloudInitUser", "username", "user"))
         or _optional_text(cloud_init_user)
         or _optional_text(username)
-        or profile.access.cloud_init_user
+        or ("" if template is not None else profile.access.cloud_init_user)
     )
     requested_password_login = _optional_bool(
         _alias_value(access_override_values, "password_login", "passwordLogin")
@@ -173,8 +170,8 @@ def build_default_vm_draft(
     if requested_password_login is None:
         requested_password_login = _optional_bool(password_login)
     if requested_password_login is None:
-        requested_password_login = profile.access.password_login
-    resolved_password_login = bool(requested_password_login) if profile.access.allow_password_login else False
+        requested_password_login = False if template is not None else profile.access.password_login
+    resolved_password_login = bool(requested_password_login) if profile is not None and profile.access.allow_password_login else False
     requested_ssh_public_key = (
         _optional_text(_alias_value(access_override_values, "ssh_public_key", "sshPublicKey", "public_key", "publicKey"))
         or _optional_text(ssh_public_key)
@@ -192,18 +189,18 @@ def build_default_vm_draft(
         proposed_vmid=int(proposed_vmid or 102),
         target_node_id=chosen_node,
         storage_id=str(storage_id).strip() if storage_id else None,
-        template_family=profile.template_family,
+        template_family=template.family if template is not None else profile.template_family,
         template_id=template_id,
         template_vmid=_optional_int(template_vmid),
         template_node_id=template_node_id,
         hardware=DraftHardware(
-            cpu=_hardware_value(hardware_override_values, "cpu", profile.hardware.cpu.default),
+            cpu=_hardware_value(hardware_override_values, "cpu", template.cpu if template is not None else profile.hardware.cpu.default),
             memory_mb=_hardware_value(
                 hardware_override_values,
                 "memory_mb",
-                profile.hardware.memory_mb.default,
+                template.memory_mb if template is not None else profile.hardware.memory_mb.default,
             ),
-            disk_gb=_hardware_value(hardware_override_values, "disk_gb", profile.hardware.disk_gb.default),
+            disk_gb=_hardware_value(hardware_override_values, "disk_gb", template.disk_gb if template is not None else profile.hardware.disk_gb.default),
         ),
         network=DraftNetwork(
             ip_mode=requested_ip_mode,

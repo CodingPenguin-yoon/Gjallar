@@ -1,12 +1,12 @@
-# 목표 도메인 지도
+# 도메인 책임과 구현 지도
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-24`
-- 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)
+- 최종 검토일: `2026-09-07`
+- 관련 Architecture·ADR: [`현재 기준선`](../architecture/overview.md), [`ADR-002`](../decisions/adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](../decisions/adr-003-production-inventory-connection-truth.md), [`ADR-004`](../decisions/adr-004-postgresql-durable-operation-recovery.md), [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md), [`ADR-008`](../decisions/adr-008-template-based-create-and-persistence-simplification.md)
 
-이 문서는 observe-first 제품 방향의 목표 logical ownership과 현재 구현 범위를 함께 설명한다. Workloads와 Insights가 기본 read path를 제공하고 Operations는 명시적으로 지원되는 action만 조정한다. DRS package·API·전용 table은 신규 owner로 이전하지 않고 제거됐다. 이 문서는 이후 package/table 전환이나 data migration을 직접 승인하지 않는다.
+이 문서의 도메인 목록·관계·불변 조건은 목표 logical ownership이며, 마지막의 “현재 구현 범위”는 실제 package와 저장 경계를 설명한다. 도메인 이름이 존재한다고 해당 package·table·공개 API가 모두 분리된 것은 아니다. Workloads와 Insights가 기본 read path를 제공하고 Operations는 명시적으로 지원되는 action만 조정한다. DRS package·API·전용 table은 신규 owner로 이전하지 않고 제거됐다. 이 문서는 이후 package/table 전환이나 data migration을 직접 승인하지 않는다.
 
-## 도메인 목록
+## 목표 도메인 목록
 
 | 도메인 | 업무 책임 | 핵심 용어 | Gjallar 소유 데이터 | 공개 계약 | 금지 접근 |
 |---|---|---|---|---|---|
@@ -50,7 +50,7 @@ flowchart LR
 ### Operations
 
 - operation intent와 idempotency identity는 dispatch 전에 저장한다.
-- 지원 action은 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`으로 제한한다.
+- 지원 action은 Proxmox 템플릿 기반 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`으로 제한한다. 빈 VM 생성, ISO 연결·설치와 OS 설치 자동화는 현재 제품 범위에 포함하지 않는다.
 - migration, DRS와 automatic remediation은 operation action으로 제공하지 않는다.
 - 하나의 operation은 target, action, plan digest, mode를 명시한다.
 - 같은 target의 충돌 action은 idempotency key가 달라도 target-scoped lock/lease로 직렬화한다.
@@ -112,18 +112,18 @@ flowchart LR
 |---|---|---|
 | `users`, `sessions` | Access | 기존 구조 유지 후보 |
 | `account_audit_events` | Evidence/Audit, producer는 Access | ownership/API 경계만 먼저 정함 |
-| `create_vm_profiles`, `vm_instances` | Workloads | actual state와 local metadata 분리 필요 |
+| `create_vm_profiles`, `vm_instances` | Workloads | profile은 선택적 프리셋이며 직접 입력은 조회하지 않는다. instance는 과거 기록 조회용이며 신규 write는 없고 actual state는 Proxmox가 소유한다. |
 | `job_runs` | Operations projection | immutable history가 아니므로 audit 원본으로 사용 금지 |
 | `job_artifacts` | Evidence/Audit | upsert identity와 append-only artifact 구분 필요 |
 | `operations` | Operations | 현재 projection; target/action/mode/status/idempotency/plan/actor/version 소유 |
 | `operation_events` | Evidence/Audit, producer는 Operations | operation별 monotonic sequence와 checksum chain을 갖는 append-only event |
 | `operation_locks`, `operation_recovery_items` | Operations | locator lock과 recovery는 네 지원 action이 계속 사용한다. DRS FK/scope는 hard-zero forward migration에서 제거됐다. |
-| `vm_create_requests` | Operations compatibility | Create VM 신규 row는 공통 Operation과 dual record; 장기 migration은 별도 결정 |
+| `vm_create_requests` | Operations compatibility | 공통 Operation과 dual record한다. 중복 축소 방향만 합의했으며 장기 migration은 별도 결정한다. |
 
 ## 경계가 불확실한 영역
 
 - workload owner/environment/tag가 Gjallar metadata인지 Proxmox tag projection인지
-- 공통 repository는 projection transition과 해당 event append를 하나의 transaction으로 기록한다. 기존 job/artifact와 향후 generic Policy approval의 transaction 범위는 미확정이다.
+- 별도 Policy/Approval aggregate의 소유권·저장 계약은 미확정이다. 현재 action별 Operation·Jobs transaction은 [DB 기준선](../database/current-schema-and-ownership.md)에 구현대로 기록하며, 목표 공통 transaction으로 간주하지 않는다.
 - separate approver role과 approval ownership
 - recovery throughput이 늘 때 현재 Operations 내부 in-process adapter를 별도 worker process로 분리할 시점
 - observation·derived insight cadence와 retention 및 외부 telemetry 연동 경계
@@ -133,9 +133,16 @@ flowchart LR
 
 - `backend/app/operations/core/`가 infrastructure-free 상태 전이·digest와 `OperationStore` 계약을 소유하고, SQLAlchemy adapter가 `operations` projection과 `operation_events` append를 한 transaction으로 기록한다.
 - VM Start와 graceful VM Shutdown은 common Operation/recovery를 기존 `job_runs`/`job_artifacts`와 함께 기록한다. Shutdown은 hard stop/reboot fallback 없이 terminal task와 direct stopped state를 성공 권위로 사용한다.
-- Create VM은 plan부터 common Operation을 만들고 approval·preview·dispatch·result·workload linkage를 event로 기록한다. 기존 `/vm-create/*`, `vm_create_requests`, `vm_instances`, job/artifact는 migration 없이 compatibility record로 병행한다.
+- Create VM은 `vm_create` compatibility facade가 선택한 DB profile 조회 또는 template 직접 입력, draft/preflight Jobs 저장, plan artifact 작성과 native template clone workflow를 조정한다. `operations/vm_create`가 plan부터 common Operation을 만들고 approval·preview·dispatch·checkpoint·result·작업별 workload 결과를 event로 기록한다. 기존 `/vm-create/*`, `vm_create_requests`, job/artifact를 유지하며 신규 `vm_instances` write는 없고 DB profile은 선택 사항이다.
 - Guided `qm unlock`은 common Operation만 사용하며 `guided_manual` mode, expiry, trusted attestation, API verification과 reconciliation을 상태/event로 남긴다.
-- `backend/app/operations/locks/`와 `recovery/`가 durable locator lock, due item, lease generation/token fencing과 allowlisted handler를 소유한다. VM Start/Shutdown은 dispatch 전 recovery item을 준비하고 opt-in FastAPI lifespan runner가 stored UPID와 actual state만 재관찰한다.
+- `backend/app/operations/locks/`와 `recovery/`가 durable locator lock, due item, lease generation/token fencing과 네 action handler를 소유한다. Start/Shutdown/Create는 mutation 전, Guided는 instruction 공개 전 durable handoff를 준비한다. 기본 비활성 runner와 명시적 operator observe는 같은 GET-only handler를 사용하며 bounded retry 뒤에는 pause한다. 상태·phase별 자세한 경계는 [lifecycle](../flows/verified-operation-lifecycle.md)을 따른다.
+- Create 성공의 compatibility projection은 최종 Operation/recovery/lock commit에 참여한다. Start/Shutdown은 terminal Operation을 먼저 commit하며 foreground Jobs 기록은 별도다. restart handler에서는 terminal Jobs projection과 coordination completion을 함께 commit한다. 두 방식을 동일한 원자성으로 설명하지 않는다.
 - Insights는 `backend/app/insights/`의 공통 finding/section 계약과 read application service로 구현됐다. `job_runs` risk와 current Workloads observation을 요청 시 조합하고 `insights/placement.py`가 neutral placement를 계산하며 persistent Insight table이나 command port는 없다. placement는 DRS identity/policy/lock persistence에 의존하지 않는다. source 장애와 미관찰 값은 `unknown`/`unavailable`, 200개 초과 finding은 truncation metadata로 드러낸다.
 - DRS 전용 frontend route/client, backend API/runtime/config, ORM과 table contract는 제거됐다. `operation_locks`, `job_runs`, `job_artifacts`는 Operations/Evidence의 shared 구조로 보존하며 historical `drs_migration` job/artifact renderer는 신규 producer 없이 과거 evidence만 표시한다.
 - `/insights`의 `drs_advisor` source와 `drs-rec-*` ID는 공개 compatibility 문자열로 유지하지만 DRS domain ownership, persistence 또는 실행 권한을 의미하지 않는다.
+
+## Create 단순화 방향의 책임 배분
+
+[ADR-008](../decisions/adr-008-template-based-create-and-persistence-simplification.md)에 따라 Proxmox는 템플릿 제작과 OS 설치를 담당하고 Gjallar는 선택한 템플릿의 배포 입력·검증·이력을 담당한다. 템플릿 선택과 사양 입력 중심으로 검토 계산을 저장 호출과 분리하고 Operations 중심으로 중복 기록을 줄이는 방향이다.
+
+검토 결과를 계산하는 책임, 승인된 intent를 보관하는 책임과 외부 effect를 조정하는 책임을 구분하되 구체적 package·repository·DB 이전은 후속 Plan에서 정한다. profile의 optional preset 전환이나 설정 파일화, 기존 Jobs/Artifacts 삭제, complete-live gate 완화는 이 문서로 구현을 승인하지 않는다.

@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.redaction import redact_secrets
+from app.db.models import OperationLockRecord
 from app.db.session import session_scope
 from app.operations.core.domain import (
     OperationActor,
@@ -28,6 +29,8 @@ from app.operations.core.domain import (
     operation_digest,
 )
 from app.operations.core.infrastructure.models import OperationEventRecord, OperationRecord
+from app.operations.locks.domain import OPEN_TARGET_LOCK_STATUSES
+from app.operations.recovery.infrastructure.models import OperationRecoveryItemRecord
 
 
 SessionScope = Callable[[], AbstractContextManager[Session]]
@@ -232,6 +235,106 @@ class SqlAlchemyOperationStore:
             expected_statuses=expected_statuses,
             is_transition=True,
         )
+
+    def transition_for_target_lock_conflict(
+        self,
+        operation_id: str,
+        *,
+        conflicting_lock_id: str,
+        conflicting_owner_id: str,
+        next_status: str,
+        event_type: str,
+        stage: str,
+        payload: Mapping[str, Any] | None = None,
+        details_patch: Mapping[str, Any] | None = None,
+    ) -> OperationSnapshot:
+        """Record a conflict only while that exact foreign lock still excludes dispatch."""
+        with self._sessions() as session:
+            # Match recovery's Operation -> target lock ordering. Holding the
+            # foreign lock row prevents release/new admission before the event.
+            operation = session.scalar(
+                select(OperationRecord)
+                .where(OperationRecord.operation_id == operation_id)
+                .with_for_update()
+            )
+            if operation is None:
+                raise OperationNotFound(operation_id)
+            if operation.status != "planned":
+                return _snapshot(operation)
+            lock = session.scalar(
+                select(OperationLockRecord)
+                .where(OperationLockRecord.operation_lock_id == conflicting_lock_id)
+                .with_for_update()
+            )
+            if (
+                lock is None
+                or lock.status not in OPEN_TARGET_LOCK_STATUSES
+                or lock.owner_id != conflicting_owner_id
+                or lock.owner_id == operation_id
+                or lock.scope_type != "proxmox_locator"
+                or operation.target_type != "proxmox_vm"
+                or operation.target_id != f"vmid:{lock.vmid}"
+            ):
+                return _snapshot(operation)
+            return self.append_in_session(
+                session,
+                operation_id,
+                next_status=next_status,
+                event_type=event_type,
+                stage=stage,
+                payload=payload,
+                details_patch=details_patch,
+                expected_statuses=["planned"],
+                is_transition=True,
+            )
+
+    def transition_pre_dispatch_failure(
+        self,
+        operation_id: str,
+        *,
+        target_lock_id: str,
+        event_type: str,
+        stage: str,
+        payload: Mapping[str, Any] | None = None,
+        details_patch: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Return release permission only if no recovery has taken over closure."""
+        with self._sessions() as session:
+            operation = session.scalar(
+                select(OperationRecord)
+                .where(OperationRecord.operation_id == operation_id)
+                .with_for_update()
+            )
+            if operation is None:
+                raise OperationNotFound(operation_id)
+            if operation.status != "planned":
+                return False
+            # Operation locking serializes first recovery creation. Do not
+            # lock an existing recovery row here: recovery locks that row
+            # before the Operation. Its owner must finish and release instead.
+            if session.get(OperationRecoveryItemRecord, operation_id) is not None:
+                return False
+            lock = session.scalar(
+                select(OperationLockRecord)
+                .where(OperationLockRecord.operation_lock_id == target_lock_id)
+                .with_for_update()
+            )
+            if (
+                lock is None
+                or lock.owner_id != operation_id
+                or lock.status not in OPEN_TARGET_LOCK_STATUSES
+                or lock.scope_type != "proxmox_locator"
+                or operation.target_type != "proxmox_vm"
+                or operation.target_id != f"vmid:{lock.vmid}"
+            ):
+                return False
+            self.append_in_session(
+                session, operation_id,
+                next_status="failed", event_type=event_type, stage=stage,
+                payload=payload, details_patch=details_patch,
+                expected_statuses=["planned"], is_transition=True,
+            )
+            return True
 
     def append_event(
         self,

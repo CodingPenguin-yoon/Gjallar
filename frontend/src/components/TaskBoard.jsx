@@ -363,7 +363,7 @@ function TaskBoard() {
             <Activity className="h-4 w-4" />
             Recorded job history
           </div>
-          <h2 className="mt-3 text-3xl font-semibold text-slate-950">Jobs / Runs</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-950">Job history</h2>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
             Read-only execution history for VM create preflight, plan, approval, and safe boundary jobs. Live execution controls are intentionally absent.
           </p>

@@ -47,7 +47,7 @@ def test_all_vm_create_routes_are_owned_by_the_compatibility_child_router():
         if isinstance(route, APIRoute) and route.path.startswith("/api/v1/vm-create/")
     ]
 
-    assert len(vm_create_routes) == 6
+    assert len(vm_create_routes) == 7
     assert {
         route.endpoint.__module__
         for route in vm_create_routes

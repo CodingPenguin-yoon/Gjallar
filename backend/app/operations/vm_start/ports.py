@@ -68,13 +68,11 @@ class VmStartEvidencePort(Protocol):
 
 
 class VmStartLockPort(Protocol):
-    def acquire_request(self, job_id: str) -> Any: ...
-
-    def release_request(self, handle: Any, job_id: str) -> None: ...
-
     def acquire_target(self, target_type: str, target_id: str, operation_id: str) -> VmStartTargetLockHandle: ...
 
     def release_target(self, handle: VmStartTargetLockHandle) -> None: ...
+
+
 
 
 @dataclass(frozen=True)

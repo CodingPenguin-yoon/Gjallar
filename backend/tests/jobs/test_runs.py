@@ -5,6 +5,78 @@ from unittest.mock import patch
 
 
 class JobRunsTests(unittest.TestCase):
+    def test_record_job_run_in_session_rolls_back_job_and_status_artifact_together(self):
+        from app.db.models import JobArtifactRecord, JobRunRecord
+        from app.db.session import get_session_factory, session_scope
+        from app.jobs import runs as runs_module
+
+        job_id = "job-session-rollback"
+        session = get_session_factory()()
+        try:
+            result = runs_module.record_job_run_in_session(
+                session,
+                job_id=job_id,
+                job_type="vm_start",
+                status="completed",
+                target_id="node-a:306",
+                risk_level="unknown",
+                stage="post_check",
+                step_status="completed",
+                message="observed running",
+            )
+
+            self.assertEqual(1, result["artifact_count"])
+            self.assertIsNotNone(session.get(JobRunRecord, job_id))
+            self.assertIsNotNone(
+                session.get(JobArtifactRecord, result["artifacts"][0]["artifact_id"])
+            )
+            session.rollback()
+        finally:
+            session.close()
+
+        with session_scope() as verification_session:
+            self.assertIsNone(verification_session.get(JobRunRecord, job_id))
+            self.assertEqual(
+                [],
+                verification_session.query(JobArtifactRecord)
+                .filter(JobArtifactRecord.job_id == job_id)
+                .all(),
+            )
+
+    def test_record_job_run_rolls_back_new_job_when_status_artifact_owner_collides(self):
+        from app.db.models import JobRunRecord
+        from app.db.session import session_scope
+        from app.jobs import runs as runs_module
+        from app.jobs.artifacts import get_artifact_record, write_json_artifact
+
+        first_job_id = "z" * 120 + "-first"
+        colliding_job_id = "z" * 120 + "-second"
+        existing = write_json_artifact(
+            run_dir=runs_module.run_dir(first_job_id),
+            job_id=first_job_id,
+            artifact_type="job_status",
+            filename="job_status.json",
+            payload={"owner": "first"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "different job"):
+            runs_module.record_job_run(
+                job_id=colliding_job_id,
+                job_type="vm_start",
+                status="completed",
+                target_id="node-a:306",
+                risk_level="unknown",
+                stage="post_check",
+                step_status="completed",
+                message="must roll back",
+            )
+
+        with session_scope() as session:
+            self.assertIsNone(session.get(JobRunRecord, colliding_job_id))
+        retained = get_artifact_record(existing.artifact_id)
+        self.assertIsNotNone(retained)
+        self.assertEqual(first_job_id, retained.job_id)
+
     def test_strict_list_job_runs_preserves_db_unavailability(self):
         from app.jobs import runs as runs_module
 

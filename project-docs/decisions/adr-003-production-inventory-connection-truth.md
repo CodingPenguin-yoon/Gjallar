@@ -7,6 +7,8 @@
 - 대체하는 ADR: `없음 — 기존 Project Specification과 전환 Plan의 explicit demo mode 결정을 이 ADR이 정정`
 - 대체된 ADR: `없음`
 
+> 현재 적용 안내(2026-09-07): 배경의 fake fallback은 결정 당시 제거 대상이었다. 현재 product runtime에는 해당 fallback이 없고, partial snapshot은 읽기에 사용한다. 이후 [Create 관찰 조건 분리](../archive/plans/2026-09-07-create-partial-observation.md)에서 Create 입력을 열고 guest agent 실패를 static/DHCP별로 검증하도록 변경했다. 아래 complete-live 결정은 다른 action에 계속 적용되며 Create의 현재 예외는 해당 계획과 현재 API를 따른다.
+
 ## 배경
 
 현재 `GJALLAR_INVENTORY_MODE=auto`는 Proxmox credential이 없으면 fixture 기반 inventory로 fallback한다. 이 동작은 개발에는 편하지만 control plane 화면에서 fake state를 실제 Proxmox state로 오인하게 만들 수 있다. 사용자는 product runtime에서 mock/demo data를 표시하지 않고 연결되지 않은 운영 화면을 숨기는 방향을 승인했다.

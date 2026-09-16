@@ -27,9 +27,10 @@ assert.match(appFacade, /from ['"]\.\/app\/App['"]/, 'Root App must be a compati
 for (const label of ['Overview', 'Workloads', 'Insights', 'Operations', 'Settings']) {
   assert.ok(navigation.includes(`label: '${label}'`), `Primary navigation must expose ${label}`)
 }
-for (const label of ['Inventory', 'Create VM', 'Network readiness', 'Jobs', 'Risks', 'Readiness', 'Capacity', 'Placement', 'Guided qm', 'Account', 'Admin Users']) {
+for (const label of ['Inventory', 'Create VM', 'All operations', 'Job history', 'Summary', 'Risks', 'VM readiness', 'Capacity', 'Placement', 'Account', 'Users & sessions']) {
   assert.ok(navigation.includes(label), `Section navigation must expose ${label}`)
 }
+assert.doesNotMatch(navigation, /label: 'Network readiness'/, 'Retired network comparison must not remain a navigation item')
 assert.doesNotMatch(navigation, /label: 'DRS Advisor'/, 'DRS must not remain a primary product navigation item')
 assert.doesNotMatch(navigation, /label: 'DRS Policies'/, 'DRS Policies must not remain a Workloads navigation item')
 
@@ -37,26 +38,24 @@ for (const [items, pathname, expectedLabel] of [
   [workloadNavItems, '/instances', 'Inventory'],
   [workloadNavItems, '/instances/306', 'Inventory'],
   [workloadNavItems, '/instances/create', 'Create VM'],
-  [workloadNavItems, '/instances/networks', 'Network readiness'],
   [workloadNavItems, '/infra', 'Inventory'],
   [workloadNavItems, '/create', 'Create VM'],
-  [workloadNavItems, '/networks', 'Network readiness'],
-  [insightsNavItems, '/insights', 'Overview'],
+  [insightsNavItems, '/insights', 'Summary'],
   [insightsNavItems, '/insights/risks', 'Risks'],
-  [insightsNavItems, '/insights/readiness', 'Readiness'],
+  [insightsNavItems, '/insights/readiness', 'VM readiness'],
   [insightsNavItems, '/insights/capacity', 'Capacity'],
   [insightsNavItems, '/insights/placement', 'Placement'],
-  [operationsNavItems, '/operations', 'Operations'],
-  [operationsNavItems, '/operations/operation-123', 'Operations'],
-  [operationsNavItems, '/operations/jobs', 'Jobs'],
-  [operationsNavItems, '/jobs', 'Jobs'],
-  [operationsNavItems, '/operations/guided-qm/vm-unlock', 'Guided qm'],
-  [operationsNavItems, '/operations/risks', 'Operations'],
-  [operationsNavItems, '/risks', 'Operations'],
+  [operationsNavItems, '/operations', 'All operations'],
+  [operationsNavItems, '/operations/operation-123', 'All operations'],
+  [operationsNavItems, '/operations/jobs', 'Job history'],
+  [operationsNavItems, '/jobs', 'Job history'],
+  [operationsNavItems, '/operations/guided-qm/vm-unlock', 'All operations'],
+  [operationsNavItems, '/operations/risks', 'All operations'],
+  [operationsNavItems, '/risks', 'All operations'],
   [[accountNavItem, adminNavItem], '/settings/account', 'Account'],
   [[accountNavItem, adminNavItem], '/account', 'Account'],
-  [[accountNavItem, adminNavItem], '/settings/admin/users', 'Admin Users'],
-  [[accountNavItem, adminNavItem], '/admin/users', 'Admin Users'],
+  [[accountNavItem, adminNavItem], '/settings/admin/users', 'Users & sessions'],
+  [[accountNavItem, adminNavItem], '/admin/users', 'Users & sessions'],
 ]) {
   const activeItems = resolveSectionNavItems(items, pathname).filter((item) => item.isActive)
   assert.equal(activeItems.length, 1, `${pathname} must activate exactly one section navigation item`)
@@ -91,8 +90,18 @@ for (const route of ['path="/infra"', 'path="/networks"', 'path="/create"', 'pat
   assert.ok(app.includes(route), `App routes must preserve legacy alias route: ${route}`)
 }
 
+for (const route of ['/instances/networks', '/networks']) {
+  assert.ok(app.includes(`path="${route}" element={<Navigate to="/instances" replace />}`), `${route} must redirect to inventory`)
+}
+assert.doesNotMatch(app, /NetworkReadiness|networkReadinessRoute/, 'Retired network screen must not remain in app composition')
+for (const retiredPath of ['../src/pages/workloads/NetworkReadinessPage.jsx', '../src/components/NetworkReadinessScreen.jsx', '../src/utils/networkReadiness.js']) {
+  assert.equal(existsSync(new URL(retiredPath, import.meta.url)), false, `${retiredPath} must be removed with its independent screen`)
+}
+assert.doesNotMatch(dashboard, /Network readiness|navigate\('\/instances\/networks'\)/, 'Overview must not advertise the retired screen')
+
 assert.match(navigation, /isAdmin \? \[accountNavItem, adminNavItem\] : \[accountNavItem\]/, 'Admin Users navigation must remain admin-only')
-assert.match(navigation, /!item\.requiresOperator \|\| canExecute/, 'Guided qm navigation must be hidden without execution permission')
+assert.equal(operationsNavItems.some((item) => item.path === '/operations/guided-qm/vm-unlock'), false, 'Guided execution must use the retained contextual action instead of a history tab')
+assert.match(navigation, /if \(items\.length < 2\) return null/, 'A single Settings destination must not produce a redundant subnav')
 assert.match(app, /function AdminGuard/, 'Direct admin route access must be guarded')
 assert.match(app, /path="\/jobs"\s+element=\{jobsRoute\}/, 'Legacy Jobs alias must direct-render so query strings are preserved')
 assert.match(app, /visiblePrimaryNavItems/, 'Unavailable Proxmox navigation must be hidden')
@@ -102,7 +111,8 @@ assert.doesNotMatch(app, /operationalRoute\(\s*insightsRoute/, 'Insights must re
 assert.doesNotMatch(app, /path="\/(?:drs|instances\/drs-policies)"/, 'Removed DRS URLs must follow the unknown-path fallback')
 assert.match(app, /<Route path="\*" element=\{<Navigate to="\/" replace \/>\} \/>/, 'Authenticated unknown paths must continue to redirect to Overview')
 assert.match(app, /inventoryRoute\(<Dashboard \/>\)/, 'Dashboard must accept readable partial inventory')
-assert.match(app, /<ProxmoxConnectionBoundary \{\.\.\.connectionBoundaryProps\} requireLive>/, 'Create and mutation-backed routes must retain a complete-live boundary')
+assert.match(app, /const createVmRoute = \(\s*inventoryRoute\(/, 'Create input must accept partial inventory')
+assert.match(app, /<CreateVmPage currentUser=\{currentUser\} canExecuteLiveMutation=\{canOperate\(currentUser\)\}/, 'Create review permissions must not depend on unrelated guest observation')
 assert.match(app, /canOperate\(currentUser\) && proxmoxOperational/, 'Mutation affordances must require role and live connection truth')
 assert.doesNotMatch(app, /from ['"]\.\.\/components\//, 'App layer must compose pages rather than legacy screen components')
 assert.doesNotMatch(app, /from ['"]\.\.\/(?:services|utils)\//, 'App layer must use shared public modules')

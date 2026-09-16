@@ -1,9 +1,12 @@
 # 프로젝트 명세: Gjallar Observe-first Operations Intelligence
 
 - 상태: `APPROVED`
-- 최종 검토일: `2026-08-24`
+- 최종 검토일: `2026-09-07`
+- 부분 검토: `2026-09-14`, 프리셋·이력 보존 정책
 - 최종 승인자: `사용자`
-- 관련 ADR: [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)
+- 관련 ADR: [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md), [`ADR-008`](../decisions/adr-008-template-based-create-and-persistence-simplification.md)
+
+이 문서는 제품 범위와 요구사항을 정의한다. 실제 구현·과도기 구조는 [아키텍처](../architecture/overview.md), 미구현 방향과 실행 승인 상태는 [계획 인덱스](../plans/README.md)를 따른다. 문서의 역할과 상태 규칙은 [문서 안내](../README.md)에 모은다.
 
 ## 1. 해결할 문제
 
@@ -29,9 +32,9 @@
 - node, VM, storage, network와 task observation에 `source`, `observed_at`, `freshness`와 availability를 명시한다.
 - workload 상태, derived insight, operation history와 evidence를 연결해 현재 상태와 변화 원인을 설명한다.
 - Gjallar는 actual state의 전량 mirror가 아니라 local metadata, observation provenance, derived finding, operation intent, verification, evidence와 audit를 소유한다.
-- 지원 mutation을 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`으로 제한한다.
+- 지원 action을 템플릿 기반 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`으로 제한한다. Guided command는 사용자가 외부에서 실행하며 backend mutation은 아니다.
 - 지원 action에 RBAC, fresh pre-check, 필요한 approval 또는 acknowledgement, idempotency, target lock, action별 external task 또는 operator attestation correlation과 direct after-state verification을 적용한다.
-- DRS policy·approval·execution·reconciliation과 automatic migration을 승인된 순서로 제거한다.
+- 제거된 DRS policy·approval·execution·reconciliation과 automatic migration을 제품 기능으로 복원하지 않는다.
 - insight와 recommendation은 approval 또는 operation을 자동 생성·dispatch하지 않는다.
 - stale, unknown, unavailable과 ambiguous state를 정상·성공 또는 low risk로 축소하지 않는다.
 - 다른 Proxmox 환경으로의 배포를 방해하는 provider-specific locator와 node/profile 하드코딩을 adapter·configuration 경계로 이동한다.
@@ -51,6 +54,7 @@
 - 지원 목록 밖의 broad VM lifecycle parity와 destructive action
 - Proxmox 외 provider를 즉시 지원하는 multi-provider control plane
 - CI/CD, application deployment, Terraform/GitOps orchestrator
+- 현재 단계의 빈 VM·ISO 기반 생성, OS 설치 자동화와 템플릿 제작·변환 action
 - 초기 단계의 multi-cluster federation, microservice, message broker와 external queue
 - PBS/backup 제품화, SSO/OAuth/2FA와 compliance-grade WORM audit의 무승인 도입
 
@@ -63,7 +67,7 @@
 - source·observed time·freshness·availability를 가진 Proxmox node, VM, template, storage, network와 task observation
 - Workload Cockpit과 상태·변화·operation evidence의 연결
 - risk, readiness, capacity와 placement/topology health finding
-- Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`
+- 템플릿 기반 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`
 - 지원 action의 intent, action별 gate, idempotency, lock, external task 또는 operator attestation correlation, post-check와 reconciliation
 - evidence/audit timeline, artifact provenance와 secret redaction
 - DRS 전용 UI·API·runtime·schema contract 제거와 shared operation/evidence 보존
@@ -74,6 +78,19 @@
 - historical `drs_migration` job/artifact renderer와 `/insights`의 `drs_advisor`·`drs-rec-*` 값은 기존 evidence/response compatibility로 유지하지만 DRS runtime이나 신규 producer를 의미하지 않는다.
 - compatibility 보존은 신규 기능, generic owner로의 자동 승격 또는 장기 제품 범위를 의미하지 않는다.
 
+### Create VM의 합의한 수정 방향
+
+- Proxmox에서 준비한 템플릿을 선택하고 사양·네트워크·접속 정보를 입력해 검토·승인·생성·검증하는 흐름에 집중한다. 템플릿 제작과 OS 설치는 Proxmox에서 수행한다.
+- 기본 UI와 `creation_mode=template`은 명시한 Proxmox 템플릿에서 사양을 가져오며 DB 프로필을 조회하지 않는다. 직접 입력은 양의 정수 사양·대상 노드 CPU/총 메모리 한도·디스크 축소 금지·storage 여유·cloud-init/guest-agent·SSH 조건을 검증한다. 프리셋을 선택하면 기존 운영자 수정값과 해당 프로필 제한을 적용한다.
+- 템플릿은 OS·disk 기반이고 Gjallar 프로필은 기본값·제약이다. 두 개념을 구분하고, 프로필을 선택적 사양 프리셋으로 두고 기본값과 제한 정책을 분리하는 방향을 채택한다.
+- 현재 VM·템플릿·자원 정보는 Proxmox를 기준으로 판단하고 실제 mutation 직전에 새로 확인한다. DB에는 입력·검토·승인·실행 이력과 실행 조정 정보를 남길 수 있지만 과거 관찰을 현재 상태의 권위로 사용하지 않는다([ADR-009](../decisions/adr-009-proxmox-state-authority-and-create-history.md)). 승인에 영향을 주는 변경은 재검토하며 조회 실패 시 실행하지 않는다.
+- 검토 계산과 영속 저장을 분리하고, Operations를 기준으로 기존 요청·Jobs·VM 연결 정보의 중복된 실행 판단·기록을 줄인다. exact approval, idempotency, target lock, durable checkpoint와 검증 evidence는 보존한다.
+- 현재 코드는 검토 계산과 artifact 저장 함수를 분리했으며, 선택적 DB 프리셋, 검토 단계의 DB write, request/Jobs 병행 기록과 PostgreSQL 잠금은 유지한다. Create 최초 mutation 전에는 cache 없는 Proxmox 관찰로 승인 조건을 재검증한다.
+- [ADR-012](../decisions/adr-012-create-preset-and-history-retention.md)에 따라 프리셋은 기존 DB에 유지하고 템플릿 직접 입력은 프리셋 조회와 독립적으로 제공한다. 현재 저장 단위의 입력·검토·승인·작업 기록은 자동 만료·삭제 없이 보존한다. `job_runs`의 최신 projection과 동일 artifact identity의 upsert 의미는 유지하므로 모든 수정본의 불변 원본 보존을 뜻하지 않는다. 장기 archive·consumer·schema·transaction 이관은 별도 설계다.
+- Create 입력·검토는 partial base snapshot에서도 가능하다. Create 실행은 guest agent 외 source의 complete 관찰을 요구한다. 고정 IP는 입력한 주소의 ping 응답과 기존 VM 설정·guest agent IP 정보를 함께 확인한다. 어느 쪽이든 점유가 발견되면 red로 차단하며, 점유 미발견·조회 불가는 yellow로 직접 확보한 IP인지 확인받는다. 기존 VM의 guest agent 누락만으로 차단하지 않는다. DHCP discovery 경고와 최초 mutation 직전 재검증은 유지한다. Start/Shutdown/Guided의 complete-live 조건은 유지한다.
+
+생성 범위의 결정 이유·선택지는 [ADR-008](../decisions/adr-008-template-based-create-and-persistence-simplification.md), 확정한 프리셋·이력 보존 정책과 비용은 [ADR-012](../decisions/adr-012-create-preset-and-history-retention.md)를 따른다.
+
 ### 제외
 
 - DRS policy·approval·execution·reconciliation과 migration의 목표 제품 기능
@@ -81,7 +98,7 @@
 - generic TSDB·범용 alerting platform과 automatic remediation
 - arbitrary `qm`, backend SSH executor와 silent fallback
 - multi-provider와 broad multi-cluster orchestration
-- 승인 전 DB 재설계, data retention, telemetry collector, scheduler와 신규 운영 dependency
+- 승인 전 DB 재설계·이력 삭제/이관, telemetry collector, scheduler와 신규 운영 dependency
 
 ## 6. 기능 요구사항
 
@@ -93,7 +110,7 @@
 | FR-004 | managed API action은 action별 사전 조건과 실행 결과를 검증해야 한다. | 필수 | RBAC, fresh pre-check, 필요한 policy/approval 또는 acknowledgement, lock, task poll과 direct after-state를 거쳐야 `succeeded`가 된다. |
 | FR-005 | guided manual action은 구조화되고 검증 가능한 절차여야 한다. | 필수 | allowlisted template과 typed parameter만 사용하고 target, expiry, plan digest, expected result와 verification procedure를 포함하며 arbitrary input이나 secret을 command에 넣지 않는다. |
 | FR-006 | managed와 manual mode 사이에 silent fallback이 없어야 한다. | 필수 | dispatch 결과가 불확실하면 다른 mode로 재실행하지 않고 `needs_reconciliation`으로 전환한다. |
-| FR-007 | Create VM은 표준화된 verified action이어야 한다. | 필수 | draft/preflight/plan/exact approval/create/post-check가 하나의 operation 및 생성된 workload identity와 연결된다. |
+| FR-007 | Create VM은 템플릿 기반의 표준화된 verified action이어야 한다. | 필수 | 템플릿·사양 입력, 사전 검사, 계획·exact approval, 복제·설정과 post-check가 하나의 operation 및 생성된 workload identity와 연결된다. |
 | FR-008 | operation 결과는 append-only evidence와 감사 추적을 제공해야 한다. | 필수 | actor/action/before/after/task/provenance/checksum을 조회할 수 있고 secret은 저장·노출되지 않는다. |
 | FR-009 | partial failure와 ambiguous state를 보수적으로 보존해야 한다. | 필수 | timeout, missing UPID, crash-after-dispatch, task/post-check mismatch와 evidence 저장 실패를 성공으로 표시하지 않는다. |
 | FR-010 | Insights는 observe-first 운영 맥락을 제공하고 실행 권한과 분리돼야 한다. | 필수 | risk, readiness, capacity와 placement/topology finding은 source·근거·rule/model version·observed time·freshness를 제공하고 operation을 자동 생성하거나 dispatch하지 않는다. DRS persistence와 migration client에 의존하지 않는다. |
@@ -113,7 +130,7 @@
 | 이식성 | core read rule이 raw Proxmox endpoint·UPID 문자열을 직접 해석하지 않고 provider-specific transport는 adapter에 둔다. | architecture contract와 adapter tests |
 | 유지보수성 | public application contract를 통해 domain별 vertical slice를 독립 변경·검증한다. | dependency review, unit/contract/full suite |
 
-성능 SLA, observation cadence, retention, alert integration과 접근성 정량 기준은 후속 구현 slice에서 별도 확정한다.
+성능 SLA, observation cadence, 장기 archive·revision별 보존 전략, alert integration과 접근성 정량 기준은 후속 구현 slice에서 별도 확정한다. 현재 저장 단위의 자동 삭제 없는 보존은 ADR-012를 따른다.
 
 ## 8. 핵심 업무 규칙
 
@@ -159,13 +176,15 @@
 ## 11. 미확정 사항
 
 - neutral Placement의 target recommendation을 placement/topology health finding으로 축소할 범위
-- shared Jobs/Artifacts의 historical DRS evidence retention과 archive 정책
+- shared Jobs/Artifacts의 historical DRS evidence 장기 archive·이관 정책
 - observation cadence, durable history와 retention 및 외부 telemetry 연동 경계
 - finding acknowledge/silence/resolve와 외부 notification 연동의 필요 시점
 - separate `approver` role과 separation of duties 도입 시점
 - application-level checksum audit과 external WORM audit 중 목표 수준
-- Create VM·Guided action의 durable recovery 범위
-- operation·attempt·evidence compatibility table의 장기 migration·retention 전략
+- Create·Guided의 현재 GET-only 복구로 확정할 수 없는 partial effect·missing task·수동 실행의 후속 처리 범위
+- Create 이력의 revision별 불변 보존·장기 archive 필요성
+- Create의 guest agent 분리 이후 나머지 source를 대상별로 한정할지 여부
+- operation·attempt·evidence compatibility table의 장기 migration·archive 전략
 - 정량 SLA와 접근성 기준
 
 ## 12. 승인 기록
@@ -184,9 +203,20 @@
 - 승인자: `사용자`
 - 승인일: `2026-08-24`
 
+### 2026-09-07 생성 방향과 문서 체계
+
+- 승인자: `사용자`
+- 템플릿 기반 생성에 집중하는 추천을 수락하고, 생성 흐름·DB 의존성 축소 방향을 포함한 문서 전체 최신화와 레거시 정리를 요청했다.
+- 제품·설계 방향은 [ADR-008](../decisions/adr-008-template-based-create-and-persistence-simplification.md), 현재 문서의 역할·상태·보관 규칙은 [문서 안내](../README.md)에 기록한다.
+- 실제 생성 로직·API·DB 이관은 후속 구현 Plan의 범위다. 현재 문서 갱신으로 구현 완료·live 실행·데이터 삭제를 승인한 것으로 해석하지 않는다.
+
 ### 역사적 기준선
 
 - 2026-07-20: Proxmox actual-state authority, verified operation mode, modular monolith, connection truth와 점진 전환 승인.
 - 2026-07-21: PostgreSQL durable target lock, VM Start/Shutdown GET-only recovery와 graceful shutdown 승인.
 - 2026-07-23: DRS maintenance 단계적 폐기와 neutral Placement/Capacity의 Insights 통합 승인.
 - 위 결정의 유효한 안전 원칙은 [`ADR-007`](../decisions/adr-007-observe-first-operations-intelligence.md)이 계승하며 기존 ADR과 Plan은 역사로 보존한다.
+
+## 단계별 생성 입력
+
+Create UI는 기본 정보 → 배치·사양 → 네트워크·접속 → 최종 검토의 네 단계로 제공한다. 이름과 VMID를 직접 지정하고 VMID는 자동 추천값에서 시작한다. 추천은 예약이 아니며 검토·생성 직전 Proxmox 상태로 확인한다. 이전 이동은 입력을 유지하되 검토 후 설정 변경은 기존 검토·승인·동의를 무효화한다. 실제 생성 요청 뒤에는 Operation 진행·결과 화면을 사용한다.

@@ -62,7 +62,7 @@ def _degraded_reason(exc: Exception) -> str:
     return "proxmox_inventory_unavailable"
 
 
-def observe_proxmox_connection(adapter: Any) -> ProxmoxConnectionObservation:
+def observe_proxmox_connection(adapter: Any, *, fresh: bool = False) -> ProxmoxConnectionObservation:
     source = str(getattr(adapter, "source", "unavailable") or "unavailable")
     cluster_id = _cluster_id(adapter)
     if source == "unavailable":
@@ -78,7 +78,11 @@ def observe_proxmox_connection(adapter: Any) -> ProxmoxConnectionObservation:
         )
 
     try:
-        snapshot = adapter.snapshot()
+        snapshot = (
+            adapter.fresh_snapshot()
+            if fresh and not getattr(adapter, "is_test_fixture", False)
+            else adapter.snapshot()
+        )
     except ProxmoxInventoryUnavailableError as exc:
         return ProxmoxConnectionObservation(
             status=ProxmoxConnectionStatus(

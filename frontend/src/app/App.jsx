@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import AdminUsersPage from '../pages/settings/AdminUsersPage'
 import CreateVmPage from '../pages/workloads/CreateVmPage'
-import NetworkReadinessPage from '../pages/workloads/NetworkReadinessPage'
 import RisksPage from '../pages/operations/RisksPage'
 import ProxmoxConnectionBoundary from '../shared/proxmox/ProxmoxConnectionBoundary'
 import InsightsPage from '../pages/insights/InsightsPage'
@@ -135,15 +134,13 @@ function App() {
   const proxmoxInventoryAvailable = proxmoxConnectionState.status === 'ready'
     && isProxmoxInventoryAvailable(proxmoxConnectionState.data)
   const canMutate = canOperate(currentUser) && proxmoxOperational
+  const canObserveRecovery = canOperate(currentUser)
   const isAdmin = canAdmin(currentUser)
   const connectionBoundaryProps = {
     requestStatus: proxmoxConnectionState.status,
     connection: proxmoxConnectionState.data,
     onRetry: refreshProxmoxConnection,
   }
-  const operationalRoute = (children) => (
-    <ProxmoxConnectionBoundary {...connectionBoundaryProps} requireLive>{children}</ProxmoxConnectionBoundary>
-  )
   const inventoryRoute = (children) => (
     <ProxmoxConnectionBoundary {...connectionBoundaryProps}>{children}</ProxmoxConnectionBoundary>
   )
@@ -155,9 +152,9 @@ function App() {
     )
   )
   const createVmRoute = (
-    operationalRoute(
+    inventoryRoute(
       <WorkloadsShell>
-        <CreateVmPage currentUser={currentUser} canExecuteLiveMutation={canMutate} />
+        <CreateVmPage currentUser={currentUser} canExecuteLiveMutation={canOperate(currentUser)} />
       </WorkloadsShell>,
     )
   )
@@ -168,20 +165,13 @@ function App() {
       </WorkloadsShell>,
     )
   )
-  const networkReadinessRoute = (
-    operationalRoute(
-      <WorkloadsShell>
-        <NetworkReadinessPage />
-      </WorkloadsShell>,
-    )
-  )
   const jobsRoute = (
-    <OperationsShell canExecute={canMutate}>
+    <OperationsShell>
       <JobsPage />
     </OperationsShell>
   )
   const risksRoute = (
-    <OperationsShell canExecute={canMutate}>
+    <OperationsShell>
       <RisksPage />
     </OperationsShell>
   )
@@ -191,18 +181,18 @@ function App() {
     </InsightsShell>
   )
   const operationsRoute = (
-    <OperationsShell canExecute={canMutate}>
+    <OperationsShell>
       <OperationsListPage canExecute={canMutate} />
     </OperationsShell>
   )
   const guidedQmRoute = (
-    <OperationsShell canExecute={canMutate}>
+    <OperationsShell>
       <GuidedQmUnlockPage canExecute={canMutate} />
     </OperationsShell>
   )
   const operationDetailRoute = (
-    <OperationsShell canExecute={canMutate}>
-      <OperationDetailPage canExecute={canMutate} />
+    <OperationsShell>
+      <OperationDetailPage canExecute={canMutate} canObserveRecovery={canObserveRecovery} />
     </OperationsShell>
   )
   const accountRoute = (
@@ -232,7 +222,7 @@ function App() {
           <Route path="/" element={inventoryRoute(<Dashboard />)} />
           <Route path="/instances" element={vmInventoryRoute} />
           <Route path="/instances/create" element={createVmRoute} />
-          <Route path="/instances/networks" element={networkReadinessRoute} />
+          <Route path="/instances/networks" element={<Navigate to="/instances" replace />} />
           <Route path="/instances/:vmid" element={vmDetailRoute} />
           <Route path="/insights" element={insightsRoute()} />
           <Route path="/insights/risks" element={insightsRoute('risk')} />
@@ -249,7 +239,7 @@ function App() {
           <Route path="/settings/admin/users" element={adminUsersRoute} />
           <Route path="/infra" element={vmInventoryRoute} />
           <Route path="/create" element={createVmRoute} />
-          <Route path="/networks" element={networkReadinessRoute} />
+          <Route path="/networks" element={<Navigate to="/instances" replace />} />
           <Route path="/jobs" element={jobsRoute} />
           <Route path="/risks" element={risksRoute} />
           <Route path="/account" element={accountRoute} />

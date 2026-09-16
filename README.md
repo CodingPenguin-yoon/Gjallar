@@ -1,117 +1,52 @@
 # Gjallar
 
-Gjallar는 Proxmox를 위한 **Observe-first Operations Intelligence with Verified Actions**를 지향합니다.
+Gjallar는 Proxmox의 VM과 클러스터 상태를 관찰하고, 위험과 원인을 설명하며, 필요한 작업의 실행 결과를 검증하는 **Observe-first Operations Intelligence with Verified Actions**입니다.
 
-Proxmox는 VM·node·task의 actual state와 low-level execution을 소유합니다. Gjallar는 상태의 source·freshness·운영 맥락과 evidence를 연결해 설명하고, 개입이 필요할 때 Create VM, VM Start, graceful VM Shutdown과 allowlist 기반 Guided `qm unlock`만 검증된 action으로 제공합니다.
+Proxmox가 VM·node·task의 실제 상태와 실행을 소유합니다. Gjallar는 관찰 출처·시점, 운영 맥락, 작업 의도와 검증 증거를 연결합니다.
 
-## 현재 상태와 목표
-
-현재 코드는 React SPA, FastAPI, PostgreSQL/Alembic, Proxmox API로 구성된 점진 전환 중인 modular monolith입니다. 인증, inventory, Create VM, VM Start, graceful VM Shutdown, Operations/Guided `qm unlock`, observe-only Insights와 Jobs/Risks를 제공합니다. DRS 전용 UI·API·runtime·schema contract는 제거됐고, 기존 Jobs/Artifacts의 historical `drs_migration` 표시는 evidence compatibility로만 유지합니다.
-
-- 목표 제품 정의: [`project-docs/specifications/project-specification.md`](project-docs/specifications/project-specification.md)
-- 현재 코드 기준선: [`project-docs/architecture/overview.md`](project-docs/architecture/overview.md)
-- 현재 Architecture Decision: [`ADR index`](project-docs/decisions/README.md), [`ADR-007`](project-docs/decisions/adr-007-observe-first-operations-intelligence.md)
-- 구현된 기존 전환 이력: [`project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md`](project-docs/plans/2026-07-20-verified-operations-control-plane-transition.md)
-- DRS 제거 전환 Plan: [`project-docs/plans/2026-08-24-observe-first-operations-intelligence-transition.md`](project-docs/plans/2026-08-24-observe-first-operations-intelligence-transition.md)
-
-`/insights`의 기존 `source=drs_advisor`와 `drs-rec-*` ID는 공개 응답 compatibility 값으로 유지하지만 DRS persistence나 실행 경로를 가리키지 않습니다.
-
-목표 우선순위는 다음과 같습니다.
-
-1. Proxmox observation과 freshness를 정확히 표시
-2. 상태·변화·risk·readiness·capacity와 evidence를 연결해 설명
-3. 필요한 경우에만 제한된 verified action 제공
-
-DRS와 migration, automatic remediation, arbitrary shell, generic TSDB·독립 alerting platform과 multi-provider 지원은 현재 목표 범위가 아닙니다.
+- 현재 구현 확인일: `2026-09-07`
+- 기술 구성: React SPA, FastAPI, PostgreSQL/Alembic, Proxmox VE API
+- 기준 runtime: Python `3.13`, Node.js `24`, pnpm `10.34.5`
 
 ## 현재 제공 기능
 
-- local user/session과 `viewer < operator < admin` RBAC
-- Proxmox node, VM, template, storage, network inventory
-- approval-gated native Create VM
-- acknowledgement/idempotency-gated VM Start와 force fallback 없는 graceful VM Shutdown
-- PostgreSQL durable target lock과 opt-in VM Start/Shutdown observation recovery
-- Jobs/Artifacts/Risks 조회
-- source·freshness·rule·evidence를 제공하는 observe-only Insights
-- same-origin production SPA/API Docker image
+| 영역 | 현재 동작 |
+|---|---|
+| Overview · Workloads | 클러스터·node·VM·template·storage·network 관찰, VM 상세와 최근 작업 연결 |
+| Insights | Risks, VM readiness, Capacity, Placement의 원인·근거·관찰 상태 설명 |
+| Create VM | DB profile과 기존 Proxmox template을 선택하고 검토·승인 후 복제, disk 확장·설정, 선택적 부팅·검증 |
+| VM lifecycle | acknowledgement와 idempotency를 요구하는 Start, 강제 종료 fallback 없는 graceful Shutdown |
+| Guided `qm unlock` | 제한된 명령 안내, 사용자의 외부 실행 사실 기록, Proxmox API로 결과 검증 |
+| Operations | 공통 작업 목록·event timeline, Job history, 네 action의 GET-only recovery |
+| Account · Users & sessions | local user/session, `viewer < operator < admin` 권한과 계정 관리 |
 
-Proxmox 연결은 `unconfigured`/`live`/`degraded`로 표시됩니다. product runtime은 mock/demo inventory로 fallback하지 않으며, `live`가 아니면 inventory-dependent 화면을 닫습니다. Insights는 stored risk를 유지하고 readiness/capacity/placement를 `unavailable`로 표시하며 Jobs/Risks/Account/Admin도 계속 사용할 수 있습니다.
+실제 Proxmox inventory가 있으면 `PARTIAL` 상태에서도 정상적으로 관찰된 데이터를 표시합니다. Create VM 화면과 VM 생성·시작·종료는 complete `LIVE`를 요구합니다. snapshot이 없으면 관련 화면에 연결 안내를 표시하며, Operations·저장된 risk·계정 화면은 자체 데이터와 권한에 따라 유지됩니다. product runtime은 fake inventory로 대체하지 않습니다.
 
-현재 기능과 목표 기능을 혼동하지 않습니다. 목표 operation lifecycle은 승인됐지만 아직 모든 workflow에 구현되지 않았습니다.
+Recovery는 Create VM, Start, Shutdown, Guided `qm unlock`을 지원합니다. background runner는 기본 비활성이며, 허용된 작업은 Operation 상세에서 다시 관찰할 수 있습니다. recovery는 Proxmox GET과 로컬 기록 정리만 수행하고 원래 mutation이나 명령을 다시 실행하지 않습니다.
 
-## 로컬 실행
+현재 VM 생성은 **기존 template 복제만 지원**합니다. ISO 설치, 빈 VM 생성, DRS·VM migration, 자동 remediation, arbitrary shell/SSH 실행은 제공하지 않습니다. 독립 Network readiness 화면은 제거됐고 network inventory와 생성 전 network 검토는 유지합니다.
 
-기준 runtime은 Dockerfile의 Python 3.13, Node.js 24, pnpm 10입니다. PostgreSQL과 실행 가능한 `python3.13` binary 또는 동일한 Python 3.13 경로가 필요합니다.
+## 합의한 다음 방향
 
-```bash
-cp .env.example .env
-nvm use
-npm install --global pnpm@10.34.5
-python3.13 -m venv backend/venv
-backend/venv/bin/pip install -r backend/requirements-dev.lock
-pnpm --dir frontend install --frozen-lockfile
-```
+현재 단계의 생성 범위는 template 복제로 유지합니다. template을 먼저 선택하는 폼, 선택적 profile, 검토 단계의 DB 쓰기와 중복 저장 축소를 후속 방향으로 합의했습니다. **현재 코드는 여전히 DB profile과 기존 request/Jobs/Operation 저장 구조를 사용합니다.** 결정과 미구현 범위는 [ADR-008](project-docs/decisions/adr-008-template-based-create-and-persistence-simplification.md)에서 구분합니다.
 
-`.env`의 `GJALLAR_DATABASE_URL`을 실제 PostgreSQL에 맞춘 뒤 초기화합니다. 아래 `upgrade head`는 새 빈 로컬 DB 기준입니다. 기존 또는 production DB에는 `20260824_0029` hard-zero preflight와 별도 적용 승인 전 실행하지 마십시오. DRS row가 발견되면 삭제·강제 stamp하지 말고 [`운영 Runbook`](project-docs/operations/runbook.md)의 DB migration 절차를 따릅니다.
+## 시작하기
+
+처음 실행할 때는 [운영 Runbook](project-docs/operations/runbook.md)의 환경 준비·DB 초기화·계정 생성 절차를 따릅니다. 준비된 로컬 환경에서는 저장소 root에서 실행합니다.
 
 ```bash
-set -a
-. ./.env
-set +a
-PYTHONPATH=backend backend/venv/bin/alembic -c backend/alembic.ini upgrade head
-PYTHONPATH=backend backend/venv/bin/python -m app.db.seed_create_vm_profiles
-PYTHONPATH=backend backend/venv/bin/python -m app.auth.users create-admin --username admin
 pnpm run dev
 ```
 
-- frontend: `http://127.0.0.1:5173`
-- backend: `http://127.0.0.1:8000`
-- health: `http://127.0.0.1:8000/health`
-
-`.python-version`, `.nvmrc`, package engines, `packageManager`와 lockfile이 local 기준을 명시합니다. 생성되는 venv와 `node_modules`는 Git에 포함하지 않습니다. Python direct dependency를 바꿀 때는 `requirements*.txt`와 Python 3.13/Linux에서 해석한 `requirements*.lock`을 함께 갱신합니다.
-
-## Docker
-
-production image entrypoint는 `alembic upgrade head`를 자동 실행합니다. 기존 또는 production DB를 연결한 image는 `20260824_0029` preflight와 별도 적용 승인 전 build 결과를 배포·실행하지 마십시오.
-
-```bash
-docker build -t gjallar:local .
-docker run --rm --env-file .env -p 8000:8000 gjallar:local
-```
-
-container startup은 Alembic migration, Create VM profile seed, 선택적 bootstrap admin을 수행한 뒤 Uvicorn을 시작합니다. bootstrap admin은 `GJALLAR_BOOTSTRAP_ADMIN_USERNAME`과 `GJALLAR_BOOTSTRAP_ADMIN_PASSWORD`가 모두 있을 때만 생성됩니다.
-
-VM Start/Shutdown recovery runner는 기본적으로 꺼져 있습니다. `GJALLAR_OPERATION_RECOVERY_ENABLED=true`는 모든 replica가 migration head와 durable-lock-aware code로 전환되고 open lock/recovery row를 확인한 환경에서만 사용합니다. runner는 저장된 UPID와 VM 상태를 GET으로 재관찰하며 start/shutdown mutation POST를 재호출하지 않습니다.
-
-## 안전 원칙
-
-- live Proxmox mutation과 smoke test는 target과 side effect를 확인한 별도 승인이 필요합니다.
-- API 결과가 불확실할 때 `qm`으로 자동 fallback하거나 같은 mutation을 재호출하지 않습니다.
-- insight와 recommendation은 mutation을 자동 시작하지 않습니다.
-- DRS, VM migration과 automatic remediation은 목표 action 범위가 아닙니다.
-- arbitrary shell/SSH executor는 제품 범위가 아닙니다.
-- `.env`, password, API token, session token과 private key를 commit·log·artifact에 남기지 않습니다.
-- 적용된 Alembic migration을 수정하거나 삭제하지 않습니다.
-
-## 검증
-
-```bash
-git diff --check
-pnpm run verify
-pnpm run verify:container
-```
-
-`verify`는 local backend test → frontend test → frontend lint → frontend build 순서로 실행합니다. `verify:container`는 Python 3.13 backend test stage와 Node 24/pnpm 10 frontend 검증을 포함한 production image build를 실행합니다.
+기본 접속 주소는 frontend `http://127.0.0.1:5173`, backend `http://127.0.0.1:8000`입니다. Docker 시작 시 migration·profile seed·선택적 admin bootstrap이 수행되므로 기존 DB 적용 절차도 Runbook에서 확인합니다.
 
 ## 문서
 
-공동 source of truth는 `project-docs/` 하나입니다.
+공동 기준 문서는 [문서 홈](project-docs/README.md)에서 목적별로 찾습니다.
 
-- [`project-docs/project-profile.md`](project-docs/project-profile.md): 기술·검증·저장소 기준
-- [`project-docs/decisions/README.md`](project-docs/decisions/README.md): 현재·역사적 Architecture Decision 인덱스
-- [`project-docs/api/current-api-v1.md`](project-docs/api/current-api-v1.md): 현재 API
-- [`project-docs/database/current-schema-and-ownership.md`](project-docs/database/current-schema-and-ownership.md): 현재 DB와 목표 ownership
-- [`project-docs/flows/verified-operation-lifecycle.md`](project-docs/flows/verified-operation-lifecycle.md): 승인된 operation 흐름
-- [`project-docs/operations/runbook.md`](project-docs/operations/runbook.md): 실행·장애 대응
+- [현재 구조](project-docs/architecture/overview.md) · [API 계약](project-docs/api/current-api-v1.md) · [DB와 소유권](project-docs/database/current-schema-and-ownership.md)
+- [실행·검증·장애 대응](project-docs/operations/runbook.md)
+- [결정 기록](project-docs/decisions/README.md) · [구현 계획과 이력](project-docs/plans/README.md)
+- [Backend 안내](backend/README.md) · [Frontend 안내](frontend/README.md)
 
-역사적 live-smoke 자료는 `project-docs/evidence/legacy-live-smoke/`, 과거 rewrite raw artifact는 `artifacts/rewrite-baseline/`에 보존하지만 active 요구사항의 근거로 사용하지 않습니다.
+과거 Plan과 [live-smoke evidence](project-docs/evidence/legacy-live-smoke/README.md)는 당시의 구현·검증 기록입니다. 현재 동작이나 새 live 작업의 승인으로 해석하지 않습니다.

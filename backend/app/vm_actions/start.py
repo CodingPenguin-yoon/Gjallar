@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any, Callable
 
 from app.auth.roles import actor_evidence
@@ -12,11 +10,7 @@ from app.jobs.artifacts import write_json_artifact
 from app.jobs.runs import get_job_run, record_job_run, run_dir
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
 from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
-from app.operations.target_lock import (
-    TargetOperationLockBusy,
-    acquire_target_operation_lock,
-    release_target_operation_lock,
-)
+from app.operations.target_lock import TargetOperationLockBusy, acquire_target_operation_lock, release_target_operation_lock
 from app.operations.vm_start.application import VmStartUseCase
 from app.operations.vm_start.domain import VmStartCommand, build_vm_start_job_id as build_operation_job_id
 from app.operations.vm_start.errors import VmStartError
@@ -29,34 +23,16 @@ from app.operations.vm_start.ports import (
 )
 from app.operations.vm_start.workflow import VerifiedVmStartWorkflow
 from app.proxmox.client import ProxmoxMutationClient, ProxmoxMutationError
+from app.operations.core.evidence import (
+    compact_proxmox_connection_evidence,
+    compact_proxmox_error_details,
+    compact_proxmox_task,
+    compact_proxmox_vm_status,
+)
 
 
 def build_vm_start_job_id(*, node_id: str, vmid: int, idempotency_key: str) -> str:
     return build_operation_job_id(node_id=node_id, vmid=vmid, idempotency_key=idempotency_key)
-
-
-def _acquire_request_lock(lock_path: Path) -> int:
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        raise VmStartError(
-            "VM_START_IN_PROGRESS",
-            "A VM start operation with this idempotency key is already in progress",
-            details={"job_id": lock_path.parent.name, "proxmox_mutation_enabled": False, "side_effects": []},
-        ) from exc
-    os.write(fd, str(os.getpid()).encode("utf-8"))
-    return fd
-
-
-def _release_request_lock(handle: int | None, lock_path: Path) -> None:
-    if handle is None:
-        return
-    os.close(handle)
-    try:
-        lock_path.unlink()
-    except FileNotFoundError:
-        pass
 
 
 class _CurrentVmStartJobAdapter:
@@ -88,16 +64,6 @@ class _CurrentVmStartEvidenceAdapter:
 
 
 class _CurrentVmStartLockAdapter:
-    @staticmethod
-    def _request_lock_path(job_id: str) -> Path:
-        return run_dir(job_id) / "vm_start.lock"
-
-    def acquire_request(self, job_id: str) -> int:
-        return _acquire_request_lock(self._request_lock_path(job_id))
-
-    def release_request(self, handle: int | None, job_id: str) -> None:
-        _release_request_lock(handle, self._request_lock_path(job_id))
-
     def acquire_target(self, target_type: str, target_id: str, operation_id: str) -> VmStartTargetLockHandle:
         try:
             handle = acquire_target_operation_lock(
@@ -114,18 +80,23 @@ class _CurrentVmStartLockAdapter:
         release_target_operation_lock(handle.token)
 
 
+
+
 class _CurrentVmStartMutationAdapter:
     def __init__(self, client: ProxmoxMutationClient) -> None:
         self._client = client
 
     def redacted_connection_context(self) -> dict[str, Any]:
-        return self._client.redacted_connection_context()
+        return compact_proxmox_connection_evidence(self._client.redacted_connection_context())
 
     def start_vm(self, *, node: str, vmid: int) -> str:
         try:
             return self._client.start_vm(node=node, vmid=vmid)
         except ProxmoxMutationError as exc:
-            raise VmStartMutationFailure(str(exc), details=exc.details) from exc
+            raise VmStartMutationFailure(
+                "Proxmox VM start request failed",
+                details=compact_proxmox_error_details(exc.details),
+            ) from exc
 
     def wait_for_task(
         self,
@@ -135,15 +106,23 @@ class _CurrentVmStartMutationAdapter:
         heartbeat: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         try:
-            return self._client.wait_for_task(node=node, upid=upid, heartbeat=heartbeat)
+            task = self._client.wait_for_task(node=node, upid=upid, heartbeat=heartbeat)
+            return compact_proxmox_task(task, node=node, upid=upid)
         except ProxmoxMutationError as exc:
-            raise VmStartMutationFailure(str(exc), details=exc.details) from exc
+            raise VmStartMutationFailure(
+                "Proxmox VM start task observation failed",
+                details=compact_proxmox_error_details(exc.details),
+            ) from exc
 
     def get_vm_status(self, *, node: str, vmid: int) -> dict[str, Any]:
         try:
-            return self._client.get_vm_status(node=node, vmid=vmid)
+            status = self._client.get_vm_status(node=node, vmid=vmid)
+            return compact_proxmox_vm_status(status, node=node, vmid=vmid)
         except ProxmoxMutationError as exc:
-            raise VmStartMutationFailure(str(exc), details=exc.details) from exc
+            raise VmStartMutationFailure(
+                "Proxmox VM status observation failed",
+                details=compact_proxmox_error_details(exc.details),
+            ) from exc
 
 
 def _build_current_mutation_adapter(
@@ -152,7 +131,10 @@ def _build_current_mutation_adapter(
     try:
         client = factory()
     except ProxmoxMutationError as exc:
-        raise VmStartMutationFailure(str(exc), details=exc.details) from exc
+        raise VmStartMutationFailure(
+            "Proxmox mutation client is unavailable",
+            details=compact_proxmox_error_details(exc.details),
+        ) from exc
     return _CurrentVmStartMutationAdapter(client) if client is not None else None
 
 

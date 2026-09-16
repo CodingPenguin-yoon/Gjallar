@@ -6,11 +6,13 @@
 - 대체하는 ADR: `없음`
 - 대체된 ADR: `ADR-006`
 - 관련 ADR: [`ADR-002`](adr-002-modular-monolith-domain-boundaries.md), [`ADR-004`](adr-004-postgresql-durable-operation-recovery.md)
-- 관련 Plan: [`DRS Placement·Common Operation 전환`](../plans/2026-07-23-drs-placement-and-common-operation-convergence.md)
+- 관련 Plan: [`DRS Placement·Common Operation 전환`](../archive/plans/2026-07-23-drs-placement-and-common-operation-convergence.md)
 
 > 2026-07-23 정정: 아래 선택지 A는 DRS를 유지·통합하는 방향으로 잘못 이해해 기록한 결정이다. 사용자는 DRS 기능을 제거하고 제품 read surface를 Insights/Monitoring으로 통합하려는 방향임을 명확히 했으며, 이에 따라 Common Operation 통합 구현은 롤백했다. neutral Placement 경계만 유지하고 DRS 제거의 구체 범위는 후속 Plan에서 확정한다.
 
 후속 결정은 [`ADR-006`](adr-006-drs-deprecation-and-insights-convergence.md)에 기록한다.
+
+> 현재 적용 안내(2026-09-07): 위 정정의 “후속 Plan에서 확정”은 당시의 미결정 상태다. DRS 전용 UI·API·runtime·schema contract 제거는 이후 구현됐으며, 현재 제품 범위는 [ADR-007](adr-007-observe-first-operations-intelligence.md), 잔여 historical Jobs/Artifacts와 source·ID 호환 값은 [현재 아키텍처](../architecture/overview.md)를 따른다. 아래 통합 선택지는 철회된 기록이다.
 
 ## 배경
 

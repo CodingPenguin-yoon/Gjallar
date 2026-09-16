@@ -8,7 +8,6 @@ import {
   Network,
   Plus,
   Settings as SettingsIcon,
-  Terminal,
   UserCircle,
   UserCog,
 } from 'lucide-react'
@@ -26,25 +25,23 @@ export const primaryNavItems = Object.freeze([
 export const workloadNavItems = Object.freeze([
   { label: 'Inventory', path: '/instances', icon: List, activePrefixes: ['/instances'], aliasPaths: ['/infra'] },
   { label: 'Create VM', path: '/instances/create', icon: Plus, aliasPaths: ['/create'] },
-  { label: 'Network readiness', path: '/instances/networks', icon: Network, aliasPaths: ['/networks'] },
 ])
 
 export const operationsNavItems = Object.freeze([
-  { label: 'Operations', path: '/operations', icon: List, activePrefixes: ['/operations'], aliasPaths: ['/risks'] },
-  { label: 'Jobs', path: '/operations/jobs', icon: Clock3, aliasPaths: ['/jobs'] },
-  { label: 'Guided qm', path: '/operations/guided-qm/vm-unlock', icon: Terminal, requiresOperator: true },
+  { label: 'All operations', path: '/operations', icon: List, activePrefixes: ['/operations'], aliasPaths: ['/risks'] },
+  { label: 'Job history', path: '/operations/jobs', icon: Clock3, aliasPaths: ['/jobs'] },
 ])
 
 export const insightsNavItems = Object.freeze([
-  { label: 'Overview', path: '/insights', icon: Activity },
+  { label: 'Summary', path: '/insights', icon: Activity },
   { label: 'Risks', path: '/insights/risks', icon: AlertTriangle },
-  { label: 'Readiness', path: '/insights/readiness', icon: ClipboardCheck },
+  { label: 'VM readiness', path: '/insights/readiness', icon: ClipboardCheck },
   { label: 'Capacity', path: '/insights/capacity', icon: Clock3 },
   { label: 'Placement', path: '/insights/placement', icon: Network },
 ])
 
 export const accountNavItem = { label: 'Account', path: '/settings/account', icon: UserCircle, aliasPaths: ['/account'] }
-export const adminNavItem = { label: 'Admin Users', path: '/settings/admin/users', icon: UserCog, aliasPaths: ['/admin/users'] }
+export const adminNavItem = { label: 'Users & sessions', path: '/settings/admin/users', icon: UserCog, aliasPaths: ['/admin/users'] }
 
 export function navClass({ isActive }) {
   return `flex shrink-0 items-center justify-center gap-2 border-b-2 px-4 py-3 font-medium transition-colors sm:px-6 sm:py-4 ${

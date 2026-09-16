@@ -1,5 +1,7 @@
 """RED tests for create-VM draft defaults and allowed profile surface."""
 
+from app.db import create_vm_profiles as profile_repository
+
 import unittest
 
 TEST_SSH_PUBLIC_KEY = (
@@ -19,7 +21,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
                 "Expected app.vm_create.drafts.build_default_vm_draft for the Create VM "
                 f"wizard contract, but it is missing: {exc}"
             )
-        return build_default_vm_draft(operator_id="test-operator")
+        return build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="test-operator")
 
     def test_default_draft_uses_general_vm_profile(self):
         draft = self._build_default_draft()
@@ -42,6 +44,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         from app.vm_create.drafts import build_default_vm_draft
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             access_overrides={"username": "ubuntu", "sshPublicKey": f"  {TEST_SSH_PUBLIC_KEY}  "},
         )
@@ -61,6 +64,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         from app.vm_create.drafts import build_default_vm_draft
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             access_overrides={"passwordLogin": True, "sshPublicKey": TEST_SSH_PUBLIC_KEY},
         )
@@ -71,14 +75,14 @@ class VmCreateDraftContractTests(unittest.TestCase):
     def test_default_draft_accepts_resolved_inventory_vmid(self):
         from app.vm_create.drafts import build_default_vm_draft
 
-        draft = build_default_vm_draft(operator_id="test-operator", proposed_vmid=303)
+        draft = build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="test-operator", proposed_vmid=303)
 
         self.assertEqual(303, draft.proposed_vmid)
 
     def test_draft_accepts_boot_and_verify_power_policy(self):
         from app.vm_create.drafts import build_default_vm_draft
 
-        draft = build_default_vm_draft(operator_id="test-operator", power_policy="boot_and_verify")
+        draft = build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="test-operator", power_policy="boot_and_verify")
 
         self.assertTrue(draft.first_power_on_included)
         self.assertEqual("boot_and_verify", draft.power_policy)
@@ -88,6 +92,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
         from app.vm_create.drafts import build_default_vm_draft
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             hardware_overrides={"cpu": 4, "memory_mb": 8192, "disk_gb": 80},
         )
@@ -99,8 +104,8 @@ class VmCreateDraftContractTests(unittest.TestCase):
     def test_selected_profile_defaults_set_hardware(self):
         from app.vm_create.drafts import build_default_vm_draft
 
-        runtime = build_default_vm_draft(operator_id="test-operator", profile_id="runtime-server")
-        development = build_default_vm_draft(operator_id="test-operator", profile_id="development-vm")
+        runtime = build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="test-operator", profile_id="runtime-server")
+        development = build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="test-operator", profile_id="development-vm")
 
         self.assertEqual("runtime-server", runtime.profile_id)
         self.assertEqual((4, 8192, 100), (runtime.hardware.cpu, runtime.hardware.memory_mb, runtime.hardware.disk_gb))
@@ -110,7 +115,7 @@ class VmCreateDraftContractTests(unittest.TestCase):
     def test_unknown_profile_id_is_preserved_for_preflight_red_check(self):
         from app.vm_create.drafts import build_default_vm_draft
 
-        draft = build_default_vm_draft(operator_id="test-operator", profile_id="unknown-profile")
+        draft = build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="test-operator", profile_id="unknown-profile")
 
         self.assertEqual("unknown-profile", draft.profile_id)
         self.assertEqual((2, 4096, 50), (draft.hardware.cpu, draft.hardware.memory_mb, draft.hardware.disk_gb))
@@ -119,12 +124,12 @@ class VmCreateDraftContractTests(unittest.TestCase):
         from app.vm_create.drafts import build_default_vm_draft
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             storage_id="nas-server",
             template_id="ubuntu-template",
             template_vmid=9000,
             template_node_id="yoonmanserver2",
-            network_id="evil-net",
             bridge_id="vmbr0",
             static_ip="192.168.2.142",
             prefix=25,

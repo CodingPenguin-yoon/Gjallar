@@ -32,6 +32,44 @@ def _actor():
     return {"user_id": "user-operator-1", "username": "operator", "role": "operator"}
 
 
+def _seed_succeeded_create_owner(
+    *,
+    operation_id: str,
+    node_id: str,
+    vmid: int,
+    operation_details: dict | None = None,
+):
+    from app.operations.core.domain import OperationActor, OperationSpec
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+
+    details = operation_details or {
+        "target": {"node_id": node_id, "vmid": vmid, "name": f"vm-{vmid}"},
+        "workload": {
+            "vm_instance_id": f"{node_id}:{vmid}",
+            "node_id": node_id,
+            "vmid": vmid,
+            "name": f"vm-{vmid}",
+        },
+    }
+    SqlAlchemyOperationStore().create(
+        OperationSpec(
+            operation_id=operation_id,
+            operation_type="vm_create",
+            execution_mode="managed_api",
+            target_type="proxmox_vm",
+            target_id=f"vmid:{vmid}",
+            idempotency_key=operation_id,
+            intent_digest=f"sha256:intent-{operation_id}",
+            plan_digest=f"sha256:plan-{operation_id}",
+            actor=OperationActor(username="create-operator", role="operator"),
+            initial_status="succeeded",
+            initial_stage="post_check",
+            details=details,
+        ),
+        event_payload={"test": True},
+    )
+
+
 def test_acknowledgement_and_identity_are_required_before_persistence():
     from app.jobs.runs import list_job_runs
     from app.vm_actions.post_create_readiness import (
@@ -108,6 +146,262 @@ def test_valid_evidence_writes_job_and_artifact_and_replays_without_second_artif
     assert replay["job_id"] == result["job_id"]
     assert replay["idempotent_replay"] is True
     assert artifact_ids_after == artifact_ids_before
+    assert result["operation_linked"] is False
+    assert replay["operation_linked"] is False
+
+
+def test_exact_succeeded_create_owner_gets_one_checksum_link_and_replay_is_idempotent():
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+    from app.operations.vm_create.post_create_readiness import POST_CREATE_READINESS_EVENT_TYPE
+    from app.vm_actions.post_create_readiness import record_post_create_readiness_evidence
+
+    operation_id = "create-owner-readiness-exact"
+    _seed_succeeded_create_owner(operation_id=operation_id, node_id="node-a", vmid=311)
+
+    result = record_post_create_readiness_evidence(
+        node_id="node-a",
+        vmid=311,
+        payload=_payload(create_operation_id=operation_id, evidence_id="readiness-exact-owner"),
+        actor=_actor(),
+    )
+
+    assert result["operation_linked"] is True
+    assert result["operation_id"] == operation_id
+    assert result["operation"]["status"] == "succeeded"
+    artifact = result["artifact"]
+
+    operations = SqlAlchemyOperationStore()
+    linked_events = [
+        event
+        for event in operations.list_events(operation_id)
+        if event.event_type == POST_CREATE_READINESS_EVENT_TYPE
+    ]
+    assert len(linked_events) == 1
+    link = linked_events[0].payload
+    assert link["readiness_job_id"] == result["job_id"]
+    assert link["target"] == {"node_id": "node-a", "vmid": 311}
+    assert link["artifact"] == {
+        "artifact_id": artifact["artifact_id"],
+        "type": "post_create_readiness_evidence",
+        "checksum": artifact["checksum"],
+    }
+    assert "path" not in json.dumps(link, sort_keys=True)
+    assert "operator-observed-service" not in json.dumps(link, sort_keys=True)
+    assert "ticket-readiness-1" not in json.dumps(link, sort_keys=True)
+
+    operation = operations.get(operation_id)
+    assert operation is not None
+    assert operation.details["post_create_readiness_evidence"] == link
+
+    replay = record_post_create_readiness_evidence(
+        node_id="node-a",
+        vmid=311,
+        payload=_payload(create_operation_id=operation_id, evidence_id="readiness-exact-owner"),
+        actor=_actor(),
+    )
+    assert replay["idempotent_replay"] is True
+    assert replay["operation_linked"] is True
+    assert len(
+        [
+            event
+            for event in operations.list_events(operation_id)
+            if event.event_type == POST_CREATE_READINESS_EVENT_TYPE
+        ]
+    ) == 1
+
+
+def test_readiness_link_rejects_artifact_with_wrong_job_or_checksum():
+    from app.jobs.artifacts import write_json_artifact
+    from app.jobs.runs import run_dir
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+    from app.operations.vm_create.post_create_readiness import (
+        POST_CREATE_READINESS_EVENT_TYPE,
+        ensure_post_create_readiness_operation_link,
+    )
+
+    operation_id = "create-owner-readiness-artifact-binding"
+    readiness_job_id = "post-create-readiness-node-a-315-binding"
+    _seed_succeeded_create_owner(operation_id=operation_id, node_id="node-a", vmid=315)
+    artifact = write_json_artifact(
+        run_dir=run_dir(readiness_job_id),
+        job_id=readiness_job_id,
+        artifact_type="post_create_readiness_evidence",
+        filename="post_create_readiness_evidence.json",
+        payload={"safe": True},
+    ).to_dict()
+
+    wrong_job = ensure_post_create_readiness_operation_link(
+        node_id="node-a",
+        vmid=315,
+        readiness_job_id="different-readiness-job",
+        evidence_summary={},
+        artifact=artifact,
+        actor=_actor(),
+    )
+    wrong_checksum = ensure_post_create_readiness_operation_link(
+        node_id="node-a",
+        vmid=315,
+        readiness_job_id=readiness_job_id,
+        evidence_summary={},
+        artifact={**artifact, "checksum": "sha256:not-the-stored-checksum"},
+        actor=_actor(),
+    )
+
+    assert wrong_job is None
+    assert wrong_checksum is None
+    assert not [
+        event
+        for event in SqlAlchemyOperationStore().list_events(operation_id)
+        if event.event_type == POST_CREATE_READINESS_EVENT_TYPE
+    ]
+
+
+def test_missing_create_operation_owner_remains_jobs_only():
+    from app.db.models import VmInstanceRecord
+    from app.db.session import session_scope
+    from app.vm_actions.post_create_readiness import record_post_create_readiness_evidence
+
+    with session_scope() as session:
+        session.add(
+            VmInstanceRecord(
+                vm_instance_id="node-a:312",
+                node_id="node-a",
+                vmid=312,
+                name="vm-312",
+                status="running",
+                profile_id="general-vm",
+                template_id="template-9000",
+                storage_id="local-lvm",
+                cpu=2,
+                memory_mb=4096,
+                disk_gb=50,
+                network={},
+                access={},
+                observed_after={"status": "running"},
+                create_job_id="missing-create-operation",
+                created_at="2026-08-26T00:00:00+00:00",
+                updated_at="2026-08-26T00:00:00+00:00",
+            )
+        )
+
+    result = record_post_create_readiness_evidence(
+        node_id="node-a",
+        vmid=312,
+        payload=_payload(evidence_id="readiness-missing-owner"),
+        actor=_actor(),
+    )
+
+    assert result["status"] == "completed"
+    assert result["operation_linked"] is False
+    assert "operation_id" not in result
+
+
+def test_corrupt_or_mismatched_create_operation_binding_remains_jobs_only():
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+    from app.operations.vm_create.post_create_readiness import POST_CREATE_READINESS_EVENT_TYPE
+    from app.vm_actions.post_create_readiness import record_post_create_readiness_evidence
+
+    operation_id = "create-owner-readiness-corrupt-binding"
+    _seed_succeeded_create_owner(
+        operation_id=operation_id,
+        node_id="node-a",
+        vmid=313,
+        operation_details={
+            "target": {"node_id": "node-a", "vmid": "not-an-integer"},
+            "workload": {
+                "vm_instance_id": "node-a:313",
+                "node_id": "node-a",
+                "vmid": 313,
+            },
+        },
+    )
+
+    result = record_post_create_readiness_evidence(
+        node_id="node-a",
+        vmid=313,
+        payload=_payload(create_operation_id=operation_id, evidence_id="readiness-corrupt-binding"),
+        actor=_actor(),
+    )
+
+    assert result["status"] == "completed"
+    assert result["operation_linked"] is False
+    assert "operation_id" not in result
+    assert not [
+        event
+        for event in SqlAlchemyOperationStore().list_events(operation_id)
+        if event.event_type == POST_CREATE_READINESS_EVENT_TYPE
+    ]
+
+
+def test_operation_append_failure_is_stable_503_and_replay_repairs_exact_link():
+    from app.jobs.artifacts import list_artifact_records
+    from app.jobs.runs import get_job_run
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+    from app.operations.vm_create.post_create_readiness import POST_CREATE_READINESS_EVENT_TYPE
+    from app.vm_actions.post_create_readiness import (
+        PostCreateReadinessError,
+        record_post_create_readiness_evidence,
+    )
+
+    operation_id = "create-owner-readiness-repair"
+    _seed_succeeded_create_owner(operation_id=operation_id, node_id="node-a", vmid=314)
+    payload = _payload(create_operation_id=operation_id, evidence_id="readiness-link-repair")
+
+    with patch.object(
+        SqlAlchemyOperationStore,
+        "append_in_session",
+        side_effect=RuntimeError("synthetic operation append failure"),
+    ):
+        with pytest.raises(PostCreateReadinessError) as raised:
+            record_post_create_readiness_evidence(
+                node_id="node-a",
+                vmid=314,
+                payload=payload,
+                actor=_actor(),
+            )
+
+    assert raised.value.code == "POST_CREATE_READINESS_OPERATION_LINK_UNAVAILABLE"
+    assert raised.value.status_code == 503
+    assert raised.value.to_detail()["evidence_recorded"] is True
+    assert raised.value.to_detail()["operation_linked"] is False
+    job_id = raised.value.to_detail()["job_id"]
+    assert get_job_run(job_id)["status"] == "completed"
+    evidence_artifacts = [
+        item
+        for item in list_artifact_records(job_id)
+        if item["type"] == "post_create_readiness_evidence"
+    ]
+    assert len(evidence_artifacts) == 1
+    assert not [
+        event
+        for event in SqlAlchemyOperationStore().list_events(operation_id)
+        if event.event_type == POST_CREATE_READINESS_EVENT_TYPE
+    ]
+
+    replay = record_post_create_readiness_evidence(
+        node_id="node-a",
+        vmid=314,
+        payload=payload,
+        actor=_actor(),
+    )
+
+    assert replay["idempotent_replay"] is True
+    assert replay["operation_linked"] is True
+    assert replay["operation_id"] == operation_id
+    assert len(
+        [
+            event
+            for event in SqlAlchemyOperationStore().list_events(operation_id)
+            if event.event_type == POST_CREATE_READINESS_EVENT_TYPE
+        ]
+    ) == 1
+    assert len(
+        [
+            item
+            for item in list_artifact_records(job_id)
+            if item["type"] == "post_create_readiness_evidence"
+        ]
+    ) == 1
 
 
 def test_skipped_unavailable_and_unapproved_statuses_are_preserved():

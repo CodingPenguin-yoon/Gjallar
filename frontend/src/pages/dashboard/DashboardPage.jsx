@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Clock3, Database, HardDrive, List, Network, Plus, RefreshCw, Server } from 'lucide-react'
+import { Activity, AlertTriangle, Clock3, Database, HardDrive, List, Plus, RefreshCw, Server } from 'lucide-react'
 import { apiV1Client } from '../../shared/api/apiV1'
 
 const DASHBOARD_DATA_LABELS = ['Cluster', 'Nodes', 'VMs', 'Storage', 'Networks', 'Jobs/Runs', 'Risks/Alerts']
@@ -42,12 +42,19 @@ function dashboardPartialError(results, observation) {
   const failed = results
     .map((result, index) => (result.status === 'rejected' ? DASHBOARD_DATA_LABELS[index] : null))
     .filter(Boolean)
-  const incompleteSources = Object.entries(observation?.sources || {})
+  const observations = [observation, ...results.slice(0, 5).map(inventoryAvailability)]
+  const incompleteSources = [...new Set(observations.flatMap((item) => Object.entries(item?.sources || {})
     .filter(([, source]) => source?.complete !== true)
-    .map(([source]) => source)
+    .map(([source]) => source)))]
+  if (!failed.length && observations.every((item) => item?.available === true
+    && ['storage', 'network', 'vm_config', 'vm_detail'].every((source) => item.sources?.[source]?.complete === true))
+    && incompleteSources.length === 1 && incompleteSources[0] === 'guest_agent'
+  ) {
+    return null
+  }
   const messages = []
   if (failed.length) messages.push(`불러오기 실패: ${failed.join(', ')}`)
-  if (observation?.complete !== true) {
+  if (observations.some((item) => item?.complete !== true) || incompleteSources.length) {
     messages.push(`관찰 불완전: ${incompleteSources.length ? incompleteSources.join(', ') : 'inventory source metadata unavailable'}`)
   }
   return messages.length
@@ -112,7 +119,7 @@ function MetricTile({ label, value, sub, tone = 'slate', icon: Icon }) {
         {Icon && <Icon className="h-4 w-4 text-slate-400" />}
       </div>
       <div className={`mt-4 text-3xl font-bold ${metricValueClass(tone)}`}>{value}</div>
-      {sub && <div className="mt-1 truncate text-xs text-slate-500">{sub}</div>}
+      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
     </div>
   )
 }
@@ -137,6 +144,7 @@ function buildDashboardModel({
   risks = [],
   availability = {},
   observation = {},
+  vmObservation = observation,
 }) {
   const clusterAvailable = availability.cluster === true
   const nodesAvailable = availability.nodes === true
@@ -216,6 +224,9 @@ function buildDashboardModel({
       allObservedNodesOnline: nodesAvailable && nodeRows.length > 0 && onlineNodes === nodeRows.length,
       vms: vmsAvailable ? String(observedVms.length) : '-',
       runningVms,
+      guestAgentMissing: vmsAvailable && Array.isArray(vmObservation?.sources?.guest_agent?.failed_targets)
+        ? new Set(vmObservation.sources.guest_agent.failed_targets).size
+        : null,
       storage: storagesAvailable
         ? hasNfs ? 'NFS' : `${Math.max(0, Math.round(storageTotalGb - storageFreeGb)).toLocaleString()} GB`
         : '-',
@@ -286,6 +297,7 @@ export default function Dashboard() {
       jobs: jobs.status === 'fulfilled' ? jobs.value : previous.jobs || [],
       risks: risks.status === 'fulfilled' ? risks.value : previous.risks || [],
       observation,
+      vmObservation: inventoryAvailability(vms),
       availability: {
         cluster: inventoryResultAvailable(cluster),
         nodes: inventoryResultAvailable(nodes),
@@ -307,17 +319,22 @@ export default function Dashboard() {
   const model = useMemo(() => buildDashboardModel(snapshot), [snapshot])
   const healthTone = model.nodeRows.length === 0
     ? 'slate'
-    : model.summary.observationComplete && model.summary.allObservedNodesOnline ? 'green' : 'yellow'
+    : model.summary.allObservedNodesOnline ? 'green' : 'yellow'
   const riskMetricValue = model.summary.redRisks === null ? '-' : model.summary.redRisks
   const riskMetricTone = model.summary.redRisks > 0 ? 'red' : 'slate'
   const jobMetricContext = model.summary.activeJobs === null ? 'jobs unavailable' : `${model.summary.activeJobs} active jobs`
   const riskMetricContext = model.summary.redRisks === null
     ? `${jobMetricContext} · risks unavailable`
     : `current response · ${jobMetricContext}`
-  const incompleteVmSources = model.summary.incompleteSources.filter((source) => ['vm_config', 'guest_agent', 'vm_detail'].includes(source))
+  const incompleteVmSources = model.summary.incompleteSources.filter((source) => ['vm_config', 'vm_detail'].includes(source))
+  const guestAgentContext = model.summary.guestAgentMissing > 0
+    ? ` · 내부 IP 확인 불가 ${model.summary.guestAgentMissing}대`
+    : model.summary.guestAgentMissing === null && model.summary.incompleteSources.includes('guest_agent')
+      ? ' · 내부 IP 관찰 일부 누락'
+      : ''
   const vmMetricContext = model.summary.runningVms === null
     ? 'VM inventory unavailable'
-    : `${model.summary.runningVms} running${incompleteVmSources.length ? ` · detail partial (${incompleteVmSources.join(', ')})` : ''}`
+    : `${model.summary.runningVms} running${guestAgentContext}${incompleteVmSources.length ? ` · detail partial (${incompleteVmSources.join(', ')})` : ''}`
   const nodeSummaryLabel = !model.summary.nodesAvailable
     ? 'Node inventory unavailable'
     : model.nodeRows.length > 0 ? onlineNodeLabel(model.nodeRows) : 'No nodes observed'
@@ -328,7 +345,7 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-2">
             <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
-              Node inventory {model.summary.nodeStatus}{model.summary.observationComplete ? '' : ' · partial observation'}
+              Node inventory {model.summary.nodeStatus}
             </span>
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Read-only inventory view</span>
           </div>
@@ -378,13 +395,6 @@ export default function Dashboard() {
                 <span className={`h-2 w-2 shrink-0 rounded-full ${node.tone === 'green' ? 'bg-emerald-500' : node.tone === 'red' ? 'bg-red-500' : 'bg-yellow-400'}`} />
               </button>
             ))}
-            <button type="button" onClick={() => navigate('/instances/networks')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
-              <span className="flex items-center gap-3">
-                <Network className="h-4 w-4 text-slate-500" />
-                Network readiness
-              </span>
-              <span className="text-xs font-semibold text-slate-500">{model.summary.bridges ?? '-'}</span>
-            </button>
             <button type="button" onClick={() => navigate('/operations/jobs')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
               <span className="flex items-center gap-3">
                 <Clock3 className="h-4 w-4 text-slate-500" />

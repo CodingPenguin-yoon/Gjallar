@@ -48,3 +48,10 @@ def inventory_meta(observation: ProxmoxConnectionObservation) -> dict:
         "connection": observation.status.to_dict(),
         "availability": observation.snapshot.availability.to_dict(),
     }
+
+
+def create_inventory_adapter():
+    try:
+        return inventory_query().require_create_adapter()
+    except WorkloadInventoryUnavailableError as exc:
+        raise inventory_unavailable_http(exc) from exc

@@ -9,12 +9,17 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.auth.roles import restore_trusted_actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.models import JobRunRecord
 from app.db.session import session_scope
-from app.jobs.artifacts import list_artifact_records, write_json_artifact
+from app.jobs.artifacts import (
+    list_artifact_records,
+    list_artifact_records_in_session,
+    write_json_artifact_in_session,
+)
 
 VM_CREATE_STEP_ORDER = ["draft", "preflight", "plan", "approval", "create"]
 VM_CREATE_STEP_LABELS = {
@@ -217,10 +222,14 @@ def _row_to_payload(row: JobRunRecord, *, artifacts: list[dict[str, Any]] | None
 
 def _load_status(job_id: str) -> dict[str, Any] | None:
     with session_scope() as session:
-        row = session.get(JobRunRecord, job_id)
-        if row is None:
-            return None
-        return _row_to_payload(row)
+        return _load_status_in_session(session, job_id)
+
+
+def _load_status_in_session(session: Session, job_id: str) -> dict[str, Any] | None:
+    row = session.get(JobRunRecord, job_id)
+    if row is None:
+        return None
+    return _row_to_payload(row, artifacts=list_artifact_records_in_session(session, job_id))
 
 
 def _dedupe_artifacts(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -236,9 +245,14 @@ def _dedupe_artifacts(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(artifact_index.values())
 
 
-def _write_status_artifact(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _write_status_artifact_in_session(
+    session: Session,
+    job_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     artifact_payload = {**payload, "artifacts": [item for item in payload.get("artifacts") or [] if item.get("type") != "job_status"]}
-    record = write_json_artifact(
+    record = write_json_artifact_in_session(
+        session,
         run_dir=run_dir(job_id),
         job_id=job_id,
         artifact_type="job_status",
@@ -248,7 +262,8 @@ def _write_status_artifact(job_id: str, payload: dict[str, Any]) -> dict[str, An
     return record.to_dict()
 
 
-def record_job_run(
+def record_job_run_in_session(
+    session: Session,
     *,
     job_id: str,
     job_type: str,
@@ -262,16 +277,16 @@ def record_job_run(
     risks: list[Any] | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Persist the latest job status for an operator-visible run."""
+    """Persist a Job row and status artifact through one caller-owned transaction."""
     now = _now_iso()
-    previous = _load_status(job_id) or {}
+    previous = _load_status_in_session(session, job_id) or {}
     risk_dicts = _risk_dicts(risks)
     if not risk_dicts and isinstance(previous.get("risks"), list):
         risk_dicts = [dict(item) for item in previous["risks"] if isinstance(item, dict)]
 
     existing_artifacts = [
         artifact
-        for artifact in list_artifact_records(job_id)
+        for artifact in list_artifact_records_in_session(session, job_id)
         if isinstance(artifact, dict) and artifact.get("type") != "job_status"
     ]
     next_artifacts = _artifact_dicts(artifacts or [])
@@ -310,53 +325,82 @@ def record_job_run(
         "updated_at": now,
     }
 
-    with session_scope() as session:
-        row = session.get(JobRunRecord, job_id)
-        if row is None:
-            row = JobRunRecord(
-                job_id=job_id,
-                job_type=job_type,
-                status=status,
-                target_id=target_id,
-                risk_level=risk_level,
-                started_at=str(payload["started_at"]),
-                finished_at=payload["finished_at"],
-                current_stage=stage,
-                message=message,
-                progress_percent=progress,
-                steps=steps,
-                risks=risk_dicts,
-                details=payload["details"],
-                artifact_count=len(artifacts_without_status),
-                risk_count=len(risk_dicts),
-                updated_at=now,
-            )
-            session.add(row)
-        else:
-            row.job_type = job_type
-            row.status = status
-            row.target_id = target_id
-            row.risk_level = risk_level
-            row.finished_at = payload["finished_at"]
-            row.current_stage = stage
-            row.message = message
-            row.progress_percent = progress
-            row.steps = steps
-            row.risks = risk_dicts
-            row.details = payload["details"]
-            row.artifact_count = len(artifacts_without_status)
-            row.risk_count = len(risk_dicts)
-            row.updated_at = now
+    row = session.get(JobRunRecord, job_id)
+    if row is None:
+        row = JobRunRecord(
+            job_id=job_id,
+            job_type=job_type,
+            status=status,
+            target_id=target_id,
+            risk_level=risk_level,
+            started_at=str(payload["started_at"]),
+            finished_at=payload["finished_at"],
+            current_stage=stage,
+            message=message,
+            progress_percent=progress,
+            steps=steps,
+            risks=risk_dicts,
+            details=payload["details"],
+            artifact_count=len(artifacts_without_status),
+            risk_count=len(risk_dicts),
+            updated_at=now,
+        )
+        session.add(row)
+    else:
+        row.job_type = job_type
+        row.status = status
+        row.target_id = target_id
+        row.risk_level = risk_level
+        row.finished_at = payload["finished_at"]
+        row.current_stage = stage
+        row.message = message
+        row.progress_percent = progress
+        row.steps = steps
+        row.risks = risk_dicts
+        row.details = payload["details"]
+        row.artifact_count = len(artifacts_without_status)
+        row.risk_count = len(risk_dicts)
+        row.updated_at = now
 
-    status_artifact = _write_status_artifact(job_id, payload)
+    status_artifact = _write_status_artifact_in_session(session, job_id, payload)
     all_artifacts = _dedupe_artifacts(artifacts_without_status, [status_artifact])
     payload["artifacts"] = all_artifacts
     payload["artifact_count"] = len(all_artifacts)
-    with session_scope() as session:
-        row = session.get(JobRunRecord, job_id)
-        if row is not None:
-            row.artifact_count = len(all_artifacts)
+    row.artifact_count = len(all_artifacts)
+    session.flush()
     return payload
+
+
+def record_job_run(
+    *,
+    job_id: str,
+    job_type: str,
+    status: str,
+    target_id: str,
+    risk_level: str,
+    stage: str,
+    step_status: str,
+    message: str,
+    artifacts: list[Any] | None = None,
+    risks: list[Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist the latest job status for an operator-visible run."""
+    with session_scope() as session:
+        return record_job_run_in_session(
+            session,
+            job_id=job_id,
+            job_type=job_type,
+            status=status,
+            target_id=target_id,
+            risk_level=risk_level,
+            stage=stage,
+            step_status=step_status,
+            message=message,
+            artifacts=artifacts,
+            risks=risks,
+            details=details,
+        )
 
 
 def list_job_runs_strict() -> list[dict[str, Any]]:

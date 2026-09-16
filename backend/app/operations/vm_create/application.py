@@ -14,6 +14,7 @@ from app.operations.core.domain import (
     operation_digest,
 )
 from app.operations.core.ports import OperationStorePort
+from app.operations.recovery.domain import PRE_DISPATCH_RECOVERY_CONTRACT
 from app.operations.vm_create.domain import (
     VM_CREATE_OPERATION_TYPE,
     VmCreateOperationPlan,
@@ -56,6 +57,7 @@ class VmCreateOperationTracker:
                 },
                 "plan_artifact_id": plan.plan_artifact_id,
                 "risk_level": plan.risk_level,
+                "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
                 "compatibility": {
                     "job_id": plan.operation_id,
                     "vm_create_request_id": plan.operation_id,
@@ -85,6 +87,7 @@ class VmCreateOperationTracker:
                 "plan_digest": plan.plan_digest,
                 "risk_level": plan.risk_level,
                 "preflight_status": "blocked" if initial_status == "blocked" else "completed",
+                "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
             },
         )
 

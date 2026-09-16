@@ -12,6 +12,7 @@ from app.operations.core.domain import (
     operation_digest,
 )
 from app.operations.core.ports import OperationStorePort
+from app.operations.recovery.domain import PRE_DISPATCH_RECOVERY_CONTRACT
 from app.operations.vm_start.domain import VmStartCommand, vm_start_target_lock_id
 
 
@@ -38,6 +39,7 @@ def prepare_vm_start_operation(
         details={
             "job_id": operation_id,
             "target": {"node_id": command.node_id, "vmid": command.vmid},
+            "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
         },
     )
     return store.create(
@@ -45,6 +47,7 @@ def prepare_vm_start_operation(
         event_payload={
             "job_id": operation_id,
             "intent": intent,
+            "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
         },
     )
 

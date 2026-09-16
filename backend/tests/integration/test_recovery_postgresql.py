@@ -19,7 +19,7 @@ from app.operations.core.domain import OperationActor, OperationSpec, operation_
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
 from app.operations.locks.infrastructure.repository import SqlAlchemyDurableTargetLockRepository
 from app.operations.recovery.application import VmShutdownRecoveryHandler
-from app.operations.recovery.domain import RecoveryLeaseLost, RecoverySpec
+from app.operations.recovery.domain import RecoveryLeaseBusy, RecoveryLeaseLost, RecoverySpec
 from app.operations.recovery.infrastructure.models import OperationRecoveryItemRecord
 from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
 
@@ -152,7 +152,13 @@ def test_postgresql_partial_unique_skip_locked_and_fencing():
             RecoverySpec(
                 operation_id=operation_id,
                 recovery_kind="vm_start_observation",
-                details={"node_id": "node-pg", "vmid": vmid, "upid": "UPID:pg:test"},
+                details={
+                    "node_id": "node-pg",
+                    "vmid": vmid,
+                    "upid": "UPID:pg:test",
+                    "target_lock_id": lock_a,
+                    "cluster_id": cluster_id,
+                },
             ),
             lease_owner="foreground",
             lease_seconds=10,
@@ -174,6 +180,7 @@ def test_postgresql_partial_unique_skip_locked_and_fencing():
         claimed = [lease for batch in claimed_batches for lease in batch]
         assert len(claimed) == 1
         assert claimed[0].generation == stale.generation + 1
+        projector_calls: list[str] = []
 
         with pytest.raises(RecoveryLeaseLost):
             recovery.commit_observation(
@@ -181,7 +188,9 @@ def test_postgresql_partial_unique_skip_locked_and_fencing():
                 event_type="postgresql_stale_write",
                 stage="reconciliation",
                 recovery_status="retry_wait",
+                projector=lambda _session: projector_calls.append("called"),
             )
+        assert projector_calls == []
     finally:
         with sessions() as session:
             session.query(OperationRecoveryItemRecord).filter(
@@ -189,6 +198,86 @@ def test_postgresql_partial_unique_skip_locked_and_fencing():
             ).delete(synchronize_session=False)
             session.query(OperationLockRecord).filter(
                 OperationLockRecord.operation_lock_id.in_((lock_a, lock_b, shutdown_lock))
+            ).delete(synchronize_session=False)
+            from app.operations.core.infrastructure.models import OperationEventRecord, OperationRecord
+
+            session.query(OperationEventRecord).filter(
+                OperationEventRecord.operation_id == operation_id
+            ).delete(synchronize_session=False)
+            session.query(OperationRecord).filter(
+                OperationRecord.operation_id == operation_id
+            ).delete(synchronize_session=False)
+        engine.dispose()
+
+
+def test_postgresql_concurrent_first_prepare_is_one_lease_and_one_stable_busy():
+    engine = create_engine(_postgres_url(), pool_pre_ping=True)
+
+    @contextmanager
+    def sessions():
+        with Session(engine) as session:
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+
+    suffix = uuid.uuid4().hex[:12]
+    operation_id = f"pg-recovery-first-prepare-{suffix}"
+    vmid = 920000 + (int(suffix[:5], 16) % 70000)
+    clock = MutableClock()
+    operations = SqlAlchemyOperationStore(sessions=sessions, clock=clock)
+    intent = {"operation": "vm_start", "target": {"node_id": "node-pg", "vmid": vmid}}
+
+    try:
+        operation = operations.create(
+            OperationSpec(
+                operation_id=operation_id,
+                operation_type="vm_start",
+                execution_mode="managed_api",
+                target_type="proxmox_vm",
+                target_id=f"vmid:{vmid}",
+                idempotency_key=f"idem-{operation_id}",
+                intent_digest=operation_digest(intent),
+                plan_digest=operation_digest({"intent": intent, "version": 1}),
+                actor=OperationActor(user_id="pg-test", username="pg-test", role="operator"),
+                initial_status="dispatching",
+                initial_stage="start",
+                details={"target": {"node_id": "node-pg", "vmid": vmid}},
+            )
+        ).operation
+        barrier = threading.Barrier(2)
+
+        def prepare(worker: str) -> str:
+            barrier.wait(timeout=5)
+            try:
+                SqlAlchemyRecoveryStore(sessions=sessions, clock=clock).prepare_and_claim(
+                    RecoverySpec(
+                        operation_id=operation_id,
+                        recovery_kind="vm_start_observation",
+                        details={"node_id": "node-pg", "vmid": vmid},
+                    ),
+                    lease_owner=worker,
+                    lease_seconds=60,
+                    expected_operation_version=operation.version,
+                    expected_operation_checksum=operation.last_event_checksum,
+                )
+            except RecoveryLeaseBusy:
+                return "busy"
+            return "leased"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(prepare, ("operator-a", "operator-b")))
+
+        assert sorted(outcomes) == ["busy", "leased"]
+        item = SqlAlchemyRecoveryStore(sessions=sessions, clock=clock).get(operation_id)
+        assert item is not None and item.status == "leased"
+        assert item.attempt_count == 1
+    finally:
+        with sessions() as session:
+            session.query(OperationRecoveryItemRecord).filter(
+                OperationRecoveryItemRecord.operation_id == operation_id
             ).delete(synchronize_session=False)
             from app.operations.core.infrastructure.models import OperationEventRecord, OperationRecord
 
@@ -242,6 +331,9 @@ def test_postgresql_vm_shutdown_restart_observes_then_completes_without_redispat
         def record_terminal(self, **payload):
             self.calls.append(payload)
 
+        def record_terminal_in_transaction(self, _transaction, **payload):
+            self.record_terminal(**payload)
+
     try:
         operations.create(
             OperationSpec(
@@ -262,7 +354,7 @@ def test_postgresql_vm_shutdown_restart_observes_then_completes_without_redispat
                 },
             )
         )
-        locks.acquire(
+        target_lock = locks.acquire(
             operation_type="vm_shutdown",
             cluster_id="gjallar-mvp",
             vmid=vmid,
@@ -277,6 +369,8 @@ def test_postgresql_vm_shutdown_restart_observes_then_completes_without_redispat
                     "node_id": "node-pg",
                     "vmid": vmid,
                     "upid": "UPID:node-pg:test:qmshutdown",
+                    "cluster_id": "gjallar-mvp",
+                    "target_lock_id": target_lock.lock_id,
                 },
             ),
             lease_owner="foreground-before-restart",
@@ -292,11 +386,23 @@ def test_postgresql_vm_shutdown_restart_observes_then_completes_without_redispat
         assert len(claimed) == 1
         client = ObservationOnlyClient()
         projection = Projection()
+
+        def read_target_lock(_target_type: str, _target_id: str):
+            current = locks.current(cluster_id="gjallar-mvp", vmid=vmid)
+            if current is None:
+                return None
+            return {
+                "owner_id": current.owner_id,
+                "lock_id": current.lock_id,
+                "durable": current.to_dict(),
+            }
+
         handler = VmShutdownRecoveryHandler(
             recovery=restarted_store,
             operations=SqlAlchemyOperationStore(sessions=sessions, clock=clock),
             observation_factory=lambda: client,
             compatibility_projection=projection,
+            target_lock_reader=read_target_lock,
         )
 
         result = handler.handle(claimed[0])

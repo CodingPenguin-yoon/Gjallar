@@ -338,11 +338,14 @@ class ProxmoxMutationClient:
         vmid: int,
         pid: int,
         sleep: Callable[[float], None] = time.sleep,
+        heartbeat: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         deadline = time.monotonic() + self.task_timeout_seconds
         polls: list[dict[str, Any]] = []
         while True:
             status = self.get_guest_exec_status(node=node, vmid=vmid, pid=pid)
+            if heartbeat is not None:
+                heartbeat()
             polls.append(status)
             if status.get("exited") is True or str(status.get("exited") or "").lower() in {"1", "true", "yes"}:
                 return {**status, "polls": polls}

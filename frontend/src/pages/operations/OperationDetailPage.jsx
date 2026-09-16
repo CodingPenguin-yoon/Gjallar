@@ -1,27 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Eye, RefreshCw } from 'lucide-react'
 import { apiV1Client } from '../../shared/api/apiV1'
 import { authFailureMessage } from '../../shared/auth/permissions'
 import { vmDetailPathFromTarget } from '../../shared/navigation/targetPaths'
 import {
+  buildRecoveryObservationPayload,
   createOperationRequestGuard,
   formatOperationTime,
+  isTargetLockOpen,
   normalizeOperationDetail,
   OPERATION_POLL_INTERVAL_MS,
   OPERATION_POLL_MAX_ATTEMPTS,
   operationTypeLabel,
+  recoveryObserveAction,
   shouldPollOperation,
   TERMINAL_OPERATION_STATUSES,
 } from '../../entities/operation/model'
 import OperationStatusBadge from '../../entities/operation/ui/OperationStatusBadge'
 import GuidedQmOperationActions from '../../features/guided-qm-unlock/GuidedQmOperationActions'
 
-export default function OperationDetailPage({ canExecute = false }) {
+export default function OperationDetailPage({ canExecute = false, canObserveRecovery = canExecute }) {
   const { operationId = '' } = useParams()
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [recoveryActionPending, setRecoveryActionPending] = useState(false)
   const pollAttemptsRef = useRef(0)
   const requestGuardRef = useRef(null)
   if (!requestGuardRef.current) requestGuardRef.current = createOperationRequestGuard()
@@ -54,9 +58,17 @@ export default function OperationDetailPage({ canExecute = false }) {
   const operationStatus = detail?.operation?.status || ''
   const operationVersion = detail?.operation?.version || 0
   const operationUpdatedAt = detail?.operation?.updatedAt || ''
+  const recoveryStatus = detail?.recovery?.status || ''
+  const targetLockStatus = detail?.targetLock?.status || ''
 
   useEffect(() => {
-    if (!detail || error || loading || !shouldPollOperation(operationStatus, pollAttemptsRef.current)) return undefined
+    if (
+      !detail
+      || error
+      || loading
+      || recoveryActionPending
+      || !shouldPollOperation(operationStatus, pollAttemptsRef.current, detail)
+    ) return undefined
 
     const timer = window.setTimeout(() => {
       pollAttemptsRef.current += 1
@@ -64,18 +76,40 @@ export default function OperationDetailPage({ canExecute = false }) {
     }, OPERATION_POLL_INTERVAL_MS)
 
     return () => window.clearTimeout(timer)
-  }, [detail, error, loadOperation, loading, operationStatus, operationUpdatedAt, operationVersion])
+  }, [detail, error, loadOperation, loading, operationStatus, operationUpdatedAt, operationVersion, recoveryActionPending, recoveryStatus, targetLockStatus])
 
   const refreshOperation = () => {
     pollAttemptsRef.current = 0
+    setRecoveryActionPending(false)
     loadOperation()
   }
 
-  const acceptChanged = (next) => {
+  const acceptChanged = () => {
     requestGuardRef.current.invalidate()
     pollAttemptsRef.current = 0
+    setRecoveryActionPending(false)
     setError('')
-    setDetail(normalizeOperationDetail(next))
+    loadOperation({ background: true })
+  }
+
+  const observeRecovery = async () => {
+    const action = recoveryObserveAction(detail)
+    if (!canObserveRecovery || !action || recoveryActionPending) return
+    const requestGeneration = requestGuardRef.current.next()
+    setRecoveryActionPending(true)
+    setError('')
+    try {
+      const payload = buildRecoveryObservationPayload(detail.operation)
+      const next = normalizeOperationDetail(await apiV1Client.observeOperationRecovery(detail.operation.id, payload))
+      if (!requestGuardRef.current.isCurrent(requestGeneration)) return
+      pollAttemptsRef.current = 0
+      setDetail(next)
+    } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestGeneration)) return
+      setError(authFailureMessage(err, 'Recovery evidence를 다시 관찰하지 못했습니다.'))
+    } finally {
+      if (requestGuardRef.current.isCurrent(requestGeneration)) setRecoveryActionPending(false)
+    }
   }
 
   if (loading && !detail) return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading operation...</div>
@@ -91,6 +125,15 @@ export default function OperationDetailPage({ canExecute = false }) {
 
   const operation = detail.operation
   const targetPath = vmDetailPathFromTarget(operation.targetType, operation.targetId)
+  const createReadiness = detail.createReadiness
+  const readinessChecks = Object.entries(createReadiness?.readiness?.checks || {})
+  const observeAction = recoveryObserveAction(detail)
+  const recoveryActions = detail.recovery?.availableActions?.length > 0
+    ? detail.recovery.availableActions
+    : detail.recoveryAvailableActions
+  const manualRecoveryActionRequired = detail.recovery?.manualActionRequired === true
+  const terminalWithOpenTargetLock = TERMINAL_OPERATION_STATUSES.includes(operation.status)
+    && isTargetLockOpen(detail.targetLock)
 
   return (
     <section className="space-y-5">
@@ -105,7 +148,7 @@ export default function OperationDetailPage({ canExecute = false }) {
         <button
           type="button"
           onClick={refreshOperation}
-          disabled={loading}
+          disabled={loading || recoveryActionPending}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
@@ -113,6 +156,16 @@ export default function OperationDetailPage({ canExecute = false }) {
       </div>
 
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+
+      {terminalWithOpenTargetLock ? (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <div className="font-semibold">Operation은 terminal이지만 target lock이 아직 열려 있습니다.</div>
+            <div className="mt-1">동일 target mutation은 계속 차단됩니다. Recovery coordination이 완료되거나 운영자 판단이 기록되기 전에는 새 mutation을 재시도하지 마세요.</div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -139,7 +192,56 @@ export default function OperationDetailPage({ canExecute = false }) {
         </div>
       </div>
 
-      <GuidedQmOperationActions detail={detail} canExecute={canExecute} onChanged={acceptChanged} />
+      <GuidedQmOperationActions
+        detail={detail}
+        canAttest={canObserveRecovery}
+        canVerifyWithProxmox={canExecute}
+        onChanged={acceptChanged}
+      />
+
+      {operation.type === 'vm_create' && createReadiness ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="create-readiness-title">
+          <div>
+            <h2 id="create-readiness-title" className="text-xl font-semibold text-slate-950">Post-create readiness evidence</h2>
+            <p className="mt-1 text-sm text-slate-600">Create Operation이 소유한 관찰 결과와 artifact checksum입니다.</p>
+          </div>
+          <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 p-4">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Observed VM</dt>
+              <dd className="mt-2 font-semibold text-slate-950">{createReadiness.exists ? 'exists' : 'not confirmed'} · {createReadiness.status || 'unknown'}</dd>
+              {createReadiness.fingerprintHash ? <dd className="mt-1 break-all font-mono text-xs text-slate-500">{createReadiness.fingerprintHash}</dd> : null}
+            </div>
+            <div className="rounded-lg border border-slate-200 p-4">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workload</dt>
+              {targetPath ? (
+                <dd className="mt-2"><Link to={targetPath} className="break-all font-mono text-sm font-semibold text-blue-800 hover:underline">{createReadiness.workload.id || operation.targetId}</Link></dd>
+              ) : (
+                <dd className="mt-2 break-all font-mono text-sm text-slate-900">{createReadiness.workload.id || operation.targetId}</dd>
+              )}
+              <dd className="mt-1 text-xs text-slate-500">{createReadiness.workload.status || 'status not projected'}</dd>
+            </div>
+            <div className="rounded-lg border border-slate-200 p-4">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Readiness</dt>
+              <dd className="mt-2 font-semibold text-slate-950">{createReadiness.readiness.postCheckStatus || 'recorded'}</dd>
+              {createReadiness.readiness.message ? <dd className="mt-1 text-xs text-slate-500">{createReadiness.readiness.message}</dd> : null}
+            </div>
+            <div className="rounded-lg border border-slate-200 p-4">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Observed-after artifact</dt>
+              <dd className="mt-2 break-all font-mono text-xs text-slate-900">{createReadiness.artifact.id || 'not recorded'}</dd>
+              <dd className="mt-1 break-all font-mono text-xs text-slate-500">{createReadiness.artifact.checksum || 'checksum unavailable'}</dd>
+            </div>
+          </dl>
+          {readinessChecks.length > 0 ? (
+            <ul className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              {readinessChecks.map(([name, passed]) => (
+                <li key={name} className={`rounded-lg border px-3 py-2 ${passed ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                  <span className="font-semibold">{name.replaceAll('_', ' ')}</span>: {passed ? 'verified' : 'not verified'}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="operation-integrity-title">
         <div>
@@ -162,11 +264,27 @@ export default function OperationDetailPage({ canExecute = false }) {
         </dl>
       </section>
 
-      {detail.recovery || detail.targetLock ? (
+      {detail.recovery || detail.targetLock || detail.coordinationIncomplete || recoveryActions.length > 0 ? (
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="operation-recovery-title">
-          <div>
-            <h2 id="operation-recovery-title" className="text-xl font-semibold text-slate-950">Recovery coordination</h2>
-            <p className="mt-1 text-sm text-slate-600">읽기 전용 복구 lease와 동일 target mutation 차단 상태입니다.</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 id="operation-recovery-title" className="text-xl font-semibold text-slate-950">Recovery coordination</h2>
+              <p className="mt-1 text-sm text-slate-600">읽기 전용 복구 lease와 동일 target mutation 차단 상태입니다.</p>
+            </div>
+            {observeAction && canObserveRecovery ? (
+              <div className="shrink-0 sm:text-right">
+                <button
+                  type="button"
+                  onClick={observeRecovery}
+                  disabled={recoveryActionPending || loading}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Eye className={`h-4 w-4 ${recoveryActionPending ? 'animate-pulse' : ''}`} />
+                  {recoveryActionPending ? '관찰 중...' : '다시 관찰'}
+                </button>
+                <div className="mt-1 text-xs text-slate-500">GET-only evidence observation · mutation 재호출 없음</div>
+              </div>
+            ) : null}
           </div>
           <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {detail.recovery ? (
@@ -175,6 +293,7 @@ export default function OperationDetailPage({ canExecute = false }) {
                   <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recovery status</dt>
                   <dd className="mt-2 font-semibold text-slate-950">{detail.recovery.status}</dd>
                   <dd className="mt-1 text-xs text-slate-500">{detail.recovery.kind}</dd>
+                  {detail.recovery.phase ? <dd className="mt-1 text-xs text-slate-500">phase {detail.recovery.phase}</dd> : null}
                 </div>
                 <div className="rounded-lg border border-slate-200 p-4">
                   <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attempts</dt>
@@ -201,6 +320,64 @@ export default function OperationDetailPage({ canExecute = false }) {
               Last recovery error: <span className="font-mono">{detail.recovery.lastErrorCode}</span>
             </div>
           ) : null}
+          {detail.recovery?.reason ? (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <span className="font-semibold">Recovery reason:</span> {detail.recovery.reason.replaceAll('_', ' ')}
+            </div>
+          ) : null}
+          {detail.coordinationIncomplete && !detail.recovery ? (
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <div className="font-semibold">Durable recovery item이 아직 준비되지 않았습니다.</div>
+                <div className="mt-1">
+                  {observeAction
+                    ? '동일 Operation evidence version을 기준으로 GET-only 관찰만 요청할 수 있습니다. 원래 mutation은 재호출하지 않습니다.'
+                    : '이 상태에는 자동 관찰이 승인되지 않았습니다. 기존 evidence와 exact target lock을 action별 절차로 수동 판단해야 합니다.'}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {manualRecoveryActionRequired ? (
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <div className="font-semibold">자동 recovery와 polling이 중지되었습니다.</div>
+                <div className="mt-1">Mutation은 자동 재호출되지 않습니다. 최신 evidence를 다시 관찰할 수 있으면 operator가 “다시 관찰”을 요청하고, 그 밖의 ambiguity는 수동 판단이 필요합니다.</div>
+              </div>
+            </div>
+          ) : null}
+          {observeAction && !canObserveRecovery ? (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              읽기 전용 “다시 관찰”은 operator/admin 권한이 필요합니다. Authoritative Proxmox GET이 필요한 복구는 연결 불가 시 안전하게 실패합니다.
+            </div>
+          ) : null}
+          {recoveryActions.length > 0 ? (
+            <div className="mt-4 rounded-lg border border-slate-200 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Available actions</div>
+              <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                {recoveryActions.map((action) => (
+                  <li key={action.id}>
+                    <span className="font-semibold">{action.label}</span>
+                    {!action.enabled ? <span className="ml-2 text-amber-700">현재 사용할 수 없음</span> : null}
+                    {action.description ? <div className="mt-0.5 text-xs text-slate-500">{action.description}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {Object.keys(detail.recovery?.latestObservation || {}).length > 0 ? (
+            <details className="mt-4 rounded-lg border border-slate-200 bg-white" open={manualRecoveryActionRequired}>
+              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Latest recovery observation</summary>
+              <pre className="max-h-80 overflow-auto border-t border-slate-200 bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify(detail.recovery.latestObservation, null, 2)}</pre>
+            </details>
+          ) : null}
+          {Object.keys(detail.recovery?.details || {}).length > 0 ? (
+            <details className="mt-4 rounded-lg border border-slate-200 bg-white">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Recovery details</summary>
+              <pre className="max-h-80 overflow-auto border-t border-slate-200 bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify(detail.recovery.details, null, 2)}</pre>
+            </details>
+          ) : null}
         </section>
       ) : null}
 
@@ -212,9 +389,9 @@ export default function OperationDetailPage({ canExecute = false }) {
           </div>
           <div className="text-right text-xs text-slate-500">
             <div>Updated {formatOperationTime(operation.updatedAt)}</div>
-            {shouldPollOperation(operation.status, pollAttemptsRef.current) && !error ? (
+            {shouldPollOperation(operation.status, pollAttemptsRef.current, detail) && !error ? (
               <div className="mt-1 text-blue-700">Auto-refreshing every {OPERATION_POLL_INTERVAL_MS / 1000}s</div>
-            ) : !TERMINAL_OPERATION_STATUSES.includes(operation.status) && pollAttemptsRef.current >= OPERATION_POLL_MAX_ATTEMPTS ? (
+            ) : pollAttemptsRef.current >= OPERATION_POLL_MAX_ATTEMPTS ? (
               <div className="mt-1 text-amber-700">Auto-refresh paused after {OPERATION_POLL_MAX_ATTEMPTS} attempts</div>
             ) : null}
           </div>

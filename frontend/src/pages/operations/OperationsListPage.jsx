@@ -149,11 +149,6 @@ export default function OperationsListPage({ canExecute = false }) {
                   <List className="h-4 w-4" /> Workloads 보기
                 </Link>
               )}
-              {!hasFilters && canExecute ? (
-                <Link to="/operations/guided-qm/vm-unlock" className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2">
-                  <Plus className="h-4 w-4" /> Guided qm unlock
-                </Link>
-              ) : null}
             </div>
           </div>
         ) : (

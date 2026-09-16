@@ -2,7 +2,7 @@ export const INSIGHT_CATEGORIES = Object.freeze(['risk', 'readiness', 'capacity'
 
 export const INSIGHT_CATEGORY_LABELS = Object.freeze({
   risk: 'Risks',
-  readiness: 'Readiness',
+  readiness: 'VM readiness',
   capacity: 'Capacity',
   placement: 'Placement',
 })

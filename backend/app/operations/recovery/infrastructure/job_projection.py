@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from app.jobs.runs import get_job_run, record_job_run
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.models import JobRunRecord
+from app.db.session import session_scope
+from app.jobs.runs import record_job_run_in_session
 
 
 class SqlAlchemyVmStartRecoveryJobProjection:
@@ -18,18 +23,56 @@ class SqlAlchemyVmStartRecoveryJobProjection:
         target: Mapping[str, Any],
         task: Mapping[str, Any],
         observed_after: Mapping[str, Any],
+        mutation_dispatched: bool = True,
     ) -> None:
-        existing = get_job_run(operation_id)
-        if not isinstance(existing, dict):
-            raise RuntimeError("VM Start compatibility job is missing")
-        completed = operation_status == "succeeded"
-        job_status = "completed" if completed else "failed"
-        stage = "post_check" if completed else "task_poll"
-        message = (
-            "VM start recovery verified that the VM is running."
-            if completed
-            else "VM start recovery verified a terminal task failure."
+        with session_scope() as session:
+            self.record_terminal_in_transaction(
+                session,
+                operation_id=operation_id,
+                operation_status=operation_status,
+                target=target,
+                task=task,
+                observed_after=observed_after,
+                mutation_dispatched=mutation_dispatched,
+            )
+
+    def record_terminal_in_transaction(
+        self,
+        transaction: Session,
+        *,
+        operation_id: str,
+        operation_status: str,
+        target: Mapping[str, Any],
+        task: Mapping[str, Any],
+        observed_after: Mapping[str, Any],
+        mutation_dispatched: bool = True,
+    ) -> None:
+        row = transaction.scalar(
+            select(JobRunRecord)
+            .where(JobRunRecord.job_id == operation_id)
+            .with_for_update()
         )
+        if row is None and mutation_dispatched:
+            raise RuntimeError("VM Start compatibility job is missing")
+        if row is not None and row.job_type != "vm_start":
+            raise RuntimeError("VM Start compatibility job type does not match")
+        existing = {
+            "target_id": row.target_id,
+            "risk_level": row.risk_level,
+            "details": dict(row.details or {}),
+        } if row is not None else {}
+        completed = operation_status == "succeeded"
+        job_status = "completed" if completed else "blocked" if operation_status == "blocked" else "failed"
+        no_effect = mutation_dispatched is False
+        stage = "post_check" if completed else "reconciliation" if no_effect else "task_poll"
+        if no_effect:
+            message = "VM start pre-dispatch recovery closed without invoking Proxmox."
+        else:
+            message = (
+                "VM start recovery verified that the VM is running."
+                if completed
+                else "VM start recovery verified a terminal task failure."
+            )
         previous_details = dict(existing.get("details") or {})
         previous_result = dict(previous_details.get("vm_start_result") or {})
         result = {
@@ -40,11 +83,14 @@ class SqlAlchemyVmStartRecoveryJobProjection:
             "target": dict(target),
             "task": dict(task),
             "observed_after": dict(observed_after),
-            "recovered_after_restart": True,
-            "proxmox_mutation_enabled": True,
-            "side_effects": ["proxmox_task_observed", "proxmox_post_check_observed"],
+            "recovered_after_restart": not no_effect,
+            "recovered_pre_dispatch": no_effect,
+            "proxmox_start_ran": False if no_effect else previous_result.get("proxmox_start_ran"),
+            "proxmox_mutation_enabled": not no_effect,
+            "side_effects": [] if no_effect else ["proxmox_task_observed", "proxmox_post_check_observed"],
         }
-        record_job_run(
+        record_job_run_in_session(
+            transaction,
             job_id=operation_id,
             job_type="vm_start",
             status=job_status,
@@ -68,17 +114,55 @@ class SqlAlchemyVmShutdownRecoveryJobProjection:
         target: Mapping[str, Any],
         task: Mapping[str, Any],
         observed_after: Mapping[str, Any],
+        mutation_dispatched: bool = True,
     ) -> None:
-        existing = get_job_run(operation_id)
-        if not isinstance(existing, dict):
-            raise RuntimeError("VM Shutdown compatibility job is missing")
-        completed = operation_status == "succeeded"
-        job_status = "completed" if completed else "failed"
-        message = (
-            "VM shutdown recovery verified that the VM is stopped."
-            if completed
-            else "VM shutdown recovery recorded a terminal failure."
+        with session_scope() as session:
+            self.record_terminal_in_transaction(
+                session,
+                operation_id=operation_id,
+                operation_status=operation_status,
+                target=target,
+                task=task,
+                observed_after=observed_after,
+                mutation_dispatched=mutation_dispatched,
+            )
+
+    def record_terminal_in_transaction(
+        self,
+        transaction: Session,
+        *,
+        operation_id: str,
+        operation_status: str,
+        target: Mapping[str, Any],
+        task: Mapping[str, Any],
+        observed_after: Mapping[str, Any],
+        mutation_dispatched: bool = True,
+    ) -> None:
+        row = transaction.scalar(
+            select(JobRunRecord)
+            .where(JobRunRecord.job_id == operation_id)
+            .with_for_update()
         )
+        if row is None and mutation_dispatched:
+            raise RuntimeError("VM Shutdown compatibility job is missing")
+        if row is not None and row.job_type != "vm_shutdown":
+            raise RuntimeError("VM Shutdown compatibility job type does not match")
+        existing = {
+            "target_id": row.target_id,
+            "risk_level": row.risk_level,
+            "details": dict(row.details or {}),
+        } if row is not None else {}
+        completed = operation_status == "succeeded"
+        job_status = "completed" if completed else "blocked" if operation_status == "blocked" else "failed"
+        no_effect = mutation_dispatched is False
+        if no_effect:
+            message = "VM shutdown pre-dispatch recovery closed without invoking Proxmox."
+        else:
+            message = (
+                "VM shutdown recovery verified that the VM is stopped."
+                if completed
+                else "VM shutdown recovery recorded a terminal failure."
+            )
         previous_details = dict(existing.get("details") or {})
         previous_result = dict(previous_details.get("vm_shutdown_result") or {})
         result = {
@@ -89,18 +173,21 @@ class SqlAlchemyVmShutdownRecoveryJobProjection:
             "target": dict(target),
             "task": dict(task),
             "observed_after": dict(observed_after),
-            "recovered_after_restart": True,
-            "proxmox_mutation_enabled": True,
+            "recovered_after_restart": not no_effect,
+            "recovered_pre_dispatch": no_effect,
+            "proxmox_shutdown_ran": False if no_effect else previous_result.get("proxmox_shutdown_ran"),
+            "proxmox_mutation_enabled": not no_effect,
             "forced_stop_enabled": False,
-            "side_effects": ["proxmox_task_observed", "proxmox_post_check_observed"],
+            "side_effects": [] if no_effect else ["proxmox_task_observed", "proxmox_post_check_observed"],
         }
-        record_job_run(
+        record_job_run_in_session(
+            transaction,
             job_id=operation_id,
             job_type="vm_shutdown",
             status=job_status,
             target_id=str(existing.get("target_id") or f"{target.get('node_id', '')}:{target.get('vmid', '')}"),
             risk_level=str(existing.get("risk_level") or "high"),
-            stage="post_check",
+            stage="reconciliation" if no_effect else "post_check",
             step_status=job_status,
             message=message,
             details={**previous_details, "vm_shutdown_result": result},

@@ -6,6 +6,24 @@ from unittest.mock import patch
 import pytest
 
 
+def test_source_availability_is_stable_across_parallel_completion_order():
+    from app.operations.core.domain import operation_digest
+    from app.proxmox.inventory import _source_availability
+
+    def evidence(failed):
+        return _source_availability(
+            "guest_agent", expected_targets=["node:101", "node:900", "node:102"],
+            observed_targets=["node:102"], failed_targets=failed,
+        ).to_dict()
+
+    first = evidence(["node:900", "node:101"])
+    reordered = evidence(["node:101", "node:900"])
+    assert operation_digest(first) == operation_digest(reordered)
+    assert first["failed_targets"] == ["node:101", "node:900"]
+    assert first["complete"] is False
+    assert operation_digest(first) != operation_digest(evidence(["node:101"]))
+
+
 class ProxmoxInventoryAdapterTests(unittest.TestCase):
     def _adapter(self, **kwargs):
         try:

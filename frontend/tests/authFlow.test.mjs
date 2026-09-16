@@ -49,7 +49,7 @@ assert.match(appShellSource, /currentUser\?\.username/, 'App shell must show cur
 assert.match(appShellSource, /currentUser\?\.role/, 'App shell must show current role')
 assert.match(appSource, /canOperate\(currentUser\)/, 'App must derive mutation permission from the authenticated role')
 assert.match(appSource, /canAdmin\(currentUser\)/, 'App must derive admin permission from the authenticated role')
-assert.match(appSource, /canExecuteLiveMutation=\{canMutate\}/, 'Create VM live execution must receive role permission')
+assert.match(appSource, /canExecuteLiveMutation=\{canOperate\(currentUser\)\}/, 'Create VM live execution must receive role permission')
 assert.match(appSource, /<WorkloadCockpitPage currentUser=\{currentUser\} canMutate=\{canMutate\}/, 'Workload Cockpit must receive the verified mutation permission')
 assert.match(appSource, /<GuidedQmUnlockPage canExecute=\{canMutate\}/, 'Guided qm plan must require verified mutation permission')
 assert.match(appSource, /<OperationDetailPage canExecute=\{canMutate\}/, 'Guided operation actions in detail must require verified mutation permission')

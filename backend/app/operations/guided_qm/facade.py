@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Callable, Mapping
 
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
 from app.operations.guided_qm.application import GuidedQmUnlockUseCase
 from app.operations.guided_qm.domain import (
     AttestGuidedQmCommand,
@@ -53,12 +54,15 @@ def _use_case(
     *,
     client: Any | None = None,
     store: Any | None = None,
+    recovery: Any | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> GuidedQmUnlockUseCase:
+    operation_store = store or SqlAlchemyOperationStore()
     ports = GuidedQmExecutionPorts(
-        operations=store or SqlAlchemyOperationStore(),
+        operations=operation_store,
         observation=ProxmoxGuidedQmObservationAdapter(client) if client is not None else _UnusedObservationAdapter(),
         locks=SharedGuidedQmTargetLockAdapter(),
+        recovery=recovery or SqlAlchemyRecoveryStore(),
     )
     kwargs: dict[str, Any] = {"ports": ports}
     if clock is not None:

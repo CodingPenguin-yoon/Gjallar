@@ -429,7 +429,9 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         "app.api.v1.guided_qm.attest_guided_qm_operation"
     ) as guided_attest, patch(
         "app.api.v1.guided_qm.verify_guided_qm_operation"
-    ) as guided_verify:
+    ) as guided_verify, patch(
+        "app.api.v1.operations.observe_operation_recovery"
+    ) as recovery_observe:
         create_unauth = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
         start_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/start", json=start_payload)
         shutdown_unauth = client.post("/api/v1/nodes/node-a/vms/306/actions/shutdown", json=shutdown_payload)
@@ -442,12 +444,21 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
             "/api/v1/operations/guided-authz/verification",
             json={"plan_digest": "sha256:" + "0" * 64},
         )
+        recovery_observe_unauth = client.post(
+            "/api/v1/operations/recovery-authz/recovery/observe",
+            json={
+                "expected_version": 1,
+                "expected_checksum": "sha256:test",
+                "idempotency_key": "recovery-authz-v1",
+            },
+        )
         assert create_unauth.status_code == 401
         assert start_unauth.status_code == 401
         assert shutdown_unauth.status_code == 401
         assert guided_plan_unauth.status_code == 401
         assert guided_attest_unauth.status_code == 401
         assert guided_verify_unauth.status_code == 401
+        assert recovery_observe_unauth.status_code == 401
 
         _login(client, username="viewer-only")
         create_viewer = client.post("/api/v1/vm-create/authz/proxmox-create", json=create_payload)
@@ -462,12 +473,21 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
             "/api/v1/operations/guided-authz/verification",
             json={"plan_digest": "sha256:" + "0" * 64},
         )
+        recovery_observe_viewer = client.post(
+            "/api/v1/operations/recovery-authz/recovery/observe",
+            json={
+                "expected_version": 1,
+                "expected_checksum": "sha256:test",
+                "idempotency_key": "recovery-authz-v1",
+            },
+        )
         assert create_viewer.status_code == 403
         assert start_viewer.status_code == 403
         assert shutdown_viewer.status_code == 403
         assert guided_plan_viewer.status_code == 403
         assert guided_attest_viewer.status_code == 403
         assert guided_verify_viewer.status_code == 403
+        assert recovery_observe_viewer.status_code == 403
 
         client_factory.assert_not_called()
         create_mutation.assert_not_called()
@@ -477,6 +497,7 @@ def test_mutation_routes_require_operator_before_calling_mutation_functions(monk
         guided_plan.assert_not_called()
         guided_attest.assert_not_called()
         guided_verify.assert_not_called()
+        recovery_observe.assert_not_called()
 
 
 def test_viewer_cannot_write_create_vm_workflow_state(monkeypatch):
@@ -634,7 +655,7 @@ def test_operator_create_vm_prelive_routes_record_unredacted_session_actor(monke
         **plan_payload,
         "plan_artifact_id": review["plan_artifact_id"],
         "review_summary_checksum": review["review_summary_checksum"],
-        "yellow_risk_acknowledged": False,
+        "yellow_risk_acknowledged": True,
     }
     approve = client.post("/api/v1/vm-create/draft-secret-plan/approve", json=approved_payload)
     assert approve.status_code == 200, approve.text
@@ -763,21 +784,22 @@ def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypat
     assert plan_response.status_code == 200, plan_response.text
     review = plan_response.json()["data"]["review_confirm"]
 
-    def fake_create(plan, *, run_dir, client):
+    def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
         from app.jobs.artifacts import write_json_artifact
 
+        observed_after = {
+            "vmid": plan.vmid,
+            "target_node_id": plan.target_node_id,
+            "exists": True,
+            "status": "stopped",
+            "fingerprint": {"hash": "sha256:" + "1" * 64},
+        }
         artifact = write_json_artifact(
             run_dir=run_dir,
             job_id=plan.job_id,
             artifact_type="observed_after",
             filename="observed_after.json",
-            payload={
-                "vmid": plan.vmid,
-                "target_node_id": plan.target_node_id,
-                "exists": True,
-                "status": "stopped",
-                "fingerprint": {"hash": "sha256:" + "1" * 64},
-            },
+            payload=observed_after,
         )
         return {
             "job_id": plan.job_id,
@@ -787,7 +809,7 @@ def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypat
             "success": True,
             "status": "completed",
             "message": "VM exists on target node and is stopped",
-            "observed_after": {"status": "stopped", "fingerprint": {"hash": "sha256:" + "1" * 64}},
+            "observed_after": observed_after,
             "observed_after_artifact": artifact.to_dict(),
             "artifacts": [artifact.to_dict()],
             "side_effects": ["proxmox_clone_invoked", "proxmox_task_polled", "proxmox_config_updated", "proxmox_post_check_observed"],
@@ -803,7 +825,7 @@ def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypat
                 **payload,
                 "plan_artifact_id": review["plan_artifact_id"],
                 "review_summary_checksum": review["review_summary_checksum"],
-                "yellow_risk_acknowledged": False,
+                "yellow_risk_acknowledged": True,
                 "proxmox_mutation_acknowledged": True,
             },
         )

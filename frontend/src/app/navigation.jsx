@@ -19,6 +19,8 @@ function SectionSubnav({ items, ariaLabel }) {
     activeItemRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
   }, [location.pathname])
 
+  if (items.length < 2) return null
+
   return (
     <nav className="overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm" aria-label={ariaLabel}>
       <div className="flex gap-1">
@@ -37,9 +39,8 @@ export function WorkloadsShell({ children }) {
   return <section className="space-y-4"><SectionSubnav items={workloadNavItems} ariaLabel="Workloads navigation" />{children}</section>
 }
 
-export function OperationsShell({ canExecute = false, children }) {
-  const visibleItems = operationsNavItems.filter((item) => !item.requiresOperator || canExecute)
-  return <section className="space-y-4"><SectionSubnav items={visibleItems} ariaLabel="Operations navigation" />{children}</section>
+export function OperationsShell({ children }) {
+  return <section className="space-y-4"><SectionSubnav items={operationsNavItems} ariaLabel="Operations navigation" />{children}</section>
 }
 
 export function InsightsShell({ children }) {

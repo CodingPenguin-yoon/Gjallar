@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.db import create_vm_profiles as profile_repository
+
 from datetime import datetime, timezone
 import os
 import tempfile
@@ -83,7 +85,7 @@ class CreateVmProfileDbTests(unittest.TestCase):
             runtime.memory_mb_default = 12288
             runtime.disk_gb_default = 120
 
-        draft = build_default_vm_draft(operator_id="db-profile-test", profile_id="runtime-server")
+        draft = build_default_vm_draft(profiles=profile_repository.get_active_create_vm_profiles_by_id(), operator_id="db-profile-test", profile_id="runtime-server")
 
         self.assertEqual("runtime-server", draft.profile_id)
         self.assertEqual((6, 12288, 120), (draft.hardware.cpu, draft.hardware.memory_mb, draft.hardware.disk_gb))
@@ -94,6 +96,7 @@ class CreateVmProfileDbTests(unittest.TestCase):
         from app.vm_create.preflight import run_preflight
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="db-preflight-test",
             target_node_id="yoonmanserver2",
             bridge_id="vmbr0",
@@ -106,7 +109,7 @@ class CreateVmProfileDbTests(unittest.TestCase):
             general = session.get(CreateVmProfile, "general-vm")
             general.cpu_max = 4
 
-        result = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
+        result = run_preflight(draft, profiles=profile_repository.get_active_create_vm_profiles_by_id(), inventory_adapter=FakeProxmoxInventoryAdapter())
 
         self.assertIn("profile_cpu_out_of_range", {risk.code for risk in result.risks if risk.level == "red"})
 

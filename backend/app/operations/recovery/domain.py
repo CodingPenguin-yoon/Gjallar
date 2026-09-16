@@ -8,7 +8,69 @@ from typing import Any, Mapping
 
 
 RECOVERY_STATUSES = frozenset({"pending", "leased", "retry_wait", "paused", "completed"})
-RECOVERY_KINDS = frozenset({"vm_start_observation", "vm_shutdown_observation"})
+RECOVERY_KINDS = frozenset(
+    {
+        "vm_start_observation",
+        "vm_shutdown_observation",
+        "vm_create_observation",
+        "guided_qm_unlock_observation",
+    }
+)
+PRE_DISPATCH_RECOVERY_CONTRACT = "operation_lock_recovery_before_mutation.v1"
+PRE_DISPATCH_TERMINAL_NO_EFFECT_REASONS = {
+    ("vm_start", "blocked"): frozenset({"precheck_blocked"}),
+    ("vm_start", "failed"): frozenset(
+        {"mutation_client_unavailable", "recovery_registration_failed"}
+    ),
+    ("vm_shutdown", "blocked"): frozenset({"precheck_blocked"}),
+    ("vm_shutdown", "failed"): frozenset(
+        {"mutation_client_unavailable", "recovery_registration_failed"}
+    ),
+}
+
+
+def is_pre_dispatch_terminal_no_effect(
+    *,
+    operation_type: str,
+    status: str,
+    details: Mapping[str, Any],
+    event_type: str | None = None,
+    event_payload: Mapping[str, Any] | None = None,
+    event_to_status: str | None = None,
+    event_checksum: str | None = None,
+    operation_checksum: str | None = None,
+) -> bool:
+    """Accept only a fenced terminal event that explicitly proves no dispatch."""
+
+    reason = str(details.get("pre_dispatch_terminal_reason") or "").strip()
+    allowed_reasons = PRE_DISPATCH_TERMINAL_NO_EFFECT_REASONS.get(
+        (str(operation_type), str(status)),
+        frozenset(),
+    )
+    if (
+        reason not in allowed_reasons
+        or details.get("pre_dispatch_terminal_no_effect") is not True
+        or details.get("mutation_dispatched") is not False
+        or details.get("recovery_contract") != PRE_DISPATCH_RECOVERY_CONTRACT
+        or not str(details.get("target_lock_id") or "").strip()
+        or not str(details.get("cluster_id") or "").strip()
+    ):
+        return False
+    if event_type is None:
+        return True
+    payload = dict(event_payload or {})
+    return bool(
+        str(event_type) == reason
+        and str(event_to_status or "") == str(status)
+        and str(event_checksum or "")
+        and str(event_checksum or "") == str(operation_checksum or "")
+        and payload.get("pre_dispatch_terminal_no_effect") is True
+        and payload.get("mutation_dispatched") is False
+        and str(payload.get("pre_dispatch_terminal_reason") or "") == reason
+        and str(payload.get("target_lock_id") or "")
+        == str(details.get("target_lock_id") or "")
+        and str(payload.get("cluster_id") or "") == str(details.get("cluster_id") or "")
+    )
 
 
 class RecoveryDomainError(RuntimeError):
@@ -31,6 +93,12 @@ class RecoveryLeaseBusy(RecoveryDomainError):
     def __init__(self, operation_id: str) -> None:
         self.operation_id = str(operation_id)
         super().__init__(f"Recovery item already has a live lease: {self.operation_id}")
+
+
+class RecoveryOperationConflict(RecoveryDomainError):
+    def __init__(self, operation_id: str) -> None:
+        self.operation_id = str(operation_id)
+        super().__init__(f"Operation version or checksum changed: {self.operation_id}")
 
 
 @dataclass(frozen=True)

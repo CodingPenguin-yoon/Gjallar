@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from pathlib import Path
@@ -14,6 +15,11 @@ from urllib.parse import quote
 
 from app.jobs.artifacts import write_json_artifact
 from app.proxmox.client import ProxmoxMutationClient, ProxmoxMutationError
+from app.operations.core.evidence import (
+    compact_proxmox_error_details,
+    compact_proxmox_task,
+    compact_proxmox_vm_status,
+)
 from app.vm_create.models import VmCreatePlan
 
 _DISK_CONFIG_KEY_PATTERN = re.compile(r"^(ide|sata|scsi|virtio)(\d+)$")
@@ -25,6 +31,47 @@ _SSH_PUBLIC_KEY_PATTERN = re.compile(
 )
 _SSH_KEY_CONFIG_KEYS = {"sshkeys", "sshkey", "ssh_public_key", "sshpublickey"}
 _GUEST_AGENT_POLL_INTERVAL_SECONDS = 5.0
+
+VmCreateCheckpoint = Callable[[str, Mapping[str, Any]], None]
+
+
+def _checkpoint(
+    callback: VmCreateCheckpoint | None,
+    phase: str,
+    evidence: Mapping[str, Any] | None = None,
+) -> None:
+    if callback is None:
+        return
+    sanitized = _sanitize_public_key_material(dict(evidence or {}))
+    callback(str(phase), sanitized if isinstance(sanitized, dict) else {})
+
+
+def _heartbeat(callback: Callable[[], None] | None) -> None:
+    if callback is not None:
+        callback()
+
+
+def _wait_for_task(
+    client: ProxmoxMutationClient,
+    *,
+    node: str,
+    upid: str,
+    heartbeat: Callable[[], None] | None,
+) -> dict[str, Any]:
+    if heartbeat is None:
+        task = client.wait_for_task(node=node, upid=upid)
+        return compact_proxmox_task(task, node=node, upid=upid)
+    try:
+        task = client.wait_for_task(node=node, upid=upid, heartbeat=heartbeat)
+        return compact_proxmox_task(task, node=node, upid=upid)
+    except TypeError as exc:
+        # Lightweight contract-test clients can predate the optional heartbeat
+        # keyword. Signature binding fails before their read-only poll runs.
+        if "heartbeat" not in str(exc):
+            raise
+        _heartbeat(heartbeat)
+        task = client.wait_for_task(node=node, upid=upid)
+        return compact_proxmox_task(task, node=node, upid=upid)
 
 
 def _power_policy(plan: VmCreatePlan) -> str:
@@ -293,7 +340,6 @@ def _resize_decision_from_config(plan: VmCreatePlan, config: dict[str, Any]) -> 
         "selection": selected.get("selection"),
         "size_gb": current_size,
         "volume_id": selected.get("volume_id"),
-        "raw_config": selected.get("raw_config"),
     }
     result = {
         **result,
@@ -350,6 +396,12 @@ def _fingerprint_from_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def vm_config_fingerprint(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return the stable, secret-free VM identity fingerprint used by recovery."""
+
+    return _fingerprint_from_config(dict(config or {}))
+
+
 def _extract_guest_agent_ipv4_addresses(payload: Any) -> tuple[str, ...]:
     if isinstance(payload, dict):
         interfaces = payload.get("result") or payload.get("interfaces") or []
@@ -398,13 +450,13 @@ def _observe_guest_agent_network(
     *,
     plan: VmCreatePlan,
     sleep: Any = time.sleep,
+    heartbeat: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     last_error = ""
-    last_payload: dict[str, Any] = {}
+    last_details: dict[str, Any] = {}
     for attempt in range(1, _guest_agent_attempts(plan) + 1):
         try:
             payload = client.get_guest_network_interfaces(node=plan.target_node_id, vmid=int(plan.vmid))
-            last_payload = payload
             ip_addresses = _extract_guest_agent_ipv4_addresses(payload)
             if ip_addresses:
                 return {
@@ -414,8 +466,9 @@ def _observe_guest_agent_network(
                     "attempts": attempt,
                 }
         except ProxmoxMutationError as exc:
-            last_error = str(exc)
-            last_payload = _sanitize_public_key_material(getattr(exc, "details", {}))
+            last_error = "proxmox_guest_agent_observation_unavailable"
+            last_details = _error_details(exc)
+        _heartbeat(heartbeat)
         if attempt < _guest_agent_attempts(plan):
             sleep(_GUEST_AGENT_POLL_INTERVAL_SECONDS)
     return {
@@ -423,8 +476,8 @@ def _observe_guest_agent_network(
         "ip_addresses": [],
         "primary_ip": "",
         "attempts": _guest_agent_attempts(plan),
-        "error": last_error,
-        "last_payload": _sanitize_public_key_material(last_payload),
+        "error": last_error or "guest_agent_ipv4_not_observed",
+        "details": last_details,
     }
 
 
@@ -434,6 +487,7 @@ def _check_cloud_init_status(
     plan: VmCreatePlan,
     attempts: int = 3,
     sleep: Any = time.sleep,
+    heartbeat: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     total_attempts = max(int(attempts), 1)
@@ -444,16 +498,18 @@ def _check_cloud_init_status(
                 vmid=int(plan.vmid),
                 command=("cloud-init", "status", "--wait"),
             )
-            status = client.wait_guest_exec(node=plan.target_node_id, vmid=int(plan.vmid), pid=pid)
+            status = client.wait_guest_exec(node=plan.target_node_id, vmid=int(plan.vmid), pid=pid, heartbeat=heartbeat)
         except ProxmoxMutationError as exc:
+            safe_details = _error_details(exc)
             errors.append(
                 {
                     "attempt": attempt,
-                    "error": str(exc),
-                    "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+                    "error": "proxmox_guest_command_observation_unavailable",
+                    "details": safe_details,
                 }
             )
             if attempt < total_attempts and _is_retryable_cloud_init_probe_error(exc):
+                _heartbeat(heartbeat)
                 sleep(1)
                 continue
             return {
@@ -461,25 +517,24 @@ def _check_cloud_init_status(
                 "success": False,
                 "status": "unavailable",
                 "attempts": attempt,
-                "error": str(exc),
+                "error": "proxmox_guest_command_observation_unavailable",
                 "errors": errors,
-                "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+                "details": safe_details,
             }
+        _heartbeat(heartbeat)
         break
 
-    exitcode = status.get("exitcode")
-    output = str(status.get("out-data") or status.get("out_data") or "").strip()
-    error_output = str(status.get("err-data") or status.get("err_data") or "").strip()
-    success = exitcode == 0 or str(exitcode).strip() == "0"
+    try:
+        exitcode = int(status.get("exitcode"))
+    except (TypeError, ValueError, OverflowError):
+        exitcode = None
+    success = exitcode == 0
     return {
         "checked": True,
         "success": success,
         "status": "done" if success else "failed",
-        "pid": pid,
         "attempts": attempt,
         "exitcode": exitcode,
-        "output": output[:2000],
-        "error_output": error_output[:2000],
         "previous_errors": errors,
     }
 
@@ -587,15 +642,27 @@ def _observed_after_payload(
     boot_verification: dict[str, Any] | None = None,
     start_task: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    observed_status = str(status.get("status") or "").lower()
+    compact_status = compact_proxmox_vm_status(
+        status,
+        node=plan.target_node_id,
+        vmid=int(plan.vmid),
+    )
+    observed_status = str(compact_status.get("status") or "")
     guest_agent_payload = dict(guest_agent or {})
     ip_addresses = list(guest_agent_payload.get("ip_addresses") or [])
+    compact_start_task = compact_proxmox_task(
+        start_task,
+        node=plan.target_node_id,
+        upid=str(dict(start_task or {}).get("upid") or ""),
+    )
+    if start_task and not compact_start_task.get("status"):
+        compact_start_task["status"] = "unknown"
     return {
         "observed_at": _now_utc(),
         "job_id": plan.job_id,
         "manifest_id": plan.manifest_id,
         "vmid": int(plan.vmid),
-        "vm_name": status.get("name") or plan.vm_name,
+        "vm_name": plan.vm_name,
         "target_node_id": plan.target_node_id,
         "exists": bool(exists),
         "status": observed_status,
@@ -608,15 +675,17 @@ def _observed_after_payload(
         "primary_ip": ip_addresses[0] if ip_addresses else "",
         "cloud_init": dict(cloud_init or {}),
         "boot_verification": dict(boot_verification or {}),
-        "start_task": dict(start_task or {}),
+        "start_task": compact_start_task if start_task else {},
         "fingerprint": _fingerprint_from_config(config),
-        "status_current": status,
-        "config": _sanitize_public_key_material(config),
+        "status_current": {**compact_status, "name": plan.vm_name},
     }
 
 
 def _error_details(exc: ProxmoxMutationError) -> dict[str, Any]:
-    return _sanitize_public_key_material(getattr(exc, "details", {}) or {})
+    """Return bounded allowlisted error evidence without raw upstream payloads."""
+
+    raw = getattr(exc, "details", {}) or {}
+    return compact_proxmox_error_details(raw if isinstance(raw, Mapping) else {})
 
 
 def _is_http_4xx_rejection(exc: ProxmoxMutationError) -> bool:
@@ -634,6 +703,8 @@ def run_proxmox_create(
     *,
     run_dir: str | Path,
     client: ProxmoxMutationClient,
+    checkpoint: VmCreateCheckpoint | None = None,
+    heartbeat: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Clone, configure, and verify a VM via the native Proxmox API."""
     side_effects: list[str] = []
@@ -641,25 +712,54 @@ def run_proxmox_create(
     config_payload = config_payload_from_plan(plan)
     task_result: dict[str, Any] = {}
 
+    _checkpoint(
+        checkpoint,
+        "clone_pending",
+        {
+            "template_node": clone["template_node"],
+            "template_vmid": int(clone["template_vmid"]),
+            "target_node_id": plan.target_node_id,
+            "vmid": int(plan.vmid),
+        },
+    )
     try:
-        upid = client.clone_vm(
-            template_node=clone["template_node"],
-            template_vmid=int(clone["template_vmid"]),
-            newid=int(clone["newid"]),
-            name=str(clone["name"]),
-            target=str(clone["target"]),
-            storage=str(clone["storage"]),
-        )
+        raw_upid = str(
+            client.clone_vm(
+                template_node=clone["template_node"],
+                template_vmid=int(clone["template_vmid"]),
+                newid=int(clone["newid"]),
+                name=str(clone["name"]),
+                target=str(clone["target"]),
+                storage=str(clone["storage"]),
+            )
+            or ""
+        ).strip()
+        upid = compact_proxmox_task(
+            {},
+            node=str(clone["template_node"]),
+            upid=raw_upid,
+        )["upid"]
     except ProxmoxMutationError as exc:
         details = _error_details(exc)
         if _is_http_4xx_rejection(exc):
             status = "failed"
             side_effects.append("proxmox_clone_rejected")
-            message = str(exc)
+            message = "Proxmox clone request was rejected by the API"
+            phase = "clone_rejected"
         else:
             status = "needs_reconciliation"
             side_effects.append("proxmox_clone_state_unknown")
-            message = f"Proxmox clone request state is unknown and requires reconciliation: {exc}"
+            message = "Proxmox clone request state is unknown and requires reconciliation"
+            phase = "clone_ambiguous"
+        _checkpoint(
+            checkpoint,
+            phase,
+            {
+                "status": status,
+                "error_type": type(exc).__name__,
+                "details": details,
+            },
+        )
         return {
             "job_id": plan.job_id,
             "manifest_id": plan.manifest_id,
@@ -676,13 +776,19 @@ def run_proxmox_create(
             "side_effects": side_effects,
         }
     side_effects.append("proxmox_clone_invoked")
-    task_result = {"node": clone["template_node"], "upid": upid, "status": "unknown"}
-    try:
-        task_result = client.wait_for_task(node=clone["template_node"], upid=upid)
-        side_effects.append("proxmox_task_polled")
-    except ProxmoxMutationError as exc:
-        details = _error_details(exc)
-        side_effects.append("proxmox_task_poll_state_unknown")
+    if not upid:
+        task_result = compact_proxmox_task(
+            {"status": "unknown"},
+            node=str(clone["template_node"]),
+        )
+        _checkpoint(
+            checkpoint,
+            "clone_locator_invalid",
+            {
+                "status": "needs_reconciliation",
+                "task_reference_present": False,
+            },
+        )
         return {
             "job_id": plan.job_id,
             "manifest_id": plan.manifest_id,
@@ -690,11 +796,64 @@ def run_proxmox_create(
             "target_node_id": plan.target_node_id,
             "success": False,
             "status": "needs_reconciliation",
-            "message": f"Proxmox clone task polling is unknown after UPID acquisition and requires reconciliation: {exc}",
+            "message": "Proxmox clone response did not provide a valid task locator; reconciliation is required",
+            "clone": clone,
+            "config": _sanitize_public_key_material(config_payload),
+            "task": task_result,
+            "artifacts": [],
+            "side_effects": side_effects,
+        }
+    task_result = {"node": clone["template_node"], "upid": upid, "status": "unknown"}
+    _checkpoint(
+        checkpoint,
+        "clone_dispatched",
+        {
+            "clone_task_node_id": clone["template_node"],
+            "vmid": int(plan.vmid),
+            "clone_upid": upid,
+        },
+    )
+    try:
+        task_result = _wait_for_task(
+            client,
+            node=clone["template_node"],
+            upid=upid,
+            heartbeat=heartbeat,
+        )
+        side_effects.append("proxmox_task_polled")
+        _checkpoint(
+            checkpoint,
+            "clone_task_observed",
+            {
+                "clone_upid": upid,
+                "task_status": str(task_result.get("status") or ""),
+                "task_exitstatus": str(task_result.get("exitstatus") or ""),
+            },
+        )
+    except ProxmoxMutationError as exc:
+        details = _error_details(exc)
+        side_effects.append("proxmox_task_poll_state_unknown")
+        _checkpoint(
+            checkpoint,
+            "clone_task_ambiguous",
+            {
+                "clone_upid": upid,
+                "error_type": type(exc).__name__,
+                "details": details,
+            },
+        )
+        return {
+            "job_id": plan.job_id,
+            "manifest_id": plan.manifest_id,
+            "vmid": plan.vmid,
+            "target_node_id": plan.target_node_id,
+            "success": False,
+            "status": "needs_reconciliation",
+            "message": "Proxmox clone task polling is unknown after UPID acquisition and requires reconciliation",
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
             "details": details,
-            "task": {**task_result, "status": "unknown", "error": str(exc)},
+            "task": {**task_result, "status": "unknown", "error_type": type(exc).__name__},
             "artifacts": [],
             "side_effects": side_effects,
         }
@@ -707,7 +866,7 @@ def run_proxmox_create(
             "target_node_id": plan.target_node_id,
             "success": False,
             "status": "failed",
-            "message": f"Proxmox clone task failed: {task_result.get('exitstatus') or 'unknown'}",
+            "message": "Proxmox clone task failed.",
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
             "task": task_result,
@@ -724,7 +883,7 @@ def run_proxmox_create(
             "reason": "cloned_config_unavailable",
             "selected_disk": None,
             "success": False,
-            "error": str(exc),
+            "error": "proxmox_cloned_config_observation_unavailable",
         }
         side_effects.append("proxmox_disk_resize_skipped_unknown")
         return {
@@ -734,11 +893,11 @@ def run_proxmox_create(
             "target_node_id": plan.target_node_id,
             "success": False,
             "status": "needs_reconciliation",
-            "message": f"Unable to inspect cloned VM disk before resize: {exc}",
+            "message": "Unable to inspect the cloned VM disk before resize",
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
-            "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+            "details": _error_details(exc),
             "task": task_result,
             "artifacts": [],
             "side_effects": side_effects,
@@ -746,6 +905,15 @@ def run_proxmox_create(
 
     resize_result = _resize_decision_from_config(plan, cloned_config)
     if resize_result.get("action") == "resize_required":
+        _checkpoint(
+            checkpoint,
+            "resize_pending",
+            {
+                "disk": str(resize_result["disk"]),
+                "requested_disk_gb": int(_requested_disk_gb(plan) or 0),
+                "current_disk_gb": resize_result.get("current_disk_gb"),
+            },
+        )
         side_effects.append("proxmox_disk_resize_invoked")
         try:
             resize_response = client.resize_vm_disk(
@@ -754,17 +922,40 @@ def run_proxmox_create(
                 disk=str(resize_result["disk"]),
                 size=int(_requested_disk_gb(plan) or 0),
             )
-            resize_result = {**resize_result, "action": "resized", "success": True, "response": resize_response}
+            resize_result = {
+                **resize_result,
+                "action": "resized",
+                "success": True,
+                "response_received": resize_response is not None,
+            }
             side_effects.append("proxmox_disk_resize_succeeded")
+            _checkpoint(
+                checkpoint,
+                "resize_completed",
+                {
+                    "disk": str(resize_result["disk"]),
+                    "requested_disk_gb": int(_requested_disk_gb(plan) or 0),
+                },
+            )
         except ProxmoxMutationError as exc:
             resize_result = {
                 **resize_result,
                 "action": "failed",
                 "success": False,
-                "error": str(exc),
-                "details": getattr(exc, "details", {}),
+                "error": "proxmox_disk_resize_state_unknown",
+                "details": _error_details(exc),
             }
             side_effects.append("proxmox_disk_resize_failed")
+            _checkpoint(
+                checkpoint,
+                "resize_ambiguous",
+                {
+                    "disk": str(resize_result.get("disk") or ""),
+                    "requested_disk_gb": int(_requested_disk_gb(plan) or 0),
+                    "error_type": type(exc).__name__,
+                    "details": _error_details(exc),
+                },
+            )
             return {
                 "job_id": plan.job_id,
                 "manifest_id": plan.manifest_id,
@@ -772,7 +963,7 @@ def run_proxmox_create(
                 "target_node_id": plan.target_node_id,
                 "success": False,
                 "status": "needs_reconciliation",
-                "message": f"Proxmox disk resize failed: {exc}",
+                "message": "Proxmox disk resize state is unknown and requires reconciliation",
                 "clone": clone,
                 "config": _sanitize_public_key_material(config_payload),
                 "resize": resize_result,
@@ -800,10 +991,36 @@ def run_proxmox_create(
     elif resize_result.get("action") == "not_needed":
         side_effects.append("proxmox_disk_resize_not_needed")
 
+    _checkpoint(
+        checkpoint,
+        "config_pending",
+        {
+            "config_keys": sorted(str(key) for key in config_payload),
+            "target_node_id": plan.target_node_id,
+            "vmid": int(plan.vmid),
+        },
+    )
     try:
         client.set_vm_config(node=plan.target_node_id, vmid=int(plan.vmid), config=config_payload)
         side_effects.append("proxmox_config_updated")
+        _checkpoint(
+            checkpoint,
+            "config_completed",
+            {
+                "config_keys": sorted(str(key) for key in config_payload),
+                "target_node_id": plan.target_node_id,
+                "vmid": int(plan.vmid),
+            },
+        )
     except ProxmoxMutationError as exc:
+        _checkpoint(
+            checkpoint,
+            "config_ambiguous",
+            {
+                "error_type": type(exc).__name__,
+                "details": _error_details(exc),
+            },
+        )
         return {
             "job_id": plan.job_id,
             "manifest_id": plan.manifest_id,
@@ -811,26 +1028,39 @@ def run_proxmox_create(
             "target_node_id": plan.target_node_id,
             "success": False,
             "status": "needs_reconciliation",
-            "message": str(exc),
+            "message": "Proxmox VM configuration state is unknown and requires reconciliation",
             "clone": clone,
             "config": _sanitize_public_key_material(config_payload),
             "resize": resize_result,
-            "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+            "details": _error_details(exc),
             "task": task_result,
             "artifacts": [],
             "side_effects": side_effects,
         }
 
     try:
-        observed_status = client.get_vm_status(node=plan.target_node_id, vmid=int(plan.vmid))
+        observed_status = compact_proxmox_vm_status(
+            client.get_vm_status(node=plan.target_node_id, vmid=int(plan.vmid)),
+            node=plan.target_node_id,
+            vmid=int(plan.vmid),
+        )
         observed_config = client.get_vm_config(node=plan.target_node_id, vmid=int(plan.vmid))
         side_effects.append("proxmox_post_check_observed")
         exists = True
+        _checkpoint(
+            checkpoint,
+            "post_check_observed",
+            {
+                "exists": True,
+                "status": str(observed_status.get("status") or ""),
+                "fingerprint": vm_config_fingerprint(observed_config),
+            },
+        )
     except ProxmoxMutationError as exc:
         observed_status = {}
         observed_config = {}
         exists = False
-        message = f"VM post-check failed: {exc}"
+        message = "VM post-check observation is unavailable and requires reconciliation"
         observed_after = _observed_after_payload(
             plan=plan,
             status=observed_status,
@@ -839,12 +1069,32 @@ def run_proxmox_create(
             post_check_status="needs_reconciliation",
             message=message,
         )
+        _checkpoint(
+            checkpoint,
+            "post_check_ambiguous",
+            {
+                "exists": False,
+                "status": "unknown",
+                "error_type": type(exc).__name__,
+                "details": _error_details(exc),
+            },
+        )
         artifact = write_json_artifact(
             run_dir=run_dir,
             job_id=plan.job_id,
             artifact_type="observed_after",
             filename="observed_after.json",
             payload=observed_after,
+        )
+        _checkpoint(
+            checkpoint,
+            "observed_after_artifact_recorded",
+            {
+                "result_success": False,
+                "result_status": "needs_reconciliation",
+                "observed_after": observed_after,
+                "observed_after_artifact": artifact.to_dict(),
+            },
         )
         return {
             "job_id": plan.job_id,
@@ -864,7 +1114,7 @@ def run_proxmox_create(
             "side_effects": side_effects,
         }
 
-    observed_power = str(observed_status.get("status") or "").lower()
+    observed_power = str(observed_status.get("status") or "")
     start_task_result: dict[str, Any] = {}
     guest_agent: dict[str, Any] = {}
     cloud_init: dict[str, Any] = {}
@@ -872,14 +1122,164 @@ def run_proxmox_create(
     boot_and_verify = _boot_and_verify_requested(plan)
 
     if boot_and_verify:
-        if observed_power != "running":
+        if observed_power not in {"running", "stopped"}:
+            message = "VM power state could not be verified after create; reconciliation is required"
+            observed_after = _observed_after_payload(
+                plan=plan,
+                status=observed_status,
+                config=observed_config,
+                exists=exists,
+                post_check_status="needs_reconciliation",
+                message=message,
+                powered_on_success_allowed=True,
+            )
+            artifact = write_json_artifact(
+                run_dir=run_dir,
+                job_id=plan.job_id,
+                artifact_type="observed_after",
+                filename="observed_after.json",
+                payload=observed_after,
+            )
+            _checkpoint(
+                checkpoint,
+                "observed_after_artifact_recorded",
+                {
+                    "result_success": False,
+                    "result_status": "needs_reconciliation",
+                    "observed_after": observed_after,
+                    "observed_after_artifact": artifact.to_dict(),
+                    "clone_upid": str(task_result.get("upid") or ""),
+                },
+            )
+            return {
+                "job_id": plan.job_id,
+                "manifest_id": plan.manifest_id,
+                "vmid": plan.vmid,
+                "target_node_id": plan.target_node_id,
+                "success": False,
+                "status": "needs_reconciliation",
+                "message": message,
+                "clone": clone,
+                "config": _sanitize_public_key_material(config_payload),
+                "resize": resize_result,
+                "task": task_result,
+                "observed_after": observed_after,
+                "observed_after_artifact": artifact.to_dict(),
+                "artifacts": [artifact.to_dict()],
+                "side_effects": side_effects,
+            }
+        if observed_power == "stopped":
+            _checkpoint(
+                checkpoint,
+                "start_pending",
+                {
+                    "target_node_id": plan.target_node_id,
+                    "vmid": int(plan.vmid),
+                    "observed_power": observed_power,
+                },
+            )
+            start_upid = ""
             try:
-                start_upid = client.start_vm(node=plan.target_node_id, vmid=int(plan.vmid))
+                raw_start_upid = str(
+                    client.start_vm(node=plan.target_node_id, vmid=int(plan.vmid)) or ""
+                ).strip()
+                start_upid = compact_proxmox_task(
+                    {},
+                    node=plan.target_node_id,
+                    upid=raw_start_upid,
+                )["upid"]
                 side_effects.append("proxmox_start_invoked")
-                start_task_result = client.wait_for_task(node=plan.target_node_id, upid=start_upid)
+                if not start_upid:
+                    message = "Proxmox VM start response did not provide a valid task locator; reconciliation is required"
+                    start_task_result = compact_proxmox_task(
+                        {"status": "unknown"},
+                        node=plan.target_node_id,
+                    )
+                    observed_after = _observed_after_payload(
+                        plan=plan,
+                        status=observed_status,
+                        config=observed_config,
+                        exists=exists,
+                        post_check_status="needs_reconciliation",
+                        message=message,
+                        powered_on_success_allowed=True,
+                        start_task=start_task_result,
+                    )
+                    _checkpoint(
+                        checkpoint,
+                        "start_locator_invalid",
+                        {
+                            "task_reference_present": False,
+                            "status": "needs_reconciliation",
+                        },
+                    )
+                    artifact = write_json_artifact(
+                        run_dir=run_dir,
+                        job_id=plan.job_id,
+                        artifact_type="observed_after",
+                        filename="observed_after.json",
+                        payload=observed_after,
+                    )
+                    _checkpoint(
+                        checkpoint,
+                        "observed_after_artifact_recorded",
+                        {
+                            "result_success": False,
+                            "result_status": "needs_reconciliation",
+                            "observed_after": observed_after,
+                            "observed_after_artifact": artifact.to_dict(),
+                        },
+                    )
+                    return {
+                        "job_id": plan.job_id,
+                        "manifest_id": plan.manifest_id,
+                        "vmid": plan.vmid,
+                        "target_node_id": plan.target_node_id,
+                        "success": False,
+                        "status": "needs_reconciliation",
+                        "message": message,
+                        "clone": clone,
+                        "config": _sanitize_public_key_material(config_payload),
+                        "resize": resize_result,
+                        "task": task_result,
+                        "start_task": start_task_result,
+                        "observed_after": observed_after,
+                        "observed_after_artifact": artifact.to_dict(),
+                        "artifacts": [artifact.to_dict()],
+                        "side_effects": side_effects,
+                    }
+                _checkpoint(
+                    checkpoint,
+                    "start_dispatched",
+                    {
+                        "target_node_id": plan.target_node_id,
+                        "vmid": int(plan.vmid),
+                        "start_upid": start_upid,
+                    },
+                )
+                start_task_result = _wait_for_task(
+                    client,
+                    node=plan.target_node_id,
+                    upid=start_upid,
+                    heartbeat=heartbeat,
+                )
                 side_effects.append("proxmox_start_task_polled")
+                _checkpoint(
+                    checkpoint,
+                    "start_task_observed",
+                    {
+                        "start_upid": start_upid,
+                        "task_status": str(start_task_result.get("status") or ""),
+                        "task_exitstatus": str(start_task_result.get("exitstatus") or ""),
+                    },
+                )
             except ProxmoxMutationError as exc:
-                message = f"Proxmox VM start failed: {exc}"
+                message = "Proxmox VM start state is unknown and requires reconciliation"
+                start_error = {
+                    "status": "unknown",
+                    "error_type": type(exc).__name__,
+                    "details": _error_details(exc),
+                }
                 observed_after = _observed_after_payload(
                     plan=plan,
                     status=observed_status,
@@ -888,7 +1288,16 @@ def run_proxmox_create(
                     post_check_status="needs_reconciliation",
                     message=message,
                     powered_on_success_allowed=True,
-                    start_task=start_task_result or _sanitize_public_key_material(getattr(exc, "details", {})),
+                    start_task=start_task_result or start_error,
+                )
+                _checkpoint(
+                    checkpoint,
+                    "start_ambiguous",
+                    {
+                        "start_upid": start_upid,
+                        "error_type": type(exc).__name__,
+                        "details": _error_details(exc),
+                    },
                 )
                 artifact = write_json_artifact(
                     run_dir=run_dir,
@@ -896,6 +1305,16 @@ def run_proxmox_create(
                     artifact_type="observed_after",
                     filename="observed_after.json",
                     payload=observed_after,
+                )
+                _checkpoint(
+                    checkpoint,
+                    "observed_after_artifact_recorded",
+                    {
+                        "result_success": False,
+                        "result_status": "needs_reconciliation",
+                        "observed_after": observed_after,
+                        "observed_after_artifact": artifact.to_dict(),
+                    },
                 )
                 return {
                     "job_id": plan.job_id,
@@ -916,7 +1335,7 @@ def run_proxmox_create(
                     "side_effects": side_effects,
                 }
             if str(start_task_result.get("exitstatus") or "").upper() != "OK":
-                message = f"Proxmox start task failed: {start_task_result.get('exitstatus') or 'unknown'}"
+                message = "Proxmox start task failed."
                 observed_after = _observed_after_payload(
                     plan=plan,
                     status=observed_status,
@@ -933,6 +1352,16 @@ def run_proxmox_create(
                     artifact_type="observed_after",
                     filename="observed_after.json",
                     payload=observed_after,
+                )
+                _checkpoint(
+                    checkpoint,
+                    "observed_after_artifact_recorded",
+                    {
+                        "result_success": False,
+                        "result_status": "needs_reconciliation",
+                        "observed_after": observed_after,
+                        "observed_after_artifact": artifact.to_dict(),
+                    },
                 )
                 return {
                     "job_id": plan.job_id,
@@ -953,10 +1382,14 @@ def run_proxmox_create(
                     "side_effects": side_effects,
                 }
             try:
-                observed_status = client.get_vm_status(node=plan.target_node_id, vmid=int(plan.vmid))
+                observed_status = compact_proxmox_vm_status(
+                    client.get_vm_status(node=plan.target_node_id, vmid=int(plan.vmid)),
+                    node=plan.target_node_id,
+                    vmid=int(plan.vmid),
+                )
                 observed_config = client.get_vm_config(node=plan.target_node_id, vmid=int(plan.vmid))
             except ProxmoxMutationError as exc:
-                message = f"VM boot post-check failed: {exc}"
+                message = "VM boot post-check observation is unavailable and requires reconciliation"
                 observed_after = _observed_after_payload(
                     plan=plan,
                     status=observed_status,
@@ -967,12 +1400,31 @@ def run_proxmox_create(
                     powered_on_success_allowed=True,
                     start_task=start_task_result,
                 )
+                _checkpoint(
+                    checkpoint,
+                    "boot_post_check_ambiguous",
+                    {
+                        "start_upid": str(start_task_result.get("upid") or ""),
+                        "error_type": type(exc).__name__,
+                        "details": _error_details(exc),
+                    },
+                )
                 artifact = write_json_artifact(
                     run_dir=run_dir,
                     job_id=plan.job_id,
                     artifact_type="observed_after",
                     filename="observed_after.json",
                     payload=observed_after,
+                )
+                _checkpoint(
+                    checkpoint,
+                    "observed_after_artifact_recorded",
+                    {
+                        "result_success": False,
+                        "result_status": "needs_reconciliation",
+                        "observed_after": observed_after,
+                        "observed_after_artifact": artifact.to_dict(),
+                    },
                 )
                 return {
                     "job_id": plan.job_id,
@@ -987,18 +1439,18 @@ def run_proxmox_create(
                     "resize": resize_result,
                     "task": task_result,
                     "start_task": start_task_result,
-                    "details": _sanitize_public_key_material(getattr(exc, "details", {})),
+                    "details": _error_details(exc),
                     "observed_after": observed_after,
                     "observed_after_artifact": artifact.to_dict(),
                     "artifacts": [artifact.to_dict()],
                     "side_effects": side_effects,
                 }
-            observed_power = str(observed_status.get("status") or "").lower()
+            observed_power = str(observed_status.get("status") or "")
             side_effects.append("proxmox_boot_post_check_observed")
 
-        guest_agent = _observe_guest_agent_network(client, plan=plan)
+        guest_agent = _observe_guest_agent_network(client, plan=plan, heartbeat=heartbeat)
         side_effects.append("proxmox_guest_agent_observed" if guest_agent.get("available") is True else "proxmox_guest_agent_unavailable")
-        cloud_init = _check_cloud_init_status(client, plan=plan)
+        cloud_init = _check_cloud_init_status(client, plan=plan, heartbeat=heartbeat)
         side_effects.append("proxmox_cloud_init_status_checked" if cloud_init.get("success") is True else "proxmox_cloud_init_status_unavailable")
         boot_verification = _boot_verification_summary(
             running=observed_power == "running",
@@ -1011,7 +1463,11 @@ def run_proxmox_create(
     else:
         success = exists and observed_power == "stopped"
         result_status = "completed" if success else "needs_reconciliation"
-        message = "VM exists on target node and is stopped" if success else f"VM post-check expected stopped, observed {observed_power or 'unknown'}"
+        message = (
+            "VM exists on target node and is stopped"
+            if success
+            else "VM post-check did not verify the expected stopped state"
+        )
 
     observed_after = _observed_after_payload(
         plan=plan,
@@ -1026,12 +1482,35 @@ def run_proxmox_create(
         boot_verification=boot_verification,
         start_task=start_task_result,
     )
+    _checkpoint(
+        checkpoint,
+        "readiness_observed",
+        {
+            "result_success": success,
+            "result_status": result_status,
+            "observed_after": observed_after,
+            "clone_upid": str(task_result.get("upid") or ""),
+            "start_upid": str(start_task_result.get("upid") or ""),
+        },
+    )
     artifact = write_json_artifact(
         run_dir=run_dir,
         job_id=plan.job_id,
         artifact_type="observed_after",
         filename="observed_after.json",
         payload=observed_after,
+    )
+    _checkpoint(
+        checkpoint,
+        "observed_after_artifact_recorded",
+        {
+            "result_success": success,
+            "result_status": result_status,
+            "observed_after": observed_after,
+            "observed_after_artifact": artifact.to_dict(),
+            "clone_upid": str(task_result.get("upid") or ""),
+            "start_upid": str(start_task_result.get("upid") or ""),
+        },
     )
     return {
         "job_id": plan.job_id,

@@ -9,10 +9,20 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from app.auth.roles import actor_detail_fields, actor_evidence
-from app.jobs.artifacts import write_json_artifact
-from app.jobs.runs import get_job_run, record_job_run, run_dir
+from datetime import datetime, timezone
+
+from sqlalchemy.exc import IntegrityError
+
+from app.db.models import JobRunRecord
+from app.db.session import session_scope
+from app.jobs.artifacts import write_json_artifact_in_session
+from app.jobs.runs import get_job_run_strict, record_job_run_in_session, run_dir
+from app.operations.vm_create.post_create_readiness import (
+    ensure_post_create_readiness_operation_link,
+)
 
 ALLOWED_TOP_LEVEL_KEYS = {
+    "create_operation_id",
     "post_create_readiness_evidence_acknowledged",
     "evidence_id",
     "idempotency_key",
@@ -336,6 +346,51 @@ def _result_from_existing(job: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _with_exact_create_operation_link(
+    result: Mapping[str, Any],
+    *,
+    node_id: str,
+    vmid: int,
+    actor: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    enriched = dict(result)
+    try:
+        operation = ensure_post_create_readiness_operation_link(
+            node_id=node_id,
+            vmid=vmid,
+            readiness_job_id=str(enriched.get("job_id") or ""),
+            create_operation_id=str(enriched.get("create_operation_id") or ""),
+            evidence_summary=(
+                dict(enriched.get("evidence_summary") or {})
+                if isinstance(enriched.get("evidence_summary"), Mapping)
+                else {}
+            ),
+            artifact=(
+                dict(enriched.get("artifact") or {})
+                if isinstance(enriched.get("artifact"), Mapping)
+                else {}
+            ),
+            actor=actor,
+        )
+    except Exception as exc:
+        raise PostCreateReadinessError(
+            "POST_CREATE_READINESS_OPERATION_LINK_UNAVAILABLE",
+            "Readiness evidence was recorded, but its exact Create Operation link could not be persisted",
+            status_code=503,
+            details={
+                "job_id": str(enriched.get("job_id") or ""),
+                "target": _safe_target(node_id, vmid),
+                "evidence_recorded": True,
+                "operation_linked": False,
+            },
+        ) from exc
+    enriched["operation_linked"] = operation is not None
+    if operation is not None:
+        enriched["operation_id"] = str(operation.get("operation_id") or "")
+        enriched["operation"] = operation
+    return enriched
+
+
 def record_post_create_readiness_evidence(
     *,
     node_id: str,
@@ -355,79 +410,123 @@ def record_post_create_readiness_evidence(
         vmid=vmid,
         evidence_identity=evidence["identity"],
     )
-    existing = get_job_run(job_id)
-    if existing:
-        return _result_from_existing(existing)
-
     actor_payload = actor_evidence(actor) if actor is not None else {}
-    target = _safe_target(node_id, vmid)
-    checks = list(evidence["checks"])
-    counts = _status_counts(checks)
-    evidence_summary = {
-        "evidence_id": evidence["evidence_id"],
-        "idempotency_key": evidence["idempotency_key"],
-        "summary": evidence["summary"],
-        "limitations": evidence["limitations"],
-        "check_count": len(checks),
-        "status_counts": counts,
-    }
-    artifact_payload = {
-        "job_id": job_id,
-        "operation": "post_create_readiness_evidence",
-        "target": target,
-        "evidence": {
-            **evidence_summary,
-            "checks": checks,
-        },
-        "boundary": _boundary(),
-    }
-    artifact_payload.update(actor_detail_fields(actor_payload))
-    artifact = _artifact_dict(
-        write_json_artifact(
-            run_dir=run_dir(job_id),
-            job_id=job_id,
-            artifact_type="post_create_readiness_evidence",
-            filename="post_create_readiness_evidence.json",
-            payload=artifact_payload,
+    create_operation_id = _text_field(request_payload, "create_operation_id", max_length=160)
+    existing = get_job_run_strict(job_id)
+    if existing:
+        stored_result = _result_from_existing(existing)
+        if str(stored_result.get("create_operation_id") or "") != create_operation_id:
+            raise PostCreateReadinessError(
+                "POST_CREATE_READINESS_OWNER_CONFLICT", "Readiness evidence belongs to a different Create operation",
+                status_code=409,
+            )
+        return _with_exact_create_operation_link(
+            stored_result,
+            node_id=node_id,
+            vmid=vmid,
+            actor=actor_payload,
         )
-    )
 
-    result = {
-        "job_id": job_id,
-        "status": "completed",
-        "message": "Post-create readiness evidence was recorded locally.",
-        "target": target,
-        "evidence_summary": evidence_summary,
-        "checks": checks,
-        "artifact": artifact,
-        "artifacts": [artifact],
-        "idempotent_replay": False,
-        **_boundary(),
-    }
-    result.update(actor_detail_fields(actor_payload))
-    details = {
-        "target": target,
-        "post_create_readiness": {
-            "evidence_id": evidence["evidence_id"],
-            "idempotency_key": evidence["idempotency_key"],
-            "check_count": len(checks),
-            "status_counts": counts,
-            **_boundary(),
-        },
-        "post_create_readiness_result": result,
-    }
-    details.update(actor_detail_fields(actor_payload))
-    record_job_run(
-        job_id=job_id,
-        job_type="post_create_readiness",
-        status="completed",
-        target_id=_target_id(node_id, vmid),
-        risk_level="unknown",
-        stage="evidence_record",
-        step_status="completed",
-        message=result["message"],
-        artifacts=[artifact],
-        risks=[],
-        details=details,
+    try:
+        with session_scope() as session:
+            # The primary key claims this evidence identity before any artifact upsert.
+            # Competing first writers wait/fail here and cannot overwrite its evidence.
+            now = datetime.now(timezone.utc).isoformat()
+            session.add(JobRunRecord(
+                job_id=job_id, job_type="post_create_readiness", status="recording",
+                target_id=_target_id(node_id, vmid), risk_level="unknown",
+                started_at=now, updated_at=now, current_stage="evidence_record",
+            ))
+            session.flush()
+            target = _safe_target(node_id, vmid)
+            checks = list(evidence["checks"])
+            counts = _status_counts(checks)
+            evidence_summary = {
+                "evidence_id": evidence["evidence_id"],
+                "idempotency_key": evidence["idempotency_key"],
+                "summary": evidence["summary"],
+                "limitations": evidence["limitations"],
+                "check_count": len(checks),
+                "status_counts": counts,
+            }
+            artifact_payload = {
+                "job_id": job_id,
+                "operation": "post_create_readiness_evidence",
+                "create_operation_id": create_operation_id,
+                "target": target,
+                "evidence": {
+                    **evidence_summary,
+                    "checks": checks,
+                },
+                "boundary": _boundary(),
+            }
+            artifact_payload.update(actor_detail_fields(actor_payload))
+            artifact = _artifact_dict(
+                write_json_artifact_in_session(
+                        session,
+                    run_dir=run_dir(job_id),
+                    job_id=job_id,
+                    artifact_type="post_create_readiness_evidence",
+                    filename="post_create_readiness_evidence.json",
+                    payload=artifact_payload,
+                )
+            )
+
+            result = {
+                "job_id": job_id,
+                "status": "completed",
+                "message": "Post-create readiness evidence was recorded locally.",
+                "create_operation_id": create_operation_id,
+                "target": target,
+                "evidence_summary": evidence_summary,
+                "checks": checks,
+                "artifact": artifact,
+                "artifacts": [artifact],
+                "idempotent_replay": False,
+                **_boundary(),
+            }
+            result.update(actor_detail_fields(actor_payload))
+            details = {
+                "target": target,
+                "post_create_readiness": {
+                    "evidence_id": evidence["evidence_id"],
+                    "idempotency_key": evidence["idempotency_key"],
+                    "check_count": len(checks),
+                    "status_counts": counts,
+                    **_boundary(),
+                },
+                "post_create_readiness_result": result,
+            }
+            details.update(actor_detail_fields(actor_payload))
+            record_job_run_in_session(
+                session,
+                job_id=job_id,
+                job_type="post_create_readiness",
+                status="completed",
+                target_id=_target_id(node_id, vmid),
+                risk_level="unknown",
+                stage="evidence_record",
+                step_status="completed",
+                message=result["message"],
+                artifacts=[artifact],
+                risks=[],
+                details=details,
+            )
+    except IntegrityError:
+        # A winner is visible only after its complete Job/artifact transaction commits.
+        existing = get_job_run_strict(job_id)
+        if existing is None:
+            raise
+        stored_result = _result_from_existing(existing)
+        if str(stored_result.get("create_operation_id") or "") != create_operation_id:
+            raise PostCreateReadinessError(
+                "POST_CREATE_READINESS_OWNER_CONFLICT", "Readiness evidence belongs to a different Create operation",
+                status_code=409,
+            ) from None
+        result = stored_result
+    return _with_exact_create_operation_link(
+        result,
+        node_id=node_id,
+        vmid=vmid,
+        actor=actor_payload,
     )
-    return result

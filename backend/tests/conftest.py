@@ -29,6 +29,11 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def _default_backend_inventory_mode(request, tmp_path, monkeypatch):
+    # Unit/contract tests must never probe real network addresses from fixtures.
+    from app.vm_create import preflight as preflight_module
+    from app.vm_create.ip_probe import IpProbeResult
+
+    monkeypatch.setattr(preflight_module, "probe_ipv4", lambda address: IpProbeResult("no_reply"))
     previous_ssh_env = {key: os.environ.get(key) for key in SSH_ENV_KEYS}
     previous_database_url = os.environ.get(DB_ENV_KEY)
     previous_sqlite_test_allow = os.environ.get(DB_SQLITE_TEST_ALLOW_KEY)
@@ -47,21 +52,7 @@ def _default_backend_inventory_mode(request, tmp_path, monkeypatch):
     os.environ[DB_ENV_KEY] = f"sqlite:///{tmp_path / 'gjallar-test.db'}"
     os.environ[DB_SQLITE_TEST_ALLOW_KEY] = "1"
 
-    # Target operation locks intentionally survive ambiguous mutations. Keep
-    # every test in its own lock namespace so one fault-injection case cannot
-    # block a later test or collide with a developer's local runtime lock.
-    from app.operations import target_lock as target_lock_module
-
-    original_target_lock_path = target_lock_module._target_operation_lock_path
-    isolated_lock_root = tmp_path / "target-operation-locks"
-
-    def isolated_target_lock_path(*, target_type: str, target_id: str):
-        return isolated_lock_root / original_target_lock_path(
-            target_type=target_type,
-            target_id=target_id,
-        ).name
-
-    monkeypatch.setattr(target_lock_module, "_target_operation_lock_path", isolated_target_lock_path)
+    # Each test has an isolated database, including durable target locks.
 
     from app.db.metadata import Base
     from app.db.seed_create_vm_profiles import seed_create_vm_profiles

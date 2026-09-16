@@ -274,7 +274,7 @@ export default function VmDetail({ canMutate = false }) {
             {guestApplicable
               ? guestObserved
                 ? `guest-agent request observed${vm.guestAgent.available ? ' with usable IP' : ' without usable IP'}`
-                : `guest-agent source ${sourceStatusLabel(observation.sources.guestAgent.status)}`
+                : `Guest Agent 응답을 확인하지 못했습니다 (${sourceStatusLabel(observation.sources.guestAgent.status)}). Proxmox의 agent 사용 설정과 VM 내부 서비스 상태를 확인하세요.`
               : 'guest-agent source not applicable while stopped'}
           </div>
         </div>

@@ -7,8 +7,8 @@
 - 승인 문장: `이 승인은 Gjallar를 Verified Operations Control Plane으로 유지하면서 DRS policy·approval·execution·reconciliation 제품 기능을 단계적으로 제거하고 Placement/Capacity만 observe-only Insights/Monitoring으로 유지하는 방향을 의미하며, DRS Common Operation 통합·automatic recovery·기능 parity 재구현을 의미하지 않는다.`
 - 대체하는 ADR: `ADR-005`
 - 대체된 ADR: [`ADR-007`](adr-007-observe-first-operations-intelligence.md)
-- 관련 Assessment: [`DRS·Jobs/Artifacts Legacy Convergence Assessment`](../architecture/drs-jobs-convergence-assessment.md)
-- 관련 Plan: [`Verified Operations Control Plane 전환`](../plans/2026-07-20-verified-operations-control-plane-transition.md)
+- 관련 Assessment: [`DRS·Jobs/Artifacts Legacy Convergence Assessment`](../archive/assessments/drs-jobs-convergence-assessment.md)
+- 관련 Plan: [`Verified Operations Control Plane 전환`](../archive/plans/2026-07-20-verified-operations-control-plane-transition.md)
 
 > 2026-08-24 제품 방향 갱신: DRS 단계적 폐기, consumer·retention 확인과 forward migration 원칙은 `ADR-007`이 계승한다. Verified Operations Control Plane을 제품 중심으로 유지하는 부분은 observe-first Operations Intelligence 방향으로 대체됐다. 아래 본문은 당시 결정의 역사로 보존한다.
 

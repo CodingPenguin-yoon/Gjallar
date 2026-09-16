@@ -1,5 +1,7 @@
 """Tests for VMInstance manifest generation used by Create VM review plans."""
 
+from app.db import create_vm_profiles as profile_repository
+
 import tempfile
 import unittest
 
@@ -19,6 +21,7 @@ class VmCreateManifestGenerationTests(unittest.TestCase):
         from app.vm_create.preflight import run_preflight
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             job_id="job-manifest",
             target_node_id="yoonmanserver2",
@@ -28,7 +31,7 @@ class VmCreateManifestGenerationTests(unittest.TestCase):
             gateway="192.168.2.254",
             proposed_vmid=303,
         )
-        preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
+        preflight = run_preflight(draft, profiles=profile_repository.get_active_create_vm_profiles_by_id(), inventory_adapter=FakeProxmoxInventoryAdapter())
 
         manifest = build_vm_instance_manifest(draft, preflight)
         rendered = render_vm_instance_manifest_yaml(manifest)
@@ -67,10 +70,12 @@ class VmCreateManifestGenerationTests(unittest.TestCase):
         from app.jobs.artifacts import read_artifact_text
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter
         from app.vm_create.drafts import build_default_vm_draft
-        from app.vm_create.planner import build_vm_create_plan
+        from app.vm_create.planner import calculate_vm_create_plan
+        from app.vm_create.plan_persistence import persist_vm_create_plan
         from app.vm_create.preflight import run_preflight
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             job_id="job-manifest-plan",
             target_node_id="yoonmanserver2",
@@ -80,10 +85,10 @@ class VmCreateManifestGenerationTests(unittest.TestCase):
             gateway="192.168.2.1",
             proposed_vmid=304,
         )
-        preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
+        preflight = run_preflight(draft, profiles=profile_repository.get_active_create_vm_profiles_by_id(), inventory_adapter=FakeProxmoxInventoryAdapter())
 
         with tempfile.TemporaryDirectory() as run_dir:
-            plan = build_vm_create_plan(draft, preflight, run_dir=run_dir)
+            plan = persist_vm_create_plan(calculate_vm_create_plan(draft, preflight), run_dir=run_dir)
             artifacts_by_type = {artifact.type: artifact for artifact in plan.artifacts}
 
             self.assertTrue(artifacts_by_type["vm_instance_manifest"].path.startswith("db://job-artifacts/"))

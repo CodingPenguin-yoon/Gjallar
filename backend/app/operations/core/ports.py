@@ -53,4 +53,28 @@ class OperationStorePort(Protocol):
         expected_statuses: Sequence[str] | None = None,
     ) -> OperationSnapshot: ...
 
+    def transition_for_target_lock_conflict(
+        self,
+        operation_id: str,
+        *,
+        conflicting_lock_id: str,
+        conflicting_owner_id: str,
+        next_status: str,
+        event_type: str,
+        stage: str,
+        payload: Mapping[str, Any] | None = None,
+        details_patch: Mapping[str, Any] | None = None,
+    ) -> OperationSnapshot: ...
+
     def list_events(self, operation_id: str) -> list[OperationEvent]: ...
+
+    def transition_pre_dispatch_failure(
+        self,
+        operation_id: str,
+        *,
+        target_lock_id: str,
+        event_type: str,
+        stage: str,
+        payload: Mapping[str, Any] | None = None,
+        details_patch: Mapping[str, Any] | None = None,
+    ) -> bool: ...

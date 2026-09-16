@@ -248,3 +248,27 @@ class ProxmoxMutationClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_guest_exec_wait_renews_lease_on_each_poll():
+    from app.proxmox.client import ProxmoxMutationClient
+    from unittest.mock import Mock
+    responses = iter([{'exited': False}, {'exited': False}, {'exited': True, 'exitcode': 0}])
+    client = ProxmoxMutationClient(api_url='https://example.invalid', token_id='test', token_secret='test',
+                                   request=lambda *args, **kwargs: next(responses))
+    heartbeat = Mock()
+    result = client.wait_guest_exec(node='node', vmid=10001, pid=77, sleep=lambda _: None, heartbeat=heartbeat)
+    assert result['exitcode'] == 0
+    assert heartbeat.call_count == 3
+
+
+def test_guest_exec_wait_stops_when_lease_renewal_fails():
+    from app.proxmox.client import ProxmoxMutationClient
+    from unittest.mock import Mock
+    import pytest
+    request = Mock(return_value={'exited': False})
+    heartbeat = Mock(side_effect=RuntimeError('lease lost'))
+    client = ProxmoxMutationClient(api_url='https://example.invalid', token_id='test', token_secret='test', request=request)
+    with pytest.raises(RuntimeError, match='lease lost'):
+        client.wait_guest_exec(node='node', vmid=10001, pid=77, sleep=lambda _: None, heartbeat=heartbeat)
+    assert request.call_count == 1

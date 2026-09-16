@@ -302,7 +302,7 @@ let tree = AdminUsersScreen({
   },
 })
 let html = renderToStaticMarkup(tree)
-assert.match(html, /User Management/)
+assert.match(html, /Users &amp; sessions/)
 assert.match(html, /Create User/)
 assert.match(html, /Local Users/)
 assert.match(html, /Sessions/)

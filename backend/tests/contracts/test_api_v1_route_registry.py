@@ -60,6 +60,12 @@ EXPECTED_API_V1_ROUTES = (
     ),
     (
         "POST",
+        "/api/v1/operations/{operation_id}/recovery/observe",
+        "observe_operation_recovery_route",
+        200,
+    ),
+    (
+        "POST",
         "/api/v1/operations/{operation_id}/verification",
         "verify_guided_qm_operation_route",
         200,
@@ -75,6 +81,7 @@ EXPECTED_API_V1_ROUTES = (
     ("GET", "/api/v1/storage", "list_storage", 200),
     ("GET", "/api/v1/templates", "list_templates", 200),
     ("POST", "/api/v1/vm-create/drafts", "create_vm_draft_route", 200),
+    ("GET", "/api/v1/vm-create/suggested-vmid", "suggested_vm_id_route", 200),
     ("POST", "/api/v1/vm-create/{draft_id}/approve", "approve_vm_draft_route", 200),
     ("POST", "/api/v1/vm-create/{draft_id}/plan", "plan_vm_draft_route", 200),
     ("POST", "/api/v1/vm-create/{draft_id}/preflight", "preflight_vm_draft_route", 200),
@@ -95,11 +102,13 @@ EXPECTED_API_V1_ROUTES = (
 )
 
 OPERATOR_ROUTES = {
+    ("GET", "/api/v1/vm-create/suggested-vmid"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/start"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence"),
     ("POST", "/api/v1/operations/guided-qm/vm-unlock"),
     ("POST", "/api/v1/operations/{operation_id}/operator-attestation"),
+    ("POST", "/api/v1/operations/{operation_id}/recovery/observe"),
     ("POST", "/api/v1/operations/{operation_id}/verification"),
     ("POST", "/api/v1/vm-create/drafts"),
     ("POST", "/api/v1/vm-create/{draft_id}/approve"),
@@ -153,7 +162,7 @@ def test_api_v1_route_registry_is_unchanged_during_router_extraction():
         )
     )
 
-    assert len(actual) == 39
+    assert len(actual) == 41
     assert actual == EXPECTED_API_V1_ROUTES
 
 

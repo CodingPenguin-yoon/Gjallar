@@ -68,13 +68,11 @@ class VmShutdownEvidencePort(Protocol):
 
 
 class VmShutdownLockPort(Protocol):
-    def acquire_request(self, job_id: str) -> Any: ...
-
-    def release_request(self, handle: Any, job_id: str) -> None: ...
-
     def acquire_target(self, target_type: str, target_id: str, operation_id: str) -> VmShutdownTargetLockHandle: ...
 
     def release_target(self, handle: VmShutdownTargetLockHandle) -> None: ...
+
+
 
 
 @dataclass(frozen=True)

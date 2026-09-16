@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.operations.core.ports import OperationStorePort
+from app.operations.recovery.ports import RecoveryStorePort
 
 
 class GuidedQmObservationFailure(RuntimeError):
@@ -42,8 +43,12 @@ class GuidedQmTargetLockPort(Protocol):
     def release_owned(self, target_type: str, target_id: str, operation_id: str) -> bool: ...
 
 
+
+
 @dataclass(frozen=True)
 class GuidedQmExecutionPorts:
     operations: OperationStorePort
     observation: GuidedQmObservationPort
     locks: GuidedQmTargetLockPort
+    recovery: RecoveryStorePort | None = None
+    recovery_lease_seconds: float = 60.0

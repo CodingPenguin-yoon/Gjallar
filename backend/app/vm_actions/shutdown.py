@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any, Callable
 
 from app.auth.roles import actor_evidence
@@ -25,20 +23,12 @@ from app.operations.vm_shutdown.ports import (
 )
 from app.operations.vm_shutdown.workflow import VerifiedVmShutdownWorkflow
 from app.proxmox.client import ProxmoxMutationClient, ProxmoxMutationError
-
-
-def _acquire_request_lock(path: Path) -> int:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        raise VmShutdownError(
-            "VM_SHUTDOWN_IN_PROGRESS",
-            "A VM shutdown operation with this idempotency key is already in progress",
-            details={"job_id": path.parent.name, "proxmox_mutation_enabled": False, "side_effects": []},
-        ) from exc
-    os.write(fd, str(os.getpid()).encode("utf-8"))
-    return fd
+from app.operations.core.evidence import (
+    compact_proxmox_connection_evidence,
+    compact_proxmox_error_details,
+    compact_proxmox_task,
+    compact_proxmox_vm_status,
+)
 
 
 class _JobAdapter:
@@ -63,22 +53,6 @@ class _EvidenceAdapter:
 
 
 class _LockAdapter:
-    @staticmethod
-    def _request_path(job_id: str) -> Path:
-        return run_dir(job_id) / "vm_shutdown.lock"
-
-    def acquire_request(self, job_id: str) -> int:
-        return _acquire_request_lock(self._request_path(job_id))
-
-    def release_request(self, handle: int | None, job_id: str) -> None:
-        if handle is None:
-            return
-        os.close(handle)
-        try:
-            self._request_path(job_id).unlink()
-        except FileNotFoundError:
-            pass
-
     def acquire_target(self, target_type: str, target_id: str, operation_id: str) -> VmShutdownTargetLockHandle:
         try:
             handle = acquire_target_operation_lock(
@@ -95,37 +69,53 @@ class _LockAdapter:
         release_target_operation_lock(handle.token)
 
 
+
+
 class _MutationAdapter:
     def __init__(self, client: ProxmoxMutationClient) -> None:
         self._client = client
 
     def redacted_connection_context(self) -> dict[str, Any]:
-        return self._client.redacted_connection_context()
+        return compact_proxmox_connection_evidence(self._client.redacted_connection_context())
 
     def shutdown_vm(self, *, node: str, vmid: int) -> str:
         try:
             return self._client.shutdown_vm(node=node, vmid=vmid)
         except ProxmoxMutationError as exc:
-            raise VmShutdownMutationFailure(str(exc), details=exc.details) from exc
+            raise VmShutdownMutationFailure(
+                "Proxmox VM shutdown request failed",
+                details=compact_proxmox_error_details(exc.details),
+            ) from exc
 
     def wait_for_task(self, *, node: str, upid: str, heartbeat: Callable[[], None] | None = None) -> dict[str, Any]:
         try:
-            return self._client.wait_for_task(node=node, upid=upid, heartbeat=heartbeat)
+            task = self._client.wait_for_task(node=node, upid=upid, heartbeat=heartbeat)
+            return compact_proxmox_task(task, node=node, upid=upid)
         except ProxmoxMutationError as exc:
-            raise VmShutdownMutationFailure(str(exc), details=exc.details) from exc
+            raise VmShutdownMutationFailure(
+                "Proxmox VM shutdown task observation failed",
+                details=compact_proxmox_error_details(exc.details),
+            ) from exc
 
     def get_vm_status(self, *, node: str, vmid: int) -> dict[str, Any]:
         try:
-            return self._client.get_vm_status(node=node, vmid=vmid)
+            status = self._client.get_vm_status(node=node, vmid=vmid)
+            return compact_proxmox_vm_status(status, node=node, vmid=vmid)
         except ProxmoxMutationError as exc:
-            raise VmShutdownMutationFailure(str(exc), details=exc.details) from exc
+            raise VmShutdownMutationFailure(
+                "Proxmox VM status observation failed",
+                details=compact_proxmox_error_details(exc.details),
+            ) from exc
 
 
 def _mutation_adapter(factory: Callable[[], ProxmoxMutationClient]) -> VmShutdownMutationPort | None:
     try:
         client = factory()
     except ProxmoxMutationError as exc:
-        raise VmShutdownMutationFailure(str(exc), details=exc.details) from exc
+        raise VmShutdownMutationFailure(
+            "Proxmox mutation client is unavailable",
+            details=compact_proxmox_error_details(exc.details),
+        ) from exc
     return _MutationAdapter(client) if client is not None else None
 
 

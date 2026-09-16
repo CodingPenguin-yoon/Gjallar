@@ -5,20 +5,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from app.auth.roles import actor_evidence
 from app.core.redaction import redact_secrets
 from app.db.models import VmCreateRequestRecord, VmInstanceRecord
 from app.db.session import session_scope
+from app.operations.core.infrastructure.models import OperationRecord
 from app.operations.vm_create.domain import vm_create_plan_intent
 from app.vm_create.models import VmCreatePlan
-TARGET_BLOCKING_VM_CREATE_STATUSES = ("running", "needs_reconciliation", "apply_failed", "completed")
+TARGET_BLOCKING_VM_CREATE_STATUSES = ("running", "needs_reconciliation", "apply_failed")
 _TARGET_STATUS_PRIORITY = {
     "running": 0,
     "needs_reconciliation": 1,
     "apply_failed": 2,
-    "completed": 3,
 }
 
 
@@ -91,9 +91,12 @@ def find_vm_create_request_for_target(
     """Return the highest-priority Create VM record already owning a target."""
 
     with session_scope() as session:
-        statement = select(VmCreateRequestRecord).where(
+        statement = select(VmCreateRequestRecord).outerjoin(OperationRecord, OperationRecord.operation_id == VmCreateRequestRecord.request_id).where(
             VmCreateRequestRecord.vmid == int(vmid),
             VmCreateRequestRecord.status.in_(statuses),
+            or_(OperationRecord.operation_id.is_(None), OperationRecord.status.in_(
+                ("dispatching", "running", "verifying", "needs_reconciliation")
+            )),
         )
         if exclude_request_id:
             statement = statement.where(VmCreateRequestRecord.request_id != str(exclude_request_id))
@@ -110,13 +113,19 @@ def find_vm_create_request_for_target(
         return _row_to_full_request_record(rows[0])
 
 
-def get_vm_instance_record(node_id: str, vmid: int | str) -> dict[str, Any] | None:
-    """Return the local VM instance record created by the native Create VM flow."""
+def get_vm_instance_record(node_id: str, vmid: int | str, *, create_job_id: str) -> dict[str, Any] | None:
+    """Return linkage only for the exact Create job and target."""
 
     instance_id = f"{node_id}:{int(vmid)}"
     with session_scope() as session:
         row = session.get(VmInstanceRecord, instance_id)
-        if row is None:
+        if (
+            row is None
+            or not create_job_id
+            or row.create_job_id != create_job_id
+            or row.node_id != node_id
+            or row.vmid != int(vmid)
+        ):
             return None
         return {
             "vm_instance_id": row.vm_instance_id,
@@ -183,58 +192,3 @@ def record_vm_create_request(
             row.result = result_payload
             row.updated_at = now
         return _row_to_request_response(row)
-
-
-def record_vm_instance_from_create(plan: VmCreatePlan, create_result: dict[str, Any]) -> dict[str, Any]:
-    """Persist the VM created through the native Create VM flow."""
-    now = _now_iso()
-    observed_after = redact_secrets(dict(create_result.get("observed_after") or {}))
-    observed_status = str(observed_after.get("status") or "").strip() or "stopped"
-    hardware = dict(plan.hardware or {})
-    access = dict(plan.access or {})
-    instance_id = f"{plan.target_node_id}:{int(plan.vmid)}"
-    with session_scope() as session:
-        row = session.get(VmInstanceRecord, instance_id)
-        if row is None:
-            row = VmInstanceRecord(
-                vm_instance_id=instance_id,
-                node_id=plan.target_node_id,
-                vmid=int(plan.vmid),
-                name=plan.vm_name,
-                status=observed_status,
-                profile_id=plan.profile_id,
-                template_id=plan.template_id or _template_vmid(plan),
-                storage_id=plan.storage_id,
-                cpu=int(hardware.get("cpu") or 0),
-                memory_mb=int(hardware.get("memory_mb") or 0),
-                disk_gb=int(hardware.get("disk_gb") or 0),
-                network=dict(plan.network or {}),
-                access=redact_secrets(access),
-                observed_after=observed_after,
-                create_job_id=plan.job_id,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-        else:
-            row.name = plan.vm_name
-            row.status = observed_status
-            row.profile_id = plan.profile_id
-            row.template_id = plan.template_id or _template_vmid(plan)
-            row.storage_id = plan.storage_id
-            row.cpu = int(hardware.get("cpu") or 0)
-            row.memory_mb = int(hardware.get("memory_mb") or 0)
-            row.disk_gb = int(hardware.get("disk_gb") or 0)
-            row.network = dict(plan.network or {})
-            row.access = redact_secrets(access)
-            row.observed_after = observed_after
-            row.create_job_id = plan.job_id
-            row.updated_at = now
-        return {
-            "vm_instance_id": row.vm_instance_id,
-            "node_id": row.node_id,
-            "vmid": row.vmid,
-            "name": row.name,
-            "status": row.status,
-            "updated_at": row.updated_at,
-        }

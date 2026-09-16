@@ -3,10 +3,11 @@ import { CheckCircle2, ClipboardCheck, KeyRound, Loader2, Network, PlayCircle, R
 import { useNavigate } from 'react-router-dom'
 import { apiV1Client } from '../services/apiV1'
 import { authFailureMessage } from '../utils/auth'
-import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile } from '../utils/createVmDefaults'
+import { buildCreateVmDefaults, normalizeCreateVmProfiles, resetHardwareForProfile, hardwareFromTemplate } from '../utils/createVmDefaults'
 import {
   approveCreateVmReview,
   buildCreateVmInputFromConfig,
+  buildStaticIpObservation,
   createVmWithProxmox,
   loadCreateVmReviewModel,
   normalizeTemplateOptions,
@@ -43,7 +44,12 @@ const CHECK_LABELS = {
   static_gateway_valid: 'Gateway 형식',
   vmid_available: 'VMID',
   name_available: 'VM 이름',
-  static_ip_available: '고정 IP',
+  static_ip_available: '고정 IP 사용 여부',
+  inventory_guest_agent_complete: 'VM IP 관찰',
+  inventory_storage_complete: '스토리지 관찰',
+  inventory_network_complete: '네트워크 관찰',
+  inventory_vm_config_complete: 'VM 설정 관찰',
+  inventory_vm_detail_complete: 'VM 상세 관찰',
   destroy_delete_plan_absent: '삭제 계획 없음',
   credential_scope_read_only: '인증 범위',
 }
@@ -56,7 +62,7 @@ function StatusPill({ tone = 'slate', children }) {
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     slate: 'bg-slate-50 text-slate-700 border-slate-200',
   }
-  return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${tones[tone] || tones.slate}`}>{children}</span>
+  return <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${tones[tone] || tones.slate}`}>{children}</span>
 }
 
 function DetailRow({ label, value }) {
@@ -80,34 +86,15 @@ function SummaryTile({ label, value, icon: Icon }) {
   )
 }
 
-function StepIndicator({ model, approval, createResult }) {
-  const steps = [
-    { label: '요청 입력', done: true, active: !model },
-    { label: '검토', done: Boolean(model), active: Boolean(model) && !approval },
-    { label: '승인', done: Boolean(approval?.canApprove), active: Boolean(approval) && !createResult },
-    { label: 'Native 생성', done: Boolean(createResult), active: Boolean(createResult) },
-  ]
-  return (
-    <div className="grid gap-2 sm:grid-cols-4">
-      {steps.map((step, index) => (
-        <div
-          key={step.label}
-          className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
-            step.active
-              ? 'border-blue-300 bg-blue-50 text-blue-700'
-              : step.done
-                ? 'border-green-200 bg-green-50 text-green-700'
-                : 'border-slate-200 bg-white text-slate-500'
-          }`}
-        >
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-white text-xs font-semibold">
-            {step.done && !step.active ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
-          </span>
-          <span className="text-sm font-medium">{step.label}</span>
-        </div>
-      ))}
-    </div>
-  )
+const WIZARD_STEPS = ['기본 정보', '배치·사양', '네트워크·접속', '최종 검토']
+
+function StepIndicator({ currentStep }) {
+  return <ol aria-label="VM 생성 단계" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    {WIZARD_STEPS.map((label, index) => <li key={label} aria-current={index === currentStep ? 'step' : undefined}
+      className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${index === currentStep ? 'border-blue-300 bg-blue-50 font-semibold text-blue-800' : 'border-slate-200 bg-white text-slate-500'}`}>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-white">{index < currentStep ? <CheckCircle2 className="h-4 w-4" /> : index + 1}</span>{label}
+    </li>)}
+  </ol>
 }
 
 function toneForRiskLevel(level) {
@@ -140,6 +127,44 @@ function statusToneFromCheck(check) {
   if (check.level === 'yellow') return 'yellow'
   if (check.status === 'pass') return 'green'
   return 'slate'
+}
+
+export function CreateVmPreflightCheck({ check }) {
+  const ipObservation = buildStaticIpObservation(check)
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 p-2 text-sm">
+      <div className="min-w-0">
+        <span className="font-medium text-slate-800">{checkLabel(check.code)}</span>
+        {ipObservation ? (
+          <div className="mt-1 space-y-2 text-xs text-slate-600">
+            <p>{ipObservation.message}</p>
+            <div>
+              <p><span className="font-medium text-slate-700">기존 VM 정보:</span> {ipObservation.inventoryMessage}</p>
+              {ipObservation.conflicts.length > 0 && (
+                <p className="mt-1 break-words">같은 IP를 사용하는 VM: {ipObservation.conflicts.map((vm) => `${vm.node_id}:${vm.vmid}${vm.name ? ` (${vm.name})` : ''}`).join(', ')}</p>
+              )}
+              {ipObservation.inventoryIncomplete && <p className="mt-1">일부 기존 VM의 내부 IP를 읽지 못했습니다.</p>}
+              {ipObservation.failedTargets.length > 0 && (
+                <p className="mt-1 break-words">IP를 읽지 못한 기존 VM: {ipObservation.failedTargets.join(', ')}</p>
+              )}
+            </div>
+            <div>
+              <p><span className="font-medium text-slate-700">Ping 응답:</span> {ipObservation.pingMessage}</p>
+              {ipObservation.pingLocation && <p className="mt-1 text-slate-500">{ipObservation.pingLocation}</p>}
+            </div>
+          </div>
+        ) : check.code.startsWith('inventory_') && (
+          <>
+            <p className="mt-1 text-xs text-slate-600">{check.message}</p>
+            {Array.isArray(check.detail?.failed_targets) && check.detail.failed_targets.length > 0 && (
+              <p className="mt-1 break-words text-xs text-slate-600">{check.code === 'inventory_guest_agent_complete' ? 'IP를 읽지 못한 기존 VM' : '확인 실패 대상'}: {check.detail.failed_targets.join(', ')}</p>
+            )}
+          </>
+        )}
+      </div>
+      <StatusPill tone={ipObservation?.tone || statusToneFromCheck(check)}>{ipObservation?.statusLabel || checkStatusLabel(check)}</StatusPill>
+    </div>
+  )
 }
 
 function approvalToneClass(approval) {
@@ -247,14 +272,12 @@ function firstRangeStart(bridge) {
 
 function buildInitialForm(config, currentUser = null) {
   const defaults = buildCreateVmDefaults()
-  const now = new Date()
-  const datePart = now.toISOString().slice(0, 10).replaceAll('-', '')
-  const timePart = now.toTimeString().slice(0, 8).replaceAll(':', '')
   const input = buildCreateVmInputFromConfig(config, {
     operatorId: currentUser?.username || 'authenticated-session',
-    jobId: `ui-${datePart}-${timePart}`,
-    profileId: config.profileId || config.profile_id || 'general-vm',
-    targetNodeId: 'yoonmanserver2',
+    jobId: `ui-${crypto.randomUUID()}`,
+    creationMode: config.creationMode || 'template',
+    profileId: '',
+    targetNodeId: '',
     bridgeId: '',
     storageId: '',
     staticIp: '',
@@ -266,16 +289,17 @@ function buildInitialForm(config, currentUser = null) {
     passwordLogin: defaults.access.passwordLogin,
     powerPolicy: 'stopped',
   })
-  const profile = defaults.profileOptions.find((item) => item.profileId === input.profileId) || defaults.profileOptions[0]
   return {
     ...input,
-    profileId: input.profileId || defaults.profileId,
-    hardware: config.hardware || resetHardwareForProfile(profile),
+    creationMode: config.creationMode || 'template',
+    profileId: config.creationMode === 'profile' ? (config.profileId || '') : '',
+    targetNodeId: config.targetNodeId || '',
+    hardware: config.hardware || defaults.hardware,
     storageId: input.storageId || '',
     bridgeId: input.bridgeId || '',
     prefix: input.prefix || defaults.network.prefix,
     gateway: input.gateway || defaults.network.gateway,
-    cloudInitUser: input.cloudInitUser || profile.accessRecommendations.defaultUser || defaults.access.cloudInitUser,
+    cloudInitUser: config.cloudInitUser || defaults.access.cloudInitUser,
     sshPublicKey: input.sshPublicKey || defaults.access.sshPublicKey,
     passwordLogin: false,
     powerPolicy: input.powerPolicy || 'stopped',
@@ -285,6 +309,7 @@ function buildInitialForm(config, currentUser = null) {
 function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentUser = null, canExecuteLiveMutation = true }) {
   const navigate = useNavigate()
   const [form, setForm] = useState(() => buildInitialForm(config, currentUser))
+  const [step, setStep] = useState(0)
   const [model, setModel] = useState(null)
   const [approval, setApproval] = useState(null)
   const [createResult, setCreateResult] = useState(null)
@@ -299,8 +324,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
     templates: [],
     storages: [],
     networks: [],
-    profiles: buildCreateVmDefaults().profileOptions,
-    profilesReady: false,
+    profiles: [],
     profileError: null,
     loading: true,
     error: null,
@@ -316,8 +340,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
   const storageOptions = useMemo(() => normalizeStorageOptions(options.storages), [options.storages])
   const allBridgeOptions = useMemo(() => normalizeBridgeOptions(options.networks), [options.networks])
   const profileOptions = useMemo(() => normalizeCreateVmProfiles(options.profiles), [options.profiles])
-  const profilesReady = options.profilesReady === true && profileOptions.length > 0
-  const selectedProfile = profileOptions.find((profile) => profile.profileId === form.profileId) || profileOptions[0]
+  const selectedProfile = profileOptions.find((profile) => profile.profileId === form.profileId) || {}
+  const presetUnavailable = form.creationMode === 'profile' && !selectedProfile.profileId
   const nodeStorageOptions = useMemo(
     () => storageOptions.filter((storage) => storage.nodeId === form.targetNodeId && storage.content.includes('images') && storage.freeGb > 0),
     [storageOptions, form.targetNodeId],
@@ -351,7 +375,6 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
     ? (reviewedAccess.fingerprint || '키 있음')
     : '없음'
   const bootAndVerifySelected = form.powerPolicy === 'boot_and_verify'
-  const firstBootLabel = bootAndVerifySelected ? '부팅 후 확인' : '생성만'
   const reviewedFirstBootLabel = model?.review?.firstPowerOnIncluded ? '부팅 후 확인' : '생성만'
   const mutationAckLabel = model?.review?.firstPowerOnIncluded
     ? 'Proxmox에 VM을 만들고 부팅해서 IP와 cloud-init 확인까지 실행하는 것을 승인합니다.'
@@ -372,30 +395,17 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       ])
       if (cancelled) return
       const inventoryFailures = [nodes, templates, storages, networks].filter((result) => result.status === 'rejected')
-      let profileValues = []
-      let profilesReady = false
-      let profileError = null
-      if (profiles.status === 'fulfilled') {
-        profileValues = normalizeCreateVmProfiles(profiles.value)
-        profilesReady = profileValues.length > 0
-        if (!profilesReady) {
-          profileValues = buildCreateVmDefaults().profileOptions
-          profileError = 'Create VM profile API returned no active profiles.'
-        }
-      } else {
-        profileValues = buildCreateVmDefaults().profileOptions
-        profileError = profiles.reason?.message || 'Create VM profile API is unavailable.'
-      }
+      const profileValues = profiles.status === 'fulfilled' ? normalizeCreateVmProfiles(profiles.value) : []
+      const profileError = profiles.status === 'rejected' ? '프리셋을 불러오지 못했습니다. 템플릿 직접 입력은 사용할 수 있습니다.' : null
       setOptions({
         nodes: nodes.status === 'fulfilled' ? nodes.value : [],
         templates: templates.status === 'fulfilled' ? templates.value : [],
         storages: storages.status === 'fulfilled' ? storages.value : [],
         networks: networks.status === 'fulfilled' ? networks.value : [],
         profiles: profileValues,
-        profilesReady,
         profileError,
         loading: false,
-        error: profileError || inventoryFailures[0]?.reason?.message || null,
+        error: inventoryFailures[0]?.reason?.message || null,
       })
     }
     loadOptions()
@@ -416,11 +426,13 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
 
   const applyFormPatch = (patch) => {
     setForm((current) => {
-      const next = { ...current, ...patch }
+      const next = { ...current, ...patch, ...(model ? { jobId: `ui-${crypto.randomUUID()}` } : {}) }
       onConfigChange(next)
       return next
     })
     setModel(null)
+    setYellowRiskAcknowledged(false)
+    setProxmoxMutationAcknowledged(false)
     setApproval(null)
     setCreateResult(null)
     setError(null)
@@ -447,6 +459,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         next.templateId = template.templateId
         next.templateVmid = template.vmid
         next.templateNodeId = template.nodeId
+        if (next.creationMode === 'template') next.hardware = hardwareFromTemplate(template)
         changed = true
       }
       if (!template && (next.templateKey || next.templateVmid || next.templateId || next.templateNodeId)) {
@@ -476,6 +489,23 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
     })
   }, [nodeOptions, templateOptions, storageOptions, allBridgeOptions, options.loading, onConfigChange, selectedProfile])
 
+  useEffect(() => {
+    let cancelled = false
+    apiV1Client.suggestVmId().then((suggestion) => {
+      if (!cancelled) setForm((current) => current.vmid !== '' ? current : { ...current, vmid: String(suggestion.vmid) })
+    }).catch(() => {
+      if (!cancelled) setError('VMID 추천을 불러오지 못했습니다. 사용할 번호를 직접 입력하세요.')
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const nextStep = () => {
+    const panel = document.getElementById('create-vm-inputs')
+    if (panel && !Array.from(panel.querySelectorAll('input, select, textarea')).every((input) => input.reportValidity())) return
+    setError(null)
+    setStep((current) => Math.min(3, current + 1))
+  }
+
   const handleNodeChange = (nodeId) => {
     const bridge = selectPreferredBridge(allBridgeOptions, nodeId)
     const storage = selectPreferredStorage(storageOptions, nodeId)
@@ -488,16 +518,17 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
   }
 
   const handleProfileChange = (profileId) => {
-    const profile = profileOptions.find((item) => item.profileId === profileId) || profileOptions[0]
-    const template = selectPreferredTemplate(templateOptions, profile, selectedTemplateKey)
+    const profile = profileOptions.find((item) => item.profileId === profileId)
+    const template = selectPreferredTemplate(templateOptions, profile || {}, selectedTemplateKey)
     applyFormPatch({
       profileId,
+      creationMode: profile ? 'profile' : 'template',
       templateKey: template?.key || '',
       templateId: template?.templateId || '',
       templateVmid: template?.vmid || '',
       templateNodeId: template?.nodeId || '',
-      hardware: resetHardwareForProfile(profile, template?.diskGb),
-      cloudInitUser: form.cloudInitUser || profile.accessRecommendations.defaultUser || 'yoon',
+      hardware: profile ? resetHardwareForProfile(profile, template?.diskGb) : hardwareFromTemplate(template),
+      cloudInitUser: form.cloudInitUser || profile?.accessRecommendations.defaultUser || '',
       passwordLogin: false,
     })
   }
@@ -524,7 +555,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       templateId: template?.templateId || '',
       templateVmid: template?.vmid || '',
       templateNodeId: template?.nodeId || '',
-      hardware: hardwareForTemplate(form.hardware, template),
+      hardware: form.creationMode === 'template' ? hardwareFromTemplate(template) : hardwareForTemplate(form.hardware, template),
     })
   }
 
@@ -540,7 +571,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       setError(liveMutationDisabledReason)
       return
     }
-    if (!profilesReady) {
+    if (presetUnavailable) {
       setError(options.profileError || 'Create VM profiles are unavailable.')
       return
     }
@@ -549,14 +580,21 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       setError(selection.reason)
       return
     }
+    // A new review captures new observations; an existing job keeps its exact plan.
+    const reviewInput = { ...form, jobId: `ui-${crypto.randomUUID()}` }
+    setForm(reviewInput)
+    onConfigChange(reviewInput)
     setLoading(true)
+    setModel(null)
+    setYellowRiskAcknowledged(false)
     setError(null)
     setApproval(null)
     setCreateResult(null)
     setProxmoxMutationAcknowledged(false)
     try {
-      const reviewModel = await loadCreateVmReviewModel(apiV1Client, form)
+      const reviewModel = await loadCreateVmReviewModel(apiV1Client, reviewInput)
       setModel(reviewModel)
+      setStep(3)
     } catch (err) {
       setError(authFailureMessage(err, 'VM 검토를 만들지 못했습니다.'))
       setModel(null)
@@ -631,119 +669,21 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
             Verified creation
           </div>
           <h2 className="mt-2 text-3xl font-semibold text-slate-950">새 VM 만들기</h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">프로필과 live inventory 근거를 검토한 뒤 승인된 Native 생성만 실행합니다.</p>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">Proxmox 템플릿을 선택하고 사양과 접속 정보를 입력한 뒤 생성 내용을 검토하세요.</p>
         </div>
         <StatusPill tone="blue">생성 전 검토</StatusPill>
       </header>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              <StatusPill tone="slate">{form.profileId || 'general-vm'}</StatusPill>
-              <StatusPill tone="slate">{cpuValue} CPU</StatusPill>
-              <StatusPill tone="slate">{memoryMb} MB</StatusPill>
-              <StatusPill tone="slate">{diskGb} GB</StatusPill>
-              <StatusPill tone="slate">{firstBootLabel}</StatusPill>
-              {currentUser?.role && <StatusPill tone={canExecuteLiveMutation ? 'green' : 'yellow'}>{currentUser.role}</StatusPill>}
-            </div>
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Request summary</span>
+      <StepIndicator currentStep={step} />
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mb-5 border-b border-slate-100 pb-4">
+          <p className="text-xs font-semibold text-blue-600">STEP {step + 1} / 4</p>
+          <h3 className="mt-1 text-xl font-semibold text-slate-950">{WIZARD_STEPS[step]}</h3>
+          <p className="mt-1 text-sm text-slate-500">{['복제할 템플릿과 새 VM의 식별 정보를 정하세요.', 'VM을 배치할 위치와 필요한 자원을 선택하세요.', '네트워크와 SSH 접속 정보를 입력하세요.', '설정을 검토하고 차단·주의 항목을 확인하세요.'][step]}</p>
         </div>
-
-        <div className="mt-5">
-          <StepIndicator model={model} approval={approval} createResult={createResult} />
-        </div>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
-          {profileOptions.map((profile) => {
-            const selected = profile.profileId === form.profileId
-            const disabled = profile.enabled === false || profile.createEnabled === false
-            return (
-              <button
-                key={profile.profileId}
-                type="button"
-                disabled={disabled}
-                onClick={() => handleProfileChange(profile.profileId)}
-                className={`min-h-28 rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  selected ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-950">{profileDisplayName(profile)}</div>
-                    <div className="mt-1 text-xs text-slate-500">{profile.profileId}</div>
-                  </div>
-                  <StatusPill tone={selected ? 'blue' : 'slate'}>{selected ? '선택' : '프로필'}</StatusPill>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <StatusPill tone="slate">{profile.hardware.cpu.default} CPU</StatusPill>
-                  <StatusPill tone="slate">{profile.hardware.memoryMb.default} MB</StatusPill>
-                  <StatusPill tone="slate">{profile.hardware.diskGb.default} GB</StatusPill>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">CPU</span>
-            <input
-              type="number"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={cpuValue}
-              min={hardwareLimits.cpu?.min}
-              max={hardwareLimits.cpu?.max}
-              step="1"
-              onChange={(event) => handleHardwareChange('cpu', event.target.value)}
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">메모리 MB</span>
-            <input
-              type="number"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={memoryMb}
-              min={hardwareLimits.memoryMb?.min}
-              max={hardwareLimits.memoryMb?.max}
-              step="512"
-              onChange={(event) => handleHardwareChange('memoryMb', event.target.value)}
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">디스크 GB</span>
-            <input
-              type="number"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={diskGb}
-              min={hardwareLimits.diskGb?.min}
-              max={hardwareLimits.diskGb?.max}
-              step="10"
-              onChange={(event) => handleHardwareChange('diskGb', event.target.value)}
-            />
-          </label>
-        </div>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">세션 사용자</span>
-            <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-              <span className="truncate font-medium text-slate-950">{sessionOperatorId}</span>
-              {currentUser?.role && <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">{currentUser.role}</span>}
-            </div>
-          </div>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">작업 ID</span>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.jobId} onChange={(event) => updateForm('jobId', event.target.value)} />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-slate-700">생성 노드</span>
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.targetNodeId} onChange={(event) => handleNodeChange(event.target.value)}>
-              {nodeOptions.length === 0 && <option value={form.targetNodeId}>{form.targetNodeId || '노드 없음'}</option>}
-              {nodeOptions.map((node) => (
-                <option key={node.id} value={node.id}>{node.label || node.id}</option>
-              ))}
-            </select>
-          </label>
+        <fieldset id="create-vm-inputs" disabled={loading || approving || creating || options.loading}>
+          {step === 0 && <>
+        <div className="mt-6">
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">템플릿</span>
             <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={selectedTemplateKey || ''} onChange={(event) => handleTemplateChange(event.target.value)}>
@@ -762,6 +702,30 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               <span className="block text-xs font-medium text-red-600">{templateSelection.reason}</span>
             )}
           </label>
+        </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1"><span className="text-sm font-medium text-slate-700">VM 이름</span>
+                <input required maxLength={63} pattern="[A-Za-z0-9](([A-Za-z0-9]|-)*[A-Za-z0-9])?" placeholder="예: app-server-01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.vmName} onChange={(event) => updateForm('vmName', event.target.value)} />
+              </label>
+              <label className="space-y-1"><span className="text-sm font-medium text-slate-700">VMID</span>
+                <input required type="number" min="100" max="999999999" step="1" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.vmid} onChange={(event) => updateForm('vmid', event.target.value)} />
+                <span className="block text-xs text-slate-500">자동 추천 번호를 수정할 수 있습니다. 검토·생성 직전에 중복을 확인합니다.</span>
+              </label>
+            </div>
+          </>}
+          {step === 1 && <>
+            <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">생성 노드</span>
+            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.targetNodeId} onChange={(event) => handleNodeChange(event.target.value)}>
+              {nodeOptions.length === 0 && <option value={form.targetNodeId}>{form.targetNodeId || '노드 없음'}</option>}
+              {nodeOptions.map((node) => (
+                <option key={node.id} value={node.id}>{node.label || node.id}</option>
+              ))}
+            </select>
+          </label>
+
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">스토리지</span>
             <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.storageId || ''} onChange={(event) => updateForm('storageId', event.target.value)}>
@@ -771,6 +735,58 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               ))}
             </select>
           </label>
+            </div>
+        <label className="mt-6 block space-y-1">
+          <span className="text-sm font-medium text-slate-700">사양 프리셋 (선택 사항)</span>
+          <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.profileId} onChange={(event) => handleProfileChange(event.target.value)}>
+            <option value="">사용하지 않음 — 템플릿 사양에서 시작</option>
+            {profileOptions.map((profile) => <option key={profile.profileId} value={profile.profileId} disabled={!profile.enabled || !profile.createEnabled}>{profileDisplayName(profile)}</option>)}
+          </select>
+          {options.profileError && <p className="text-xs text-amber-700">{options.profileError}</p>}
+        </label>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">CPU</span>
+            <input
+              type="number"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              required value={cpuValue}
+              min={hardwareLimits.cpu?.min || 1}
+              max={hardwareLimits.cpu?.max}
+              step="1"
+              onChange={(event) => handleHardwareChange('cpu', event.target.value)}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">메모리 MB</span>
+            <input
+              type="number"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              required value={memoryMb}
+              min={hardwareLimits.memoryMb?.min || 1}
+              max={hardwareLimits.memoryMb?.max}
+              step="1"
+              onChange={(event) => handleHardwareChange('memoryMb', event.target.value)}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">디스크 GB</span>
+            <input
+              type="number"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              required value={diskGb}
+              min={Math.max(hardwareLimits.diskGb?.min || 1, templateSelection.selected?.diskGb || 1)}
+              max={hardwareLimits.diskGb?.max}
+              step="1"
+              onChange={(event) => handleHardwareChange('diskGb', event.target.value)}
+            />
+          </label>
+        </div>
+
+          </>}
+          {step === 2 && <>
+            <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">네트워크</span>
             <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.bridgeId || ''} onChange={(event) => handleBridgeChange(event.target.value)}>
@@ -787,18 +803,47 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               <option value="dhcp">DHCP</option>
             </select>
           </label>
+            {form.ipMode === 'static' && <>
           <label className="space-y-1 md:col-span-2">
             <span className="text-sm font-medium text-slate-700">고정 IP</span>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.staticIp} onChange={(event) => updateForm('staticIp', event.target.value)} placeholder={staticIpPlaceholder} disabled={form.ipMode === 'dhcp'} />
+            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" required value={form.staticIp} onChange={(event) => updateForm('staticIp', event.target.value)} placeholder={staticIpPlaceholder} disabled={form.ipMode === 'dhcp'} />
           </label>
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">Prefix</span>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.prefix || ''} onChange={(event) => updateForm('prefix', event.target.value)} placeholder="예: 24" disabled={form.ipMode === 'dhcp'} inputMode="numeric" />
+            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" required value={form.prefix || ''} onChange={(event) => updateForm('prefix', event.target.value)} placeholder="예: 24" disabled={form.ipMode === 'dhcp'} inputMode="numeric" />
           </label>
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">Gateway</span>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.gateway || ''} onChange={(event) => updateForm('gateway', event.target.value)} placeholder="예: 192.168.2.254" disabled={form.ipMode === 'dhcp'} />
+            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" required value={form.gateway || ''} onChange={(event) => updateForm('gateway', event.target.value)} placeholder="예: 192.168.2.254" disabled={form.ipMode === 'dhcp'} />
           </label>
+            </>}
+            </div>
+        <div className="mt-6 border-t border-slate-100 pt-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-slate-600" />
+              <h3 className="text-sm font-semibold text-slate-950">Access</h3>
+            </div>
+            <StatusPill tone="slate">Password login disabled</StatusPill>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">접속 사용자</span>
+              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" required value={form.cloudInitUser || ''} onChange={(event) => updateForm('cloudInitUser', event.target.value)} />
+            </label>
+            <div className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">비밀번호 로그인</span>
+              <div className="flex min-h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Disabled</div>
+            </div>
+            <label className="space-y-1 md:col-span-2">
+              <span className="text-sm font-medium text-slate-700">SSH public key</span>
+              <textarea placeholder="ssh-ed25519 AAAA…" className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900" required value={form.sshPublicKey || ''} onChange={(event) => updateForm('sshPublicKey', event.target.value)} spellCheck="false" />
+            </label>
+          </div>
+        </div>
+
+          </>}
+          {step === 3 && <>
           <div className="space-y-1 md:col-span-2">
             <span className="text-sm font-medium text-slate-700">생성 후 상태</span>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -824,40 +869,11 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="mt-6 border-t border-slate-100 pt-5">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-slate-600" />
-              <h3 className="text-sm font-semibold text-slate-950">Access</h3>
-            </div>
-            <StatusPill tone="slate">Password login disabled</StatusPill>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-1">
-              <span className="text-sm font-medium text-slate-700">접속 사용자</span>
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.cloudInitUser || ''} onChange={(event) => updateForm('cloudInitUser', event.target.value)} />
-            </label>
-            <div className="space-y-1">
-              <span className="text-sm font-medium text-slate-700">비밀번호 로그인</span>
-              <div className="flex min-h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Disabled</div>
-            </div>
-            <label className="space-y-1 md:col-span-2">
-              <span className="text-sm font-medium text-slate-700">SSH public key</span>
-              <textarea className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900" value={form.sshPublicKey || ''} onChange={(event) => updateForm('sshPublicKey', event.target.value)} spellCheck="false" />
-            </label>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={runReview} disabled={!canExecuteLiveMutation || loading || options.loading || !profilesReady || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
-            검토 시작
-          </button>
-          <StatusPill tone="slate">실제 생성 전</StatusPill>
-          <StatusPill tone="slate">승인 필요</StatusPill>
-        </div>
+            <details className="mt-5 text-sm text-slate-500"><summary className="cursor-pointer">작업 상세</summary>
+              <p className="mt-2 break-all">작업 ID: {form.jobId}</p><p>세션 사용자: {sessionOperatorId}</p>
+            </details>
+          </>}
+        </fieldset>
       </section>
 
       {error && (
@@ -872,7 +888,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         </div>
       )}
 
-      {model && (
+      {step === 3 && model && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_360px]">
           <div className="space-y-4">
             <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -884,7 +900,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
                 <StatusPill tone={reviewRiskTone}>{riskLabel(model.review.riskLevel)}</StatusPill>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <SummaryTile label="프로필" value={model.review.profileId} />
+                <SummaryTile label="프로필" value={model.review.profileId || '직접 입력'} />
                 <SummaryTile label="VM 이름" value={model.review.vmName} icon={Server} />
                 <SummaryTile label="VMID" value={model.review.vmid} />
                 <SummaryTile label="생성 노드" value={model.review.targetNode} icon={Server} />
@@ -906,10 +922,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               </div>
               <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
                 {model.preflight.checks.map((check) => (
-                  <div key={check.code} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 p-2 text-sm">
-                    <span className="font-medium text-slate-800">{checkLabel(check.code)}</span>
-                    <StatusPill tone={statusToneFromCheck(check)}>{checkStatusLabel(check)}</StatusPill>
-                  </div>
+                  <CreateVmPreflightCheck key={check.code} check={check} />
                 ))}
               </div>
             </section>
@@ -934,10 +947,12 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               {model.review.riskLevel === 'yellow' && (
                 <label className="mb-3 flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-2 text-sm text-yellow-800">
                   <input type="checkbox" className="mt-1" checked={yellowRiskAcknowledged} onChange={(event) => setYellowRiskAcknowledged(event.target.checked)} />
-                  확인 필요 항목을 검토했습니다.
+                  {model.review.requiresStaticIpConfirmation
+                    ? '확인 필요 항목을 검토했으며, 입력한 IP는 제가 직접 확보한 IP입니다.'
+                    : '확인 필요 항목을 검토했습니다.'}
                 </label>
               )}
-              <button type="button" onClick={approveReview} disabled={!canExecuteLiveMutation || !model.review.canApprove || approving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" onClick={approveReview} disabled={!canExecuteLiveMutation || !model.review.canApprove || loading || approving || creating} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 검토 내용 승인
               </button>
@@ -950,7 +965,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
                   {liveMutationDisabledReason}
                 </div>
               )}
-              <button type="button" onClick={createWithProxmox} disabled={!canExecuteLiveMutation || !approval?.canApprove || !model.review.canCreateProxmox || !proxmoxMutationAcknowledged || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" onClick={createWithProxmox} disabled={!canExecuteLiveMutation || !approval?.canApprove || !model.review.canCreateProxmox || !proxmoxMutationAcknowledged || loading || approving || creating} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
                 {nativeCreateButtonLabel}
               </button>
@@ -970,11 +985,19 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         </div>
       )}
 
-      {model?.review?.riskLevel === 'red' && (
+      {step === 3 && model?.review?.riskLevel === 'red' && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           차단 항목이 있어 승인할 수 없습니다.
         </div>
       )}
+      <footer className="sticky bottom-0 z-10 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
+        <button type="button" disabled={step === 0 || loading || approving || creating} onClick={() => { setStep((current) => current - 1); setError(null) }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold disabled:opacity-40">이전</button>
+        <span className="hidden text-xs text-slate-500 sm:block">입력값은 이전 단계로 이동해도 유지됩니다.</span>
+        {step < 3 ? <button type="button" onClick={nextStep} disabled={options.loading || !templateSelection.ok} className="rounded-lg bg-slate-950 px-5 py-2 text-sm font-semibold text-white disabled:opacity-40">다음</button>
+          : <button type="button" onClick={runReview} disabled={!canExecuteLiveMutation || loading || approving || creating || options.loading || presetUnavailable || !templateSelection.ok} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}{model ? '다시 검토' : '검토 시작'}
+          </button>}
+      </footer>
     </div>
   )
 }

@@ -8,7 +8,9 @@
 - 대체하는 ADR: [`ADR-001`](adr-001-proxmox-gjallar-authority-boundary.md), [`ADR-006`](adr-006-drs-deprecation-and-insights-convergence.md)
 - 대체된 ADR: `없음`
 - 유지하는 ADR: [`ADR-002`](adr-002-modular-monolith-domain-boundaries.md), [`ADR-003`](adr-003-production-inventory-connection-truth.md), [`ADR-004`](adr-004-postgresql-durable-operation-recovery.md)
-- 관련 Plan: [`Observe-first Operations Intelligence 전환`](../plans/2026-08-24-observe-first-operations-intelligence-transition.md) (`APPROVED`)
+- 관련 Plan: [`Observe-first Operations Intelligence 전환`](../archive/plans/2026-08-24-observe-first-operations-intelligence-transition.md) (`APPROVED`)
+
+> 현재 적용 안내(2026-09-07): 본문의 DRS 제거 계획과 관련 Plan의 승인 상태는 결정 당시 기록이다. repository 제거는 이후 구현됐으며 [계획 인덱스](../plans/README.md)에서 종료 이력을 확인한다. 이 ADR의 observe-first 원칙은 계속 유효하고 Create VM의 현재 단계 범위는 [ADR-008](adr-008-template-based-create-and-persistence-simplification.md)이 구체화한다. 실제 구현은 [현재 아키텍처](../architecture/overview.md)를 따른다.
 
 ## 배경
 

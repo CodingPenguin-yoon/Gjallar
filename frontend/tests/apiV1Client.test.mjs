@@ -34,6 +34,7 @@ assert.equal(API_V1_ENDPOINTS.risks, '/risks')
 assert.equal(API_V1_ENDPOINTS.insights, '/insights')
 assert.equal(API_V1_ENDPOINTS.operations, '/operations')
 assert.equal(API_V1_ENDPOINTS.operation('operation/a'), '/operations/operation%2Fa')
+assert.equal(API_V1_ENDPOINTS.operationRecoveryObservation('operation/a'), '/operations/operation%2Fa/recovery/observe')
 assert.equal(API_V1_ENDPOINTS.guidedQmVmUnlock, '/operations/guided-qm/vm-unlock')
 assert.equal(API_V1_ENDPOINTS.operationAttestation('operation/a'), '/operations/operation%2Fa/operator-attestation')
 assert.equal(API_V1_ENDPOINTS.operationVerification('operation/a'), '/operations/operation%2Fa/verification')
@@ -115,6 +116,14 @@ assert.equal(
   '/custom/api/v1/operations?target_type=proxmox_vm&target_id=vmid%3A306&limit=100',
 )
 assert.equal((await client.getOperation('operation/a')).url, '/custom/api/v1/operations/operation%2Fa')
+const recoveryObservationPayload = {
+  expected_version: 7,
+  expected_checksum: 'sha256:event-7',
+  idempotency_key: 'recovery-observe:7:stable',
+}
+assert.deepEqual((await client.observeOperationRecovery('operation/a', recoveryObservationPayload)).body, recoveryObservationPayload)
+assert.equal(calls.at(-1).url, '/custom/api/v1/operations/operation%2Fa/recovery/observe')
+assert.equal(calls.at(-1).options.method, 'POST')
 assert.deepEqual((await client.planGuidedQmVmUnlock({ node_id: 'node-a', vmid: 306 })).body, { node_id: 'node-a', vmid: 306 })
 assert.equal(calls.at(-1).url, '/custom/api/v1/operations/guided-qm/vm-unlock')
 assert.deepEqual((await client.attestOperation('operation/a', { command_executed: true })).body, { command_executed: true })

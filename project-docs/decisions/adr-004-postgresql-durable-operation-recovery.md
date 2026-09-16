@@ -1,11 +1,16 @@
 # ADR-004: PostgreSQL Durable Target Lock과 In-process Recovery Runner
 
+> 후속 적용: [ADR-011](adr-011-create-legacy-retirement.md)이 current-workload write·파일 guard 병행과 readiness owner 이관 범위를 대체한다. 아래는 결정 당시 기록이다.
+
+
 - 상태: `ACCEPTED`
 - 날짜: `2026-07-21`
 - 결정자: `사용자`
 - 대체하는 ADR: `없음`
 - 대체된 ADR: `없음`
-- 관련 Plan: [`단계 10-A Durable Operation Recovery Foundation`](../plans/2026-07-21-durable-operation-recovery-foundation.md), [`단계 10-B Graceful VM Shutdown`](../plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md)
+- 관련 Plan: [`단계 10-A Durable Operation Recovery Foundation`](../archive/plans/2026-07-21-durable-operation-recovery-foundation.md), [`단계 10-B Graceful VM Shutdown`](../archive/plans/2026-07-21-graceful-vm-shutdown-and-recovery-rollout.md)
+
+> 현재 적용 안내(2026-09-07): 아래의 첫 handler·DRS·file lock 설명은 결정 및 후속 기록 당시의 맥락이다. 현재 DRS runtime은 제거됐고 네 지원 action에 GET-only recovery가 구현돼 있다. target lock과 lease/fencing 원칙은 유지한다. action별 foreground·recovery transaction 차이는 [현재 DB](../database/current-schema-and-ownership.md)와 [작업 흐름](../flows/verified-operation-lifecycle.md)을 따른다. [ADR-008](adr-008-template-based-create-and-persistence-simplification.md)은 file guard·호환 기록 축소의 후속 설계 방향이며 현재 잠금 제거 승인이 아니다.
 
 ## 배경
 

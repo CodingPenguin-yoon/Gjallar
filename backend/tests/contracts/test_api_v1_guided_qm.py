@@ -68,7 +68,20 @@ def test_guided_qm_unlock_plan_attestation_and_verification_contract():
     assert plan_data["instruction_bundle"]["command"]["display"] == "qm unlock 306"
     assert plan_data["instruction_bundle"]["command"]["arguments"] == ["unlock", "306"]
     assert plan_data["backend_command_execution"] is False
+    from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
+
+    recovery_item = SqlAlchemyRecoveryStore().get(operation_id)
+    assert recovery_item is not None
+    assert recovery_item.recovery_kind == "guided_qm_unlock_observation"
+    assert recovery_item.status == "retry_wait"
+    assert recovery_item.details["target_id"] == "vmid:306"
+    assert recovery_item.details["operation_type"] == "guided_qm_vm_unlock"
+    assert recovery_item.details["original_config_lock"] == "backup"
     assert [call[0] for call in client.calls] == [
+        "has_node_task_audit",
+        "list_active_vm_tasks",
+        "get_vm_config",
+        "list_active_vm_tasks",
         "has_node_task_audit",
         "list_active_vm_tasks",
         "get_vm_config",
@@ -96,6 +109,7 @@ def test_guided_qm_unlock_plan_attestation_and_verification_contract():
     assert verified["data"]["operation"]["status"] == "succeeded"
     assert verified["data"]["operation"]["details"]["verification"]["verified"] is True
     assert verified["data"]["target_lock_released"] is True
+    assert SqlAlchemyRecoveryStore().get(operation_id).status == "completed"
 
     from app.api.v1 import operations as operations_api
 
@@ -103,6 +117,8 @@ def test_guided_qm_unlock_plan_attestation_and_verification_contract():
     assert fetched["data"]["operation"]["operation_id"] == operation_id
     assert [event["event_type"] for event in fetched["data"]["events"]] == [
         "operation_created",
+        "guided_plan_target_lock_bound",
+        "guided_instruction_issued",
         "operator_execution_attested",
         "verification_started",
         "verification_succeeded",

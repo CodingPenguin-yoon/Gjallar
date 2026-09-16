@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 
 from app.operations.core.domain import OperationActor, OperationCreateResult, OperationSnapshot, OperationSpec, operation_digest
 from app.operations.core.ports import OperationStorePort
+from app.operations.recovery.domain import PRE_DISPATCH_RECOVERY_CONTRACT
 from app.operations.vm_shutdown.domain import VmShutdownCommand, vm_shutdown_target_lock_id
 
 
@@ -33,9 +34,14 @@ def prepare_vm_shutdown_operation(
             details={
                 "job_id": operation_id,
                 "target": {"node_id": command.node_id, "vmid": command.vmid},
+                "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
             },
         ),
-        event_payload={"job_id": operation_id, "intent": intent},
+        event_payload={
+            "job_id": operation_id,
+            "intent": intent,
+            "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
+        },
     )
 
 

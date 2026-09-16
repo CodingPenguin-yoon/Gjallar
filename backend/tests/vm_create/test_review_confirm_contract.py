@@ -1,5 +1,7 @@
 """RED tests for Set 7 Review & Confirm and approval request policy."""
 
+from app.db import create_vm_profiles as profile_repository
+
 import json
 import tempfile
 import unittest
@@ -13,13 +15,15 @@ TEST_SSH_FINGERPRINT = "SHA256:mKqU+0K8OhKmA8bBQi9Rz0Q5l7/g160hIP+rJYSTNj4"
 
 
 class ReviewConfirmContractTests(unittest.TestCase):
-    def _green_plan(self, run_dir):
+    def _static_plan(self, run_dir):
         from app.proxmox.inventory import FakeProxmoxInventoryAdapter
         from app.vm_create.drafts import build_default_vm_draft
-        from app.vm_create.planner import build_vm_create_plan
+        from app.vm_create.planner import calculate_vm_create_plan
+        from app.vm_create.plan_persistence import persist_vm_create_plan
         from app.vm_create.preflight import run_preflight
 
         draft = build_default_vm_draft(
+            profiles=profile_repository.get_active_create_vm_profiles_by_id(),
             operator_id="test-operator",
             job_id="job-set7-review",
             target_node_id="yoonmanserver2",
@@ -28,15 +32,15 @@ class ReviewConfirmContractTests(unittest.TestCase):
             prefix=25,
             gateway="192.168.2.254",
         )
-        preflight = run_preflight(draft, inventory_adapter=FakeProxmoxInventoryAdapter())
-        self.assertEqual("green", preflight.risk_level)
-        return build_vm_create_plan(draft, preflight, run_dir=run_dir)
+        preflight = run_preflight(draft, profiles=profile_repository.get_active_create_vm_profiles_by_id(), inventory_adapter=FakeProxmoxInventoryAdapter())
+        self.assertEqual("yellow", preflight.risk_level)
+        return persist_vm_create_plan(calculate_vm_create_plan(draft, preflight), run_dir=run_dir)
 
     def test_review_confirm_contains_required_items_and_real_review_checksum(self):
         from app.jobs.artifacts import read_artifact_text
 
         with tempfile.TemporaryDirectory() as run_dir:
-            plan = self._green_plan(run_dir)
+            plan = self._static_plan(run_dir)
             review = plan.review_confirm
 
             required_keys = {
@@ -98,7 +102,7 @@ class ReviewConfirmContractTests(unittest.TestCase):
             self.fail(f"Expected app.vm_create.approval.validate_approval_request for Set 7: {exc}")
 
         with tempfile.TemporaryDirectory() as run_dir:
-            plan = self._green_plan(run_dir)
+            plan = self._static_plan(run_dir)
             review = plan.review_confirm
 
             missing_plan = validate_approval_request(
@@ -123,7 +127,7 @@ class ReviewConfirmContractTests(unittest.TestCase):
                 plan,
                 plan_artifact_id=review["plan_artifact_id"],
                 review_summary_checksum=review["review_summary_checksum"],
-                yellow_risk_acknowledged=False,
+                yellow_risk_acknowledged=True,
             )
             self.assertTrue(approved.can_approve)
             self.assertTrue(approved.can_execute)

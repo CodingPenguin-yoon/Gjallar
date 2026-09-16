@@ -30,6 +30,11 @@ export default function AppShell({ currentUser, connectionBadge, navItems, pathn
               <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-semibold sm:inline-flex ${badgeTones[connectionBadge.tone] || badgeTones.slate}`}>
                 Proxmox {connectionBadge.label}
               </span>
+              {connectionBadge.observation && (
+                <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-semibold sm:inline-flex ${badgeTones[connectionBadge.observationTone] || badgeTones.slate}`}>
+                  {connectionBadge.observation}
+                </span>
+              )}
               <div className="hidden items-center gap-2 text-sm text-slate-600 sm:flex">
                 <UserCircle className="h-4 w-4" />
                 <span className="font-medium text-slate-900">{currentUser?.username}</span>

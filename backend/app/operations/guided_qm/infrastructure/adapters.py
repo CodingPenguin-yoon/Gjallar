@@ -9,13 +9,7 @@ from app.operations.guided_qm.ports import (
     GuidedQmTargetLockBusy,
     GuidedQmTargetLockHandle,
 )
-from app.operations.target_lock import (
-    TargetOperationLockBusy,
-    acquire_target_operation_lock,
-    get_target_operation_lock,
-    release_target_operation_lock,
-    release_target_operation_lock_for_owner,
-)
+from app.operations.target_lock import TargetOperationLockBusy, acquire_target_operation_lock, get_target_operation_lock, release_target_operation_lock, release_target_operation_lock_for_owner
 from app.proxmox.client import ProxmoxMutationError
 
 

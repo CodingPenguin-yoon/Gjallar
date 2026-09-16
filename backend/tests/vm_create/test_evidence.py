@@ -481,3 +481,84 @@ class CreateVmEvidenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _insert_success_operation(job_id):
+    from app.operations.core.domain import OperationSpec, OperationActor
+    from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+    SqlAlchemyOperationStore().create(OperationSpec(
+        operation_id=job_id, operation_type='vm_create', execution_mode='managed_api',
+        target_type='proxmox_vm', target_id='vmid:306', idempotency_key=job_id,
+        intent_digest='sha256:intent', plan_digest='sha256:plan', initial_status='succeeded',
+        initial_stage='post_check', actor=OperationActor(), details={
+            'target': {'node_id': 'node-a', 'vmid': 306},
+            'workload': {'vm_instance_id': 'node-a:306', 'node_id': 'node-a', 'vmid': 306,
+                         'name': 'gjallar-evidence-vm', 'status': 'stopped', 'updated_at': NOW},
+        },
+    ), event_payload={})
+
+
+def test_operation_evidence_survives_current_linkage_changes():
+    job_id = 'job-history-evidence'
+    _insert_completed_create(job_id, observed_after=_observed_after())
+    _insert_success_operation(job_id)
+    before = build_create_vm_evidence_summary(job_id)
+    assert before['vm_instance_source'] == 'operation_history'
+    with session_scope() as session:
+        row = session.get(VmInstanceRecord, 'node-a:306')
+        row.name = 'changed-name'
+        row.status = 'running'
+        row.observed_after = {'status': 'running', 'primary_ip': '203.0.113.2'}
+    assert build_create_vm_evidence_summary(job_id) == before
+    with session_scope() as session:
+        row = session.get(VmInstanceRecord, 'node-a:306')
+        row.create_job_id = 'other-create'
+    assert build_create_vm_evidence_summary(job_id) == before
+    with session_scope() as session:
+        session.delete(session.get(VmInstanceRecord, 'node-a:306'))
+    assert build_create_vm_evidence_summary(job_id) == before
+
+
+def test_corrupt_operation_evidence_does_not_fall_back_to_current_row():
+    from app.operations.core.infrastructure.models import OperationRecord
+    job_id = 'job-corrupt-history'
+    _insert_completed_create(job_id, observed_after=_observed_after())
+    _insert_success_operation(job_id)
+    with session_scope() as session:
+        row = session.get(OperationRecord, job_id)
+        row.details = {**row.details, 'workload': {}}
+    result = build_create_vm_evidence_summary(job_id)
+    assert result['vm_instance'] is None
+    assert result['vm_instance_found'] is False
+    assert result['vm_instance_source'] == 'not_recorded'
+    assert result['observed_after']['status'] == 'stopped'
+
+
+def test_legacy_evidence_rejects_ambiguous_or_wrong_target_linkage():
+    job_id = 'job-legacy-history'
+    _insert_completed_create(job_id, observed_after=_observed_after())
+    assert build_create_vm_evidence_summary(job_id)['vm_instance_source'] == 'legacy_workload'
+    with session_scope() as session:
+        row = session.get(VmInstanceRecord, 'node-a:306')
+        row.node_id = 'other-node'
+    assert build_create_vm_evidence_summary(job_id)['vm_instance'] is None
+    with session_scope() as session:
+        stored = session.get(VmInstanceRecord, 'node-a:306')
+        stored.node_id = 'node-a'
+        session.add(VmInstanceRecord(vm_instance_id='node-a:307', node_id='node-a', vmid=307,
+            create_job_id=job_id, name='ambiguous', profile_id='', status='stopped', created_at=NOW, updated_at=NOW))
+    assert build_create_vm_evidence_summary(job_id)['vm_instance'] is None
+
+
+def test_operation_evidence_without_request_uses_own_artifact():
+    job_id = 'job-artifact-history'
+    _insert_completed_create(job_id, observed_after=_observed_after())
+    _insert_success_operation(job_id)
+    with session_scope() as session:
+        session.delete(session.get(VmCreateRequestRecord, job_id))
+        session.delete(session.get(VmInstanceRecord, 'node-a:306'))
+    result = build_create_vm_evidence_summary(job_id)
+    assert result['request_found'] is False
+    assert result['vm_instance_source'] == 'operation_history'
+    assert result['observed_after']['status'] == 'stopped'
+    assert result['observed_after']['observed_at'] == NOW

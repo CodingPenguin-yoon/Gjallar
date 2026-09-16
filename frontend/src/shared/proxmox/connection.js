@@ -1,5 +1,5 @@
 // Read-only inventory can remain available when optional sources are partial.
-// Mutations still require a complete authoritative live observation.
+// Display labels do not change action-specific execution gates.
 const LIVE_SOURCE = 'live_read_only'
 
 export function normalizeProxmoxConnection(value = {}) {
@@ -36,11 +36,12 @@ export function isProxmoxInventoryAvailable(value) {
 
 export function proxmoxConnectionBadge(requestStatus, value) {
   if (requestStatus === 'loading' || requestStatus === 'idle') {
-    return { label: 'CHECKING', tone: 'slate' }
+    return { label: '확인 중', tone: 'slate' }
   }
+  if (requestStatus !== 'ready') return { label: '연결 확인 필요', tone: 'red' }
   const connection = normalizeProxmoxConnection(value)
-  if (connection.state === 'live') return { label: 'LIVE', tone: 'green' }
-  if (connection.state === 'unconfigured') return { label: 'UNCONFIGURED', tone: 'yellow' }
-  if (connection.inventoryAvailable) return { label: 'PARTIAL', tone: 'yellow' }
-  return { label: 'DEGRADED', tone: 'red' }
+  if (connection.state === 'live') return { label: '연결됨', tone: 'green', observation: '관찰 완료', observationTone: 'green' }
+  if (connection.state === 'unconfigured') return { label: '설정 필요', tone: 'yellow' }
+  if (connection.inventoryAvailable) return { label: '연결됨', tone: 'green', observation: '관찰 일부 누락', observationTone: 'yellow' }
+  return { label: '연결 확인 필요', tone: 'red' }
 }

@@ -35,6 +35,7 @@ function compileDashboardSource(source) {
       'const { apiV1Client } = globalThis.__DASHBOARD_TEST_MOCKS__.api'
     )
     .replace('function buildDashboardModel(', 'export function buildDashboardModel(')
+    .replace('function dashboardPartialError(', 'export function dashboardPartialError(')
 }
 
 function loadCommonJsModule(code, filename) {
@@ -80,7 +81,7 @@ const compiled = transformSync(compileDashboardSource(readFileSync(sourcePath, '
   format: 'cjs',
   jsx: 'automatic',
 }).code
-const { buildDashboardModel } = loadCommonJsModule(compiled, String(sourcePath))
+const { buildDashboardModel, dashboardPartialError } = loadCommonJsModule(compiled, String(sourcePath))
 
 const observedSnapshot = {
   cluster: { cluster_id: 'cluster-a' },
@@ -206,3 +207,34 @@ assert.match(dashboardSource, /meta\?\.availability/)
 delete globalThis.__DASHBOARD_TEST_MOCKS__
 
 console.log('dashboard source availability contract exercised')
+
+const guestOnly = { available: true, complete: false, sources: {
+  guest_agent: { complete: false, failed_targets: ['node:101'] },
+  storage: { complete: true }, network: { complete: true },
+  vm_config: { complete: true }, vm_detail: { complete: true },
+} }
+const complete = { available: true, complete: true, sources: Object.fromEntries(Object.keys(guestOnly.sources).map(key => [key, { complete: true }])) }
+const successful = Array.from({ length: 7 }, () => ({ status: 'fulfilled', value: { meta: { availability: complete } } }))
+assert.equal(dashboardPartialError(successful, guestOnly), null)
+assert.match(dashboardPartialError([{ status: 'rejected' }, ...successful.slice(1)], guestOnly), /불러오기 실패: Cluster/)
+assert.match(dashboardPartialError(successful, { ...guestOnly, sources: { ...guestOnly.sources, storage: { complete: false } } }), /storage/)
+assert.match(dashboardPartialError(successful, { available: false, complete: false, sources: {} }), /관찰 불완전/)
+assert.equal(dashboardPartialError(successful, { available: true, complete: true, sources: {} }), null)
+assert.match(dashboardPartialError(successful, { available: true, complete: false, sources: { guest_agent: { complete: false } } }), /관찰 불완전/)
+
+const mixed = [...successful]
+mixed[3] = { status: 'fulfilled', value: { meta: { availability: { ...complete, complete: false, sources: { ...complete.sources, storage: { complete: false } } } } } }
+assert.match(dashboardPartialError(mixed, guestOnly), /관찰 불완전:.*storage/)
+const missingMeta = [...successful]
+missingMeta[3] = { status: 'fulfilled', value: { data: [] } }
+assert.match(dashboardPartialError(missingMeta, guestOnly), /신뢰할 수 없습니다/)
+
+const missingAgentModel = buildDashboardModel({ ...observedSnapshot, vmObservation: {
+  ...guestOnly, sources: { ...guestOnly.sources, guest_agent: {
+    complete: false, failed_targets: ['node-a:101', 'node-a:900', 'node-a:101'],
+  } },
+} })
+assert.equal(missingAgentModel.summary.guestAgentMissing, 2)
+assert.equal(buildDashboardModel({ ...observedSnapshot, vmObservation: null }).summary.guestAgentMissing, null)
+assert.equal(buildDashboardModel({ ...observedSnapshot, vmObservation: { sources: { guest_agent: { complete: true, failed_targets: [] } } } }).summary.guestAgentMissing, 0)
+assert.equal(buildDashboardModel({ ...observedSnapshot, availability: { ...observedSnapshot.availability, vms: false }, vmObservation: guestOnly }).summary.guestAgentMissing, null)

@@ -126,6 +126,9 @@ assert.deepEqual(buildCreateVmInputFromConfig({
   profileId: 'general-vm',
   targetNodeId: 'yoonmanserver2',
 }), {
+  creationMode: 'profile',
+  vmid: '',
+  vmName: '',
   operatorId: 'fallback-operator',
   jobId: 'fallback-job',
   profileId: 'runtime-server',
@@ -140,7 +143,7 @@ assert.deepEqual(buildCreateVmInputFromConfig({
   templateVmid: '',
   templateNodeId: '',
   templateKey: '',
-  cloudInitUser: 'yoon',
+  cloudInitUser: '',
   sshPublicKey: '',
   passwordLogin: false,
   powerPolicy: 'stopped',
@@ -523,7 +526,8 @@ assert.ok(!source.includes('commitVmDraftManifest'), 'active frontend flow must 
 const wizardSource = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx', import.meta.url), 'utf8')
 assert.ok(wizardSource.includes('apiV1Client.listNetworks()'), 'Create VM wizard must load live bridge inventory')
 assert.ok(wizardSource.includes('apiV1Client.listProfiles()'), 'Create VM wizard must load profile inventory')
-assert.ok(wizardSource.includes('!profilesReady'), 'Create VM wizard must block review when profile API is failed or empty')
+assert.ok(!wizardSource.includes('profilesReady'), 'Direct template input must not depend on profile availability')
+assert.ok(wizardSource.includes('presetUnavailable'), 'A selected missing preset must remain blocked')
 assert.ok(wizardSource.includes('profileError'), 'Create VM wizard must surface profile API failure or empty state')
 assert.ok(wizardSource.includes('sshPublicKey'), 'Create VM wizard must expose SSH public key input')
 assert.ok(wizardSource.includes('cloudInitUser'), 'Create VM wizard must expose cloud-init user input')
@@ -533,3 +537,78 @@ assert.match(wizardSource, /compatibility=operation/, 'Create VM Jobs fallback m
 assert.ok(!wizardSource.includes(['apiV1Client.getNetwork', 'Policy()'].join('')), 'Create VM wizard must use live bridge inventory as bridge source')
 
 console.log('createVmFlow native Proxmox contract exercised')
+
+const directPayload = buildCreateVmPayload({ creationMode: 'template', profileId: 'general-vm', templateVmid: 9001, templateNodeId: 'node-b', hardware: { cpu: 4, memoryMb: 8192, diskGb: 80 } })
+assert.equal(directPayload.creation_mode, 'template')
+assert.equal('profile_id' in directPayload, false)
+assert.equal(directPayload.template_node_id, 'node-b')
+assert.deepEqual(directPayload.hardware_overrides, { cpu: 4, memory_mb: 8192, disk_gb: 80 })
+
+assert.match(wizardSource, /IP를 읽지 못한 기존 VM/, 'Guest agent observation must name the existing VMs whose IP could not be read')
+assert.match(wizardSource, /\{check\.message\}/, 'Observation checks must explain mode-specific risk')
+
+assert.equal(buildCreateVmPayload({vmid: '4321', vmName: 'app-server-01'}).vmid, '4321')
+assert.equal(buildCreateVmPayload({vmid: '4321', vmName: 'app-server-01'}).vm_name, 'app-server-01')
+assert.ok(!('vmid' in buildCreateVmPayload({vmid: ''})))
+assert.equal(buildCreateVmInputFromConfig({vmid: '4321', vmName: 'app-server-01'}).vmid, '4321')
+
+const vmNamePattern = wizardSource.match(/pattern="([^"]+)"/)[1]
+const vmNameRegex = new RegExp(`^(?:${vmNamePattern})$`, 'v')
+assert.ok(vmNameRegex.test('app-server-01'))
+assert.ok(!vmNameRegex.test('bad name'))
+assert.ok(!vmNameRegex.test('bad_name'))
+
+const stalePreflight = {
+  risk_level: 'red',
+  checks: [{ code: 'stale_observation', status: 'fail', level: 'red' }],
+  risks: [{ code: 'stale_observation' }],
+  side_effects: [],
+}
+const staticIpCheck = {
+  code: 'static_ip_available',
+  status: 'warn',
+  level: 'yellow',
+  detail: {
+    static_ip: '192.168.2.149',
+    result: 'unverified',
+    conflicts: [],
+    inventory: { status: 'no_conflict_observed', guest_agent_complete: false, failed_targets: ['node-a:101'] },
+    ping: { status: 'no_reply', reason: 'no_echo_reply', source: 'icmp', execution_location: 'gjallar_backend' },
+  },
+}
+const reviewedPreflight = { risk_level: 'yellow', checks: [staticIpCheck], risks: [{ code: 'static_ip_unverified' }], side_effects: [] }
+const planSnapshot = await fakeClient.planVmDraft('draft-job-ui-create', buildCreateVmPayload(input))
+const latestObservationModel = await loadCreateVmReviewModel({
+  ...fakeClient,
+  async preflightVmDraft() { return stalePreflight },
+  async planVmDraft() { return { ...planSnapshot, preflight: reviewedPreflight, risk_summary: { level: 'yellow', yellow: reviewedPreflight.risks } } },
+}, input)
+assert.equal(latestObservationModel.preflight.level, 'yellow')
+assert.deepEqual(latestObservationModel.preflight.checks, [staticIpCheck], 'The displayed evidence must match the approved plan, rather than the earlier ping result')
+assert.deepEqual(latestObservationModel.preflight.risks, reviewedPreflight.risks)
+assert.equal(latestObservationModel.review.canApprove, true)
+assert.equal(latestObservationModel.review.requiresStaticIpConfirmation, true)
+assert.match(wizardSource, /model\.review\.requiresStaticIpConfirmation/, 'Unverified static IP must select the explicit IP confirmation label')
+assert.match(wizardSource, /입력한 IP는 제가 직접 확보한 IP입니다/, 'Yellow acknowledgement must include the operator confirmation of IP allocation')
+
+const conflictingCheck = {
+  ...staticIpCheck,
+  status: 'fail',
+  level: 'red',
+  detail: { ...staticIpCheck.detail, result: 'in_use', ping: { ...staticIpCheck.detail.ping, status: 'reply', reason: 'echo_reply' } },
+}
+const newlyConflictingModel = await loadCreateVmReviewModel({
+  ...fakeClient,
+  async preflightVmDraft() { return reviewedPreflight },
+  async planVmDraft() {
+    return { ...planSnapshot, preflight: { risk_level: 'red', checks: [conflictingCheck] }, risk_summary: { level: 'red', red: [{ code: 'static_ip_in_use' }] } }
+  },
+}, input)
+assert.deepEqual(newlyConflictingModel.preflight.checks, [conflictingCheck], 'A newly received ping response must replace the earlier unverified result')
+assert.equal(newlyConflictingModel.review.canApprove, false)
+assert.equal(newlyConflictingModel.review.requiresStaticIpConfirmation, false)
+assert.equal(model.review.requiresStaticIpConfirmation, false, 'Legacy plan responses without embedded preflight must retain their original evidence')
+
+await approveCreateVmReview(fakeClient, latestObservationModel, { yellowRiskAcknowledged: true })
+assert.equal(calls.at(-1)[2].yellow_risk_acknowledged, true, 'IP confirmation must use the existing acknowledgement contract')
+assert.equal(calls.at(-1)[2].review_summary_checksum, 'sha256:abc123')

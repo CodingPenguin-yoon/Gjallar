@@ -6,6 +6,8 @@
 - 대체하는 ADR: `없음`
 - 대체된 ADR: `없음`
 
+> 현재 적용 안내(2026-09-07): 아래 배경은 결정 당시의 상태다. modular monolith와 점진적 경계 전환 원칙은 유효하며, 현재 제품 중심은 [ADR-007](adr-007-observe-first-operations-intelligence.md), Create의 후속 방향은 [ADR-008](adr-008-template-based-create-and-persistence-simplification.md)을 따른다. 실제 전환 범위는 [현재 아키텍처](../architecture/overview.md)에서 확인한다.
+
 ## 배경
 
 현재 Gjallar는 single FastAPI/React deployment 안에서 feature package를 사용하지만 HTTP, DB, Proxmox, jobs/evidence 책임이 workflow별로 결합돼 있다. 제품 중심을 DRS에서 verified operations로 바꾸려면 모든 코드를 일괄 재작성하기보다 operation slice 하나씩 public contract와 safety invariant를 보존하며 경계를 이동해야 한다.

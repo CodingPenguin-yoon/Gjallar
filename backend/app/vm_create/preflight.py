@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from ipaddress import ip_address
 
-from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id
+from collections.abc import Mapping
+
+from app.manifests.models import VmProfile
 from app.proxmox.inventory import FakeProxmoxInventoryAdapter, get_default_inventory_adapter
 from app.proxmox.models import TemplateInventory
+from app.vm_create.ip_probe import probe_ipv4
 from app.vm_create.models import PreflightCheck, PreflightResult, RiskItem, VmCreateDraft
 
 
@@ -174,6 +177,7 @@ def _check_hardware_range(
 def run_preflight(
     draft: VmCreateDraft,
     *,
+    profiles: Mapping[str, VmProfile],
     inventory_adapter: FakeProxmoxInventoryAdapter | None = None,
 ) -> PreflightResult:
     """Evaluate a Create VM draft without live Proxmox/IaC mutation."""
@@ -181,26 +185,47 @@ def run_preflight(
     checks: list[PreflightCheck] = []
     risks: list[RiskItem] = []
 
-    profiles = get_active_create_vm_profiles_by_id()
+    availability = adapter.snapshot().availability
+    for source in availability.sources:
+        if source.complete:
+            continue
+        requires_complete = source.source != "guest_agent"
+        _check(
+            checks, risks,
+            code=f"inventory_{source.source}_complete",
+            ok=False,
+            fail_level="red" if requires_complete else "yellow",
+            message=(
+                "일부 기존 VM의 IP를 읽지 못했습니다. 입력한 IP의 검사 결과를 함께 확인해주세요."
+                if source.source == "guest_agent" and draft.network.ip_mode == "static"
+                else "guest agent 관찰이 불완전합니다. DHCP 생성 후 IP 확인이 필요합니다."
+                if source.source == "guest_agent"
+                else f"생성에 필요한 {source.source} 관찰이 불완전합니다."
+            ),
+            fail_code=f"inventory_{source.source}_incomplete",
+            detail={"source": source.source, **source.to_dict()},
+        )
+
     profile = profiles.get(draft.profile_id)
-    _check(
-        checks,
-        risks,
-        code="profile_schema",
-        ok=profile is not None,
-        message="selected profile exists in active DB profile data",
-        fail_code="unknown_profile",
-        detail={"profile_id": draft.profile_id},
-    )
-    _check(
-        checks,
-        risks,
-        code="profile_enabled",
-        ok=profile is not None and profile.create_enabled,
-        message="selected profile is enabled for Create VM",
-        fail_code="disabled_profile",
-        detail={"profile_id": draft.profile_id},
-    )
+    if draft.profile_id:
+        _check(
+            checks,
+            risks,
+            code="profile_schema",
+            ok=profile is not None,
+            message="selected profile exists in active DB profile data",
+            fail_code="unknown_profile",
+            detail={"profile_id": draft.profile_id},
+        )
+        _check(
+            checks,
+            risks,
+            code="profile_enabled",
+            ok=profile is not None and profile.create_enabled,
+            message="selected profile is enabled for Create VM",
+            fail_code="disabled_profile",
+            detail={"profile_id": draft.profile_id},
+        )
     if profile is not None:
         _check_hardware_range(
             checks,
@@ -291,19 +316,20 @@ def run_preflight(
         },
     )
     if template is not None:
-        _check(
-            checks,
-            risks,
-            code="template_matches_profile",
-            ok=template.family == draft.template_family,
-            message="selected template matches the profile family",
-            fail_code="template_family_mismatch",
-            detail={
-                "template_id": template.template_id,
-                "template_family": template.family,
-                "profile_template_family": draft.template_family,
-            },
-        )
+        if draft.profile_id:
+            _check(
+                checks,
+                risks,
+                code="template_matches_profile",
+                ok=template.family == draft.template_family,
+                message="selected template matches the profile family",
+                fail_code="template_family_mismatch",
+                detail={
+                    "template_id": template.template_id,
+                    "template_family": template.family,
+                    "profile_template_family": draft.template_family,
+                },
+            )
         _check(
             checks,
             risks,
@@ -311,7 +337,7 @@ def run_preflight(
             ok=template.cloud_init_ready,
             message="template cloud-init readiness is verified",
             fail_code="template_cloud_init_unverified",
-            fail_level=_template_requirement_level(profile, "require_cloud_init"),
+            fail_level=_template_requirement_level(profile, "require_cloud_init") if draft.profile_id else "red",
             detail={"template_id": template.template_id, "template_vmid": template.vmid},
         )
         _check(
@@ -321,7 +347,7 @@ def run_preflight(
             ok=template.guest_agent_ready,
             message="template guest-agent readiness is verified",
             fail_code="template_guest_agent_unverified",
-            fail_level=_template_requirement_level(profile, "require_qemu_guest_agent"),
+            fail_level=_template_requirement_level(profile, "require_qemu_guest_agent") if draft.profile_id else "red",
             detail={"template_id": template.template_id, "template_vmid": template.vmid},
         )
         template_disk_gb = int(template.disk_gb or 0)
@@ -368,6 +394,16 @@ def run_preflight(
         fail_code="target_node_unavailable",
         detail={"target_node_id": draft.target_node_id},
     )
+
+    if not draft.profile_id:
+        for field_name, requested, maximum in (
+            ("cpu", draft.hardware.cpu, node.cpu_total if node else 0),
+            ("memory_mb", draft.hardware.memory_mb, node.memory_total_mb if node else 0),
+        ):
+            _check(checks, risks, code=f"target_{field_name}_capacity",
+                   ok=0 < requested <= maximum,
+                   message="requested hardware fits the observed target node capacity",
+                   detail={"requested": requested, "maximum": maximum})
 
     storages = list(adapter.list_storage(draft.target_node_id))
     selected_storage_id = str(draft.storage_id or "").strip()
@@ -445,7 +481,6 @@ def run_preflight(
         detail={"vm_name": draft.vm_name},
     )
 
-    observed_ips = {addr for vm in vms for addr in vm.ip_addresses}
     if draft.network.ip_mode == "static":
         static_ip = str(draft.network.static_ip or "").strip()
         gateway = str(draft.network.gateway or "").strip()
@@ -509,15 +544,38 @@ def run_preflight(
             for vm in vms
             if static_ip in vm.ip_addresses
         ]
-        _check(
-            checks,
-            risks,
-            code="static_ip_available",
-            ok=not conflicts,
-            message="static IP is not observed in current VM inventory",
-            fail_code="static_ip_unavailable",
-            detail={"static_ip": static_ip, "conflicts": conflicts},
+        ping = probe_ipv4(static_ip)
+        in_use = bool(conflicts) or ping.status == "reply"
+        level = "red" if in_use else "yellow"
+        message = (
+            "입력한 IP가 기존 VM 정보 또는 ping 응답에서 사용 중으로 확인됐습니다."
+            if in_use else
+            "확인한 범위에서 IP 점유를 발견하지 못했습니다. 미사용을 보장할 수 없으므로 직접 확보한 IP인지 확인해주세요."
         )
+        guest_source = next((source for source in availability.sources if source.source == "guest_agent"), None)
+        checks.append(PreflightCheck(
+            code="static_ip_available", status="fail", level=level, message=message,
+            detail={
+                "static_ip": static_ip, "conflicts": conflicts,
+                "result": "in_use" if in_use else "unverified",
+                "inventory": {
+                    "status": "conflict" if conflicts else "no_conflict_observed",
+                    "guest_agent_complete": guest_source.complete if guest_source is not None else False,
+                    "failed_targets": list(guest_source.failed_targets) if guest_source is not None else [],
+                },
+                "ping": ping.to_dict(),
+            },
+        ))
+        # Observation details can fluctuate without changing the acknowledged
+        # uncertainty. Preserve them in preflight, not in exact approval identity.
+        risk_detail = {"static_ip": static_ip}
+        if in_use:
+            risk_detail.update(conflicts=conflicts, ping_reply=ping.status == "reply")
+        risks.append(RiskItem(
+            level=level,
+            code="static_ip_unavailable" if in_use else "static_ip_usage_unverified",
+            message=message, detail=risk_detail,
+        ))
     else:
         checks.append(
             PreflightCheck(
