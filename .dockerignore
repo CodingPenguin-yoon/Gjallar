@@ -1,6 +1,7 @@
 .git
 .github
 .codex
+.agent-local/
 
 .env
 .env.*

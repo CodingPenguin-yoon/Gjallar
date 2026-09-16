@@ -319,7 +319,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "prefix": 24,
             "gateway": "192.168.2.1",
         }
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir)
 
         with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
@@ -396,7 +396,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="6")
 
         handle = {"handle": "success-lock"}
@@ -428,7 +428,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return {
                 "job_id": plan.job_id,
                 "manifest_id": plan.manifest_id,
@@ -489,7 +489,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return {
                 "job_id": plan.job_id,
                 "manifest_id": plan.manifest_id,
@@ -537,7 +537,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="7")
 
         with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
@@ -753,7 +753,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         approved_payload = self._approved_payload(draft_id, payload)
         handle = {"handle": "artifact-persistence-failure-lock"}
 
-        def artifact_persistence_failure(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def artifact_persistence_failure(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             checkpoint("clone_pending", {"vmid": plan.vmid})
             raise RuntimeError("opaque-post-dispatch-tenant-value")
 
@@ -807,7 +807,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         }
         approved_payload = self._approved_payload(draft_id, payload)
         handle = {"handle": "completed-request-failure-lock"}
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="8")
 
         with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
@@ -875,7 +875,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             original_project_success(projection, transaction, **kwargs)
             raise RuntimeError("completed projection unavailable")
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="a")
 
         with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
@@ -948,7 +948,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             held_handles.append(handle)
             return handle
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="9")
 
         try:
@@ -1104,7 +1104,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="3")
 
         with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
@@ -1179,7 +1179,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
         }
         changed_payload = {**payload, "static_ip": "192.168.2.150"}
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return self._successful_create_result(plan, run_dir, fingerprint_seed="4")
 
         with patch.object(self.api_v1_router, "_mutation_client_factory", return_value=object()):
@@ -1216,7 +1216,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "gateway": "192.168.2.1",
         }
 
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             return {
                 "job_id": plan.job_id,
                 "manifest_id": plan.manifest_id,
@@ -1275,7 +1275,7 @@ class ApiV1VmCreateApprovalExecuteTests(unittest.TestCase):
             "review_summary_checksum": review["review_summary_checksum"],
             "yellow_risk_acknowledged": True,
         }
-        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+        def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
             artifact = write_json_artifact(
                 run_dir=run_dir,
                 job_id=plan.job_id,

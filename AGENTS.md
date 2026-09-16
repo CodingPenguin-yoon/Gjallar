@@ -1,6 +1,6 @@
 # Gjallar 작업 지침
 
-이 저장소는 Proxmox의 실제 상태와 실행 권위를 존중하면서 상태·변화·위험과 운영 증거를 먼저 관찰하고 설명하며, 필요한 경우에만 제한된 검증 작업을 제공하는 Observe-first Operations Intelligence with Verified Actions이다.
+이 저장소는 Proxmox의 실제 상태와 실행 권위를 존중하면서, 갈랴르의 웹·CLI에서 템플릿 준비·VM 관리·모니터링·복구를 끝내는 운영 도구를 지향한다. 현재 구현과 미구현 목표는 PRD·아키텍처·로드맵에서 구분한다.
 
 ## 기본 원칙
 
@@ -12,24 +12,34 @@
 
 ## 작업 전 확인
 
-1. `project-docs/project-profile.md`에서 현재 환경, 저장소 지도, 검증 명령과 위험 영역을 확인한다.
-2. 작업에 직접 관련된 Specification, Architecture, ADR, Plan, API, DB, Flow 문서만 읽는다.
+1. `project-docs/development.md`에서 환경·검증·운영 조건과 이 문서의 위험 경계를 확인한다.
+2. 관련된 PRD·아키텍처·로드맵·작업 기록만 읽는다. API·DB·실행 복구의 핵심 계약은 아키텍처에서 확인한다.
 3. 관련 진입점, 인접 코드, 공개 계약, 테스트와 설정을 조사한다.
 4. 현재 동작, 목표 동작, 범위, 비범위와 검증 가능한 완료 조건을 구분한다.
 
 모든 문서를 일괄해서 읽지 않는다. 제품 의도와 현재 동작을 판단할 때는 다음 순서를 따른다.
 
 1. 사용자가 가장 최근에 명시하거나 승인한 방향
-2. 현재 `APPROVED` Specification
-3. 대체 관계상 최신 `ACCEPTED` ADR
-4. 현재 `APPROVED` Plan
+2. 현재 `APPROVED` PRD (`project-docs/prd.md`)
+3. 현재 아키텍처의 유효한 설계 결정과 계약
+4. `work/`의 현재 `APPROVED` 구현 계획
 5. 코드와 테스트가 보여주는 실제 동작
 
 `SUPERSEDED`·`REJECTED` ADR과 종료된 `IMPLEMENTED`·`SUPERSEDED`·`CANCELLED`·`ROLLED_BACK` Plan은 역사적 맥락이며 새로운 변경의 구현 권한이 아니다. 현재 존재하는 호환 경로나 제거 대상도 별도 승인 없이 장기 유지·확장 대상으로 해석하지 않는다.
 
 ## 위험과 승인
 
-데이터·보안·공개 계약·외부 상태, 아키텍처·운영 의존성, 비동기·복구처럼 실패 영향이나 되돌리기 비용이 큰 변경은 고위험으로 본다. Gjallar의 구체적인 trigger와 live 작업 승인 경계는 [`project-docs/project-profile.md`](project-docs/project-profile.md)를 단일 기준으로 따른다.
+다음 변경은 고위험으로 보고 구체적인 범위·검증·복구 방안을 작업 문서에 먼저 정한다.
+
+- live Proxmox mutation·smoke: 정확한 target과 side effect를 별도 승인받는다.
+- DB schema·migration·데이터 이동·소유권·transaction·정합성 변경
+- 인증·권한·session·개인정보·시크릿 처리 변경
+- `/api/v1` 또는 canonical frontend route의 비호환 변경
+- 도메인 경계·의존 방향·주요 배포 구조 전환
+- idempotency·target lock·lease·retry·recovery·reconciliation 변경
+- raw shell/SSH executor·worker·queue·scheduler·cache·신규 외부 시스템 도입
+- DRS 제거 migration production 적용·historical Jobs/Artifacts 보존 변경·제거된 계약 복원
+- telemetry collector·TSDB·alert delivery·신규 monitoring dependency 도입
 
 승인된 구조 안의 일반 구현, 테스트, 명확한 버그 수정, 호환 가능한 내부 리팩터링과 실제 변경에 따른 문서 갱신은 반복 승인 없이 진행한다.
 
@@ -47,7 +57,7 @@
 
 ## 검증
 
-변경 영역과 위험에 비례해 실제 명령을 실행한다. 세부 명령과 실행 조건은 [`project-docs/project-profile.md`](project-docs/project-profile.md)를 단일 기준으로 따른다.
+변경 영역과 위험에 비례해 실제 명령을 실행한다. 세부 명령과 실행 조건은 [개발·운영 안내](project-docs/development.md)를 단일 기준으로 따른다.
 
 - diff 검사: `git diff --check`
 - 공통 로컬 검증: `pnpm run verify`
@@ -57,8 +67,8 @@
 
 ## 문서와 완료
 
-공동 source of truth는 `project-docs/`다. 프로젝트 목적, 기술 스택, 아키텍처, 도메인, 공개 API·DB 계약 또는 주요 성공·실패 흐름이 실제로 바뀐 경우에만 관련 현재 상태 문서를 갱신한다. 일반 변경 이력은 Git이 담당하며 작업별 요약 문서를 만들지 않는다.
+공동 source of truth는 `project-docs/`다. 프로젝트 목적, 기술 스택, 아키텍처, 도메인, 공개 API·DB 계약 또는 주요 성공·실패 흐름이 실제로 바뀐 경우에만 관련 현재 상태 문서를 갱신한다. 단순 변경 이력은 Git이 담당하며, 의미 있는 기능·문제 해결은 `project-docs/work/`에 결정 이유·결과·검증·남은 일을 기록한다. 작업 완료 시 로드맵과 관련 현재 문서도 갱신한다.
 
-문서 역할·상태·보관 규칙은 [`project-docs/README.md`](project-docs/README.md)를 따른다. 합의한 미구현 방향은 현재 동작과 구분한다. 종료 Plan은 `project-docs/archive/plans/`에 보관하고 [`계획 인덱스`](project-docs/plans/README.md)에서 후속 방향과 분리한다.
+문서 역할은 [문서 안내](project-docs/README.md)를 따른다. API·DB·도메인·실행 흐름과 중요한 결정은 아키텍처에 통합한다. 큰 작업은 `project-docs/work/`의 한 문서에서 계획·진행·결과를 이어 기록하고 별도 Plan·완료 요약을 중복 생성하지 않는다. 과거 원본 묶음은 보존하며 현재 규칙으로 해석하지 않는다.
 
 완료 전에는 요구사항 충족, 최종 diff, 테스트·Lint·빌드 결과, 문서 영향과 남은 위험을 확인한다. 최종 응답에는 변경 결과, 주요 파일의 역할, 실행한 검증, 문서 변경과 잔여 위험을 간결하게 포함한다.

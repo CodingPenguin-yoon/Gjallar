@@ -5,7 +5,9 @@
 - 부분 검토: `2026-09-14`, 요청 파일 잠금 제거·보존 정책·고정 IP 이중 확인
 - 적용 범위: 현재 single-image FastAPI/React/PostgreSQL runtime
 
-이 문서는 현재 코드의 환경 준비·실행·검증·장애 대응을 위한 단일 절차 기준이다. [문서 홈](../README.md), [현재 API](../api/current-api-v1.md), [작업 lifecycle](../flows/verified-operation-lifecycle.md)에서 관련 계약을 찾는다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. [ADR-008](../decisions/adr-008-template-based-create-and-persistence-simplification.md)의 후속 저장 단순화와 구분하며, 아래 운영 절차는 현재 이력·compatibility 저장 구조를 기준으로 한다.
+이 문서는 현재 코드의 환경 준비·실행·검증·장애 대응을 위한 단일 절차 기준이다. [문서 홈](README.md), [현재 API](architecture.md), [작업 lifecycle](architecture.md)에서 관련 계약을 찾는다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. [현재 설계 기준](architecture.md)의 후속 저장 단순화와 구분하며, 아래 운영 절차는 현재 이력·compatibility 저장 구조를 기준으로 한다.
+
+고위험 변경과 live 실행 승인 경계는 [AGENTS.md](../AGENTS.md)를 따른다. 환경과 검증 명령은 이 문서에서만 관리한다.
 
 ## 1. 사전 조건
 
@@ -392,8 +394,8 @@ live mutation 전에 다음을 모두 확인한다.
 
 - canonical Operation current state와 checksum-linked event는 PostgreSQL `operations`, `operation_events`에, coordination은 `operation_recovery_items`, `operation_locks`에 저장된다. 기존 Jobs/Artifacts와 Create request는 입력·작업 이력으로 병행하며 현대 Create의 workload 결과는 Operation에 저장한다.
 - `operation_events` checksum chain은 application-level tamper evidence지만 external WORM/signing은 아니다. `job_runs` 최신 projection과 `job_artifacts` upsert 구조도 compliance-grade append-only audit가 아니다.
-- [ADR-012](../decisions/adr-012-create-preset-and-history-retention.md)에 따라 선택적 프리셋은 기존 DB에 유지하고 현재 저장 단위의 입력·검토·승인·작업 기록은 자동 만료·삭제 없이 보존한다. 장기 archive·삭제·이관은 실제 용량과 승인·감사·replay·recovery consumer를 검토한 별도 작업이다. 저장량·백업량이 늘 수 있으며 모든 입력·artifact revision의 불변 보존을 보장하지 않는다.
-- historical approved live-smoke 원본은 [`../evidence/legacy-live-smoke/README.md`](../evidence/legacy-live-smoke/README.md)에 보존한다.
+- [현재 설계 기준](architecture.md)에 따라 선택적 프리셋은 기존 DB에 유지하고 현재 저장 단위의 입력·검토·승인·작업 기록은 자동 만료·삭제 없이 보존한다. 장기 archive·삭제·이관은 실제 용량과 승인·감사·replay·recovery consumer를 검토한 별도 작업이다. 저장량·백업량이 늘 수 있으며 모든 입력·artifact revision의 불변 보존을 보장하지 않는다.
+- historical approved live-smoke 원본은 [정리 전 원본 묶음](archive/README.md)에 보존한다.
 - evidence 문서의 과거 제품 방향이나 절차를 현재 운영 기준으로 재사용하지 않는다.
 
 ## 11. 알려진 운영 공백
@@ -401,7 +403,7 @@ live mutation 전에 다음을 모두 확인한다.
 - `/health`는 DB/Proxmox deep readiness가 아니다.
 - degraded 상태에서 조회할 durable stale inventory snapshot은 아직 없다.
 - 네 action의 GET-only durable restart handler가 있지만 background runner는 기본 비활성이다. Create 중간 phase는 관찰만 가능하고 나머지 mutation을 자동 이어서 실행하지 않는다.
-- Create는 검토 단계부터 DB에 쓰며 request/Jobs/artifact는 승인·replay·recovery consumer에 계속 필요하다. 검토 계산·저장 분리와 current-workload writer 제거는 구현됐고, [ADR-012](../decisions/adr-012-create-preset-and-history-retention.md)가 현재 저장 정책을 확정한다. 장기 consumer·archive 이관은 별도 설계다.
+- Create는 검토 단계부터 DB에 쓰며 request/Jobs/artifact는 승인·replay·recovery consumer에 계속 필요하다. 검토 계산·저장 분리와 current-workload writer 제거는 구현됐고, [현재 설계 기준](architecture.md)가 현재 저장 정책을 확정한다. 장기 consumer·archive 이관은 별도 설계다.
 - Start/Shutdown은 terminal Operation을 기록한 뒤에도 Jobs projection·recovery completion·DB lock release가 남을 수 있다. status와 `coordination_incomplete`/recovery/lock을 함께 확인한다.
 - job/artifact는 공통 append-only operation audit가 아니다.
 - fenced operator observe API는 있지만 arbitrary force-complete/unlock, reverse compensation과 ambiguous Create effect를 승인하는 generic manual resolution API는 없다.
@@ -414,6 +416,6 @@ API의 state/freshness와 실행 gate는 그대로 유지한다. authoritative b
 
 ## 파일 잠금 제거 버전으로 전환
 
-[ADR-011](../decisions/adr-011-create-legacy-retirement.md)에 따라 mutation 진입을 중지하고 기존 worker를 정지한 후 미확정 Operation·lock을 관찰한다. 구버전/신버전 worker를 혼합 실행하지 않는다. 새 버전은 PostgreSQL lock만 사용하며 옛 lock 파일을 자동 삭제하지 않는다.
+[현재 설계 기준](architecture.md)에 따라 mutation 진입을 중지하고 기존 worker를 정지한 후 미확정 Operation·lock을 관찰한다. 구버전/신버전 worker를 혼합 실행하지 않는다. 새 버전은 PostgreSQL lock만 사용하며 옛 lock 파일을 자동 삭제하지 않는다.
 
 Start/Shutdown의 과거 `pre_dispatch_file_guard_cleaned=true`는 기존 no-effect 조건과 exact DB lock 검증을 함께 충족할 때만 읽기 호환한다. 새 기록은 `pre_dispatch_no_effect_verified`를 사용한다. 기록 없는 미확정 작업을 추정해서 해제하지 않는다. 신규 Create는 `vm_instances`를 갱신하지 않으므로 구버전 단순 rollback보다 roll-forward를 우선한다.

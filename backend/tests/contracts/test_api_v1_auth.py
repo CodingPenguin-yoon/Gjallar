@@ -784,7 +784,7 @@ def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypat
     assert plan_response.status_code == 200, plan_response.text
     review = plan_response.json()["data"]["review_confirm"]
 
-    def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None):
+    def fake_create(plan, *, run_dir, client, checkpoint=None, heartbeat=None, progress=None):
         from app.jobs.artifacts import write_json_artifact
 
         observed_after = {

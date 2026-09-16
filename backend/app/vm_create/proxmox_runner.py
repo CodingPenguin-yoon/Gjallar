@@ -705,6 +705,7 @@ def run_proxmox_create(
     client: ProxmoxMutationClient,
     checkpoint: VmCreateCheckpoint | None = None,
     heartbeat: Callable[[], None] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Clone, configure, and verify a VM via the native Proxmox API."""
     side_effects: list[str] = []
@@ -1169,6 +1170,8 @@ def run_proxmox_create(
                 "side_effects": side_effects,
             }
         if observed_power == "stopped":
+            if progress is not None:
+                progress("VM 생성이 완료되었습니다. 전원을 켜고 부팅 상태를 확인하고 있습니다.")
             _checkpoint(
                 checkpoint,
                 "start_pending",
@@ -1448,8 +1451,21 @@ def run_proxmox_create(
             observed_power = str(observed_status.get("status") or "")
             side_effects.append("proxmox_boot_post_check_observed")
 
+        power_message = (
+            "VM 생성·부팅이 완료되었습니다."
+            if observed_power == "running"
+            else "VM은 생성됐지만 실행 상태를 확인하지 못했습니다."
+        )
+        if progress is not None:
+            progress(f"{power_message} Guest Agent의 IP 정보를 확인하고 있습니다.")
         guest_agent = _observe_guest_agent_network(client, plan=plan, heartbeat=heartbeat)
         side_effects.append("proxmox_guest_agent_observed" if guest_agent.get("available") is True else "proxmox_guest_agent_unavailable")
+        if progress is not None:
+            progress(
+                f"{power_message} IP 확인 완료. 내부 초기 설정(cloud-init) 완료를 확인하고 있습니다."
+                if guest_agent.get("available") is True
+                else f"{power_message} IP 확인 불가. 내부 초기 설정(cloud-init) 완료를 확인하고 있습니다."
+            )
         cloud_init = _check_cloud_init_status(client, plan=plan, heartbeat=heartbeat)
         side_effects.append("proxmox_cloud_init_status_checked" if cloud_init.get("success") is True else "proxmox_cloud_init_status_unavailable")
         boot_verification = _boot_verification_summary(

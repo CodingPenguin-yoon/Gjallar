@@ -1,52 +1,115 @@
 # Gjallar
 
-Gjallar는 Proxmox의 VM과 클러스터 상태를 관찰하고, 위험과 원인을 설명하며, 필요한 작업의 실행 결과를 검증하는 **Observe-first Operations Intelligence with Verified Actions**입니다.
+**English** · [한국어](README.ko.md)
 
-Proxmox가 VM·node·task의 실제 상태와 실행을 소유합니다. Gjallar는 관찰 출처·시점, 운영 맥락, 작업 의도와 검증 증거를 연결합니다.
+**Run your Proxmox environment from one place.**
 
-- 현재 구현 확인일: `2026-09-07`
-- 기술 구성: React SPA, FastAPI, PostgreSQL/Alembic, Proxmox VE API
-- 기준 runtime: Python `3.13`, Node.js `24`, pnpm `10.34.5`
+Gjallar is building a simpler way to prepare templates, manage VMs, monitor infrastructure, and recover from problems. The goal is to finish everyday Proxmox operations through Gjallar's web interface or CLI, without switching back to the Proxmox management UI.
 
-## 현재 제공 기능
+Proxmox remains the engine and the source of truth. Gjallar connects the steps: understand the current state, make a change, and verify the result.
 
-| 영역 | 현재 동작 |
+> **Under active development.** The current application provides a web interface for inventory, template-based VM creation, start/shutdown, and operation tracking. The CLI, bootstrap installer, template authoring, embedded VM console, and backup/restore workflows are planned, not available today.
+
+## What matters
+
+- **Easy to start.** Make installation and Proxmox connection straightforward.
+- **Finish the job.** Keep preparation, management, monitoring, and recovery in one workflow.
+- **Trust the result.** Show what changed, whether it worked, and what still needs attention. An accepted request is not proof of success.
+
+The immediate focus is a solid everyday tool for individual operators and small teams. Enterprise features and AI assistance are later extensions of that foundation.
+
+## The experience we are building
+
+| Area | Goal |
 |---|---|
-| Overview · Workloads | 클러스터·node·VM·template·storage·network 관찰, VM 상세와 최근 작업 연결 |
-| Insights | Risks, VM readiness, Capacity, Placement의 원인·근거·관찰 상태 설명 |
-| Create VM | DB profile과 기존 Proxmox template을 선택하고 검토·승인 후 복제, disk 확장·설정, 선택적 부팅·검증 |
-| VM lifecycle | acknowledgement와 idempotency를 요구하는 Start, 강제 종료 fallback 없는 graceful Shutdown |
-| Guided `qm unlock` | 제한된 명령 안내, 사용자의 외부 실행 사실 기록, Proxmox API로 결과 검증 |
-| Operations | 공통 작업 목록·event timeline, Job history, 네 action의 GET-only recovery |
-| Account · Users & sessions | local user/session, `viewer < operator < admin` 권한과 계정 관리 |
+| Setup | Simple bootstrap on macOS and Linux, connection checks, and clear configuration guidance |
+| Templates | Register, prepare, validate, and manage reusable VM templates |
+| VM management | Create, clone, remove, start, shut down, change resources, and access VM consoles |
+| Monitoring | See node, VM, and storage health, resource usage, trends, and failed tasks |
+| Recovery | Inspect failures, manage backups, restore VMs, and verify outcomes |
+| Infrastructure | Inspect and manage the nodes, storage, and networks needed for everyday work |
+| CLI and web | Use the same permissions, operations, and results from either interface |
 
-실제 Proxmox inventory가 있으면 `PARTIAL` 상태에서도 정상적으로 관찰된 데이터를 표시합니다. Create VM 화면과 VM 생성·시작·종료는 complete `LIVE`를 요구합니다. snapshot이 없으면 관련 화면에 연결 안내를 표시하며, Operations·저장된 risk·계정 화면은 자체 데이터와 권한에 따라 유지됩니다. product runtime은 fake inventory로 대체하지 않습니다.
+**The priority question: “What still makes an operator leave Gjallar and open Proxmox?”** Each supported workflow should be complete before adding more surface area. Proxmox's own emergency administration paths remain available.
 
-Recovery는 Create VM, Start, Shutdown, Guided `qm unlock`을 지원합니다. background runner는 기본 비활성이며, 허용된 작업은 Operation 상세에서 다시 관찰할 수 있습니다. recovery는 Proxmox GET과 로컬 기록 정리만 수행하고 원래 mutation이나 명령을 다시 실행하지 않습니다.
+These are product goals, not a list of shipped features. See the [product specification](project-docs/prd.md) for the agreed direction and current implementation boundary.
 
-현재 VM 생성은 **기존 template 복제만 지원**합니다. ISO 설치, 빈 VM 생성, DRS·VM migration, 자동 remediation, arbitrary shell/SSH 실행은 제공하지 않습니다. 독립 Network readiness 화면은 제거됐고 network inventory와 생성 전 network 검토는 유지합니다.
+## Available today
 
-## 합의한 다음 방향
+| Capability | Current support |
+|---|---|
+| Inventory | Node, VM, template, storage, and network observations; VM details linked to recent operations |
+| Insights | Risk, readiness, capacity, and placement findings with evidence and observation freshness |
+| VM creation | Clone an existing Proxmox template, enter specifications directly or use an optional preset, review and approve the plan, and optionally boot and verify |
+| Power operations | Start and graceful shutdown with pre-checks and result verification |
+| Guided unlock | A restricted `qm unlock` procedure executed externally by the operator, followed by API verification |
+| Operation history | Status, event timelines, evidence, job history, and supported recovery observations |
+| Accounts | Local authentication, sessions, and `viewer`, `operator`, and `admin` roles |
 
-현재 단계의 생성 범위는 template 복제로 유지합니다. template을 먼저 선택하는 폼, 선택적 profile, 검토 단계의 DB 쓰기와 중복 저장 축소를 후속 방향으로 합의했습니다. **현재 코드는 여전히 DB profile과 기존 request/Jobs/Operation 저장 구조를 사용합니다.** 결정과 미구현 범위는 [ADR-008](project-docs/decisions/adr-008-template-based-create-and-persistence-simplification.md)에서 구분합니다.
+### Honest state and explicit outcomes
 
-## 시작하기
+- Missing or failed Proxmox connections are reported as such; production does not substitute fake inventory.
+- Partial observations remain visible with their limitations. Create input and review can use a partial base snapshot; execution has additional source and action-specific checks.
+- Recovery observation rechecks Proxmox and reconciles local records. It does not blindly replay the original change. The background recovery observer is disabled by default.
+- Current monitoring is inventory and operational insight, not a complete historical metrics or alerting system. A running VM does not by itself prove that its applications are healthy.
 
-처음 실행할 때는 [운영 Runbook](project-docs/operations/runbook.md)의 환경 준비·DB 초기화·계정 생성 절차를 따릅니다. 준비된 로컬 환경에서는 저장소 root에서 실행합니다.
+Template authoring, general VM editing/deletion, embedded consoles, backup/restore, migration, and infrastructure configuration are not implemented. VM creation currently requires an existing Proxmox template; ISO installation and empty-VM creation are not supported.
+
+## Run the current application
+
+There is no one-command installer yet. Follow the [operations runbook](project-docs/development.md) for dependency installation, environment configuration, PostgreSQL initialization, and account creation.
+
+### Local development
+
+Requirements: Python **3.13**, Node.js **24**, pnpm **10.34.5**, PostgreSQL, and access to a Proxmox VE API for infrastructure features.
+
+Once the runbook setup is complete, run from the repository root:
 
 ```bash
 pnpm run dev
 ```
 
-기본 접속 주소는 frontend `http://127.0.0.1:5173`, backend `http://127.0.0.1:8000`입니다. Docker 시작 시 migration·profile seed·선택적 admin bootstrap이 수행되므로 기존 DB 적용 절차도 Runbook에서 확인합니다.
+Default local addresses:
 
-## 문서
+- Web UI: <http://127.0.0.1:5173>
+- Backend: <http://127.0.0.1:8000>
 
-공동 기준 문서는 [문서 홈](project-docs/README.md)에서 목적별로 찾습니다.
+### Docker
 
-- [현재 구조](project-docs/architecture/overview.md) · [API 계약](project-docs/api/current-api-v1.md) · [DB와 소유권](project-docs/database/current-schema-and-ownership.md)
-- [실행·검증·장애 대응](project-docs/operations/runbook.md)
-- [결정 기록](project-docs/decisions/README.md) · [구현 계획과 이력](project-docs/plans/README.md)
-- [Backend 안내](backend/README.md) · [Frontend 안내](frontend/README.md)
+A Dockerfile is included. The production image serves the built web interface and FastAPI backend together; PostgreSQL is configured separately.
 
-과거 Plan과 [live-smoke evidence](project-docs/evidence/legacy-live-smoke/README.md)는 당시의 구현·검증 기록입니다. 현재 동작이나 새 live 작업의 승인으로 해석하지 않습니다.
+Follow the runbook's container instructions. Container startup applies database migrations, seeds optional creation presets, and can bootstrap an administrator. Review the existing-database procedure before pointing it at an existing installation.
+
+## Development and verification
+
+The repository contains a React frontend, FastAPI backend, PostgreSQL/Alembic persistence, and a Proxmox API adapter.
+
+| Location | Responsibility |
+|---|---|
+| `frontend/` | Web interface |
+| `backend/app/` | API, observations, operations, and Proxmox integration |
+| `backend/tests/` | Backend and contract tests |
+| `project-docs/` | Shared product and engineering documentation |
+
+With the required development dependencies installed:
+
+```bash
+pnpm run verify
+```
+
+For container-based verification with Docker available:
+
+```bash
+pnpm run verify:container
+```
+
+## Documentation
+
+Detailed project documentation is currently maintained in Korean.
+
+- [Documentation home](project-docs/README.md)
+- [Product direction and scope](project-docs/prd.md)
+- [Current architecture](project-docs/architecture.md)
+- [Setup, operations, and troubleshooting](project-docs/development.md)
+- [Roadmap](project-docs/roadmap.md) · [Work log](project-docs/work/README.md)
+- [Backend guide](backend/README.md) · [Frontend guide](frontend/README.md)

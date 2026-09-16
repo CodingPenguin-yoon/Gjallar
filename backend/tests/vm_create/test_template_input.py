@@ -94,7 +94,7 @@ def test_template_execute_persists_result_without_profile_catalog(monkeypatch, l
         "yellow_risk_acknowledged": True, "proxmox_mutation_acknowledged": True,
     })
 
-    def simulated_create(plan, *, run_dir, client, checkpoint, heartbeat):
+    def simulated_create(plan, *, run_dir, client, checkpoint, heartbeat, progress=None):
         observed = {"vmid": plan.vmid, "target_node_id": plan.target_node_id, "exists": True,
                     "status": "stopped", "fingerprint": {"hash": "sha256:" + "1" * 64}}
         artifact = write_json_artifact(run_dir=run_dir, job_id=plan.job_id, artifact_type="observed_after",

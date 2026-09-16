@@ -388,16 +388,38 @@ class ProxmoxRunnerTests(unittest.TestCase):
 
     def test_boot_and_verify_policy_starts_vm_and_records_guest_ip_cloud_init(self):
         from app.vm_create.proxmox_runner import run_proxmox_create
+        from app.vm_create.application import _record_create_progress, _record_plan_job
+        from app.jobs.runs import get_job_run_strict
 
         client = RecordingProxmoxClient()
         checkpoints = []
+        plan = self._plan(job_id="job-proxmox-boot-verify", power_policy="boot_and_verify")
+        _record_plan_job(plan, status="running", stage="create", step_status="running",
+                         message="생성 중", details={"approval": {"approved": True}})
+        progress_calls = []
+
+        def progress(message):
+            _record_create_progress(plan, message)
+            job = get_job_run_strict(plan.job_id)
+            self.assertEqual("running", job["status"])
+            self.assertEqual(message, job["message"])
+            self.assertEqual({"approved": True}, job["details"]["approval"])
+            self.assertLess(job["progress_percent"], 100)
+            progress_calls.append((message, [call[0] for call in client.calls]))
+
         result = run_proxmox_create(
-            self._plan(job_id="job-proxmox-boot-verify", power_policy="boot_and_verify"),
+            plan,
             run_dir=self.root / "boot-verify",
             client=client,
             checkpoint=lambda phase, evidence: checkpoints.append((phase, evidence)),
+            progress=progress,
         )
 
+        self.assertEqual(3, len(progress_calls))
+        self.assertNotIn("start_vm", progress_calls[0][1])
+        self.assertNotIn("get_guest_network_interfaces", progress_calls[1][1])
+        self.assertIn("cloud-init", progress_calls[2][0])
+        self.assertNotIn("exec_guest_command", progress_calls[2][1])
         self.assertTrue(result["success"])
         self.assertEqual("completed", result["status"])
         self.assertEqual("running", result["observed_after"]["status"])

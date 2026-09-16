@@ -70,7 +70,7 @@ data/*.db-wal
 *.tmp
 
 # 문서 로컬 워크스페이스 상태
-docs/.obsidian/
+project-docs/archive/local-workspace/
 .agent-local/
 
 # Infra 로컬 운영값
@@ -109,3 +109,6 @@ node_modules/
 */.pnpm-store/
 frontend/dist/
 frontend/.vite/
+
+# 문서 정리 전 미커밋 원본 보관
+!project-docs/archive/2026-09-16-documents-before-consolidation.tar.gz

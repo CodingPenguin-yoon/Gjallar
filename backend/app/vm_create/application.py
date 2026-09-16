@@ -764,6 +764,19 @@ def _artifacts_from_result(result: dict[str, Any]) -> list[Any]:
     return [artifact for artifact in result.get("artifacts") or [] if isinstance(artifact, dict)]
 
 
+def _record_create_progress(plan: Any, message: str) -> None:
+    record_job_run(
+        job_id=plan.job_id,
+        job_type="vm_create",
+        status="running",
+        target_id=_target_label(node_id=plan.target_node_id, vm_name=plan.vm_name),
+        risk_level=plan.risk_summary.get("level", "unknown"),
+        stage="create",
+        step_status="running",
+        message=message,
+    )
+
+
 def _record_pre_dispatch_failure_projections(
     plan: Any,
     *,
@@ -1304,6 +1317,7 @@ async def execute_proxmox_create(
                     client=client,
                     checkpoint=recovery_session.checkpoint,
                     heartbeat=recovery_session.heartbeat,
+                    progress=lambda message: _record_create_progress(plan, message),
                 )
             )
         except Exception as exc:

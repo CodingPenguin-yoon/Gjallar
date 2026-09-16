@@ -72,6 +72,7 @@ def test_legacy_create_vm_iac_readiness_is_removed_from_active_tree():
         repo_root / "frontend/tests",
         repo_root / "project-docs",
         repo_root / "README.md",
+        repo_root / "README.ko.md",
         repo_root / "backend/README.md",
         repo_root / "frontend/README.md",
         repo_root / ".env.example",
@@ -179,6 +180,7 @@ def test_removed_state_metadata_symbols_are_absent_from_active_tree():
         repo_root / "frontend/tests",
         repo_root / "project-docs",
         repo_root / "README.md",
+        repo_root / "README.ko.md",
         repo_root / "backend/README.md",
         repo_root / "frontend/README.md",
     ]
@@ -245,16 +247,14 @@ def test_project_docs_are_the_only_active_documentation_tree():
     docs_root = repo_root / "docs"
     project_docs_root = repo_root / "project-docs"
     required_paths = [
-        project_docs_root / "project-profile.md",
-        project_docs_root / "specifications/project-specification.md",
-        project_docs_root / "architecture/overview.md",
-        project_docs_root / "decisions/adr-001-proxmox-gjallar-authority-boundary.md",
-        project_docs_root / "decisions/adr-002-modular-monolith-domain-boundaries.md",
-        project_docs_root / "domains/domain-map.md",
-        project_docs_root / "flows/verified-operation-lifecycle.md",
-        project_docs_root / "api/current-api-v1.md",
-        project_docs_root / "database/current-schema-and-ownership.md",
-        project_docs_root / "operations/runbook.md",
+        project_docs_root / "README.md",
+        project_docs_root / "prd.md",
+        project_docs_root / "roadmap.md",
+        project_docs_root / "architecture.md",
+        project_docs_root / "development.md",
+        project_docs_root / "work/README.md",
+        project_docs_root / "archive/README.md",
+        project_docs_root / "archive/2026-09-16-documents-before-consolidation.tar.gz",
     ]
     missing = [str(path.relative_to(repo_root)) for path in required_paths if not path.is_file()]
 
@@ -319,6 +319,7 @@ def test_active_readmes_point_to_project_docs_instead_of_legacy_docs():
     repo_root = backend_root.parent
     readmes = [
         repo_root / "README.md",
+        repo_root / "README.ko.md",
         repo_root / "backend/README.md",
         repo_root / "frontend/README.md",
     ]
@@ -336,15 +337,11 @@ def test_active_project_docs_relative_markdown_links_resolve_locally():
     backend_root = Path(__file__).resolve().parents[2]
     repo_root = backend_root.parent
     project_docs_root = repo_root / "project-docs"
-    evidence_root = project_docs_root / "evidence"
-    pages = [
-        path
-        for path in sorted(project_docs_root.rglob("*.md"))
-        if evidence_root not in path.parents or path == evidence_root / "legacy-live-smoke/README.md"
-    ]
+    pages = sorted(project_docs_root.rglob("*.md"))
     pages.extend(
         [
             repo_root / "README.md",
+            repo_root / "README.ko.md",
             repo_root / "backend/README.md",
             repo_root / "frontend/README.md",
         ]
