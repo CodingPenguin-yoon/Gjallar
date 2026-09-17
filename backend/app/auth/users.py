@@ -15,7 +15,7 @@ from sqlalchemy import func, select, text, update
 
 from app.auth.passwords import hash_password, verify_password
 from app.auth.roles import VALID_ROLES, AuthenticatedUser, normalize_role
-from app.db.models import SessionRecord, UserRecord
+from app.db.models import AccountAuditEventRecord, SessionRecord, UserRecord
 from app.db.session import session_scope
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{1,80}$")
@@ -198,6 +198,28 @@ def create_user(*, username: str, password: str, role: str, enabled: bool = True
 
 def create_admin(*, username: str, password: str) -> AuthenticatedUser:
     return create_user(username=username, password=password, role="admin", enabled=True)
+
+
+def create_first_installation_admin(session, *, username: str, password: str) -> AuthenticatedUser:
+    """Insert under the caller's users write lock and installation transaction."""
+    if session.scalar(select(func.count()).select_from(UserRecord)) != 0:
+        raise ValueError("First administrator requires a zero-user database")
+    now = _now()
+    row = UserRecord(
+        user_id=f"user_{uuid.uuid4().hex}",
+        username=normalize_username(username),
+        password_hash=hash_password(_validated_password(password)),
+        role="admin", enabled=True, created_at=now, updated_at=now,
+    )
+    session.add(row)
+    session.flush()
+    session.add(AccountAuditEventRecord(
+        event_id=f"acctevt-{uuid.uuid4().hex}", operation="installation.create_first_admin",
+        actor_user_id=row.user_id, actor_username=row.username, actor_role="admin",
+        target_user_id=row.user_id, target_username=row.username,
+        details={"source": "installation_host", "zero_user_verified": True}, created_at=now,
+    ))
+    return actor_from_user(row)
 
 
 def _bootstrap_admin_credentials_from_env() -> tuple[str, str] | None:

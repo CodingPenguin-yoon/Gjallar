@@ -5,7 +5,7 @@
 
 ## 1. 전체 구조와 현재 범위
 
-React SPA와 FastAPI를 함께 배포하는 modular monolith이며 PostgreSQL과 Proxmox VE API를 사용한다. production image는 빌드된 UI를 같은 origin에서 제공한다. startup의 migration·seed·선택적 관리자 bootstrap은 개발 안내를 따른다.
+React SPA와 FastAPI를 함께 배포하는 modular monolith이며 PostgreSQL과 Proxmox VE API를 사용한다. production image는 빌드된 UI를 같은 origin에서 제공한다. 신규 관리형 Compose는 명시적 초기화와 serve를 분리한다. 기존 수동 배포의 legacy entrypoint는 호환 경로로 유지하며 개발 안내를 따른다.
 
 ```text
 Browser → React → FastAPI /api/v1 → Proxmox VE API
@@ -14,7 +14,7 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 옵션 recovery observer ─────→ Proxmox GET + 로컬 기록 정합화
 ```
 
-현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. CLI·간편 설치·템플릿 제작·내장 콘솔·일반 VM 수정·삭제·백업·복원·마이그레이션·시계열 모니터링·알림은 미구현이다.
+현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 독립 Python CLI·최소 메뉴 TUI와 관리형 Compose bootstrap은 M1-1·M1-2로 구현했으며 실제 설치 검증 전이다. 새 PVE credential 등록·템플릿 제작·내장 콘솔·일반 VM 수정·삭제·백업·복원·마이그레이션·시계열 모니터링·알림은 미구현이다.
 
 ## 2. 책임과 코드 찾기
 
@@ -32,6 +32,8 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 | Create 호환 경로 | `backend/app/vm_create/`, `vm_actions/` | 기존 API·Jobs consumer 보존 |
 | 인사이트 | `backend/app/insights/` | 읽기 전용, 자동 실행·승인 생성 없음 |
 | DB·Jobs | `backend/app/db/`, `jobs/`, `backend/alembic/` | 현재 저장 단위·호환 기록·migration 보존 |
+| 독립 client·설치 호스트 | `client/src/gjallar_client/` | API session·조회와 명시적 Compose bootstrap 분리, backend/DB 직접 import 없음 |
+| 관리형 서버 초기화 | `backend/app/installation/` | 빈 DB identity marker·일회성 admin, 일반 serve에서 migration 금지 |
 | 화면 | `frontend/src/app/`, `pages/`, `features/`, `entities/`, `shared/` | app → pages/features → entities/shared 방향 |
 
 기능별 구조에서 도메인별 구조로 전환 중이다. Create facade는 아직 DB·Jobs·Proxmox workflow를 직접 알며 frontend에도 legacy components/utils가 남아 있다. 별도 Policy/Approval·Evidence 서비스와 새로운 도메인별 DB 소유권은 완성된 구조가 아니다. 다른 도메인의 persistence model을 편의상 직접 참조하지 않는다.
@@ -129,6 +131,16 @@ Proxmox 호출과 PostgreSQL은 원자적 transaction이 아니다. `session_sco
 
 Proxmox actual-state authority, modular monolith, 명시적 연결 truth, PostgreSQL durable coordination, action별 검증, 현재 이력 보존을 유지한다. 과거 observe-first의 네 action 제한과 템플릿 제작 제외는 장기 제품 경계로 유지하지 않으며 새 목표는 PRD를 따른다. DRS 자동 배치·무승인 자동 복구·임의 shell은 복원하지 않는다.
 
-현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·CLI·콘솔 인증·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
+현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·CLI mutation·콘솔 인증·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
+
+M1의 합의된 목표 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Proxmox다. 클라이언트가 Proxmox를 직접 조작하는 별도 운영 경로는 추가하지 않고 기존 서버의 권한·작업·잠금·검증 경계를 공유한다. 로그인으로 전용 토큰을 발급하는 연결 절차와 서버 측 token 보관은 [PRD의 설치·접속 경험](prd.md)에 합의됐지만 아직 구현되지 않았다. 현재 env 기반 token adapter와 구분하며, bootstrap 배포 방식·클라이언트 session·credential 저장·발급 중단 복구의 세부 계약은 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에서 구체화한다.
+
+`2026-09-17` M1-1·M1-2는 사용자 승인 후 구현했다. Python client는 기존 cookie API를 사용하며 connection UUID/origin별 keyring 또는 명시적 process-memory session을 관리한다. 원격 HTTPS·고정 origin·redirect 금지·별칭의 atomic 저장과 동기식 CLI/TUI application을 공유한다. 새 HTTP route나 기존 DTO 변경은 없다. 기존 env Proxmox 설정을 자동 전환하지 않는다.
+
+신규 Compose는 loopback 앱/비공개 PostgreSQL 17 named volume과 image ID 고정을 사용한다. 설치 manifest/volume label/DB marker identity를 결합하며 secret 전용 파일·mount와 관리자 stdin을 쓴다. `GJALLAR_DATABASE_URL_FILE`은 기존 URL env와 상호 배타적 입력이다. 빈 DB에서만 `gjallar_installation(singleton, installation_id, state)`를 만드는 infrastructure 초기화는 기존 Alembic revision을 수정하지 않으며, 일반/기존 DB에 자동 marker를 추가하지 않는다. PostgreSQL advisory lock으로 schema 초기화를 직렬화하고 users table EXCLUSIVE lock 아래 zero-user/history 검사·admin·account audit·ready marker를 원자적으로 기록한다. 기존 VM lock/recovery는 변경하지 않는다.
+
+`init-schema`만 새 설치 migration/seed를 실행하고 `serve`·start는 현재 Alembic head/ready 확인만 한다. 같은 schema의 image upgrade만 제공하며 revision 변경·기존 DB migration은 별도 승인 경계에 남긴다. host manifest의 준비/volume 준비/완료 상태와 upgrade journal로 중단을 재개하고 volume·secret·계정·이력을 자동 삭제/덮어쓰지 않는다. PostgreSQL 실제 동시성·OS keyring·VM 설치는 아직 미검증이다.
+
+새 token 등록은 VMID lock 및 네 recovery kind에 그대로 편입하지 않는다. 서버 중계 PVE 로그인·암호화 credential 저장/중단 복구·env 전환은 같은 M1 work의 후속 DRAFT이며 이번 두 단위에 포함하지 않았다.
 
 과거 상세 ADR·API/DB 목록·단계별 기록은 [보관본](archive/README.md)에서 복원할 수 있다. 현재 문서는 여기와 PRD·개발 안내를 갱신하고, 별도 도메인·API·DB·ADR 문서를 관성적으로 추가하지 않는다.

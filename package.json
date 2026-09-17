@@ -15,7 +15,9 @@
     "lint:frontend": "pnpm --dir frontend lint",
     "build:frontend": "pnpm --dir frontend build",
     "test:backend:container": "docker build --target backend-test -t gjallar-backend-test:local .",
-    "verify": "pnpm run test:backend && pnpm run test:frontend && pnpm run lint:frontend && pnpm run build:frontend",
-    "verify:container": "pnpm run test:backend:container && docker build -t gjallar:local ."
+    "test:client": "client/.venv/bin/python -m pytest -q client/tests",
+    "test:client:container": "docker build --target client-test -t gjallar-client-test:local .",
+    "verify": "pnpm run test:client && pnpm run test:backend && pnpm run test:frontend && pnpm run lint:frontend && pnpm run build:frontend",
+    "verify:container": "pnpm run test:client:container && pnpm run test:backend:container && docker build -t gjallar:local ."
   }
 }

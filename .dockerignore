@@ -29,6 +29,10 @@ frontend/.vite/
 
 backend/venv/
 backend/.venv/
+client/.venv/
+client/dist/
+client/build/
+**/*.egg-info/
 venv/
 .venv/
 env/

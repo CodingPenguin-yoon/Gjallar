@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 
 DATABASE_URL_ENV = "GJALLAR_DATABASE_URL"
@@ -25,7 +26,16 @@ def _normalize_database_url(database_url: str) -> str:
 
 def get_database_url() -> str:
     """Return the configured Gjallar database URL."""
-    database_url = _normalize_database_url(str(os.getenv(DATABASE_URL_ENV, "")).strip())
+    value = str(os.getenv(DATABASE_URL_ENV, "")).strip()
+    secret_file = os.getenv("GJALLAR_DATABASE_URL_FILE")
+    if secret_file:
+        if value:
+            raise RuntimeError("Configure only one database credential source")
+        try:
+            value = Path(secret_file).read_text().strip()
+        except OSError:
+            raise RuntimeError("Database credential file is unavailable") from None
+    database_url = _normalize_database_url(value)
     if not database_url:
         raise RuntimeError(f"{DATABASE_URL_ENV} is required")
     lowered = database_url.lower()

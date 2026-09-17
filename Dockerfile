@@ -46,6 +46,15 @@ RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace/backend \
     python -m pytest -q -p no:cacheprovider /workspace/backend/tests
 
 
+FROM python:3.13-slim AS client-test
+
+WORKDIR /workspace/client
+COPY client/requirements.lock client/requirements-dev.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock -r requirements-dev.lock
+COPY client/ ./
+RUN python -m pytest -q -p no:cacheprovider tests
+
+
 FROM backend-base AS runtime
 
 WORKDIR /app

@@ -2,7 +2,7 @@
 
 - 상태: `APPROVED`
 - 최종 검토일: `2026-09-07`
-- 부분 검토: `2026-09-14`, 요청 파일 잠금 제거·보존 정책·고정 IP 이중 확인
+- 부분 검토: `2026-09-17`, M1-1 client·M1-2 관리형 bootstrap (실제 설치 검증 전)
 - 적용 범위: 현재 single-image FastAPI/React/PostgreSQL runtime
 
 이 문서는 현재 코드의 환경 준비·실행·검증·장애 대응을 위한 단일 절차 기준이다. [문서 홈](README.md), [현재 API](architecture.md), [작업 lifecycle](architecture.md)에서 관련 계약을 찾는다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. [현재 설계 기준](architecture.md)의 후속 저장 단순화와 구분하며, 아래 운영 절차는 현재 이력·compatibility 저장 구조를 기준으로 한다.
@@ -72,6 +72,8 @@ backend만 실행하려면 root에서 `pnpm run backend`, frontend만 실행하�
 터미널의 `Ctrl-C`로 두 process를 종료한다. background process가 남았으면 현재 port listener를 확인한 뒤 해당 process만 종료한다.
 
 ## 4. Container 시작
+
+아래는 기존 수동 배포의 legacy entrypoint다. 신규 관리형 설치는 아래 `M1 client와 관리형 bootstrap` 절차를 사용하며 일반 start에서 초기화를 실행하지 않는다.
 
 entrypoint가 `alembic upgrade head`를 자동 실행한다. 기존 또는 production DB에 연결할 image는 아래 read-only preflight와 별도 DB 적용 승인 전 배포·실행하지 않는다.
 
@@ -380,9 +382,11 @@ live mutation 전에 다음을 모두 확인한다.
 | `pnpm run test:frontend` | executable `frontend/tests/*.mjs` |
 | `pnpm run lint:frontend` | ESLint, warning 0 |
 | `pnpm run build:frontend` | Vite production build |
-| `pnpm run verify` | backend test → frontend test → lint → build |
+| `pnpm run test:client` | 독립 client의 mock transport·keyring·bootstrap tests |
+| `pnpm run verify` | client test → backend test → frontend test → lint → build |
 | `pnpm run test:backend:container` | Python 3.13 `backend-test` Docker stage |
-| `pnpm run verify:container` | backend test image와 production image build |
+| `pnpm run test:client:container` | Python 3.13 독립 client-test image build |
+| `pnpm run verify:container` | client·backend test image와 production image build (서비스 기동 없음) |
 
 - Docker frontend stage는 Node 24/pnpm 10.34.5로 frozen install 후 test·lint·build를 실행한다. backend-test stage는 Python 3.13에서 pytest를 실행한다.
 - frontend test 일부는 source text/regex contract이며 browser 동작 검증과 같지 않다. 변경에 맞는 직접 확인이 별도로 필요할 수 있다.
@@ -419,3 +423,77 @@ API의 state/freshness와 실행 gate는 그대로 유지한다. authoritative b
 [현재 설계 기준](architecture.md)에 따라 mutation 진입을 중지하고 기존 worker를 정지한 후 미확정 Operation·lock을 관찰한다. 구버전/신버전 worker를 혼합 실행하지 않는다. 새 버전은 PostgreSQL lock만 사용하며 옛 lock 파일을 자동 삭제하지 않는다.
 
 Start/Shutdown의 과거 `pre_dispatch_file_guard_cleaned=true`는 기존 no-effect 조건과 exact DB lock 검증을 함께 충족할 때만 읽기 호환한다. 새 기록은 `pre_dispatch_no_effect_verified`를 사용한다. 기록 없는 미확정 작업을 추정해서 해제하지 않는다. 신규 Create는 `vm_instances`를 갱신하지 않으므로 구버전 단순 rollback보다 roll-forward를 우선한다.
+
+
+## M1 client와 관리형 bootstrap
+
+M1-1·M1-2의 코드·격리 검증 경로다. 실제 OS keyring·PostgreSQL 동시성·macOS/Linux VM 설치는 별도 검증해야 하며 전체 M1 완료가 아니다. 새 Proxmox 로그인·MFA·token 발급·credential DB는 아직 없다. 기존 env 연결이 있는 Gjallar 서버를 client에서 조회할 수 있고, 미설정 서버는 `unconfigured`를 그대로 표시한다.
+
+### Client 준비와 기존 서버 연결
+
+Python 3.13 이상과 독립 client만 필요하다. 원격 연결에는 Docker·로컬 DB·Proxmox token이 필요 없다. 개발 검증용 설치는 저장소 안에서 수행한다.
+
+```bash
+python3.13 -m venv client/.venv
+client/.venv/bin/pip install --require-hashes -r client/requirements.lock -r client/requirements-dev.lock
+client/.venv/bin/pip install --no-deps ./client
+client/.venv/bin/gjallar connect primary https://gjallar.example.com
+client/.venv/bin/gjallar login --connection primary
+client/.venv/bin/gjallar status
+client/.venv/bin/gjallar connection status
+client/.venv/bin/gjallar nodes
+client/.venv/bin/gjallar vms
+client/.venv/bin/gjallar templates
+client/.venv/bin/gjallar connection list
+client/.venv/bin/gjallar connection use primary
+client/.venv/bin/gjallar logout
+```
+
+lock 재생성은 `uv lock --project client`, `uv export --project client --no-emit-project --no-dev --format requirements-txt --output-file client/requirements.lock`, `uv export --project client --no-emit-project --only-group dev --format requirements-txt --output-file client/requirements-dev.lock`이다. `uv sync --project client --frozen`도 개발 설치에 사용할 수 있다. production image에는 client 의존성을 넣지 않는다.
+
+- 인자 없는 `gjallar` 또는 `gjallar tui`는 두 시작 경로와 로그인·연결 선택·조회를 제공하는 동기식 메뉴 TUI다. 전체 VM 관리 TUI가 아니다.
+- 기본 session 저장은 macOS Keychain/Linux SecretService만 허용한다. 사용할 수 없거나 잠긴 경우 자동 fallback 없이 실패한다. headless에서는 `gjallar --session-mode memory tui`를 명시적으로 실행한다. 이 프로세스 안에서 로그인·조회·전환을 계속하며 종료 후 cookie를 보관하지 않는다. 비밀번호는 항상 비표시 입력이다.
+- 설정 경로는 `${XDG_CONFIG_HOME:-~/.config}/gjallar`, `--config-dir`로 변경 가능하다. 0700 디렉터리·0600 JSON에는 profile UUID·origin·CA 참조·cookie 이름·선택만 저장한다. 별칭을 덮어쓰지 않는다. session은 UUID/origin/cookie 이름별로 분리한다.
+- HTTPS 검증은 필수다. HTTP는 `127.0.0.1`·`::1` 같은 literal loopback에만 허용한다. URL userinfo/path prefix/query/fragment·redirect·원격 HTTP는 거부한다. private CA는 `connect ... --ca-file /path/to/ca.pem`, 커스텀 cookie는 `--cookie-name`을 사용한다. proxy 환경 변수는 자동 사용하지 않는다.
+- CLI 결과는 JSON 하나와 종료 코드다. 입력 prompt/진행 안내는 stderr, TUI는 사람이 읽는 메뉴다. 0 정상(부분 관찰은 warning 포함), 2 입력, 3 로그인/session 만료, 4 권한, 5 TLS/통신/서버 계약, 6 Proxmox 미설정/관찰 불가, 7 저장/설치 오류, 130 중단이다. 연결 관찰의 `observed_at`·`freshness`·`availability`를 확인한다.
+- logout 통신 실패에도 로컬 cookie 삭제를 시도하며 서버 폐기 미확인을 오류로 알린다. keyring 삭제 자체가 실패하면 삭제 성공을 주장하지 않는다. 서버 관리자 sessions 화면에서 폐기하거나 만료를 기다린다. TUI 종료는 logout·서비스 stop·Proxmox token 폐기를 호출하지 않는다.
+
+### 새 로컬 설치 (별도 실행 승인·검증 대상)
+
+다음 명령은 실제 설치·서비스 기동을 수반한다. 이번 구현 작업에서는 실행하지 않았다. 새 disposable Linux VM/macOS 환경과 정확한 설치 경로·port를 지정해 승인 후 실행한다. 기존 운영 DB/volume에 적용하지 않는다.
+
+```bash
+docker build -t gjallar:local .
+client/.venv/bin/gjallar --session-mode memory bootstrap --install-dir "$HOME/.local/share/gjallar" --port 8000 --image gjallar:local
+```
+
+현재 배포 입력은 사용자가 준비한 **이번 코드의 이미지**이며 공개 release registry/서명된 배포 manifest는 아직 제공하지 않는다. 앱 이미지를 자동 build하지 않는다. PostgreSQL은 `postgres:17-bookworm`을 가져와 실제 image ID로 고정하고, 앱도 image ID로 고정한다. 재시작에서 tag를 다시 해석하지 않으며 PostgreSQL major를 변경하는 option은 없다. 검증된 patch/digest의 공개 release 배포와 OS별 지원 확정은 후속 검증이다.
+
+1. Linux/macOS amd64·arm64, Compose 2.20 이상, local Unix-socket Docker context·Linux engine, engine/image CPU 일치, loopback port, 전용 설치 경로와 기존 파일/volume을 검사한다. Linux 배포판별·macOS 버전별 지원 완료 선언은 아직 하지 않는다. Docker가 없으면 공식 설치 링크를 안내하고 중단한다. 패키지·권한·Docker 서비스를 자동 설치/기동하지 않는다.
+2. 새로운 UUID/project/volume을 기록하고 전용 `secrets/`를 준비한다. postgres superuser·제한된 `gjallar` DB role의 비밀번호와 DB URL은 host 0600 전용 파일이며 manifest/Compose에는 파일 참조만 있다. 평문 일반 설정 fallback이 아니다. host 접근 통제·디스크 암호화·secret 별도 backup은 운영 책임이다. PostgreSQL용 secret은 root wrapper가 컨테이너 tmpfs에 postgres 소유 0400으로 복사하며 host 파일 권한을 넓히지 않는다.
+3. named volume label과 manifest identity를 확인한다. DB 최초 실행 전 `storage_ready`를 기록해 이후 volume 유실 시 빈 DB 재생성을 금지한다. DB에는 빈 schema에서만 `gjallar_installation` marker를 만들고 명시적 `init-schema`가 Alembic/초기 profile seed를 실행한다. marker 없는 기존 DB·identity 불일치는 거부한다.
+4. 최초 관리자 입력은 server maintenance의 stdin으로 전달한다. 현재 head·설치 marker·users 전체 0건·업무 이력 부재를 검사하고 users write lock 아래 관리자·account audit·ready marker를 같은 transaction에 기록한다. 기존 계정/비밀번호를 덮어쓰지 않는다. commit 후 응답 유실은 재실행에서 ready를 읽어 관리자 입력을 건너뛴다.
+5. 일반 serve는 DB revision/ready를 확인하고 Uvicorn만 실행한다. Compose 앱 health 후 웹 URL을 안내하고 공통 client flow로 Gjallar 로그인·연결 관찰을 진행한다. Proxmox 미설정은 설치 성공과 별도로 표시한다. 웹은 같은 Gjallar 이미지에서 제공한다.
+
+### 재시작·상태·종료·업그레이드와 복구
+
+```bash
+client/.venv/bin/gjallar service status --install-dir "$HOME/.local/share/gjallar"
+client/.venv/bin/gjallar service start --install-dir "$HOME/.local/share/gjallar"
+client/.venv/bin/gjallar service stop --install-dir "$HOME/.local/share/gjallar"
+client/.venv/bin/gjallar upgrade --install-dir "$HOME/.local/share/gjallar" --image gjallar:next
+```
+
+- 설치 중단은 **같은 경로/port**로 bootstrap을 재실행한다. ready 설치의 bootstrap은 기존 이미지를 유지하고 start로 간다. 다른 `--image`는 upgrade 명령으로 안내한다. start는 migration·seed·admin을 실행하지 않는다.
+- stop은 앱 다음 PostgreSQL을 중지하며 volume/config/계정/작업 기록을 남긴다. `down -v`, uninstall, prune, DB major upgrade·데이터 이동/삭제를 제공하지 않는다.
+- upgrade는 후보 이미지의 현재 DB head/identity/ready 검사에 통과한 **동일 schema** 전환만 한다. 이전 두 설정을 `before-upgrade-*`에 보존하고 `upgrade.json`으로 두 파일 교체의 중단을 복구한다. status가 `upgrade_pending`이면 service start로 이어간다. DB revision 변경은 앱을 정지하기 전에 거부하고 기존 DB migration의 별도 backup/승인 절차로 보낸다. 되돌릴 때도 schema가 같은 기존 image ID만 사용한다. image prune을 하지 않고 이전 이미지와 volume을 보존한다.
+- missing/손상 secret·누락된 기존 volume·외부 수정 config·identity 충돌은 자동 덮어쓰기/재생성하지 않는다. backup에서 해당 설치의 원본을 복구해야 한다. initdb 자체가 불완전한 volume도 삭제하지 않는다. PostgreSQL 로그/파일을 검토하는 별도 복구가 필요할 수 있다. CLI 오류는 subprocess 원문을 출력하지 않으므로 민감정보를 제외한 정확한 단계와 Docker 상태를 확인한다.
+- 기본 공개는 `127.0.0.1:<port>`뿐이며 DB port는 publish하지 않는다. 원격 HTTP 공개 option은 없다. 원격 브라우저 공개는 별도 검증된 TLS proxy·canonical HTTPS origin·Secure cookie·SameSite 정책을 먼저 준비한 별도 배포 구성에서만 수행한다. 현재 bootstrap은 proxy를 자동 설치하지 않고 수동 변경된 관리형 Compose를 덮어쓰지 않는다. Linux VM의 로컬 웹 검증에는 승인된 SSH tunnel을 사용할 수 있다.
+
+### 실제 환경에서 남은 검증 순서
+
+1. disposable Linux VM 및 macOS의 Docker/Compose·CPU·OS keyring/명시적 memory 경로를 확인하고 위 새 설치 명령을 실행한다. 원격 연결만 선택했을 때 Docker/DB가 필요 없는지도 별도로 확인한다.
+2. 전용 PostgreSQL 테스트 DB URL로 `backend/tests/integration/test_installation_postgresql.py`의 두 동시성/lock 검사를 실행한다. 기존 운영 DB를 테스트 대상으로 사용하지 않는다.
+3. 관리자 생성 전/후, migration/응답 유실·서비스 기동 전후 중단을 재현해 같은 경로로 재실행하고 사용자/hash·volume identity·이력 보존을 확인한다. secret이 프로세스 argv/환경 값·Compose 일반 설정·로그에 나타나지 않는지 확인한다.
+4. 브라우저 login/origin/cookie·CLI role·TUI 종료 후 서비스 유지·stop/start·동일 schema upgrade와 실패 복구를 확인한다. 필요 시 별도 승인된 TLS 원격 공개를 검증한다.
+5. Proxmox 미설정은 `unconfigured`여야 한다. 기존 env 연결의 실제 노드/VM/template 동등성은 정확한 live target·조회 영향 승인 후 확인한다. 새 PVE token 등록 완료로 표시하지 않는다.
