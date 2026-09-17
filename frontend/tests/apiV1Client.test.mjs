@@ -73,6 +73,13 @@ const fakeFetch = async (url, options = {}) => {
 }
 
 const client = createApiV1Client({ baseUrl: '/custom/api/v1', fetchImpl: fakeFetch })
+assert.equal((await client.listProxmoxRegistrations()).url, '/custom/api/v1/setup/proxmox/registrations')
+assert.equal((await client.getProxmoxRegistration('attempt/1')).url, '/custom/api/v1/setup/proxmox/registrations/attempt%2F1')
+assert.deepEqual((await client.prepareProxmoxRegistration({ intent: {}, idempotency_key: 'same-request' })).body, { intent: {}, idempotency_key: 'same-request' })
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.deepEqual((await client.actProxmoxRegistration('attempt/1', 'observe', { expected_version: 5 })).body, { expected_version: 5 })
+assert.equal(calls.at(-1).url, '/custom/api/v1/setup/proxmox/registrations/attempt%2F1/observe')
+assert.equal(calls.at(-1).options.credentials, 'include')
 assert.deepEqual((await client.login('yoon', 'secret')).body, { username: 'yoon', password: 'secret' })
 assert.equal(calls.at(-1).url, '/custom/api/v1/auth/login')
 assert.equal(calls.at(-1).options.method, 'POST')

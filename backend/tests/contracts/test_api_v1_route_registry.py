@@ -78,6 +78,10 @@ EXPECTED_API_V1_ROUTES = (
         "get_proxmox_connection_status",
         200,
     ),
+    ("GET", "/api/v1/setup/proxmox/registrations", "list_attempts", 200),
+    ("POST", "/api/v1/setup/proxmox/registrations", "prepare", 200),
+    ("GET", "/api/v1/setup/proxmox/registrations/{attempt_id}", "status", 200),
+    ("POST", "/api/v1/setup/proxmox/registrations/{attempt_id}/{action}", "action", 200),
     ("GET", "/api/v1/storage", "list_storage", 200),
     ("GET", "/api/v1/templates", "list_templates", 200),
     ("POST", "/api/v1/vm-create/drafts", "create_vm_draft_route", 200),
@@ -162,7 +166,7 @@ def test_api_v1_route_registry_is_unchanged_during_router_extraction():
         )
     )
 
-    assert len(actual) == 41
+    assert len(actual) == 45
     assert actual == EXPECTED_API_V1_ROUTES
 
 
@@ -179,6 +183,8 @@ def test_api_v1_access_boundaries_are_unchanged_during_router_extraction():
             assert dependencies == {require_user}, route_key
         elif route.path.startswith("/api/v1/admin/"):
             assert dependencies == {require_admin}, route_key
+        elif route.path.startswith("/api/v1/setup/proxmox/registrations"):
+            assert dependencies == {require_viewer, require_admin}, route_key
         elif route_key in OPERATOR_ROUTES:
             assert dependencies == {require_viewer, require_operator}, route_key
         else:

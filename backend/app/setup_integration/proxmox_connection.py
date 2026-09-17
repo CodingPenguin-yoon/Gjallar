@@ -69,11 +69,12 @@ def observe_proxmox_connection(adapter: Any, *, fresh: bool = False) -> ProxmoxC
         context = adapter.redacted_connection_context() if hasattr(adapter, "redacted_connection_context") else {}
         return ProxmoxConnectionObservation(
             status=ProxmoxConnectionStatus(
-                state="unconfigured",
+                state=str(context.get("state") or "unconfigured"),
                 source=source,
                 cluster_id=cluster_id,
                 reason=str(context.get("reason") or "proxmox_inventory_unconfigured"),
                 missing_configuration=tuple(context.get("missing_configuration") or ()),
+                configured=context.get("state") == "degraded",
             )
         )
 

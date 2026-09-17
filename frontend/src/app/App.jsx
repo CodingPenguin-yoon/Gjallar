@@ -17,6 +17,7 @@ import GuidedQmUnlockPage from '../pages/operations/GuidedQmUnlockPage'
 import Dashboard from '../pages/dashboard/DashboardPage'
 import LoginPage from '../pages/auth/LoginPage'
 import AccountSettingsScreen from '../pages/settings/AccountSettingsPage'
+import ProxmoxSetupPage from '../pages/settings/ProxmoxSetupPage'
 import AppShell from './AppShell'
 import { InsightsShell, OperationsShell, SettingsShell, WorkloadsShell } from './navigation'
 import { primaryNavItems } from './navigationModel'
@@ -237,6 +238,7 @@ function App() {
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
           <Route path="/settings/account" element={accountRoute} />
           <Route path="/settings/admin/users" element={adminUsersRoute} />
+          <Route path="/settings/proxmox" element={<SettingsShell isAdmin={isAdmin}><AdminGuard currentUser={currentUser}><ProxmoxSetupPage /></AdminGuard></SettingsShell>} />
           <Route path="/infra" element={vmInventoryRoute} />
           <Route path="/create" element={createVmRoute} />
           <Route path="/networks" element={<Navigate to="/instances" replace />} />

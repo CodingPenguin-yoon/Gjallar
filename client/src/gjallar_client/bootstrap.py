@@ -59,18 +59,20 @@ def parse_json(value):
 
 def compose_config(manifest):
     identity = manifest["id"]
+    credential_secrets = ["credential_key"] if manifest["version"] >= 2 else []
     common = {
         "image": manifest["image"],
         "entrypoint": ["python", "-m", "app.installation.maintenance"],
         "environment": {
             "GJALLAR_DATABASE_URL_FILE": "/run/secrets/database_url",
             "GJALLAR_INSTALLATION_ID": identity,
+            **({"GJALLAR_CREDENTIAL_KEY_FILE": "/run/secrets/credential_key"} if credential_secrets else {}),
             "GJALLAR_ALLOWED_ORIGINS": f'http://127.0.0.1:{manifest["port"]}',
             "GJALLAR_SESSION_COOKIE_SECURE": "false",
             "GJALLAR_SESSION_COOKIE_SAMESITE": "lax",
             "GJALLAR_INVENTORY_MODE": "live",
         },
-        "secrets": ["database_url"],
+        "secrets": ["database_url", *credential_secrets],
         "depends_on": {"postgres": {"condition": "service_healthy"}},
         "logging": {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}},
     }
@@ -93,7 +95,7 @@ def compose_config(manifest):
                                         "interval": "3s", "timeout": "5s", "retries": 30}},
         },
         "volumes": {"pgdata": {"external": True, "name": manifest["volume"]}},
-        "secrets": {name: {"file": f"./secrets/{name}"} for name in ("database_url", "postgres_password", "app_password")},
+        "secrets": {name: {"file": f"./secrets/{name}"} for name in ("database_url", "postgres_password", "app_password", *credential_secrets)},
     }
 
 
@@ -141,7 +143,7 @@ class Bootstrap:
 
     @staticmethod
     def validate_manifest(data):
-        if set(data) != {"version", "id", "project", "volume", "port", "image", "postgres_image", "state"} or data["version"] != 1:
+        if set(data) != {"version", "id", "project", "volume", "port", "image", "postgres_image", "state"} or data["version"] not in {1, 2}:
             raise ValueError
         uid = str(uuid.UUID(data["id"]))
         if data["project"] != "gjallar-" + uid or data["volume"] != "gjallar-" + uid + "-pgdata":
@@ -201,7 +203,10 @@ class Bootstrap:
         private_directory(self.directory / "secrets")
         postgres_password = self._secret("postgres_password", secrets.token_hex(32))
         app_password = self._secret("app_password", secrets.token_hex(32))
-        if not all(re.fullmatch(r"[0-9a-f]{64}", value) for value in (postgres_password, app_password)):
+        values = [postgres_password, app_password]
+        if manifest["version"] >= 2:
+            values.append(self._secret("credential_key", secrets.token_hex(32)))
+        if not all(re.fullmatch(r"[0-9a-f]{64}", value) for value in values):
             raise ClientError("SECRET_INVALID", "중단된 secret 파일이 손상되었습니다. 값을 덮어쓰지 않고 중단합니다.")
         database_url = f"postgresql+psycopg://gjallar:{app_password}@postgres:5432/gjallar"
         if self._secret("database_url", database_url) != database_url:
@@ -226,7 +231,8 @@ class Bootstrap:
         directory = self.directory / "secrets"
         if directory.is_symlink() or not directory.is_dir() or directory.stat().st_mode & 0o077 or directory.stat().st_uid != os.getuid():
             raise ClientError("SECRET_UNSAFE", "secret 디렉터리는 현재 사용자 소유의 0700 경로여야 합니다.")
-        for name in ("postgres_password", "app_password", "database_url"):
+        names = ("postgres_password", "app_password", "database_url") + (("credential_key",) if manifest["version"] >= 2 else ())
+        for name in names:
             path = self.directory / "secrets" / name
             if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077 or path.stat().st_uid != os.getuid() or not path.read_text():
                 raise ClientError("SECRET_MISSING", "기존 secret이 없거나 권한이 올바르지 않습니다. 재생성하지 않습니다.")
@@ -269,7 +275,7 @@ class Bootstrap:
                     raise ClientError("PATH_NOT_EMPTY", "설치 경로에 기존 파일이 있습니다. 덮어쓰지 않습니다.", 2)
                 self.port_check(port)
                 uid = str(uuid.uuid4())
-                manifest = {"version": 1, "id": uid, "project": "gjallar-" + uid, "volume": "gjallar-" + uid + "-pgdata",
+                manifest = {"version": 2, "id": uid, "project": "gjallar-" + uid, "volume": "gjallar-" + uid + "-pgdata",
                             "port": port, "image": self.image(image or "gjallar:local"), "postgres_image": self.image("postgres:17-bookworm", pull=True), "state": "preparing"}
                 if manifest["volume"] in self.volumes():
                     raise ClientError("VOLUME_CONFLICT", "새 설치 이름의 volume이 이미 존재합니다.")

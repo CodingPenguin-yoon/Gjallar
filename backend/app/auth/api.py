@@ -78,6 +78,9 @@ async def login(request: Request, response: Response, payload: dict | None = Non
 
 @router.post("/logout")
 async def logout(request: Request, response: Response) -> dict:
+    from app.setup_integration.registration import service as registration_service
+
+    registration_service.invalidate_session(current_session_id_from_request(request))
     revoked = revoke_session_token(session_cookie_value(request))
     clear_session_cookie(response)
     return success_response(

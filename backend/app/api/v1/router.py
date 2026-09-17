@@ -11,6 +11,7 @@ from app.api.v1.jobs_compat import router as jobs_compat_router
 from app.api.v1.operations import router as operations_router
 from app.api.v1.vm_actions import router as vm_actions_router
 from app.api.v1.vm_create_compat import router as vm_create_compat_router
+from app.api.v1.proxmox_setup import router as proxmox_setup_router
 from app.auth.dependencies import require_viewer
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_viewer)])
@@ -21,3 +22,4 @@ router.include_router(insights_router)
 router.include_router(jobs_compat_router)
 router.include_router(vm_actions_router)
 router.include_router(vm_create_compat_router)
+router.include_router(proxmox_setup_router)

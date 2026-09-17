@@ -78,6 +78,9 @@ def parser():
         command.add_argument("--connection")
     for name in ("nodes", "vms", "templates", "tui"):
         commands.add_parser(name)
+    setup = commands.add_parser("proxmox-setup", help="관리자용 Proxmox 로그인·권한 계획·연결 등록")
+    setup.add_argument("--resume", help="기존 등록 ID로 상태 확인·재개")
+    setup.add_argument("--list", action="store_true", help="내 등록 ID·단계 조회")
     install = commands.add_parser("bootstrap", help="로컬 신규 설치 또는 기존 설치 재개·시작")
     install.add_argument("--install-dir", type=Path, default=Path.home() / ".local/share/gjallar")
     install.add_argument("--image")
@@ -119,6 +122,10 @@ def main(argv=None):
                 result["observation"] = app.read("connection")
             elif args.command == "login":
                 result = app.login(prompt("Gjallar 계정: "), secure_password("비밀번호: "), args.connection)
+            elif args.command == "proxmox-setup":
+                from .proxmox_setup import wizard
+                result = app.proxmox_setup("list") if args.list else wizard(app, read=prompt, password=secure_password,
+                                output=lambda message: print(message, file=sys.stderr), attempt_id=args.resume)
             elif args.command == "logout":
                 result = app.logout(args.connection)
             elif args.command == "status":

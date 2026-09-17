@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { accountNavItem, adminNavItem, insightsNavItems, operationsNavItems, resolveSectionNavItems, workloadNavItems } from './navigationModel'
+import { accountNavItem, adminNavItem, proxmoxSetupNavItem, insightsNavItems, operationsNavItems, resolveSectionNavItems, workloadNavItems } from './navigationModel'
 
 function subnavClass({ isActive }) {
   return `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -48,5 +48,5 @@ export function InsightsShell({ children }) {
 }
 
 export function SettingsShell({ isAdmin, children }) {
-  return <section className="space-y-4"><SectionSubnav items={isAdmin ? [accountNavItem, adminNavItem] : [accountNavItem]} ariaLabel="Settings navigation" />{children}</section>
+  return <section className="space-y-4"><SectionSubnav items={isAdmin ? [accountNavItem, adminNavItem, proxmoxSetupNavItem] : [accountNavItem]} ariaLabel="Settings navigation" />{children}</section>
 }

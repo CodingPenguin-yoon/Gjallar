@@ -142,3 +142,27 @@ class Application:
         if failure:
             raise ClientError("LOGOUT_UNCONFIRMED", "로컬 session은 삭제했습니다. 서버 폐기는 확인되지 않았습니다. 만료 또는 관리자 폐기를 확인하세요.", failure.exit_code)
         return {"ok": True, "connection": name, "authenticated": False, "status": "revoked_or_already_expired" if session else "no_local_session"}
+
+    def proxmox_setup(self, action, *, attempt_id=None, body=None):
+        import uuid
+
+        if action not in {"list", "prepare", "status", "login", "mfa", "plan", "confirm", "verify", "activate", "observe", "cancel", "revoke", "import-plan", "import-env"}:
+            raise ClientError("INVALID_ACTION", "지원하지 않는 연결 등록 작업입니다.", 2)
+        name, profile = self.connections.get()
+        identity = self.status(name)
+        if identity["user"]["role"] != "admin":
+            raise ClientError("PERMISSION_DENIED", "Proxmox 연결 등록은 Gjallar 관리자만 할 수 있습니다.", 4)
+        path = "setup/proxmox/registrations"
+        if action not in {"prepare", "list"}:
+            try:
+                path += "/" + str(uuid.UUID(attempt_id))
+            except (ValueError, TypeError, AttributeError):
+                raise ClientError("INVALID_ATTEMPT", "올바른 등록 ID가 필요합니다.", 2) from None
+            if action != "status":
+                path += "/" + action
+        session = self._session(profile)
+        if session is None:
+            raise ClientError("SESSION_EXPIRED", "다시 로그인하세요.", 3)
+        payload, _ = self._request(profile, "GET" if action in {"status", "list"} else "POST", path,
+                                   token=session["token"], body=body)
+        return {**identity, "data": payload["data"]}

@@ -25,6 +25,7 @@ def run(app, *, read=input, password=getpass.getpass, output=print, local_start=
                     show(exc.output(), output)
             output("1 이 컴퓨터에서 Gjallar 실행 | 2 기존 Gjallar 서버에 연결 | 3 저장된 연결 선택")
             output("4 로그인 | 5 상태 | 6 노드 | 7 VM | 8 템플릿 | 9 연결 관찰 | 0 logout | q TUI 종료")
+            output("p Proxmox 연결 등록·재개 (관리자)")
             choice = read("선택: ").strip()
             if choice == "q":
                 return 0
@@ -48,6 +49,11 @@ def run(app, *, read=input, password=getpass.getpass, output=print, local_start=
                 show(app.read({"6": "nodes", "7": "vms", "8": "templates", "9": "connection"}[choice]), output)
             elif choice == "0":
                 show(app.logout(), output)
+            elif choice == "p":
+                from .proxmox_setup import wizard
+                show(app.proxmox_setup("list"), output)
+                show(wizard(app, read=read, password=password, output=output,
+                            attempt_id=read("등록 ID (새 등록은 Enter): ").strip() or None), output)
         except ClientError as exc:
             show(exc.output(), output)
         except (EOFError, KeyboardInterrupt):

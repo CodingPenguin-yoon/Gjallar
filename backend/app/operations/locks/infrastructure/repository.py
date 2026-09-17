@@ -89,6 +89,14 @@ class SqlAlchemyDurableTargetLockRepository:
         )
         try:
             with self._sessions() as session:
+                from app.setup_integration.contracts import SetupError
+                from app.setup_integration.runtime import admit_mutation
+
+                try:
+                    admit_mutation(session, cluster_id=normalized_cluster, vmid=normalized_vmid,
+                                   operation_type=operation_type)
+                except SetupError as exc:
+                    raise DurableTargetLockBusy(scope_key=scope_key, existing={"reason": exc.code}) from None
                 session.add(row)
                 session.flush()
                 return _lock(row)

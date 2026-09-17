@@ -346,7 +346,7 @@ def test_sqlite_0029_failure_rolls_back_the_whole_revision_and_can_retry(tmp_pat
         with monkeypatch.context() as fault:
             fault.setattr(Operations, "drop_table", fail_after_first_drop)
             with pytest.raises(RuntimeError, match="injected DRS retirement DDL failure"):
-                upgrade(config, "head")
+                upgrade(config, "20260824_0029")
 
         assert dropped_tables == ["drs_reconciliation_events"]
 
@@ -374,7 +374,7 @@ def test_sqlite_0029_failure_rolls_back_the_whole_revision_and_can_retry(tmp_pat
             assert connection.execute(text("select count(*) from job_runs where job_id = 'retry-job'")).scalar_one() == 1
         engine.dispose()
 
-        upgrade(config, "head")
+        upgrade(config, "20260824_0029")
 
         engine = create_engine(database_url, future=True)
         inspector = inspect(engine)
@@ -395,7 +395,7 @@ def test_drs_schema_retirement_downgrade_requires_roll_forward(tmp_path, monkeyp
     from app.db.session import reset_session_cache
 
     database_url, config = _migration_config(tmp_path, monkeypatch, "alembic-drs-roll-forward.db")
-    upgrade(config, "head")
+    upgrade(config, "20260824_0029")
 
     with pytest.raises(RuntimeError, match="roll-forward only"):
         downgrade(config, "20260721_0028")

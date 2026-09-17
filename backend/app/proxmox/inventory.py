@@ -836,15 +836,17 @@ class UnavailableProxmoxInventoryAdapter:
         requested_mode: str,
         missing_configuration: tuple[str, ...] = (),
         cluster_id: str = _DEFAULT_CLUSTER_ID,
+        connection_state: str = "unconfigured",
     ) -> None:
         self.reason = str(reason or "proxmox_inventory_unconfigured")
+        self.connection_state = connection_state
         self.requested_mode = str(requested_mode or "live")
         self.missing_configuration = tuple(missing_configuration)
         self.cluster_id = str(cluster_id or _DEFAULT_CLUSTER_ID).strip() or _DEFAULT_CLUSTER_ID
 
     def redacted_connection_context(self) -> dict[str, Any]:
         return {
-            "state": "unconfigured",
+            "state": self.connection_state,
             "source": self.source,
             "reason": self.reason,
             "requested_mode": self.requested_mode,
@@ -855,7 +857,7 @@ class UnavailableProxmoxInventoryAdapter:
     def _raise(self) -> None:
         raise ProxmoxInventoryUnavailableError(
             reason=self.reason,
-            connection_state="unconfigured",
+            connection_state=self.connection_state,
             missing_configuration=self.missing_configuration,
         )
 
@@ -1673,6 +1675,16 @@ def get_default_inventory_adapter() -> LiveProxmoxInventoryAdapter | Unavailable
     global _DEFAULT_ADAPTER_SIGNATURE, _DEFAULT_ADAPTER
 
     _load_project_env()
+    from app.setup_integration.contracts import SetupError
+    from app.setup_integration.runtime import managed_inventory_adapter, selected_credential
+
+    try:
+        selection = selected_credential()
+        if selection is not None:
+            return managed_inventory_adapter(selection)
+    except SetupError as exc:
+        return UnavailableProxmoxInventoryAdapter(reason=exc.code.lower(), requested_mode="managed",
+            cluster_id=_read_text_env("GJALLAR_CLUSTER_ID", _DEFAULT_CLUSTER_ID), connection_state="degraded")
     signature = (
         os.getenv("GJALLAR_INVENTORY_MODE", "live"),
         os.getenv("PROXMOX_API_URL", ""),

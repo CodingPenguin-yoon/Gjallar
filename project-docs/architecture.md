@@ -14,7 +14,7 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 옵션 recovery observer ─────→ Proxmox GET + 로컬 기록 정합화
 ```
 
-현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 독립 Python CLI·최소 메뉴 TUI와 관리형 Compose bootstrap은 M1-1·M1-2로 구현했으며 실제 설치 검증 전이다. 새 PVE credential 등록·템플릿 제작·내장 콘솔·일반 VM 수정·삭제·백업·복원·마이그레이션·시계열 모니터링·알림은 미구현이다.
+현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 독립 Python CLI·최소 메뉴 TUI·관리형 Compose bootstrap과 서버 중계 Proxmox 등록의 코드·격리 검증을 구현했다. 실제 OS 설치·PVE 연결 검증은 남아 있다. 템플릿 제작·내장 콘솔·일반 VM 수정·삭제·백업·복원·마이그레이션·시계열 모니터링·알림은 미구현이다.
 
 ## 2. 책임과 코드 찾기
 
@@ -104,6 +104,7 @@ Runtime DB는 PostgreSQL, SQLite는 명시된 테스트 전용이다. 실제 col
 | vm_instances | 과거 exact history reader용. 신규 writer·현재 상태 권위 없음 |
 | operations·operation_events | 최신 작업 projection·append-only checksum-linked event |
 | operation_locks·operation_recovery_items | target 직렬화·관찰 lease/fencing·복구 상태 |
+| proxmox_connections·proxmox_credentials·proxmox_registration_attempts | setup 소유 단일 연결·암호화 revision·등록 CAS/dispatch 상태. 새 migration `20260917_0030` |
 
 현재 저장 단위의 입력·검토·승인·작업 이력은 자동 만료·삭제하지 않는다. `job_runs`는 최신 projection, `job_artifacts`는 동일 identity upsert이므로 모든 revision의 불변 보존이 아니다. event checksum도 application-level tamper evidence이며 WORM·규제 준수를 보장하지 않는다. historical DRS Jobs/Artifacts도 보존한다.
 
@@ -133,14 +134,26 @@ Proxmox actual-state authority, modular monolith, 명시적 연결 truth, Postgr
 
 현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·CLI mutation·콘솔 인증·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
 
-M1의 합의된 목표 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Proxmox다. 클라이언트가 Proxmox를 직접 조작하는 별도 운영 경로는 추가하지 않고 기존 서버의 권한·작업·잠금·검증 경계를 공유한다. 로그인으로 전용 토큰을 발급하는 연결 절차와 서버 측 token 보관은 [PRD의 설치·접속 경험](prd.md)에 합의됐지만 아직 구현되지 않았다. 현재 env 기반 token adapter와 구분하며, bootstrap 배포 방식·클라이언트 session·credential 저장·발급 중단 복구의 세부 계약은 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에서 구체화한다.
+M1의 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Proxmox다. 클라이언트가 Proxmox를 직접 조작하는 별도 운영 경로는 없고 기존 서버의 권한·작업·잠금·검증 경계를 공유한다. 등록 설계·실행 근거와 남은 검증은 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에 기록한다.
 
-`2026-09-17` M1-1·M1-2는 사용자 승인 후 구현했다. Python client는 기존 cookie API를 사용하며 connection UUID/origin별 keyring 또는 명시적 process-memory session을 관리한다. 원격 HTTPS·고정 origin·redirect 금지·별칭의 atomic 저장과 동기식 CLI/TUI application을 공유한다. 새 HTTP route나 기존 DTO 변경은 없다. 기존 env Proxmox 설정을 자동 전환하지 않는다.
+`2026-09-17` M1-1·M1-2는 사용자 승인 후 구현했다. Python client는 기존 cookie API를 사용하며 connection UUID/origin별 keyring 또는 명시적 process-memory session을 관리한다. 원격 HTTPS·고정 origin·redirect 금지·별칭의 atomic 저장과 동기식 CLI/TUI application을 공유한다. 기존 env Proxmox 설정을 자동 전환하지 않는다.
 
 신규 Compose는 loopback 앱/비공개 PostgreSQL 17 named volume과 image ID 고정을 사용한다. 설치 manifest/volume label/DB marker identity를 결합하며 secret 전용 파일·mount와 관리자 stdin을 쓴다. `GJALLAR_DATABASE_URL_FILE`은 기존 URL env와 상호 배타적 입력이다. 빈 DB에서만 `gjallar_installation(singleton, installation_id, state)`를 만드는 infrastructure 초기화는 기존 Alembic revision을 수정하지 않으며, 일반/기존 DB에 자동 marker를 추가하지 않는다. PostgreSQL advisory lock으로 schema 초기화를 직렬화하고 users table EXCLUSIVE lock 아래 zero-user/history 검사·admin·account audit·ready marker를 원자적으로 기록한다. 기존 VM lock/recovery는 변경하지 않는다.
 
-`init-schema`만 새 설치 migration/seed를 실행하고 `serve`·start는 현재 Alembic head/ready 확인만 한다. 같은 schema의 image upgrade만 제공하며 revision 변경·기존 DB migration은 별도 승인 경계에 남긴다. host manifest의 준비/volume 준비/완료 상태와 upgrade journal로 중단을 재개하고 volume·secret·계정·이력을 자동 삭제/덮어쓰지 않는다. PostgreSQL 실제 동시성·OS keyring·VM 설치는 아직 미검증이다.
+`init-schema`만 새 설치 migration/seed를 실행하고 `serve`·start는 현재 Alembic head/ready 확인만 한다. 같은 schema의 image upgrade만 제공하며 revision 변경·기존 DB migration은 별도 승인 경계에 남긴다. host manifest의 준비/volume 준비/완료 상태와 upgrade journal로 중단을 재개하고 volume·secret·계정·이력을 자동 삭제/덮어쓰지 않는다. PostgreSQL 17의 격리 동시성 검증은 통과했으며 OS keyring·VM 설치는 미검증이다. 신규 manifest v2는 credential key 파일·mount를 추가한다. v1 설치는 읽기·서비스 관리 호환을 유지하고 자동 변환하지 않는다.
 
-새 token 등록은 VMID lock 및 네 recovery kind에 그대로 편입하지 않는다. 서버 중계 PVE 로그인·암호화 credential 저장/중단 복구·env 전환은 같은 M1 work의 후속 DRAFT이며 이번 두 단위에 포함하지 않았다.
+### Proxmox 등록과 credential 선택
+
+관리자 전용 `/settings/proxmox`, `gjallar proxmox-setup`, TUI `p`가 같은 `/api/v1/setup/proxmox/registrations` API를 사용한다. collection GET/POST는 본인 이력/등록, item GET은 상태, item POST `/{action}`은 login·mfa·plan·confirm·verify·activate·observe·cancel·revoke·import-plan·import-env다. create는 strict intent와 idempotency key, action은 expected_version을 요구한다. confirm/import-env는 plan_digest, revoke는 전체 token_id도 요구한다. 비밀번호·OTP는 login/mfa body로만 받으며 validation/upstream 오류에 원문을 반환하지 않는다.
+
+검증 대상은 사용자가 제공한 pve-manager `9.0.11`, pam/pve 비밀번호·TOTP다. 실제 package/realm 조합 지원을 확정한 것은 아니다. 서버는 HTTPS CA/hostname 검증 후 비밀번호를 전송한다. DNS 목적지를 고정하고 loopback/link-local 등을 거부하며 proxy·redirect·자동 retry를 사용하지 않는다. PVE ticket/CSRF는 Gjallar actor/session에 결합한 최대 5분의 process 메모리 context이며 재시작·만료 후 재로그인이 필요하다. 다중 worker 간 context 공유는 없다.
+
+계획은 exact node/VM/storage/local bridge, read 및 선택적 power, owner/token ID·만료·CA digest·ACL·connection version을 결합한다. 새 역할은 고정 Audit/Power 권한만 사용하고 같은 이름의 다른 역할을 덮어쓰지 않는다. owner/effective token 권한과 실제 선택 자원 조회를 검사한다. Create/Guided 권한 profile은 제공하지 않으며 managed provider에서 해당 mutation을 거부한다. env adapter의 기존 action 권한 경로는 유지한다.
+
+등록 Operation과 attempt는 같은 transaction에 기록한다. `token_dispatching`을 먼저 commit하고 발급 secret을 AES-256-GCM으로 즉시 staging한 후 ACL·조회 검증을 진행한다. AAD는 installation/connection/revision과 전체 설정에 결합하고 key/nonce uniqueness를 검사한다. secret·비밀번호·ticket·OTP·upstream 원문은 Operation에 넣지 않는다. `token_dispatching`/`acl_applying`에서 멈추면 결과 미확정이며 자동 재발급·ACL 재전송을 하지 않는다. exact 발급 token의 확인·명시적 폐기를 제공하고, 폐기 응답 유실은 부재 조회로만 마무리한다. 공유 역할이나 가져온 env token은 자동 삭제하지 않는다.
+
+검증된 pending revision의 활성화는 fresh 조회 후 connection version CAS와 PostgreSQL transaction advisory lock으로 직렬화한다. 같은 lock을 VM target lock 획득 시에도 사용한다. 다른 nonterminal Operation·open lock·미완결 recovery가 있으면 전환/활성 token 폐기를 거부한다. 활성화는 기존 revision을 retiring으로 보존하며 폐기는 별도다. process마다 최초 source/revision을 고정하므로 전환 후 **모든 서버 process 재시작**이 필요하다. managed 선택 후 key/DB 오류는 degraded/실행 차단이며 env fallback은 없다.
+
+명시적 env import는 서버의 기존 token을 읽어 같은 endpoint/owner·TLS·scope를 검증하고 암호화 저장한다. upstream mutation은 없다. 키 backup 복원은 가능하지만 자동 키 교체, 이전 source/revision 복귀 버튼, 불명 발급의 강제 종료, 긴급 drain 우회는 제공하지 않는다. 운영 전환 전 복구·지원 범위를 검토해야 하며 전체 M1 완료로 간주하지 않는다.
 
 과거 상세 ADR·API/DB 목록·단계별 기록은 [보관본](archive/README.md)에서 복원할 수 있다. 현재 문서는 여기와 PRD·개발 안내를 갱신하고, 별도 도메인·API·DB·ADR 문서를 관성적으로 추가하지 않는다.

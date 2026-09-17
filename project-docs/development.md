@@ -2,7 +2,7 @@
 
 - 상태: `APPROVED`
 - 최종 검토일: `2026-09-07`
-- 부분 검토: `2026-09-17`, M1-1 client·M1-2 관리형 bootstrap (실제 설치 검증 전)
+- 부분 검토: `2026-09-17`, M1 client·관리형 bootstrap·Proxmox 등록 (실제 설치/PVE 검증 전)
 - 적용 범위: 현재 single-image FastAPI/React/PostgreSQL runtime
 
 이 문서는 현재 코드의 환경 준비·실행·검증·장애 대응을 위한 단일 절차 기준이다. [문서 홈](README.md), [현재 API](architecture.md), [작업 lifecycle](architecture.md)에서 관련 계약을 찾는다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. [현재 설계 기준](architecture.md)의 후속 저장 단순화와 구분하며, 아래 운영 절차는 현재 이력·compatibility 저장 구조를 기준으로 한다.
@@ -216,6 +216,25 @@ PROXMOX_TLS_INSECURE=false
 - operation recovery: `GJALLAR_OPERATION_RECOVERY_ENABLED=false`, poll 기본 5초(1..300), lease 기본 60초(10..900), `GJALLAR_OPERATION_RECOVERY_MAX_ATTEMPTS` 기본 5(1..20). background concurrency는 1로 고정된다.
 - 값과 기본값은 `.env.example`과 현재 client code를 우선하며 관측 근거 없이 timeout을 늘리지 않는다.
 
+### 관리형 Proxmox 등록 (실환경 검증 전)
+
+신규 manifest v2 bootstrap은 installation UUID와 0600 `secrets/credential_key`를 준비하고 서버에 read-only로 mount한다. master key 원문은 env·manifest·DB에 넣지 않는다. 기존 manifest v1의 start/status/stop 호환은 유지하지만 자동 v2 변환·schema upgrade는 제공하지 않는다. 기존/운영 설치는 아래 migration·identity·키 backup 계획을 먼저 세우며 관리형 Compose를 임의로 수정해 검사를 우회하지 않는다.
+
+1. 현재 DB head는 `20260917_0030`이다. 새 `proxmox_connections`, `proxmox_credentials`, `proxmox_registration_attempts`만 추가하며 기존 env token이나 이력을 이동하지 않는다. 기존 DB는 backup/검증/정확한 대상 승인 후 one-off upgrade한다. `0029` 이전 DB는 앞의 hard-zero preflight도 필요하다. downgrade는 credential/audit 삭제를 막기 위해 거부한다. 새 코드와 현재 head를 함께 배포하며 혼합 버전 운영은 하지 않는다.
+2. 기존 수동 배포에 등록 기능을 추가할 때는 이 설치에서 계속 유지할 UUID를 `GJALLAR_INSTALLATION_ID`로 설정한다. 이미 installation marker가 있는 관리형 설치는 그 UUID를 유지한다. 별도 0700 디렉터리의 0600 일반 파일에 암호학적으로 생성한 32 random bytes 또는 64 ASCII hex 문자를 보관하고 `GJALLAR_CREDENTIAL_KEY_FILE`에 경로만 설정한다. trailing newline·symlink·그룹/기타 읽기 권한은 허용하지 않는다. **기존 ciphertext가 있으면 새 키를 만들지 않는다.** 이 변경은 기존 설치의 controlled migration 계획에 포함한다.
+3. Gjallar 관리자로 로그인한 뒤 웹 `설정 → Proxmox 연결`, CLI `gjallar proxmox-setup`, TUI `p`를 사용한다. 기존 서버에 접속하는 client에는 Proxmox token/key 파일이 필요 없다. HTTPS endpoint·pam/pve owner·선택 자원·공개 CA를 입력한다. 현재 발급 검증 대상은 사용자 제공 `9.0.11`이며 실제 package/realm 지원 검증은 별도다.
+4. 비밀번호/필요한 TOTP를 비표시 입력하고 권한 계획의 endpoint·owner/token ID·대상·만료·역할/ACL을 확인한다. wizard 발급 token은 30일이며 API는 5분 초과·90일 이내다. 기본 read, 선택적 power만 제공한다. Create/Guided는 이 관리형 profile에서 차단된다. 기존 env token import는 서버에서 동일 token을 가져오며 PVE token/ACL/만료일을 변경하지 않는다. import한 token의 원래 scope가 줄어드는 것은 아니며 Gjallar adapter가 선택 범위만 사용한다.
+5. 발급/저장/ACL 뒤 token의 effective 권한·선택 자원 조회를 검증한다. `verified`는 아직 기존 연결을 바꾸지 않은 상태다. 명시적 전환은 fresh 재검증과 미완결 Operation·open lock·recovery 부재를 요구한다. 전환 뒤 **모든 Gjallar 서버 process를 재시작**하고 웹/CLI의 노드·VM·템플릿/연결 상태를 대조한다. 이전 token은 별도 폐기 전까지 보존된다. 기존 secret env 제거는 전환과 복구 준비 확인 후 운영자가 별도 수행한다.
+
+중단 복구:
+
+- `gjallar proxmox-setup --list` 또는 웹 등록 목록으로 본인 attempt ID·상태를 읽는다. CLI는 `gjallar proxmox-setup --resume <attempt-id>`, TUI는 `p`에서 ID를 입력한다. 응답 유실 시 먼저 상태를 조회한다.
+- 로그인/TOTP context는 동일 Gjallar session의 서버 메모리에 최대 5분만 유효하다. 재시작·만료·다른 worker라면 다시 로그인한다. 재로그인이 token을 재발급하지 않는다. 다중 worker 운영은 검증 전이며 최초 검증은 단일 API process로 한다.
+- `token_dispatching`은 생성됐으나 응답/저장에 실패했을 수 있다. `acl_applying`은 권한 적용이 일부 끝났을 수 있다. 자동 재발급/ACL 재전송은 없다. CLI/TUI의 `observe` 또는 웹의 토큰 존재 확인을 사용한다. 저장된 secret이 있으면 같은 token 조회 검증을 재시도할 수 있다.
+- 폐기는 해당 등록에서 발급한 전체 token ID를 직접 확인한 뒤 실행한다. 활성 token은 조회·조작이 중단되며 미완결 작업이 있으면 폐기를 거부한다. 응답 유실 뒤 `revocation_pending`은 metadata 부재 확인만 수행하며 DELETE를 자동 반복하지 않는다. 가져온 외부 token·공유 role·사용자는 자동 삭제하지 않는다.
+- 토큰 부재 관찰만으로 늦은 발급 요청이 종료됐다고 단정하지 않는다. 소유 근거 불일치, ACL 부분 실패, 불명 발급의 강제 종료는 PVE 관리자의 정확한 요청·token 확인이 필요하다. 강제 성공·강제 종료 API는 없다.
+- managed 선택 후 키/DB 오류는 `degraded`와 mutation 차단이며 env로 자동 전환하지 않는다. DB backup과 **해당 설치의 원래 키**를 분리 보관하고 UUID·cluster identity를 유지해 복원한다. 원래 키 복원 테스트는 격리 ciphertext로 통과했으나 실제 운영 backup/restore 연습은 남았다. 키가 완전히 유실되면 secret은 복구할 수 없다. key rotation·이전 revision/source 복귀를 위한 자동 명령은 아직 없으므로 운영 전환 전 별도 복구 계획을 확정한다. DB row 삭제나 stamp로 우회하지 않는다.
+
 ### 고정 IP의 ping 관찰
 
 - ping은 Gjallar backend가 실행되는 네트워크에서 입력한 numeric IPv4 한 개에만 보낸다. Proxmox 노드·guest 내부에서 실행하거나 다른 주소를 스캔하지 않는다. 해당 VM 네트워크에 대한 routing·VLAN 접근이 없으면 결과는 제한된다.
@@ -231,7 +250,7 @@ runner는 같은 FastAPI image 안의 기본 비활성 opt-in observer다. allow
 enable 전:
 
 1. maintenance window에서 모든 구버전 replica를 drain하고 완전히 중지한 뒤 위 DB migration read-only preflight와 별도 적용 승인을 완료한다.
-2. one-off controlled DB upgrade 뒤 migration head `20260824_0029`와 generic lock/shared history 보존을 확인한다.
+2. one-off controlled DB upgrade 뒤 현재 migration head `20260917_0030`과 generic lock/shared history 보존을 확인한다.
 3. `0029`-aware durable-lock code만 배포한다.
 4. 실제 PostgreSQL에서 open locator lock과 non-completed recovery item을 조회해 owner/operation 상태를 대조한다. lease token은 조회·공유하지 않는다.
 5. recovery kind별 저장 evidence를 확인한다. Start/Shutdown은 UPID와 target node/VMID, Create는 last durable mutation/readiness checkpoint와 fingerprint, Guided는 instruction state·expiry·attestation·original config lock을 대조한다. Shutdown row는 guest-aware `status/shutdown`이 이미 제출됐을 가능성을 전제로 하며 hard stop으로 대체하지 않는다.
@@ -493,7 +512,7 @@ client/.venv/bin/gjallar upgrade --install-dir "$HOME/.local/share/gjallar" --im
 ### 실제 환경에서 남은 검증 순서
 
 1. disposable Linux VM 및 macOS의 Docker/Compose·CPU·OS keyring/명시적 memory 경로를 확인하고 위 새 설치 명령을 실행한다. 원격 연결만 선택했을 때 Docker/DB가 필요 없는지도 별도로 확인한다.
-2. 전용 PostgreSQL 테스트 DB URL로 `backend/tests/integration/test_installation_postgresql.py`의 두 동시성/lock 검사를 실행한다. 기존 운영 DB를 테스트 대상으로 사용하지 않는다.
+2. 전용 PostgreSQL 테스트 DB URL로 `backend/tests/integration/`을 실행한다. 별도 PostgreSQL 17 tmpfs DB에서 28개 검사가 통과했으며 setup의 중복 등록·CAS·VM admission/전환 경합도 포함한다. 기존 운영 DB를 테스트 대상으로 사용하지 않는다.
 3. 관리자 생성 전/후, migration/응답 유실·서비스 기동 전후 중단을 재현해 같은 경로로 재실행하고 사용자/hash·volume identity·이력 보존을 확인한다. secret이 프로세스 argv/환경 값·Compose 일반 설정·로그에 나타나지 않는지 확인한다.
 4. 브라우저 login/origin/cookie·CLI role·TUI 종료 후 서비스 유지·stop/start·동일 schema upgrade와 실패 복구를 확인한다. 필요 시 별도 승인된 TLS 원격 공개를 검증한다.
-5. Proxmox 미설정은 `unconfigured`여야 한다. 기존 env 연결의 실제 노드/VM/template 동등성은 정확한 live target·조회 영향 승인 후 확인한다. 새 PVE token 등록 완료로 표시하지 않는다.
+5. Proxmox 미설정은 `unconfigured`여야 한다. 정확한 live target·조회/발급/ACL/폐기 영향 승인 후 기존 env와 관리형 연결의 실제 노드/VM/template 동등성, PVE 9.0.11 로그인/TOTP·TLS·등록·중단 복구·전환·폐기를 확인한다. fixture 통과를 실제 PVE token 등록 완료로 표시하지 않는다.

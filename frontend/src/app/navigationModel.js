@@ -42,6 +42,7 @@ export const insightsNavItems = Object.freeze([
 
 export const accountNavItem = { label: 'Account', path: '/settings/account', icon: UserCircle, aliasPaths: ['/account'] }
 export const adminNavItem = { label: 'Users & sessions', path: '/settings/admin/users', icon: UserCog, aliasPaths: ['/admin/users'] }
+export const proxmoxSetupNavItem = { label: 'Proxmox 연결', path: '/settings/proxmox', icon: Network }
 
 export function navClass({ isActive }) {
   return `flex shrink-0 items-center justify-center gap-2 border-b-2 px-4 py-3 font-medium transition-colors sm:px-6 sm:py-4 ${

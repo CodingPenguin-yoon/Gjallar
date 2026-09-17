@@ -360,5 +360,14 @@ class ProxmoxMutationClient:
 
 
 def get_default_proxmox_mutation_client() -> ProxmoxMutationClient:
-    """Build a native Proxmox mutation client from the existing inventory env."""
+    """Use the selected server credential; never fall back after managed failure."""
+    from app.setup_integration.contracts import SetupError
+    from app.setup_integration.runtime import managed_mutation_client, selected_credential
+
+    try:
+        selection = selected_credential()
+        if selection is not None:
+            return managed_mutation_client(selection)
+    except SetupError as exc:
+        raise ProxmoxMutationError(str(exc), details={"reason": exc.code}) from None
     return ProxmoxMutationClient.from_env()

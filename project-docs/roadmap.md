@@ -2,7 +2,7 @@
 
 - 갱신일: `2026-09-17`
 - 기준: [PRD](prd.md)의 제품 목표와 [아키텍처](architecture.md)의 현재 구현
-- 상태: M1-1 공통 CLI/최소 TUI·M1-2 관리형 bootstrap 구현. 실제 환경 설치 검증과 M1-3 이후 PVE credential 연결은 남아 있으며 전체 M1은 진행 중이다.
+- 상태: M1-1·M1-2 구현, M1-3·M1-4의 credential 저장·등록 핵심 흐름 구현과 격리 검증 완료. 실제 설치·Proxmox 9.0.11 연동 및 복구 지원 검증이 남아 전체 M1은 진행 중이다.
 
 ## 현재 위치와 진행 순서
 
@@ -10,7 +10,7 @@
 
 | 단계 | 사용자가 얻는 것 | 선행 조건 | 현재 상태 |
 |---|---|---|---|
-| M1. 설치·연결 | 로컬 Gjallar 실행 또는 기존 서버 접속으로 첫 자원 확인 | 시작 방식 합의, M1-1·M1-2 승인 | M1-1·M1-2 구현 · 실제 설치 미검증 · 전체 M1 진행 중 |
+| M1. 설치·연결 | 로컬 Gjallar 실행 또는 기존 서버 접속으로 첫 자원 확인 | 시작 방식 합의, 잔여 구현 승인 | M1-3·M1-4 핵심 구현 · M1-5 실환경 검증 대기 · 전체 진행 중 |
 | M2. VM 일상 관리 | VM 생성부터 설정 변경·콘솔·삭제까지 처리 | M1의 연결·권한·CLI 기반 | 미착수 · 기존 생성/전원 기능 활용 |
 | M3. 템플릿 관리 | 템플릿 준비·제작·검증에서 VM 배포까지 연결 | M2의 VM 관리·작업 검증 | 미착수 · 기존 템플릿 조회 활용 |
 | M4. 모니터링 | 상태·사용량·추이·문제를 확인하고 조치로 이동 | M1의 관찰 truth, M2의 대상·작업 연결 | 미착수 · 기존 inventory/Insights 활용 |
@@ -36,8 +36,8 @@ CLI는 M1에서 인증·연결·조회와 구조화된 출력·종료 코드의 
 - **포함:** macOS·Linux 지원 환경과 의존성 정의, 로컬 Gjallar 실행/기존 서버 연결을 선택하는 bootstrap, 최초 계정, Proxmox 로그인 후 권한을 확인한 전용 토큰 발급·보관, 인증서·권한·연결 진단, 웹·CLI·TUI의 인증·첫 조회 기반.
 - **제외:** Proxmox 자체 설치, 다중 클러스터, 클라이언트의 Proxmox 직접 연결 운영 모드, 기업 SSO, 완전한 무의존 단일 바이너리 제공 약속. 전체 VM 관리 TUI와 MCP는 M1에 포함하지 않는다.
 - **합의한 방향:** [PRD의 설치·접속 경험](prd.md)을 따른다. 로컬·원격 모두 같은 Gjallar API를 사용하며 토큰·작업 기록은 서버가 관리한다.
-- **현재 구현:** M1-1은 독립 Python CLI/메뉴 TUI·cookie session·keyring/memory·연결 전환·기본 조회, M1-2는 Compose·일회성 관리자·명시적 init/serve·start/status/stop·동일 schema image upgrade다. 실제 제공 명령은 [개발 안내](development.md), 결정·검증 근거는 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에 둔다. 서버 중계 PVE 로그인·암호화 token 저장·env 전환은 후속 DRAFT다.
-- **남은 선행 조건:** 실제 OS/CPU 설치·OS keyring·PostgreSQL 동시성 검증, 공개 release artifact/검증된 patch 고정, PVE package/realm/MFA 검증 행렬과 token 등록 단위의 exact DTO/schema/admission 계약. live 설치·migration·token/ACL 변경은 별도 대상·영향 승인 후 진행한다.
+- **현재 구현:** M1-1은 Python CLI/메뉴 TUI·cookie session·keyring/memory·기본 조회, M1-2는 Compose·최초 관리자·명시적 init/serve·서비스 관리다. M1-3·M1-4는 암호화 token 저장·env import·서버 PVE 로그인/TOTP·scope 계획·발급/ACL·검증·전환·명시적 폐기와 웹/CLI/TUI 등록 흐름이다. 새 관리형 profile은 read/선택적 power만 지원한다. 명령은 [개발 안내](development.md), 근거는 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에 둔다.
+- **남은 선행 조건:** macOS/Linux 설치·OS keyring·실제 PVE package/realm/MFA/TLS 및 기존 DB 전환 검증, 공개 release artifact/patch 고정. 사용자 제공 PVE 버전은 9.0.11이며 아직 live 검증 증거는 없다. 키 rotation·이전 source 복귀·불명 발급 수동 종료의 운영 절차/지원 범위도 남아 있다. PostgreSQL 17 격리 동시성은 통과했다. live 설치·migration·token/ACL 변경은 별도 대상·영향 승인 후 진행한다.
 - **완료 기준:**
   1. 지원 대상으로 선언한 macOS·Linux 환경에서 문서화된 설치 → 계정 생성 → 연결 → 실제 자원 조회를 재현한다.
   2. 웹과 CLI가 같은 연결 대상과 권한 범위의 자원을 보여준다.
@@ -46,7 +46,7 @@ CLI는 M1에서 인증·연결·조회와 구조화된 출력·종료 코드의 
   5. 로컬 실행은 서비스·DB 준비부터 첫 조회까지, 기존 서버 연결은 클라이언트 준비·Gjallar 로그인부터 첫 조회까지 재현한다. 기존 서버 연결 경로는 로컬 DB·Proxmox 토큰을 요구하지 않는다.
   6. 새 Proxmox 연결은 권한 확인·전용 토큰 발급·안전한 저장·토큰 조회 검증을 마친 뒤에만 완료로 표시한다. 비밀번호 비보관, 발급/저장 중단, 중복 실행, 토큰 권한 변경·폐기 시나리오를 검증한다.
   7. TUI 종료가 서비스를 암묵적으로 종료하거나 토큰을 폐기하지 않는다. 다음 실행의 연결 선택을 보존하고 현재 접속 서버를 명확히 표시한다.
-- **상태:** M1-1·M1-2 코드와 격리 검증 구현 완료. 실제 VM/macOS 설치·OS keyring·PostgreSQL 동시성/live 조회는 미검증이다. M1-3 credential 저장/전환, M1-4 PVE 로그인/발급, M1-5 환경별 통합 검증이 남아 있어 **전체 M1은 미완료**다. 초기 진단 우선안은 `SUPERSEDED`다.
+- **상태:** M1-1·M1-2 구현, M1-3·M1-4 핵심 코드·격리 검증 완료. M1-5 실제 설치·PVE 등록/첫 조회/중단 복구와 위 운영 공백의 검증이 남아 **전체 M1은 미완료**다. 초기 진단 우선안은 `SUPERSEDED`다.
 
 ## M2. VM 일상 관리
 

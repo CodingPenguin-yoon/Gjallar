@@ -56,7 +56,7 @@ assert.match(appSource, /<OperationDetailPage canExecute=\{canMutate\}/, 'Guided
 assert.match(appSource, /path="\/settings\/admin\/users"/, 'App must expose the canonical admin user-management route')
 assert.match(appSource, /path="\/admin\/users"/, 'App must preserve the legacy guarded admin user-management alias')
 assert.match(appSource, /<AdminGuard currentUser=\{currentUser\}>/, 'Admin route must use a route-level admin guard')
-assert.match(navigationSource, /isAdmin \? \[accountNavItem, adminNavItem\] : \[accountNavItem\]/, 'Settings subnavigation must keep Admin Users admin-only')
+assert.match(navigationSource, /isAdmin \? \[accountNavItem, adminNavItem, proxmoxSetupNavItem\] : \[accountNavItem\]/, 'Settings subnavigation must keep Admin Users admin-only')
 assert.match(navigationSource, /label: 'Account'/, 'Account settings nav item must be available for authenticated users')
 assert.match(appSource, /onCurrentUserChanged=\{refreshCurrentUser\}/, 'Admin self-demotion must refresh the current session')
 assert.match(appSource, /onPasswordChanged=\{refreshCurrentUser\}/, 'Self password changes must refresh the current session state')

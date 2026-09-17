@@ -99,7 +99,7 @@ for (const retiredPath of ['../src/pages/workloads/NetworkReadinessPage.jsx', '.
 }
 assert.doesNotMatch(dashboard, /Network readiness|navigate\('\/instances\/networks'\)/, 'Overview must not advertise the retired screen')
 
-assert.match(navigation, /isAdmin \? \[accountNavItem, adminNavItem\] : \[accountNavItem\]/, 'Admin Users navigation must remain admin-only')
+assert.match(navigation, /isAdmin \? \[accountNavItem, adminNavItem, proxmoxSetupNavItem\] : \[accountNavItem\]/, 'Admin Users navigation must remain admin-only')
 assert.equal(operationsNavItems.some((item) => item.path === '/operations/guided-qm/vm-unlock'), false, 'Guided execution must use the retained contextual action instead of a history tab')
 assert.match(navigation, /if \(items\.length < 2\) return null/, 'A single Settings destination must not produce a redundant subnav')
 assert.match(app, /function AdminGuard/, 'Direct admin route access must be guarded')

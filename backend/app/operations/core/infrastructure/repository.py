@@ -182,6 +182,22 @@ class SqlAlchemyOperationStore:
             return self._resolve_existing(existing, spec)
         return OperationCreateResult(operation=result, created=True)
 
+    def has_unfinished_coordination(self, session: Session, *, excluding_operation_id: str) -> bool:
+        """Connection replacement must preserve ongoing operations and recovery."""
+        from app.operations.core.domain import TERMINAL_OPERATION_STATUSES
+
+        operation = session.scalar(select(OperationRecord.operation_id).where(
+            OperationRecord.operation_id != excluding_operation_id,
+            OperationRecord.status.not_in(TERMINAL_OPERATION_STATUSES),
+        ).limit(1))
+        lock = session.scalar(select(OperationLockRecord.operation_lock_id).where(
+            OperationLockRecord.status.in_(OPEN_TARGET_LOCK_STATUSES),
+        ).limit(1))
+        recovery = session.scalar(select(OperationRecoveryItemRecord.operation_id).where(
+            OperationRecoveryItemRecord.status != "completed",
+        ).limit(1))
+        return any(value is not None for value in (operation, lock, recovery))
+
     def get(self, operation_id: str) -> OperationSnapshot | None:
         with self._sessions() as session:
             row = session.get(OperationRecord, operation_id)

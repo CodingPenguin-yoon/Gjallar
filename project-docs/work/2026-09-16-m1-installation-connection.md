@@ -2,7 +2,7 @@
 
 - 날짜: `2026-09-16`
 - 설계 갱신: `2026-09-17`
-- 상태: 제품 방향 `APPROVED`. M1-1·M1-2는 이번 사용자 승인으로 구현했으며 아래 실행 결과에 검증을 기록한다. 실제 설치·서비스 기동은 미실행. M1-3 이후 credential 설계는 `DRAFT`, 전체 M1은 진행 중이다. 초기 진단 우선 제안은 `SUPERSEDED`.
+- 상태: 제품 방향·잔여 구현 `APPROVED`. M1-1·M1-2 구현, M1-3·M1-4 핵심 코드·격리 검증 완료. M1-5 실제 설치·PVE 연동/운영 복구 검증은 남아 전체 M1은 진행 중이다. 아래 과거 DRAFT/초기 진단 제안은 후속 승인·구현 결과와 구분한다.
 - 기준 커밋: `8feae46` — 요청 시 존재한 문서 통합·로드맵·VM 생성 진행 표시 변경을 보존했다.
 - 이번 착수 범위: 설치 → 최초 계정 → Proxmox 연결 → 웹 첫 자원 조회를 코드·테스트와 대조하고 M1 첫 구현 범위와 검증 가능한 완료 기준을 정한다.
 
@@ -464,3 +464,51 @@ M1-1·M1-2는 **`IMPLEMENTED` — 코드·격리 검증 완료**다. 실제 배�
 - 실제 Gjallar 설치·서비스 기동, 기존/운영 DB migration·데이터 변경, live Proxmox·token/ACL 호출은 **실행하지 않았다**. OS keyring, PostgreSQL 실제 동시성, Linux VM/macOS 설치·재기동, 원격 TLS proxy·브라우저 cookie, live env inventory 동등성은 **미검증**이다.
 - 다음 검증은 [개발 안내의 실제 환경 순서](../development.md)의 disposable VM 새 설치 → 관리자/웹·CLI 로그인 → 중단·재실행·계정/이력 보존 → TUI 종료와 서비스 stop/start 구분 → 동일 schema upgrade 복구 → OS keyring/전용 PostgreSQL 동시성 순서다. live Proxmox 조회는 별도 exact target 승인 뒤 수행한다. 신규 PVE token 연결은 구현된 것처럼 표시하지 않는다.
 - 기존 문서 변경을 보존했고 staged 변경은 없다. HEAD는 `8feae46cddb88aca47c149df9f1a9e24da880c07` 그대로이며 commit·push·rebase·reset을 수행하지 않았다.
+
+## 2026-09-17 M1 잔여 구현 착수 (`APPROVED`, 진행 중)
+
+사용자의 “일단 M1 마저 완성할까” 요청을 M1 잔여 코드·격리 검증 착수 승인으로 기록한다. 기준 HEAD는 `580833f`, 착수 시 working tree는 깨끗했다. 이전 M1-3 이후 DRAFT의 구현 미승인 문구는 이번 작업 범위에서 대체한다. 실제 Proxmox token/ACL 변경·운영 DB migration은 정확한 대상과 side effect 승인 전 실행하지 않는다. 실제 PVE/package·realm/MFA·OS 환경은 최종 검증 때 확인하며, 아직 확인하지 않은 조합을 지원 완료로 표시하지 않는다.
+
+### 순서·완료 조건·위험·복구
+
+1. **M1-3 저장 기반:** setup 소유의 additive migration, AES-256-GCM credential 암호화, installation/connection/revision/metadata를 결합하는 AAD, 0600 key 파일 읽기, 명시적 env import와 비밀 없는 등록 상태를 구현한다. 비밀번호/ticket/OTP를 DB나 Operation에 쓰지 않는다. key 유실/변조·다른 row로 ciphertext 이동·중복 요청·저장 중단 테스트를 실행한다.
+2. **연결 전환:** 기존 env 경로는 관리형 연결 선택 전까지 유지한다. 신규 VM 실행 admission과 전환을 같은 DB 조정 경계에서 직렬화하고, 미완결 Operation/lock/recovery가 있으면 전환을 거부한다. 전환 후 오래된 프로세스는 새 mutation을 거부하고 재시작을 요구한다. DB/key 오류에서 env로 자동 fallback하지 않는다. setup transaction 안의 Operation 기록은 기존 store의 transaction-aware 경로로 연결한다.
+3. **M1-4 등록 흐름:** admin 전용 API에 HTTPS/CA 검증·고정 endpoint·비밀 없는 오류, 짧은 session-bound 메모리 인증 context, 권한 계획 확인, 전용 token 발급·암호화 staging·ACL·자원 검증을 연결한다. 외부 발급 전 durable dispatch 상태를 저장하고 불명 결과를 자동 재발급하지 않는다. 웹과 CLI/메뉴 TUI가 같은 서버 API를 사용한다. 고정 공식 source fixture와 실제 PVE 버전의 차이는 별도 검증 항목으로 남긴다.
+4. **M1-5 검증:** fake upstream/임시 DB의 오류·중단·재요청 검증, client/backend/frontend regression, lint/build, container build를 실행한다. 사용자가 제공할 정확한 disposable 환경에서는 실제 설치·keyring·PostgreSQL 동시성·TLS·PVE 등록과 첫 조회를 별도 실행·기록한다. 이 증거가 없으면 전체 M1 완료로 표시하지 않는다.
+5. **복구:** 기존 env·DB·계정·Jobs/Artifacts/Operations를 보존한다. additive schema는 downgrade/삭제하지 않는다. 전환 실패는 기존 active credential을 유지한다. 외부 발급 이후 실패는 exact attempt/token metadata와 미확정 상태를 보존한다. key/DB backup은 분리 보관하며 기존 ciphertext가 있을 때 키를 자동 재생성하지 않는다. commit/push는 실행하지 않는다.
+
+이 절의 API/DB 구현 결과와 검증은 아래에 이어 기록한다. 세부 계약은 코드 조사 결과에 따라 같은 문서에서 확정한다.
+
+### 잔여 구현 결과 (`IMPLEMENTED` — 핵심 코드·격리 검증 범위)
+
+사용자가 실제 Proxmox 버전을 **9.0.11**로 알려줬다. 이를 새 발급 계획의 pve-manager 검증 대상으로 고정했다. realm/TOTP·package 조합과 macOS/Linux OS/CPU는 아직 확인 전이며 실제 host 접근·등록을 수행하지 않았다.
+
+- `setup_integration/{contracts,crypto,models,repository}`와 새 migration `20260917_0030`: strict 입력, AES-256-GCM·AAD·키 파일, 단일 연결/미해결 attempt·nonce uniqueness, registration/Operation의 동일 transaction. DB/키 실패를 env fallback으로 숨기지 않는다. 기존 migration은 수정하지 않았고 DRS 특정 revision 테스트만 명시적 `0029` 대상으로 유지했다.
+- `transport`, `planning`, `registration`: HTTPS 검증·DNS pin, session-bound 로그인/TOTP, exact scope/역할/ACL 계획, 발급 전 dispatch commit, secret staging, read 검증, 명시적 활성화/폐기. 발급 또는 폐기 응답 유실을 자동 재실행하지 않는다. 가져온 env token은 읽기 검증·암호화만 하고 PVE를 변경하지 않는다.
+- `runtime`과 기존 operation/lock 경계: active source/revision pin, 전환과 VM admission의 동일 PostgreSQL lock, nonterminal Operation/open lock/recovery 시 전환 거부. 활성화 전 권한·자원 재검증, 이전 token 보존, 모든 서버 process 재시작 요구.
+- admin API collection/item/action 4개 route와 `/settings/proxmox`, CLI `proxmox-setup`·`--list`·`--resume`, TUI `p`: 같은 서버 API로 등록·계획 확인·검증·전환·토큰 관찰/폐기를 제공한다. 비밀번호/TOTP는 비표시 입력이며 서버 token secret은 client로 반환하지 않는다. 웹 prepare 재시도는 같은 intent/만료/idempotency 값을 유지한다.
+- 신규 bootstrap manifest v2: 설치당 credential key 생성과 read-only mount. 기존 v1의 서비스 관리 호환을 유지하고 누락 키·설치 파일을 자동 재생성하지 않는다. schema가 달라지는 기존 설치 upgrade는 기존 정책대로 거부한다.
+
+권한은 **read + 선택적 power**의 검증 가능한 첫 profile로 제한했다. Create/Guided에는 clone/config/guest-exec 등 더 넓은 권한과 추가 live 검증이 필요하므로 새 관리형 연결에서 차단한다. 기존 env 경로의 기능은 자동 변경하지 않는다. 첫 설치/조회 목표와 M2 CLI mutation을 혼동하지 않는다.
+
+### 최종 실행 검증
+
+| 검사 | 결과·범위 |
+|---|---|
+| `pnpm run verify` | 성공. client 49 passed, backend 807 passed/28 skipped, frontend contract tests·eslint·Vite build 성공. host Python 3.14.6/Node 26.7.0이므로 기준 버전의 증거는 다음 행과 구분 |
+| `pnpm run verify:container` | 성공. Python 3.13/Node 24 기준 client 49 passed·backend 807 passed/28 skipped·frontend tests/lint/build·runtime image 생성 |
+| PostgreSQL 17 `backend/tests/integration/` | **28 passed**. 별도 tmpfs DB에 head를 적용한 뒤 실행. 중복 등록 하나의 Operation, CAS 단일 dispatch, 연결 전환/VM admission의 상호 배제, 기존 initialization/DRS/recovery 검증 포함 |
+| credential/registration 회귀 | key/AAD/ciphertext 변조 거부, 원래 키 backup 복원, 동일 transaction rollback, secret 비노출, session/TOTP/만료, 발급 응답 유실·ACL 실패 보존, env import GET-only·외부 token 보존, 폐기 응답 유실 후 DELETE 미반복, 활성화 전 권한 재검증 |
+| client/web 경계 | CLI 재개/TOTP/토큰 관찰·명시적 폐기와 secret 비출력, admin nav/API cookie·경로 계약. 브라우저 수동 end-to-end/실제 keyring은 별도 미검증 |
+| `git diff --check` | 통과 |
+
+PostgreSQL fixture의 최초 실행은 public schema 미초기화로 기존 recovery/readiness 테스트 5개가 실패했다. **새로 만든 빈 일회용 DB**에 migration을 적용한 뒤 전체 28개가 통과했다. 기존/운영 DB에는 migration이나 테스트를 실행하지 않았다. 일반 verify에서 skip된 PostgreSQL 검사를 통과로 바꿔 세지 않고 별도 실행 근거로 기록한다. 기존 dependency deprecation 경고는 남아 있다.
+
+### 완료 판정·남은 일
+
+M1-3·M1-4의 저장/등록 핵심은 구현·격리 검증했다. **전체 M1은 아직 미완료**다. 현재 PRD·아키텍처·개발 안내·로드맵·work index와 `.env.example`을 실제 상태로 갱신했다. commit/push·실제 설치·live PVE 호출·기존 DB 적용은 하지 않았다.
+
+1. macOS/Linux OS/CPU·Docker/Compose·OS keyring, fresh install/remote client·stop/start·upgrade·실제 backup 복원 검증.
+2. 실제 9.0.11의 package/realm/TOTP/CA, exact target 및 필요한 scope를 확인한 뒤 별도 승인된 로그인·조회·token/role/ACL 생성·폐기·중단/전환 검증. 비밀번호/token은 대화로 받지 않고 제품의 비표시 입력을 사용한다.
+3. 이전 source/revision 복귀·key rotation·불명 발급의 수동 종료는 자동 API가 없다. 기존 v1 설치의 schema/key 전환과 함께 운영 전환 전 복구 절차/지원 범위를 마저 확정해야 한다. 새로운 token으로 roll-forward하는 정상 경로와 구분한다. key backup 유실·actor 비활성화 등으로 남은 attempt를 row 삭제로 우회하지 않는다.
+4. 공개 release artifact·검증된 patch 조합 고정과 실제 설치 배포. 신규 관리형 read/power profile을 전체 VM 관리 완료로 표시하지 않는다.
