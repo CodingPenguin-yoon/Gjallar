@@ -14,7 +14,7 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 옵션 recovery observer ─────→ Proxmox GET + 로컬 기록 정합화
 ```
 
-현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 독립 Python CLI·최소 메뉴 TUI·관리형 Compose bootstrap과 서버 중계 Proxmox 등록의 코드·격리 검증을 구현했다. 실제 OS 설치·PVE 연결 검증은 남아 있다. 템플릿 제작·내장 콘솔·일반 VM 수정·삭제·백업·복원·마이그레이션·시계열 모니터링·알림은 미구현이다.
+현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 독립 Python CLI·전체 화면 TUI·관리형 Compose bootstrap과 서버 중계 Proxmox 등록의 코드·격리 검증을 구현했다. 실제 OS 설치·PVE 연결 검증은 남아 있다. 템플릿 제작·내장 콘솔·일반 VM 수정·삭제·백업·복원·마이그레이션·시계열 모니터링·알림은 미구현이다.
 
 ## 2. 책임과 코드 찾기
 
@@ -132,7 +132,7 @@ Proxmox 호출과 PostgreSQL은 원자적 transaction이 아니다. `session_sco
 
 Proxmox actual-state authority, modular monolith, 명시적 연결 truth, PostgreSQL durable coordination, action별 검증, 현재 이력 보존을 유지한다. 과거 observe-first의 네 action 제한과 템플릿 제작 제외는 장기 제품 경계로 유지하지 않으며 새 목표는 PRD를 따른다. DRS 자동 배치·무승인 자동 복구·임의 shell은 복원하지 않는다.
 
-현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·CLI mutation·콘솔 인증·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
+현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·추가 CLI mutation·콘솔 인증·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
 
 M1의 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Proxmox다. 클라이언트가 Proxmox를 직접 조작하는 별도 운영 경로는 없고 기존 서버의 권한·작업·잠금·검증 경계를 공유한다. 등록 설계·실행 근거와 남은 검증은 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에 기록한다.
 
@@ -157,3 +157,13 @@ M1의 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Pro
 명시적 env import는 서버의 기존 token을 읽어 같은 endpoint/owner·TLS·scope를 검증하고 암호화 저장한다. upstream mutation은 없다. 키 backup 복원은 가능하지만 자동 키 교체, 이전 source/revision 복귀 버튼, 불명 발급의 강제 종료, 긴급 drain 우회는 제공하지 않는다. 운영 전환 전 복구·지원 범위를 검토해야 하며 전체 M1 완료로 간주하지 않는다.
 
 과거 상세 ADR·API/DB 목록·단계별 기록은 [보관본](archive/README.md)에서 복원할 수 있다. 현재 문서는 여기와 PRD·개발 안내를 갱신하고, 별도 도메인·API·DB·ADR 문서를 관성적으로 추가하지 않는다.
+
+### 전체 화면 TUI
+
+`2026-09-18` client의 `terminal.py`는 curses 화면·키 입력·마스킹·제어문자 escape를, `tui.py`는 기존 Application을 호출하는 탐색 흐름을 담당한다. CLI JSON 출력·서버 API·session 저장·등록 확인 계약은 유지한다. 조회와 설치는 기존 동기식 호출이며 작업 중 표시를 제공한다. 주기적 자동 갱신이나 백그라운드 실행은 추가하지 않았다. 목록·상세·검색·저장된 연결 선택과 화면 내 입력을 제공하며 `q`는 session 폐기나 서비스 종료를 호출하지 않는다. [작업 기록](work/2026-09-18-fullscreen-tui.md)에 검증 범위를 기록한다.
+
+### CLI 운영 명령
+
+`2026-09-18` CLI 우선 흐름을 추가했다. `cli.py`는 명령/확인/종료 코드, `output.py`는 터미널 표·요약과 파이프/명시적 JSON, `workflows.py`는 기존 VM power/Create/Operation API 조합을 담당한다. 인자 없는 실행은 도움말이며 TUI는 명시적 `tui`다. memory `shell`은 동일 Application session 저장소를 공유하는 동기식 CLI 루프이고 OS 명령 실행기가 아니다. 기본 Keychain/SecretService 저장 계약은 유지한다.
+
+CLI bootstrap은 설치·별칭 저장 후 로그인을 별도로 안내한다. VM 시작·정상 종료는 exact target과 요청 identity를 확인하며, 생성은 신규 0600 검토 파일의 원래 payload·서버 checksum·origin/profile identity를 사용한다. 서버 권한·승인·잠금·idempotency/recovery는 기존 계약을 재사용한다. 변경 POST 뒤 Operation GET의 성공 및 coordination 완료를 확인하고 결과 미확정/차단은 nonzero로 반환한다. 자동 mutation retry·보상이나 DB 변경은 없다. 자세한 명령·제약은 개발 안내, 검증 결과는 [CLI 작업 기록](work/2026-09-18-cli-workflows.md)에 둔다.

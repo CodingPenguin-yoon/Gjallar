@@ -5,8 +5,9 @@ from .sessions import session_key, unexpired
 
 
 class Application:
-    def __init__(self, connections, sessions, api_factory=Api):
+    def __init__(self, connections, sessions, api_factory=Api, connection_name=None):
         self.connections, self.sessions, self.api_factory = connections, sessions, api_factory
+        self.connection_name = connection_name
 
     def _session(self, profile):
         key = session_key(profile)
@@ -31,7 +32,7 @@ class Application:
         return {key: user.get(key) for key in ("user_id", "username", "role")}
 
     def login(self, username, password, name=None):
-        name, profile = self.connections.get(name)
+        name, profile = self.connections.get(name or self.connection_name)
         key = session_key(profile)
         previous = self.sessions.get(key)
         api = self.api_factory(profile)
@@ -75,7 +76,7 @@ class Application:
             api.close()
 
     def status(self, name=None):
-        name, profile = self.connections.get(name)
+        name, profile = self.connections.get(name or self.connection_name)
         session = self._session(profile)
         try:
             payload, _ = self._request(profile, "GET", "auth/me", token=session["token"] if session else None)
@@ -102,7 +103,7 @@ class Application:
     def read(self, resource):
         if resource not in {"nodes", "vms", "templates", "connection"}:
             raise ClientError("INVALID_RESOURCE", "지원하지 않는 조회입니다.", 2)
-        name, profile = self.connections.get()
+        name, profile = self.connections.get(self.connection_name)
         identity = self.status(name)
         session = self._session(profile)
         if session is None:
@@ -126,7 +127,7 @@ class Application:
         return {**identity, "data": data, "meta": meta, "warning": warning, "exit_code": exit_code}
 
     def logout(self, name=None):
-        name, profile = self.connections.get(name)
+        name, profile = self.connections.get(name or self.connection_name)
         key = session_key(profile)
         session = self.sessions.get(key)
         failure = None
@@ -148,7 +149,7 @@ class Application:
 
         if action not in {"list", "prepare", "status", "login", "mfa", "plan", "confirm", "verify", "activate", "observe", "cancel", "revoke", "import-plan", "import-env"}:
             raise ClientError("INVALID_ACTION", "지원하지 않는 연결 등록 작업입니다.", 2)
-        name, profile = self.connections.get()
+        name, profile = self.connections.get(self.connection_name)
         identity = self.status(name)
         if identity["user"]["role"] != "admin":
             raise ClientError("PERMISSION_DENIED", "Proxmox 연결 등록은 Gjallar 관리자만 할 수 있습니다.", 4)
@@ -166,3 +167,20 @@ class Application:
         payload, _ = self._request(profile, "GET" if action in {"status", "list"} else "POST", path,
                                    token=session["token"], body=body)
         return {**identity, "data": payload["data"]}
+
+    def request(self, path, *, method="GET", body=None, operator=False):
+        """Authenticated CLI workflow call; paths are built by local commands only."""
+        name, profile = self.connections.get(self.connection_name)
+        identity = self.status(name)
+        if operator and identity["user"]["role"] not in {"operator", "admin"}:
+            raise ClientError("PERMISSION_DENIED", "VM 작업은 operator 또는 admin 계정으로 실행하세요.", 4)
+        session = self._session(profile)
+        if session is None:
+            raise ClientError("SESSION_EXPIRED", "다시 로그인하세요.", 3)
+        try:
+            payload, _ = self._request(profile, method, path, token=session["token"], body=body)
+        except ClientError as exc:
+            if exc.exit_code == 3:
+                self.sessions.delete(session_key(profile))
+            raise
+        return {**identity, "data": payload["data"], "meta": payload.get("meta", {})}

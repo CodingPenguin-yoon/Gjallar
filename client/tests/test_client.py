@@ -11,7 +11,7 @@ from gjallar_client.application import Application
 from gjallar_client.connections import Connections, canonical_origin, file_lock
 from gjallar_client.errors import ClientError
 from gjallar_client.sessions import KeyringStore, MemoryStore, session_key
-from gjallar_client.tui import run
+from gjallar_client.tui import TerminalController
 
 TOKEN = "synthetic-cookie-secret"
 PASSWORD = "synthetic-password-secret"
@@ -198,12 +198,28 @@ def test_session_save_failure_revokes_new_session(setup, monkeypatch):
 def test_tui_login_queries_switch_quit_without_logout(setup):
     app, config, _, server = setup
     config.add("two", "https://two.test")
-    choices = iter(["4", "admin", "one", "6", "7", "8", "9", "4", "admin", "two", "3", "one", "q"])
-    output = []
-    assert run(app, read=lambda _: next(choices), password=lambda _: PASSWORD, output=output.append) == 0
+    class UI:
+        actions = iter(["login", "nodes", "vms", "templates", "connection", "login", "switch", "quit"])
+        connections = iter([0, 1, 0])
+        output = []
+
+        def next_action(self, controller):
+            return next(self.actions)
+
+        def choose(self, title, options):
+            return next(self.connections)
+
+        def prompt(self, message, secret=False):
+            return PASSWORD if secret else "admin"
+
+        def busy(self, message):
+            self.output.append(message)
+
+    ui = UI()
+    assert TerminalController(app, ui).run() == 0
     assert config.read()["selected"] == "one"
     assert not any(r.url.path.endswith("/logout") for r in server.calls)
-    assert PASSWORD not in "".join(output) and TOKEN not in "".join(output)
+    assert PASSWORD not in "".join(ui.output) and TOKEN not in "".join(ui.output)
 
 
 def test_cli_json_and_errors(tmp_path, capsys):

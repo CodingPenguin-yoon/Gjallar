@@ -2,10 +2,12 @@
 
 - 상태: `APPROVED`
 - 최종 검토일: `2026-09-07`
-- 부분 검토: `2026-09-17`, M1 client·관리형 bootstrap·Proxmox 등록 (실제 설치/PVE 검증 전)
-- 적용 범위: 현재 single-image FastAPI/React/PostgreSQL runtime
+- 부분 검토: `2026-09-18`, client·관리형 bootstrap·Proxmox 등록의 구현/검증 상태와 최신 제품 방향 대조 (이번 갱신에서 실제 설치/PVE 재검증 없음)
+- 적용 범위: 현재 FastAPI/React single image, PostgreSQL과 독립 Python client·관리형 Compose 설치
 
-이 문서는 현재 코드의 환경 준비·실행·검증·장애 대응을 위한 단일 절차 기준이다. [문서 홈](README.md), [현재 API](architecture.md), [작업 lifecycle](architecture.md)에서 관련 계약을 찾는다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. [현재 설계 기준](architecture.md)의 후속 저장 단순화와 구분하며, 아래 운영 절차는 현재 이력·compatibility 저장 구조를 기준으로 한다.
+이 문서는 현재 코드의 환경 준비·실행·검증·장애 대응을 위한 단일 절차 기준이다. [문서 홈](README.md), [현재 API](architecture.md), [작업 lifecycle](architecture.md)에서 관련 계약을 찾는다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐으며, 아래 운영 절차는 아키텍처의 현재 이력·compatibility 저장 계약을 따른다.
+
+제품 목표와 웹 UI 개편 방향은 [PRD](prd.md), 웹·CLI 기본 기능의 구현 순서와 완료 기준은 [로드맵](roadmap.md)을 따른다. 로드맵의 신규 VM 수정·삭제·콘솔·템플릿 제작·시계열/알림·백업/복원·이동은 아직 사용할 수 있는 명령이나 운영 절차가 아니다. 구현된 기능만 이 문서에 실행 절차로 추가한다. 과거 작업의 M1-1~M1-5 검증 기록과 현재 로드맵의 M1~M6 완료 상태는 구분한다.
 
 고위험 변경과 live 실행 승인 경계는 [AGENTS.md](../AGENTS.md)를 따른다. 환경과 검증 명령은 이 문서에서만 관리한다.
 
@@ -14,7 +16,7 @@
 - local 기준: Python 3.13, Node.js 24, pnpm 10.34.5, PostgreSQL. `python3.13`이 다른 이름·경로라면 명령의 실행 파일만 해당 경로로 바꾼다.
 - container 기준: Docker와 PostgreSQL 접근 경로.
 - 필수 설정: `GJALLAR_DATABASE_URL`; target coordination identity는 `GJALLAR_CLUSTER_ID`이며 기본값은 `gjallar-mvp`다.
-- Overview·Workloads 관찰과 Create VM 사용 시: Proxmox API URL, token ID, token secret과 TLS 정책.
+- Proxmox 관찰 시: 기존 env 연결 또는 등록·활성화한 관리형 연결. env 경로는 API URL·token ID·token secret·TLS 정책을 설정하고, 관리형 경로는 아래 등록·암호화 키 절차를 따른다. 현재 관리형 연결은 read/선택적 power만 지원하며 Create/Guided 권한은 제공하지 않는다.
 - `.env`, password, token, private key를 repository, command history, log, artifact에 남기지 않는다.
 
 product runtime은 Proxmox 설정 누락이나 연결 실패를 fake inventory로 대체하지 않는다. authoritative snapshot이 있으면 `degraded/partial`에서도 Overview·Workloads·VM 상세를 읽을 수 있다. Create 입력·검토는 partial base snapshot에서도 가능하다. Create 실행은 guest agent 외 source의 complete 관찰을 요구한다. 고정 IP는 입력한 주소의 ping 응답과 기존 VM 설정·guest agent IP 정보를 함께 확인한다. 어느 쪽이든 점유가 발견되면 red로 차단하며, 점유 미발견·조회 불가는 yellow로 직접 확보한 IP인지 확인받는다. 기존 VM의 guest agent 누락만으로 차단하지 않는다. DHCP discovery 경고와 최초 mutation 직전 재검증은 유지한다. Start/Shutdown/Guided의 complete-live 조건은 유지한다. snapshot이 없는 경우에만 inventory-dependent 읽기 화면을 연결 안내로 차단한다.
@@ -216,7 +218,9 @@ PROXMOX_TLS_INSECURE=false
 - operation recovery: `GJALLAR_OPERATION_RECOVERY_ENABLED=false`, poll 기본 5초(1..300), lease 기본 60초(10..900), `GJALLAR_OPERATION_RECOVERY_MAX_ATTEMPTS` 기본 5(1..20). background concurrency는 1로 고정된다.
 - 값과 기본값은 `.env.example`과 현재 client code를 우선하며 관측 근거 없이 timeout을 늘리지 않는다.
 
-### 관리형 Proxmox 등록 (실환경 검증 전)
+### 관리형 Proxmox 등록 (지원 조합·운영 복구 검증 미완료)
+
+로그인·MFA·token 발급·ACL·암호화 저장·전환·폐기 흐름은 구현돼 있다. 사용자는 `2026-09-18` 실제 Proxmox 연결 성공을 확인했다. 정확한 연결 방식·package/realm/MFA/TLS 조합과 등록 중단·전환·폐기까지 검증했다는 근거는 아니므로 아래 전체 지원·복구 검증은 별도로 남긴다.
 
 신규 manifest v2 bootstrap은 installation UUID와 0600 `secrets/credential_key`를 준비하고 서버에 read-only로 mount한다. master key 원문은 env·manifest·DB에 넣지 않는다. 기존 manifest v1의 start/status/stop 호환은 유지하지만 자동 v2 변환·schema upgrade는 제공하지 않는다. 기존/운영 설치는 아래 migration·identity·키 backup 계획을 먼저 세우며 관리형 Compose를 임의로 수정해 검사를 우회하지 않는다.
 
@@ -446,7 +450,7 @@ Start/Shutdown의 과거 `pre_dispatch_file_guard_cleaned=true`는 기존 no-eff
 
 ## M1 client와 관리형 bootstrap
 
-M1-1·M1-2의 코드·격리 검증 경로다. 실제 OS keyring·PostgreSQL 동시성·macOS/Linux VM 설치는 별도 검증해야 하며 전체 M1 완료가 아니다. 새 Proxmox 로그인·MFA·token 발급·credential DB는 아직 없다. 기존 env 연결이 있는 Gjallar 서버를 client에서 조회할 수 있고, 미설정 서버는 `unconfigured`를 그대로 표시한다.
+아래는 현재 독립 client와 관리형 설치의 실행 절차다. 과거 M1-1·M1-2의 client/bootstrap과 M1-3·M1-4의 Proxmox 로그인·MFA·token 발급·credential DB 핵심 구현·격리 검증이 반영돼 있다. 전용 PostgreSQL 17 DB의 통합 검사 28개 통과는 [기존 설치·연결 기록](work/2026-09-16-m1-installation-connection.md)에 있으며 이번 문서 갱신에서 재실행한 결과는 아니다. 실제 OS keyring·macOS/Linux 설치·등록 지원 조합·운영 복구 검증은 남아 있다. client는 서버가 선택한 env 또는 관리형 연결의 자원을 조회하며, 미설정 서버는 `unconfigured`를 그대로 표시한다. 사용자 연결 성공 확인을 전체 설치·운영 검증 완료로 간주하지 않는다.
 
 ### Client 준비와 기존 서버 연결
 
@@ -470,12 +474,56 @@ client/.venv/bin/gjallar logout
 
 lock 재생성은 `uv lock --project client`, `uv export --project client --no-emit-project --no-dev --format requirements-txt --output-file client/requirements.lock`, `uv export --project client --no-emit-project --only-group dev --format requirements-txt --output-file client/requirements-dev.lock`이다. `uv sync --project client --frozen`도 개발 설치에 사용할 수 있다. production image에는 client 의존성을 넣지 않는다.
 
-- 인자 없는 `gjallar` 또는 `gjallar tui`는 두 시작 경로와 로그인·연결 선택·조회를 제공하는 동기식 메뉴 TUI다. 전체 VM 관리 TUI가 아니다.
-- 기본 session 저장은 macOS Keychain/Linux SecretService만 허용한다. 사용할 수 없거나 잠긴 경우 자동 fallback 없이 실패한다. headless에서는 `gjallar --session-mode memory tui`를 명시적으로 실행한다. 이 프로세스 안에서 로그인·조회·전환을 계속하며 종료 후 cookie를 보관하지 않는다. 비밀번호는 항상 비표시 입력이다.
+- 인자 없는 `gjallar`는 CLI 도움말을 표시한다. `gjallar tui`는 Python curses 기반 전체 화면 TUI다. 두 시작 경로와 로그인·연결 선택·조회를 제공한다. 대화형 터미널과 최소 76열 × 20행이 필요하다. `Tab`/좌우 방향키로 패널 전환, 상하 방향키로 선택, `Enter`로 열기, `/`로 검색, `l`로 로그인, `r`로 새로고침, `?`로 도움말, `q`로 종료한다. 저장된 연결은 목록에서 고르고 계정에는 설치 시 만든 이름(예: `admin`)을 입력한다. `Esc`는 현재 입력을 취소하며 이미 완료된 설치·등록 단계를 되돌리지 않는다. 비밀번호는 마스킹하고 서버의 제어문자는 escape한다. 전체 VM 관리 TUI는 아니다.
+- 기본 session 저장은 macOS Keychain/Linux SecretService만 허용한다. 사용할 수 없거나 잠긴 경우 자동 fallback 없이 실패한다. OS keyring이 없는 대화형 터미널에서는 `gjallar --session-mode memory shell`을 명시적으로 실행한다. 전체 화면이 필요하면 `tui`도 사용할 수 있다. 이 프로세스 안에서 로그인·조회·전환을 계속하며 종료 후 cookie를 보관하지 않는다. 비밀번호는 항상 비표시 입력이다.
 - 설정 경로는 `${XDG_CONFIG_HOME:-~/.config}/gjallar`, `--config-dir`로 변경 가능하다. 0700 디렉터리·0600 JSON에는 profile UUID·origin·CA 참조·cookie 이름·선택만 저장한다. 별칭을 덮어쓰지 않는다. session은 UUID/origin/cookie 이름별로 분리한다.
 - HTTPS 검증은 필수다. HTTP는 `127.0.0.1`·`::1` 같은 literal loopback에만 허용한다. URL userinfo/path prefix/query/fragment·redirect·원격 HTTP는 거부한다. private CA는 `connect ... --ca-file /path/to/ca.pem`, 커스텀 cookie는 `--cookie-name`을 사용한다. proxy 환경 변수는 자동 사용하지 않는다.
-- CLI 결과는 JSON 하나와 종료 코드다. 입력 prompt/진행 안내는 stderr, TUI는 사람이 읽는 메뉴다. 0 정상(부분 관찰은 warning 포함), 2 입력, 3 로그인/session 만료, 4 권한, 5 TLS/통신/서버 계약, 6 Proxmox 미설정/관찰 불가, 7 저장/설치 오류, 130 중단이다. 연결 관찰의 `observed_at`·`freshness`·`availability`를 확인한다.
+- CLI는 터미널에서 사람이 읽는 표·요약, 파이프에서는 JSON 한 개를 출력한다. `--json`은 JSON을 강제하고 `--human`은 사람이 읽는 출력을 강제한다. 입력·실행 확인 prompt/진행 안내는 stderr, TUI는 별도 전체 화면이다. 0 정상(부분 관찰은 warning 포함), 2 입력, 3 로그인/session 만료, 4 권한, 5 TLS/통신/서버 계약, 6 Proxmox 미설정/관찰 불가, 7 저장/설치 오류, 8 VM 작업 차단·미완료·결과 미확정, 130 중단이다. 연결 관찰의 `observed_at`·`freshness`·`availability`를 확인한다.
 - logout 통신 실패에도 로컬 cookie 삭제를 시도하며 서버 폐기 미확인을 오류로 알린다. keyring 삭제 자체가 실패하면 삭제 성공을 주장하지 않는다. 서버 관리자 sessions 화면에서 폐기하거나 만료를 기다린다. TUI 종료는 logout·서비스 stop·Proxmox token 폐기를 호출하지 않는다.
+
+### CLI 운영 흐름
+
+일반 명령의 `--connection`, `--config-dir`, `--session-mode`, `--json`/`--human`은 명령 앞뒤에 지정할 수 있다. `--connection`은 이번 호출의 서버를 선택하며 조회만으로 기본 선택을 바꾸지 않는다. `login` 성공과 `connection use`는 기본 선택을 저장한다. 로그인할 서버가 하나면 별칭 생략이 가능하고 여러 개면 명시적으로 고른다.
+
+```bash
+client/.venv/bin/gjallar
+client/.venv/bin/gjallar connection list
+client/.venv/bin/gjallar login --connection local-8000 --username admin
+client/.venv/bin/gjallar status
+client/.venv/bin/gjallar connection status
+client/.venv/bin/gjallar nodes
+client/.venv/bin/gjallar vms --json
+client/.venv/bin/gjallar vm show 101
+client/.venv/bin/gjallar operations list --vmid 101
+```
+
+계정명은 설치 시 만든 **Gjallar 계정**이다. 비밀번호는 비표시 prompt로만 입력한다. `bootstrap`은 설치/서비스 기동과 연결 별칭 저장까지 완료하고 별도 `login` 명령을 안내한다. 로그인 실패가 설치 실패로 보이지 않게 분리했다. 기존 TUI 설치 경로는 화면 내 로그인 단계를 유지한다.
+
+OS keyring을 쓰지 않을 때는 `gjallar --session-mode memory shell`에서 `login --username admin`, `status`, `vms` 등을 연속 입력한다. `help`와 `exit`를 제공하며 shell 명령을 OS shell로 실행하지 않는다. `exit`는 서비스를 종료하거나 로그아웃하지 않으며 memory session만 보관하지 않는다. 일반 단발 memory 명령 사이에는 session이 유지되지 않는다. shell 안에서는 session 모드를 바꾸거나 shell/TUI를 중첩 실행하지 않는다.
+
+다음 변경 명령은 **예시**이며 실제 실행 전에 대상·영향 승인을 받아야 한다. `--yes`가 없으면 명시적 `yes`를 입력해야 한다. 파이프/자동화는 `--yes`가 필요하다. 요청 ID는 한 실행 의도의 고유한 64자 이하 값이며 응답 유실 시 바꾸지 않는다.
+
+```bash
+client/.venv/bin/gjallar vm start 101 --node pve --request-id start-example-101
+client/.venv/bin/gjallar vm shutdown 101 --node pve --request-id shutdown-example-101
+```
+
+현재 VM의 node/VMID·이름·상태를 확인한 뒤 기존 서버 action API에 같은 idempotency key·expected context·acknowledgement를 제출한다. 서버 권한/preflight/lock을 우회하지 않는다. 강제 종료·자동 retry는 없다. POST 뒤 Operation을 다시 GET해서 `succeeded`이며 coordination이 완료된 경우에만 0을 반환한다. 결과 불명은 8이며 `operations list --vmid` 또는 `operations show <ID>`로 먼저 확인한다. `operations show` 자체의 0은 **조회 성공**이지 해당 VM 작업의 성공을 뜻하지 않는다.
+
+템플릿 기반 생성은 파일 검토와 실행을 나눈다.
+
+```bash
+client/.venv/bin/gjallar vm create example > vm-input.json
+# 위 예제의 node/template/VMID/storage/network/공개 SSH 키를 실제 대상에 맞게 편집한다.
+client/.venv/bin/gjallar vm create plan --file vm-input.json --request-id create-example-101 --review-file vm-review.json
+client/.venv/bin/gjallar vm create execute --review-file vm-review.json --ack-yellow
+client/.venv/bin/gjallar operations show create-example-101
+```
+
+- 예제의 ID·이름·사양은 실제 자원이나 추천값이 아니다. 입력은 `creation_mode`, 정확한 `vmid`, `vm_name`, `target_node_id`, `storage_id`, `bridge_id`, `power_policy`를 명시한다. `power_policy`는 `stopped`/`boot_and_verify`, mode는 `template`/`profile`이다. profile mode에서는 `profile_id`, template mode에서는 `template_node_id`/`template_vmid`를 사용한다. 노드·VM·템플릿은 목록에서 먼저 확인한다.
+- `plan`은 VM을 변경하지 않지만 서버에 draft/preflight/plan·Jobs/Artifacts/Operation을 기록한다. 검토 파일에는 입력과 서버 review/checksum·연결 identity가 들어가며 0600 신규 파일만 만든다. 공개 SSH 키·게스트 계정 입력이 있으므로 검토 파일을 공용 로그·저장소에 올리지 않는다. 기존 파일을 덮어쓰지 않는다. 계획 중 오류가 나면 빈 파일이나 서버 기록이 남을 수 있으며 새 경로를 지정하기 전 기존 작업을 확인한다.
+- `execute`는 같은 서버/profile 검토 파일로만 승인·미리보기·실행을 요청한다. `--ack-yellow`는 yellow 위험을 확인했다는 명시적 동의다. red는 실행하지 않는다. 서버는 checksum과 fresh 관찰을 재검증하고 drift/conflict를 차단한다. 손상 파일·권한 부족·결과 불명을 성공으로 표시하지 않는다.
+- 관리형 연결의 신규 read/power profile은 Create 권한을 제공하지 않는다. CLI 추가가 이 제한을 해제하지 않는다. 기존 env adapter의 권한 경로를 포함해 실제 mutation 검증은 별도다.
 
 ### 새 로컬 설치 (별도 실행 승인·검증 대상)
 
@@ -510,6 +558,8 @@ client/.venv/bin/gjallar upgrade --install-dir "$HOME/.local/share/gjallar" --im
 - 기본 공개는 `127.0.0.1:<port>`뿐이며 DB port는 publish하지 않는다. 원격 HTTP 공개 option은 없다. 원격 브라우저 공개는 별도 검증된 TLS proxy·canonical HTTPS origin·Secure cookie·SameSite 정책을 먼저 준비한 별도 배포 구성에서만 수행한다. 현재 bootstrap은 proxy를 자동 설치하지 않고 수동 변경된 관리형 Compose를 덮어쓰지 않는다. Linux VM의 로컬 웹 검증에는 승인된 SSH tunnel을 사용할 수 있다.
 
 ### 실제 환경에서 남은 검증 순서
+
+첫 실사용은 현재 사용할 환경 하나를 기록해 아래 흐름을 검증한다. 다른 OS/CPU/PVE 조합의 지원 확대는 후속으로 진행하며 첫 환경의 완료와 구분한다. 아래의 과거 검사 통과 기록을 현재 checkout이나 사용자 환경의 새 검증 결과로 간주하지 않는다.
 
 1. disposable Linux VM 및 macOS의 Docker/Compose·CPU·OS keyring/명시적 memory 경로를 확인하고 위 새 설치 명령을 실행한다. 원격 연결만 선택했을 때 Docker/DB가 필요 없는지도 별도로 확인한다.
 2. 전용 PostgreSQL 테스트 DB URL로 `backend/tests/integration/`을 실행한다. 별도 PostgreSQL 17 tmpfs DB에서 28개 검사가 통과했으며 setup의 중복 등록·CAS·VM admission/전환 경합도 포함한다. 기존 운영 DB를 테스트 대상으로 사용하지 않는다.

@@ -322,7 +322,7 @@ class Bootstrap:
         self.maintenance(manifest, "check-ready")
         self.compose(manifest, ["up", "-d", "--wait", "--wait-timeout", "120", "gjallar"])
         return {"ok": True, "state": "running", "url": f'http://127.0.0.1:{manifest["port"]}',
-                "message": "웹에서 Gjallar 계정으로 로그인하세요. Proxmox 신규 연결 설정은 후속 기능입니다. TUI 종료는 서비스를 중지하지 않습니다."}
+                "message": "설치 시 만든 Gjallar 계정으로 로그인하세요. Proxmox 연결은 로그인 후 별도로 등록·확인합니다. TUI 종료는 서비스를 중지하지 않습니다."}
 
     def service(self, action):
         self.preflight()

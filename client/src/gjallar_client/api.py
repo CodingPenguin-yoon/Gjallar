@@ -57,6 +57,12 @@ class Api:
             code = detail.get("code") if isinstance(detail, dict) else None
             if code in {"PROXMOX_INVENTORY_UNCONFIGURED", "PROXMOX_INVENTORY_DEGRADED"}:
                 raise ClientError(code, "Proxmox 미설정 또는 관찰 불가입니다. Gjallar 서버의 연결 상태를 확인하세요.", 6)
+            if response.status_code == 404:
+                raise ClientError("NOT_FOUND", "대상 또는 작업을 찾을 수 없습니다. 서버·ID를 확인하세요.", 5)
+            if response.status_code == 409:
+                raise ClientError("STATE_CONFLICT", "현재 상태가 요청 또는 검토한 계획과 충돌합니다. 기존 작업과 대상 상태를 먼저 확인하세요.", 8)
+            if response.status_code == 422:
+                raise ClientError("INVALID_REQUEST", "서버가 입력을 거부했습니다. 명령 도움말과 생성 입력을 확인하세요.", 2)
             raise ClientError("SERVER_ERROR", "Gjallar 서버가 요청을 처리하지 못했습니다.", 5)
         if not isinstance(payload, dict) or payload.get("ok") is not True or "data" not in payload or not isinstance(payload.get("meta", {}), dict):
             raise ClientError("PROTOCOL_ERROR", "Gjallar 응답 계약이 맞지 않습니다.", 5)
