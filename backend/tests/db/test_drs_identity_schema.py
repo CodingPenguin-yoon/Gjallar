@@ -88,9 +88,9 @@ def _insert_lock(
     )
 
 
-def _assert_generic_lock_contract(inspector) -> None:
+def _assert_generic_lock_contract(inspector, *, with_host=False) -> None:
     assert {column["name"] for column in inspector.get_columns("operation_locks")} == GENERIC_LOCK_COLUMNS
-    assert {index["name"] for index in inspector.get_indexes("operation_locks")} == GENERIC_LOCK_INDEXES
+    assert {index["name"] for index in inspector.get_indexes("operation_locks")} == GENERIC_LOCK_INDEXES | ({"uq_operation_locks_open_configuration"} if with_host else set())
     assert inspector.get_foreign_keys("operation_locks") == []
 
     checks = {constraint["name"]: constraint["sqltext"] for constraint in inspector.get_check_constraints("operation_locks")}
@@ -98,7 +98,7 @@ def _assert_generic_lock_contract(inspector) -> None:
         "ck_operation_locks_operation_type",
         "ck_operation_locks_scope_type",
         "ck_operation_locks_status",
-    }
+    } | ({"ck_operation_locks_host_binding"} if with_host else set())
     assert "drs_migration" not in checks["ck_operation_locks_operation_type"]
     assert all(operation_type in checks["ck_operation_locks_operation_type"] for operation_type in GENERIC_OPERATION_TYPES)
     assert "proxmox_locator" in checks["ck_operation_locks_scope_type"]
@@ -112,12 +112,13 @@ def test_drs_models_are_retired_from_metadata_while_shared_contracts_remain():
 
     assert DRS_TABLES.isdisjoint(Base.metadata.tables)
     assert SHARED_TABLES <= set(Base.metadata.tables)
-    assert set(SUPPORTED_TARGET_OPERATION_TYPES) == GENERIC_OPERATION_TYPES
+    assert set(SUPPORTED_TARGET_OPERATION_TYPES) == GENERIC_OPERATION_TYPES | {"vm_compute", "vm_disk_resize", "vm_network", "vm_clone", "vm_delete", "vm_template", "vm_image_build", "vm_image_cleanup", "vm_backup", "vm_restore", "vm_migrate"}
 
     locks = Base.metadata.tables["operation_locks"]
     assert set(locks.columns.keys()) == GENERIC_LOCK_COLUMNS
-    assert {index.name for index in locks.indexes} == GENERIC_LOCK_INDEXES
+    assert {index.name for index in locks.indexes} == GENERIC_LOCK_INDEXES | {"uq_operation_locks_open_configuration"}
     assert {constraint.name for constraint in locks.constraints if constraint.name} == {
+        "ck_operation_locks_host_binding",
         "ck_operation_locks_operation_type",
         "ck_operation_locks_scope_type",
         "ck_operation_locks_status",
@@ -138,7 +139,7 @@ def test_alembic_baseline_to_head_retires_drs_and_keeps_generic_lock_invariants(
         table_names = set(inspector.get_table_names())
         assert DRS_TABLES.isdisjoint(table_names)
         assert SHARED_TABLES <= table_names
-        _assert_generic_lock_contract(inspector)
+        _assert_generic_lock_contract(inspector, with_host=True)
 
         with engine.begin() as connection:
             for index, operation_type in enumerate(sorted(GENERIC_OPERATION_TYPES), start=1):
@@ -227,7 +228,7 @@ def test_0028_to_head_preserves_generic_locks_jobs_and_artifacts(tmp_path, monke
         engine = create_engine(database_url, future=True)
         inspector = inspect(engine)
         assert DRS_TABLES.isdisjoint(inspector.get_table_names())
-        _assert_generic_lock_contract(inspector)
+        _assert_generic_lock_contract(inspector, with_host=True)
         with engine.connect() as connection:
             assert connection.execute(
                 text("select operation_type, scope_type, status from operation_locks where operation_lock_id = 'retained-lock'")

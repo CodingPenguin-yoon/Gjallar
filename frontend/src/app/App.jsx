@@ -2,13 +2,25 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import AdminUsersPage from '../pages/settings/AdminUsersPage'
 import CreateVmPage from '../pages/workloads/CreateVmPage'
+import BackupsPage from '../pages/workloads/BackupsPage'
+import RestorePage from '../pages/workloads/RestorePage'
+import MigratePage from '../pages/workloads/MigratePage'
+import MaintenancePage from '../pages/insights/MaintenancePage'
+import HostStoragePage from '../pages/settings/HostStoragePage'
+import HostNetworkPage from '../pages/settings/HostNetworkPage'
+import RestoreReportPage from '../pages/workloads/RestoreReportPage'
+import ImageBuildPage from '../pages/workloads/ImageBuildPage'
+import ImageCleanupPage from '../pages/workloads/ImageCleanupPage'
+import TemplateTestPage from '../pages/workloads/TemplateTestPage'
 import RisksPage from '../pages/operations/RisksPage'
 import ProxmoxConnectionBoundary from '../shared/proxmox/ProxmoxConnectionBoundary'
 import InsightsPage from '../pages/insights/InsightsPage'
+import MetricsPage from '../pages/insights/MetricsPage'
+import AlertsPage from '../pages/insights/AlertsPage'
 import JobsPage from '../pages/operations/JobsPage'
 import { apiV1Client } from '../shared/api/apiV1'
 import { canAdmin, canOperate } from '../shared/auth/permissions'
-import { isProxmoxInventoryAvailable, isProxmoxOperational, proxmoxConnectionBadge } from '../shared/proxmox/connection'
+import { isProxmoxOperational, proxmoxConnectionBadge } from '../shared/proxmox/connection'
 import WorkloadCockpitPage from '../pages/workloads/WorkloadCockpitPage'
 import VmDetailPage from '../pages/workloads/VmDetailPage'
 import OperationsListPage from '../pages/operations/OperationsListPage'
@@ -19,7 +31,7 @@ import LoginPage from '../pages/auth/LoginPage'
 import AccountSettingsScreen from '../pages/settings/AccountSettingsPage'
 import ProxmoxSetupPage from '../pages/settings/ProxmoxSetupPage'
 import AppShell from './AppShell'
-import { InsightsShell, OperationsShell, SettingsShell, WorkloadsShell } from './navigation'
+import { OverviewShell, InsightsShell, OperationsShell, SettingsShell, WorkloadsShell, TemplatesShell, InfrastructureShell } from './navigation'
 import { primaryNavItems } from './navigationModel'
 
 function AdminGuard({ currentUser, children }) {
@@ -132,8 +144,6 @@ function App() {
   const currentUser = authState.user
   const proxmoxOperational = proxmoxConnectionState.status === 'ready'
     && isProxmoxOperational(proxmoxConnectionState.data)
-  const proxmoxInventoryAvailable = proxmoxConnectionState.status === 'ready'
-    && isProxmoxInventoryAvailable(proxmoxConnectionState.data)
   const canMutate = canOperate(currentUser) && proxmoxOperational
   const canObserveRecovery = canOperate(currentUser)
   const isAdmin = canAdmin(currentUser)
@@ -141,6 +151,7 @@ function App() {
     requestStatus: proxmoxConnectionState.status,
     connection: proxmoxConnectionState.data,
     onRetry: refreshProxmoxConnection,
+    canConfigure: isAdmin,
   }
   const inventoryRoute = (children) => (
     <ProxmoxConnectionBoundary {...connectionBoundaryProps}>{children}</ProxmoxConnectionBoundary>
@@ -209,23 +220,33 @@ function App() {
     </SettingsShell>
   )
   const connectionBadge = proxmoxConnectionBadge(proxmoxConnectionState.status, proxmoxConnectionState.data)
-  const visiblePrimaryNavItems = primaryNavItems.filter((item) => !item.requiresProxmox || proxmoxInventoryAvailable)
 
   return (
     <AppShell
       currentUser={currentUser}
       connectionBadge={connectionBadge}
-      navItems={visiblePrimaryNavItems}
+      navItems={primaryNavItems}
       pathname={location.pathname}
       onLogout={handleLogout}
     >
       <Routes>
-          <Route path="/" element={inventoryRoute(<Dashboard />)} />
+          <Route path="/nodes" element={inventoryRoute(<OverviewShell><MetricsPage key={location.search} nodeOnly /></OverviewShell>)} />
+          <Route path="/" element={inventoryRoute(<OverviewShell><Dashboard /></OverviewShell>)} />
           <Route path="/instances" element={vmInventoryRoute} />
           <Route path="/instances/create" element={createVmRoute} />
+          <Route path="/instances/templates/cleanup" element={<TemplatesShell><ImageCleanupPage canOperate={canOperate(currentUser)} /></TemplatesShell>} />
+          <Route path="/instances/templates/tests/:operationId" element={<TemplatesShell><TemplateTestPage canOperate={canOperate(currentUser)} /></TemplatesShell>} />
+          <Route path="/instances/templates/build" element={<TemplatesShell><ImageBuildPage canOperate={canOperate(currentUser)} /></TemplatesShell>} />
           <Route path="/instances/networks" element={<Navigate to="/instances" replace />} />
+          <Route path="/instances/:vmid/migrate" element={<WorkloadsShell><MigratePage canOperate={canOperate(currentUser)} /></WorkloadsShell>} />
+          <Route path="/instances/:vmid/restore" element={<WorkloadsShell><RestorePage canOperate={canOperate(currentUser)} /></WorkloadsShell>} />
+          <Route path="/instances/restore-tests/:operationId" element={<WorkloadsShell><RestoreReportPage /></WorkloadsShell>} />
+          <Route path="/instances/:vmid/backups" element={<WorkloadsShell><BackupsPage canOperate={canOperate(currentUser)} /></WorkloadsShell>} />
           <Route path="/instances/:vmid" element={vmDetailRoute} />
           <Route path="/insights" element={insightsRoute()} />
+          <Route path="/insights/maintenance" element={<InfrastructureShell isAdmin={isAdmin}><MaintenancePage canOperate={canOperate(currentUser)} /></InfrastructureShell>} />
+          <Route path="/insights/metrics" element={<InsightsShell><MetricsPage key={location.search} /></InsightsShell>} />
+          <Route path="/insights/alerts" element={<InsightsShell><AlertsPage /></InsightsShell>} />
           <Route path="/insights/risks" element={insightsRoute('risk')} />
           <Route path="/insights/readiness" element={insightsRoute('readiness')} />
           <Route path="/insights/capacity" element={insightsRoute('capacity')} />
@@ -238,7 +259,9 @@ function App() {
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
           <Route path="/settings/account" element={accountRoute} />
           <Route path="/settings/admin/users" element={adminUsersRoute} />
-          <Route path="/settings/proxmox" element={<SettingsShell isAdmin={isAdmin}><AdminGuard currentUser={currentUser}><ProxmoxSetupPage /></AdminGuard></SettingsShell>} />
+          <Route path="/settings/proxmox" element={<InfrastructureShell isAdmin={isAdmin}><AdminGuard currentUser={currentUser}><ProxmoxSetupPage /></AdminGuard></InfrastructureShell>} />
+          <Route path="/settings/host-network" element={<InfrastructureShell isAdmin={isAdmin}><AdminGuard currentUser={currentUser}><HostNetworkPage /></AdminGuard></InfrastructureShell>} />
+          <Route path="/settings/host-storage" element={<InfrastructureShell isAdmin={isAdmin}><AdminGuard currentUser={currentUser}><HostStoragePage /></AdminGuard></InfrastructureShell>} />
           <Route path="/infra" element={vmInventoryRoute} />
           <Route path="/create" element={createVmRoute} />
           <Route path="/networks" element={<Navigate to="/instances" replace />} />

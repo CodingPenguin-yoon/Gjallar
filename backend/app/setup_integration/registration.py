@@ -8,7 +8,7 @@ import time
 from urllib.parse import quote, unquote
 
 from app.setup_integration.contracts import SetupError, RegistrationIntent, digest
-from app.setup_integration.planning import build_plan, verify_token
+from app.setup_integration.planning import authority_warnings, build_plan, verify_token
 from app.setup_integration.repository import RegistrationRepository
 from app.setup_integration.transport import ProxmoxSetupTransport
 
@@ -303,7 +303,8 @@ class RegistrationService:
         plan = {"endpoint": intent.endpoint, "token_id": token_id, "scope": intent.scope.model_dump(),
                 "features": intent.features, "connection_version": row["connection_version"],
                 "trust_digest": digest(intent.ca_pem), "mode": "import_env", "upstream_changes": False,
-                "expires_at": None, "can_confirm": True, "roles": {}, "create_roles": [], "acls": []}
+                "expires_at": None, "can_confirm": True, "roles": {}, "create_roles": [], "acls": [],
+                "authority_warnings": authority_warnings(intent)}
         row = self.advance(row, actor_id, "planned", plan_digest=digest(plan))
         return {**row, "plan": {**plan, "digest": row["plan_digest"]}}
 
@@ -316,7 +317,8 @@ class RegistrationService:
         plan = {"endpoint": intent.endpoint, "token_id": token_id, "scope": intent.scope.model_dump(),
                 "features": intent.features, "connection_version": row["connection_version"],
                 "trust_digest": digest(intent.ca_pem), "mode": "import_env", "upstream_changes": False,
-                "expires_at": None, "can_confirm": True, "roles": {}, "create_roles": [], "acls": []}
+                "expires_at": None, "can_confirm": True, "roles": {}, "create_roles": [], "acls": [],
+                "authority_warnings": authority_warnings(intent)}
         if digest(plan) != plan_digest:
             raise SetupError("SETUP_PLAN_CONFLICT", "기존 연결이 변경됐습니다. 계획을 다시 확인하세요.")
         transport = self.transport_factory(intent.endpoint, intent.ca_pem)

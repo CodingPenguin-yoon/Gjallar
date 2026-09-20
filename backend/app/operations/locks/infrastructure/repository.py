@@ -97,8 +97,21 @@ class SqlAlchemyDurableTargetLockRepository:
                                    operation_type=operation_type)
                 except SetupError as exc:
                     raise DurableTargetLockBusy(scope_key=scope_key, existing={"reason": exc.code}) from None
-                session.add(row)
-                session.flush()
+                host_lock = session.scalar(select(OperationLockRecord).where(
+                    OperationLockRecord.cluster_id == normalized_cluster,
+                    OperationLockRecord.scope_type == 'proxmox_configuration',
+                    OperationLockRecord.status.in_(OPEN_TARGET_LOCK_STATUSES),
+                ))
+                if host_lock is not None:
+                    raise DurableTargetLockBusy(scope_key=scope_key, existing={
+                        'reason': 'HOST_CONFIGURATION_IN_PROGRESS', 'owner_id': host_lock.owner_id,
+                    })
+                # Callers may share an outer admission transaction. A duplicate
+                # locator must roll back only this insertion before reading its
+                # owner; otherwise PostgreSQL leaves that session unusable.
+                with session.begin_nested():
+                    session.add(row)
+                    session.flush()
                 return _lock(row)
         except IntegrityError as exc:
             existing = self.current(cluster_id=normalized_cluster, vmid=normalized_vmid)

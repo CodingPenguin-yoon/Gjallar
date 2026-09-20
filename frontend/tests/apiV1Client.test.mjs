@@ -73,6 +73,16 @@ const fakeFetch = async (url, options = {}) => {
 }
 
 const client = createApiV1Client({ baseUrl: '/custom/api/v1', fetchImpl: fakeFetch })
+assert.equal((await client.getVmCompute('node/a', 40000)).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/compute')
+const computePayload = { idempotency_key: 'reviewed-request', expected_digest: 'a'.repeat(40), expected_name: 'test-vm', cores: 4, memory_mib: 4096 }
+assert.deepEqual((await client.setVmCompute('node/a', 40000, computePayload)).body, computePayload)
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/actions/compute')
+assert.equal(calls.at(-1).options.method, 'POST')
+assert.equal((await client.getVmDisk('node/a', 40000)).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/disks/scsi0')
+const diskPayload = {idempotency_key: 'disk-review', expected_digest: 'a'.repeat(40), expected_name: 'test-vm', expected_volume: 'store1:40000/vm-40000-disk-0.qcow2', expected_size_bytes: 20 * 1024 ** 3, size_gib: 24}
+assert.deepEqual((await client.resizeVmDisk('node/a', 40000, diskPayload)).body, diskPayload)
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/actions/disk-resize')
+assert.equal(calls.at(-1).options.method, 'POST')
 assert.equal((await client.listProxmoxRegistrations()).url, '/custom/api/v1/setup/proxmox/registrations')
 assert.equal((await client.getProxmoxRegistration('attempt/1')).url, '/custom/api/v1/setup/proxmox/registrations/attempt%2F1')
 assert.deepEqual((await client.prepareProxmoxRegistration({ intent: {}, idempotency_key: 'same-request' })).body, { intent: {}, idempotency_key: 'same-request' })
@@ -190,6 +200,27 @@ assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/proxmox-previ
 assert.deepEqual((await client.createVmDraftProxmox('draft/1', { proxmox_mutation_acknowledged: true })).body, { proxmox_mutation_acknowledged: true })
 assert.equal(calls.at(-1).url, '/custom/api/v1/vm-create/draft%2F1/proxmox-create')
 
+await client.listCloudImages()
+assert.equal(calls.at(-1).url, '/custom/api/v1/templates/cloud-images')
+await client.reviewImageBuild('node/a', 40000, {image_id: 'alma-9', name: 'alma-test', storage_id: 'target', staging_storage_id: 'stage', bridge_id: 'vmbr1'})
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/image-build?image_id=alma-9&name=alma-test&storage_id=target&staging_storage_id=stage&bridge_id=vmbr1')
+await client.buildImageTemplate('node/a', 40000, {idempotency_key: 'image-review', image_build_acknowledged: true})
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/actions/image-build')
+assert.deepEqual(JSON.parse(calls.at(-1).options.body), {idempotency_key: 'image-review', image_build_acknowledged: true})
+await client.getTemplateTest('create/test')
+assert.equal(calls.at(-1).url, '/custom/api/v1/operations/create%2Ftest/template-test')
+await client.getMetrics('vm', 'node/a', 40000, 'day')
+assert.equal(calls.at(-1).url, '/custom/api/v1/monitoring/nodes/node%2Fa/vms/40000?timeframe=day')
+await client.getMetrics('storage', 'node1', 'store/a', 'week')
+assert.equal(calls.at(-1).url, '/custom/api/v1/monitoring/nodes/node1/storage/store%2Fa?timeframe=week')
+await client.getMetrics('node', 'node1', '', 'hour')
+assert.equal(calls.at(-1).url, '/custom/api/v1/monitoring/nodes/node1?timeframe=hour')
+await client.reviewImageCleanup('node/a', 40000, 'vm-image-build-a', 'source')
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/image-cleanup?parent_operation_id=vm-image-build-a&resource=source')
+await client.cleanupImageResource('node/a', 40000, {resource: 'source', cleanup_acknowledged: true})
+assert.equal(calls.at(-1).url, '/custom/api/v1/nodes/node%2Fa/vms/40000/actions/image-cleanup')
+assert.deepEqual(JSON.parse(calls.at(-1).options.body), {resource: 'source', cleanup_acknowledged: true})
+
 for (const call of calls) {
   assert.equal(call.options.credentials, 'include', `${call.url} must include browser session cookies`)
 }
@@ -257,3 +288,48 @@ assert.doesNotMatch(source, /['"]\/drs(?:\/|['"])/, 'apiV1 client must not expos
 assert.doesNotMatch(source, /\b(?:getDrs|listDrs|checkDrs|createDrs|updateDrs|drsPolicies|drsPolicy|reconcilePreviewDrs)\w*\b/, 'apiV1 client must not expose DRS methods')
 
 console.log('apiV1Client RED contract exercised')
+
+const alertRequests = []
+const alertsClient = createApiV1Client({fetchImpl: async (url, options) => {
+  alertRequests.push({url, options})
+  return {ok: true, json: async () => ({ok: true, data: {alerts: [], read_only: true}})}
+}})
+assert.deepEqual(await alertsClient.getOperationAlerts(50), {alerts: [], read_only: true})
+assert.equal(alertRequests[0].url, '/api/v1/monitoring/operation-alerts?limit=50')
+assert.equal(alertRequests[0].options.method, 'GET')
+
+const restoreCalls = []
+const restoreClient = createApiV1Client({fetchImpl: async (url, options) => {
+  restoreCalls.push({url, options})
+  return {ok: true, json: async () => ({ok: true, data: {read_only: options.method === 'GET'}})}
+}})
+const restoreQuery = {archive: 'nfs:backup/vzdump-qemu-40000-2026_09_19-05_00_00.vma.zst', new_vmid: 40001, storage_id: 'target', bridge_id: 'vmbr1'}
+await restoreClient.reviewVmRestore('node1', 40000, restoreQuery)
+await restoreClient.restoreVmBackup('node1', 40000, {...restoreQuery, isolation_acknowledged: true})
+await restoreClient.getRestoreReport('vm-restore/test')
+assert.equal(restoreCalls[0].url, `/api/v1/nodes/node1/vms/40000/restore-review?${new URLSearchParams(restoreQuery)}`)
+assert.equal(restoreCalls[1].url, '/api/v1/nodes/node1/vms/40000/actions/restore')
+assert.deepEqual(JSON.parse(restoreCalls[1].options.body), {...restoreQuery, isolation_acknowledged: true})
+assert.equal(restoreCalls[2].url, '/api/v1/operations/vm-restore%2Ftest/restore-report')
+assert.equal(restoreCalls[2].options.method, 'GET')
+
+const migrateCalls = []
+const migrateClient = createApiV1Client({fetchImpl: async (url, options) => {
+  migrateCalls.push({url, options})
+  return {ok: true, json: async () => ({ok: true, data: {}})}
+}})
+await migrateClient.reviewVmMigration('node1', 40000, 'node2')
+await migrateClient.migrateVm('node1', 40000, {destination_node: 'node2', migration_acknowledged: true})
+assert.equal(migrateCalls[0].url, '/api/v1/nodes/node1/vms/40000/migrate?destination_node=node2')
+assert.equal(migrateCalls[0].options.method, 'GET')
+assert.equal(migrateCalls[1].url, '/api/v1/nodes/node1/vms/40000/actions/migrate')
+assert.deepEqual(JSON.parse(migrateCalls[1].options.body), {destination_node: 'node2', migration_acknowledged: true})
+
+const maintenanceCalls = []
+const maintenanceClient = createApiV1Client({fetchImpl: async (url, options) => {
+  maintenanceCalls.push({url, options})
+  return {ok: true, json: async () => ({ok: true, data: {read_only: true, node_shutdown_safe: false}})}
+}})
+await maintenanceClient.getNodeMaintenance('node1', {destination_node: 'node2', backup_storage: 'nfs', backup_max_age_hours: 24, check_limit: 10})
+assert.equal(maintenanceCalls[0].url, '/api/v1/maintenance/nodes/node1?destination_node=node2&backup_storage=nfs&backup_max_age_hours=24&check_limit=10')
+assert.equal(maintenanceCalls[0].options.method, 'GET')

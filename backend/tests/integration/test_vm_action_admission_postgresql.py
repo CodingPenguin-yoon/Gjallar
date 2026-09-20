@@ -23,6 +23,170 @@ from app.operations.vm_start.errors import VmStartError
 pytestmark = pytest.mark.postgresql
 
 
+@pytest.mark.parametrize("same_key,late_completion,kinds", [
+    (True, False, ("migrate", "migrate")), (False, False, ("migrate", "migrate")), (True, True, ("migrate", "migrate")),
+    (False, False, ("compute", "migrate")), (False, False, ("backup", "migrate")), (False, False, ("delete", "migrate")),
+    (True, False, ("backup", "backup")), (False, False, ("backup", "backup")), (True, True, ("backup", "backup")),
+    (False, False, ("compute", "backup")), (False, False, ("delete", "backup")),
+    (True, False, ("compute", "compute")), (False, False, ("compute", "compute")), (True, True, ("compute", "compute")),
+    (True, False, ("disk", "disk")), (False, False, ("disk", "disk")), (True, True, ("disk", "disk")),
+    (True, False, ("delete", "delete")), (False, False, ("delete", "delete")), (True, True, ("delete", "delete")),
+    (False, False, ("compute", "delete")), (False, False, ("disk", "delete")), (False, False, ("network", "delete")),
+    (True, False, ("template", "template")), (False, False, ("template", "template")), (True, True, ("template", "template")),
+    (False, False, ("compute", "template")), (False, False, ("disk", "template")),
+    (False, False, ("network", "template")), (False, False, ("delete", "template")),
+    (False, False, ("compute", "disk")),
+    (True, False, ("network", "network")), (False, False, ("network", "network")), (True, True, ("network", "network")),
+    (False, False, ("compute", "network")), (False, False, ("disk", "network")),
+])
+def test_resource_atomic_admission_race(postgres_actions, monkeypatch, same_key, late_completion, kinds):
+    from app.operations.vm_migrate.application import MigrateService
+    from app.operations.vm_migrate.domain import MigrateRequest
+    from app.operations.vm_backup.application import BackupService
+    from app.operations.vm_backup.domain import BackupRequest
+    from app.operations.vm_template.application import TemplateService
+    from app.operations.vm_template.domain import TemplateRequest
+    from app.operations.vm_delete.application import DeleteService
+    from app.operations.vm_delete.domain import DeleteRequest
+    from app.operations.vm_network.application import NetworkService
+    from app.operations.vm_network.domain import NetworkRequest
+    from app.operations.vm_compute.application import ComputeService
+    from app.operations.vm_compute.domain import ComputeRequest
+    from app.operations.vm_compute.infrastructure import ComputeAdmission
+    from app.operations.locks.domain import DurableTargetLockBusy
+    from app.operations.vm_admission import VmMutationAdmission
+    from app.operations.vm_disk.application import DiskService
+    from app.operations.vm_disk.domain import DiskRequest
+
+    admitted = threading.Barrier(2)
+    original_current = SqlAlchemyDurableTargetLockRepository.current
+    local = threading.local()
+    completed = threading.Event()
+
+    def synchronized_current(repository, **kwargs):
+        result = original_current(repository, **kwargs)
+        if not getattr(local, "checked", False):
+            local.checked = True
+            admitted.wait(timeout=15)
+            if late_completion and local.index == 1:
+                assert completed.wait(timeout=15)
+        return result
+
+    monkeypatch.setattr(SqlAlchemyDurableTargetLockRepository, "current", synchronized_current)
+    released = threading.Event()
+    calls = []
+
+    class Client:
+        def __init__(self, kind):
+            self.kind = kind
+
+        def review(self, **kwargs):
+            return {'node_id': 'node-pg', 'vmid': 40000, 'name': 'test-vm', 'review_digest': 'sha256:' + 'b' * 64,
+                    'vm': {'config_fingerprint': 'stable', 'digest': 'a' * 40}, 'destination': {'node_id': 'node-dest'}}
+
+        def observe(self, **kwargs):
+            return {'node_id': 'node-dest', 'vm': {'config_fingerprint': 'stable', 'digest': 'c' * 40},
+                    'destination': {'node_id': 'node-dest'}, 'source_location_absent': True}
+
+        def check_permissions(self, **kwargs):
+            pass
+
+        def observe_deletion(self, **kwargs):
+            return {"vmid_unused": True, "deleted_volumes": ["store1:40000/vm-40000-disk-0.qcow2"],
+                    "remaining_volumes": [], "preserved_volumes": [], "preservation_unconfirmed": []}
+
+        def read(self, **kwargs):
+            if self.kind == "backup":
+                return {"vmid": 40000, "name": "test-vm", "status": "stopped", "storage_id": "store1",
+                        "review_digest": "sha256:" + "b" * 64, "config_fingerprint": "stable", "volumes": [],
+                        "archives": [{"volume_id": "store1:backup/new", "operation_marker": calls[-1]["operation_id"]}] if calls and "operation_id" in calls[-1] else []}
+            if self.kind == "template":
+                return {"vmid": 40000, "name": "test-vm", "digest": "a" * 40, "resources_digest": "sha256:" + "b" * 64,
+                        "status": "stopped", "template": bool(kwargs.get('converted')), "config_fingerprint": "sha256:" + "c" * 64,
+                        "volumes": [{"slot": "scsi0", "volume_id": "store1:40000/" + ("base" if kwargs.get('converted') else "vm") + "-40000-disk-0.qcow2"}]}
+            if self.kind == "delete":
+                return {"vmid": 40000, "name": "test-vm", "digest": "a" * 40, "resources_digest": "sha256:" + "b" * 64,
+                        "deleted_volumes": [{"volume_id": "store1:40000/vm-40000-disk-0.qcow2"}], "preserved_volumes": []}
+            if self.kind == "disk":
+                return {"name": "test-vm", "digest": "a" * 40, "storage_id": "store1",
+                        "volume_id": "store1:40000/vm-40000-disk-0.qcow2", "size_bytes": (24 if calls else 20) * 1024 ** 3}
+            if self.kind == "network":
+                return ({"name": "test-vm", "digest": "a" * 40,
+                         "net0": "virtio=02:00:00:00:00:01,bridge=" + ("vmbr1,tag=100" if calls else "vmbr0")},
+                        {"status": "stopped"}, [], {"pending_changes": False, "interfaces": [
+                            {"iface": "vmbr0", "type": "bridge", "active": 1},
+                            {"iface": "vmbr1", "type": "bridge", "active": 1, "bridge_vlan_aware": 1}]})
+            return ({"name": "test-vm", "cores": 4 if calls else 2,
+                     "memory": 4096 if calls else 2048, "digest": "a" * 40},
+                    {"status": "stopped"}, [])
+
+        def apply(self, **kwargs):
+            calls.append(kwargs)
+            if not late_completion:
+                assert released.wait(timeout=15)
+            if self.kind == "migrate":
+                return "UPID:node-pg:0001:0002:0003:qmigrate:40000:test@pve!gjallar:"
+            if self.kind == "backup":
+                return "UPID:node-pg:0001:0002:0003:vzdump:40000:test@pve!gjallar:"
+            if self.kind == "template":
+                return "UPID:node-pg:0001:0002:0003:qmtemplate:40000:test@pve!gjallar:"
+            if self.kind == "delete":
+                return "UPID:node-pg:0001:0002:0003:qmdestroy:40000:test@pve!gjallar:"
+            if self.kind == "disk":
+                return "UPID:node-pg:0001:0002:0003:resize:40000:test@pve!gjallar:"
+
+        def task(self, *, heartbeat=None, **kwargs):
+            if heartbeat:
+                heartbeat()
+            return {"status": "stopped", "exitstatus": "OK"}
+
+    def execute(index):
+        local.index = index
+        kind = kinds[index]
+        service_type = {"migrate": MigrateService, "backup": BackupService, "compute": ComputeService, "disk": DiskService, "network": NetworkService, "delete": DeleteService, "template": TemplateService}[kind]
+        admission = ComputeAdmission() if kind == "compute" else VmMutationAdmission(recovery_kind=f"vm_{kind}_observation")
+        service = service_type(client=Client(kind), admission=admission,
+            operations=SqlAlchemyOperationStore(), recovery=SqlAlchemyRecoveryStore(), cluster_id=postgres_actions)
+        common = dict(idempotency_key="same" if same_key else f"key-{index}", expected_digest="a" * 40, expected_name="test-vm")
+        request = (MigrateRequest(idempotency_key=common['idempotency_key'], expected_name='test-vm', destination_node='node-dest',
+                    expected_review_digest='sha256:'+'b'*64, confirmation='40000/test-vm/node-pg->node-dest', migration_acknowledged=True) if kind == 'migrate' else BackupRequest(idempotency_key=common['idempotency_key'], expected_name='test-vm', storage_id='store1',
+                    expected_review_digest='sha256:'+'b'*64, confirmation='40000/test-vm', backup_acknowledged=True) if kind == 'backup' else TemplateRequest(**common, expected_resources_digest="sha256:" + "b" * 64,
+                    confirmation="40000/test-vm", guest_prepared=True, conversion_acknowledged=True) if kind == "template" else DeleteRequest(**common, expected_resources_digest="sha256:" + "b" * 64,
+                                 confirmation="40000/test-vm", delete_acknowledged=True) if kind == "delete" else
+                   ComputeRequest(**common, cores=4, memory_mib=4096) if kind == "compute" else
+                   DiskRequest(**common, expected_volume="store1:40000/vm-40000-disk-0.qcow2",
+                               expected_size_bytes=20 * 1024 ** 3, size_gib=24) if kind == "disk" else
+                   NetworkRequest(**common, expected_net0="virtio=02:00:00:00:00:01,bridge=vmbr0", bridge_id="vmbr1", vlan_tag=100))
+        try:
+            return service.execute(node_id="node-pg", vmid=40000, request=request, actor={})
+        except DurableTargetLockBusy as exc:
+            return exc
+        finally:
+            if index == 0:
+                completed.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(execute, index) for index in range(2)]
+        try:
+            done, pending = wait(futures, timeout=10, return_when=FIRST_COMPLETED)
+            if not late_completion:
+                assert len(done) == len(pending) == 1
+                assert isinstance(next(iter(done)).result(), DurableTargetLockBusy)
+        finally:
+            released.set()
+        results = [future.result(timeout=15) for future in futures]
+    assert len(calls) == 1
+    successes = [result for result in results if isinstance(result, dict)]
+    assert len(successes) == (2 if late_completion else 1)
+    assert successes[0]["status"] == "succeeded"
+    if late_completion and same_key:
+        assert successes[1]["idempotent_replay"] is True
+    assert len(SqlAlchemyOperationStore().list()) == 1
+    assert SqlAlchemyRecoveryStore().get(successes[0]["operation_id"]).status == "completed"
+    local.checked = True
+    assert original_current(SqlAlchemyDurableTargetLockRepository(), cluster_id=postgres_actions, vmid=40000) is None
+
+
 @pytest.fixture
 def postgres_actions(monkeypatch):
     configured = os.getenv("GJALLAR_POSTGRES_TEST_URL")
@@ -295,3 +459,147 @@ def test_no_effect_foreground_and_replay_close_without_orphaned_lease(
     recovery = SqlAlchemyRecoveryStore().get(job_id)
     assert recovery is None or recovery.status == "completed"
     assert SqlAlchemyDurableTargetLockRepository().current(cluster_id=postgres_actions, vmid=306) is None
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('operation_types', [('vm_clone','vm_clone'),('vm_restore','vm_restore'),('vm_clone','vm_restore')])
+def test_multi_target_admission_serializes_both_targets_without_partial_locks(postgres_actions, monkeypatch, reverse, operation_types):
+    from app.operations.core.domain import OperationActor, OperationSpec
+    from app.operations.locks.domain import DurableTargetLockBusy
+    from app.operations.vm_admission import VmMutationAdmission
+    from app.db.models import OperationLockRecord
+    from app.db.session import session_scope
+    from sqlalchemy import select
+    barrier = threading.Barrier(2)
+    local = threading.local()
+    current = SqlAlchemyDurableTargetLockRepository.current
+    def synchronize(repository, **kwargs):
+        result = current(repository, **kwargs)
+        if not getattr(local, 'checked', False):
+            local.checked = True
+            barrier.wait(timeout=15)
+        return result
+    monkeypatch.setattr(SqlAlchemyDurableTargetLockRepository, 'current', synchronize)
+    def execute(index):
+        source, destination = (40001, 40000) if reverse and index else (40000, 40001)
+        operation_type = operation_types[index]
+        identity = f'{operation_type}-{index}'
+        value = OperationSpec(operation_id=identity, operation_type=operation_type, execution_mode='managed_api',
+            target_type='proxmox_vm', target_id=f'vmid:{destination}', idempotency_key=identity,
+            intent_digest='sha256:' + str(index) * 64, plan_digest='sha256:' + str(index) * 64, actor=OperationActor(),
+            details={'source': {'node_id': 'node-pg', 'vmid': source}, 'target': {'node_id': 'node-pg', 'vmid': destination}})
+        try:
+            return VmMutationAdmission(recovery_kind=operation_type + '_observation').prepare(value, cluster_id=postgres_actions,
+                vmid=destination, related_vmids=(source,))
+        except DurableTargetLockBusy as exc:
+            return exc
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(execute, (0, 1)))
+    accepted = [row for row in results if isinstance(row, tuple)]
+    assert len(accepted) == 1
+    assert len([row for row in results if isinstance(row, DurableTargetLockBusy)]) == 1
+    operation, lease = accepted[0]
+    monkeypatch.setattr(SqlAlchemyDurableTargetLockRepository, 'current', current)
+    with session_scope() as session:
+        locks = list(session.scalars(select(OperationLockRecord)))
+        assert len(locks) == 2 and {row.owner_id for row in locks} == {operation.operation_id}
+    SqlAlchemyRecoveryStore().commit_observation(lease, next_status='blocked', stage='precheck', event_type='test_no_effect',
+        expected_statuses=['planned'], recovery_status='completed', release_target_lock=True)
+    repository = SqlAlchemyDurableTargetLockRepository()
+    assert all(repository.current(cluster_id=postgres_actions, vmid=vmid) is None for vmid in (40000, 40001))
+
+
+@pytest.mark.parametrize('same_key', [False, True])
+@pytest.mark.parametrize('operation_type', ['vm_image_build', 'vm_image_cleanup'])
+def test_image_build_admission_and_stage_checkpoints_are_atomic(postgres_actions, monkeypatch, same_key, operation_type):
+    from app.operations.core.domain import OperationActor, OperationSpec, operation_digest
+    from app.operations.locks.domain import DurableTargetLockBusy
+    from app.operations.vm_admission import VmMutationAdmission
+    from app.operations.recovery.domain import RecoveryLease
+    barrier = threading.Barrier(2)
+    local = threading.local()
+    current = SqlAlchemyDurableTargetLockRepository.current
+    def synchronize(repository, **kwargs):
+        result = current(repository, **kwargs)
+        if not getattr(local, 'checked', False):
+            local.checked = True
+            barrier.wait(timeout=15)
+        return result
+    monkeypatch.setattr(SqlAlchemyDurableTargetLockRepository, 'current', synchronize)
+    def admit(index):
+        identity = 'image-build-' + str(0 if same_key else index)
+        spec = OperationSpec(operation_id=identity, operation_type=operation_type, execution_mode='managed_api',
+            target_type='proxmox_vm', target_id='vmid:40000', idempotency_key=identity,
+            intent_digest=operation_digest({'identity': identity}), plan_digest=operation_digest({'identity': identity}), actor=OperationActor(),
+            details={'target': {'node_id': 'node-pg', 'vmid': 40000}, 'mutation_dispatched': False})
+        try:
+            return VmMutationAdmission(recovery_kind=operation_type + '_observation').prepare(spec, cluster_id=postgres_actions, vmid=40000)
+        except DurableTargetLockBusy as exc:
+            return exc
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(admit, (0, 1)))
+    owners = [value for value in results if isinstance(value, tuple) and value[1] is not None]
+    assert len(owners) == 1
+    assert len([value for value in results if isinstance(value, DurableTargetLockBusy)]) == 1
+    assert len(SqlAlchemyOperationStore().list()) == 1
+    monkeypatch.setattr(SqlAlchemyDurableTargetLockRepository, 'current', current)
+    operation, lease = owners[0]
+    store = SqlAlchemyRecoveryStore()
+    for index, stage in enumerate(('upload', 'create', 'template')):
+        patch = {'build_stage': stage, 'stage_dispatch_state': 'dispatching', 'mutation_dispatched': True}
+        operation, item = store.commit_observation(lease, next_status='dispatching' if index == 0 else None,
+            event_type='image_stage_checkpoint', stage=stage, details_patch=patch, recovery_details_patch=patch,
+            expected_statuses=[operation.status], expected_operation_version=operation.version,
+            expected_operation_checksum=operation.last_event_checksum, recovery_status='leased')
+        lease = RecoveryLease(item=item, token=lease.token)
+        assert store.get(operation.operation_id).details['build_stage'] == operation.details['build_stage'] == stage
+    store.commit_observation(lease, next_status='needs_reconciliation', event_type='synthetic_interruption', stage='reconciliation',
+        expected_statuses=['dispatching'], recovery_status='paused')
+    assert SqlAlchemyDurableTargetLockRepository().current(cluster_id=postgres_actions, vmid=40000)
+
+
+@pytest.mark.parametrize('second', ['vm_compute', 'host_network', 'same_host_request'])
+def test_host_configuration_and_vm_admission_share_one_gate(postgres_actions, second):
+    from app.operations.core.domain import OperationActor, OperationSpec
+    from app.operations.host_config.admission import HostConfigurationAdmission
+    from app.operations.host_config.domain import target_identity
+    from app.operations.host_config.infrastructure import ConfigurationLockRepository
+    from app.operations.locks.domain import DurableTargetLockBusy
+    from app.db.models import OperationLockRecord
+    from app.db.session import session_scope
+    from sqlalchemy import select
+    barrier = threading.Barrier(2)
+    def admit(index):
+        barrier.wait(timeout=15)
+        try:
+            if index == 1 and second == 'vm_compute':
+                return SqlAlchemyDurableTargetLockRepository().acquire(operation_type='vm_compute', cluster_id=postgres_actions,
+                    vmid=40000, owner_id='vm-race', reason='test')
+            kind = 'host_network' if index and second == 'host_network' else 'host_storage'
+            identity = 'host-' + str(0 if second == 'same_host_request' else index)
+            target = {'node_id':'node-pg', **({'bridge_id':'vmbr9'} if kind == 'host_network' else {'storage_id':'new-dir'})}
+            target_type, target_id = target_identity(kind,target)
+            value = OperationSpec(operation_id=identity, operation_type=kind, execution_mode='managed_api', target_type=target_type,
+                target_id=target_id, idempotency_key=identity, intent_digest='sha256:'+'a'*64, plan_digest='sha256:'+'a'*64,
+                actor=OperationActor(), details={'target':target,'mutation_dispatched':False})
+            return HostConfigurationAdmission().prepare(value,cluster_id=postgres_actions)
+        except DurableTargetLockBusy as exc:
+            return exc
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(admit,(0,1)))
+    with session_scope() as session:
+        locks = list(session.scalars(select(OperationLockRecord)))
+        assert len(locks) == 1
+    if second == 'same_host_request':
+        assert all(isinstance(result,tuple) for result in results)
+        assert sum(result[1] is not None for result in results) == 1
+        assert len(SqlAlchemyOperationStore().list()) == 1
+    else:
+        assert sum(isinstance(result,DurableTargetLockBusy) for result in results) == 1
+    for result in results:
+        if isinstance(result,tuple) and result[1] is not None:
+            SqlAlchemyRecoveryStore().commit_observation(result[1],next_status='blocked',event_type='test_no_effect',stage='precheck',
+                expected_statuses=['planned'],recovery_status='completed',release_target_lock=True)
+            assert ConfigurationLockRepository().current(cluster_id=postgres_actions) is None
+        elif not isinstance(result,(tuple,DurableTargetLockBusy)):
+            assert SqlAlchemyDurableTargetLockRepository().release(result,reason='test_finished')

@@ -12,6 +12,7 @@ from typing import Any, Sequence
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.operations.locks.binding import expected_lock_count, lock_references
 from app.core.redaction import redact_secrets
 from app.db.models import OperationLockRecord
 from app.db.session import session_scope
@@ -330,6 +331,10 @@ class SqlAlchemyRecoveryStore:
                 operation_row,
                 effective_recovery_details,
             )
+            from app.operations.host_config.domain import HOST_OPERATION_TYPES, preserves_lock_binding
+            is_host_configuration = operation_row.operation_type in HOST_OPERATION_TYPES
+            if is_host_configuration and row.recovery_kind != operation_row.operation_type + "_observation":
+                locks = []
             if bind_target_lock:
                 self._assert_target_lock_binding_checkpoint(
                     operation_row,
@@ -342,12 +347,17 @@ class SqlAlchemyRecoveryStore:
                 raise ValueError(
                     f"Projected recovery target lock binding is not exact for operation {lease.operation_id}"
                 )
-            if release_target_lock and len(locks) != 1:
+            required_locks = expected_lock_count(operation_row.operation_type)
+            if (required_locks == 2 or is_host_configuration) and len(locks) != required_locks and not (
+                recovery_status == "paused" and next_status is None and not release_target_lock
+            ):
+                raise RecoveryOperationConflict(lease.operation_id)
+            if release_target_lock and len(locks) != required_locks:
                 raise ValueError(
                     f"Recovery target lock binding is not exact for operation {lease.operation_id}"
                 )
             if next_status == "needs_reconciliation" and (
-                len(locks) > 1 or (require_exact_reconciliation_lock and len(locks) != 1)
+                len(locks) > required_locks or (require_exact_reconciliation_lock and len(locks) != required_locks)
             ):
                 raise ValueError(
                     f"Reconciliation target lock binding is not exact for operation {lease.operation_id}"
@@ -363,6 +373,11 @@ class SqlAlchemyRecoveryStore:
             projected_recovery_details = _sanitized(
                 projection_result.get("recovery_details_patch")
             )
+            if is_host_configuration and (
+                not preserves_lock_binding(operation_row.details or {}, {**sanitized_details_patch, **projected_details})
+                or not preserves_lock_binding(row.details or {}, {**sanitized_recovery_patch, **projected_recovery_details})
+            ):
+                raise RecoveryOperationConflict(lease.operation_id)
             operation = self._operations.append_in_session(
                 session,
                 lease.operation_id,
@@ -485,35 +500,49 @@ class SqlAlchemyRecoveryStore:
         operation: OperationSnapshot | OperationRecord,
         recovery_details: Mapping[str, Any],
     ) -> list[OperationLockRecord]:
+        from app.operations.host_config.domain import HOST_OPERATION_TYPES, HOST_SCOPE_TYPE, lock_binding
+        if operation.operation_type in HOST_OPERATION_TYPES:
+            binding = lock_binding(operation_type=operation.operation_type, target_type=operation.target_type,
+                target_id=operation.target_id, operation_details=dict(operation.details or {}), recovery_details=recovery_details)
+            if binding is None or operation.execution_mode != binding['execution_mode']:
+                return []
+            row = session.scalar(select(OperationLockRecord).where(
+                OperationLockRecord.operation_lock_id == binding['target_lock_id'],
+                OperationLockRecord.owner_id == operation.operation_id,
+                OperationLockRecord.operation_type == operation.operation_type,
+                OperationLockRecord.scope_type == HOST_SCOPE_TYPE,
+                OperationLockRecord.scope_key == binding['scope_key'],
+                OperationLockRecord.cluster_id == binding['cluster_id'],
+                OperationLockRecord.vmid.is_(None),
+                OperationLockRecord.status.in_(OPEN_LOCK_STATUSES),
+            ).with_for_update())
+            expected = {'operation_id': operation.operation_id, 'target_type': operation.target_type,
+                'target_id': operation.target_id, 'target': binding['target']}
+            if row is None or any((row.evidence or {}).get(key) != value for key, value in expected.items()):
+                return []
+            return [row]
         if operation.target_type != "proxmox_vm":
             return []
-        match = re.fullmatch(r"vmid:(\d+)", operation.target_id)
-        if match is None:
-            return []
-        conditions = [
-            OperationLockRecord.owner_id == operation.operation_id,
-            OperationLockRecord.operation_type == operation.operation_type,
-            OperationLockRecord.scope_type == "proxmox_locator",
-            OperationLockRecord.vmid == int(match.group(1)),
-            OperationLockRecord.status.in_(OPEN_LOCK_STATUSES),
-        ]
-        lock_id = str(recovery_details.get("target_lock_id") or "").strip()
+        references = lock_references(operation_type=operation.operation_type, target_id=operation.target_id,
+            operation_details=dict(operation.details or {}), recovery_details=recovery_details)
         cluster_id = str(recovery_details.get("cluster_id") or "").strip()
-        if not lock_id or not cluster_id:
+        if not references or not cluster_id:
             return []
-        conditions.extend(
-            [
-                OperationLockRecord.operation_lock_id == lock_id,
+        locks = []
+        for reference in sorted(references, key=lambda row: row["vmid"]):
+            row = session.scalar(select(OperationLockRecord).where(
+                OperationLockRecord.owner_id == operation.operation_id,
+                OperationLockRecord.operation_type == operation.operation_type,
+                OperationLockRecord.scope_type == "proxmox_locator",
+                OperationLockRecord.vmid == reference["vmid"],
+                OperationLockRecord.status.in_(OPEN_LOCK_STATUSES),
+                OperationLockRecord.operation_lock_id == reference["lock_id"],
                 OperationLockRecord.cluster_id == cluster_id,
-            ]
-        )
-        return list(
-            session.scalars(
-                select(OperationLockRecord)
-                .where(*conditions)
-                .with_for_update()
-            ).all()
-        )
+            ).with_for_update())
+            if row is None:
+                return []
+            locks.append(row)
+        return locks
 
     @staticmethod
     def _assert_operation_identity(

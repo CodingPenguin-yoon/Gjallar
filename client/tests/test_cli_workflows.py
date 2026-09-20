@@ -22,6 +22,8 @@ class WorkflowServer(Server):
         self.status = 'succeeded'
         self.risk = 'yellow'
         self.node = 'pve'
+        self.power_result_overrides = {}
+        self.power_request = None
 
     def __call__(self, request):
         path = request.url.path
@@ -50,7 +52,19 @@ class WorkflowServer(Server):
         elif '/actions/' in path or path.endswith('/proxmox-create'):
             if self.timeout_mutation:
                 raise httpx.ReadTimeout('synthetic hidden upstream body')
-            data = {'operation': {'operation_id': 'create-1', 'status': self.status}}
+            if path.endswith(('/actions/start', '/actions/shutdown')):
+                self.power_request = json.loads(request.content)
+                self.power_action = path.rsplit('/', 1)[-1]
+                # Existing native power endpoints expose canonical identity as job_id.
+                data = {'job_id': 'power-1', 'status': 'completed'}
+            else:
+                data = {'operation': {'operation_id': 'create-1', 'status': self.status}}
+        elif path.endswith('/operations/power-1'):
+            data = {'operation': {'operation_id': 'power-1', 'status': self.status,
+                    'operation_type': 'vm_' + self.power_action, 'target_type': 'proxmox_vm',
+                    'target_id': 'vmid:101', 'idempotency_key': self.power_request['idempotency_key'],
+                    'details': {'target': {'node_id': self.node, 'vmid': 101}},
+                    **self.power_result_overrides}, 'coordination_incomplete': False}
         elif '/operations/' in path:
             data = {'operation': {'operation_id': 'create-1', 'status': self.status}, 'coordination_incomplete': False}
         else:
@@ -150,6 +164,19 @@ def test_wrong_node_and_viewer_never_mutate(environment):
         workflows.power(app, 'start', 101, 'pve', 'request-1', lambda _: None)
     assert error.value.exit_code == 4
     assert not any('/actions/' in r.url.path for r in server.calls)
+
+
+@pytest.mark.parametrize('change', [
+    {'operation_id': 'other'}, {'operation_type': 'vm_delete'}, {'target_id': 'vmid:102'},
+    {'details': {'target': {'node_id': 'other', 'vmid': 101}}}, {'idempotency_key': 'other'},
+])
+def test_native_power_job_identity_must_match_canonical_operation(environment, change):
+    app, server, _ = environment
+    server.power_result_overrides = change
+    with pytest.raises(ClientError) as error:
+        workflows.power(app, 'start', 101, 'pve', 'request-1', lambda _: None)
+    assert error.value.code == 'MUTATION_UNCONFIRMED'
+    assert sum('/actions/' in r.url.path for r in server.calls) == 1
 
 
 def test_timeout_is_not_retried_or_reported_as_success(environment):

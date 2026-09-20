@@ -12,6 +12,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 from typing import Any, Callable, Sequence
 
 import requests
@@ -139,12 +140,15 @@ class ProxmoxMutationClient:
             }
         )
 
-    def _default_request(self, method: str, path: str, *, data: Any = None, timeout: tuple[float, float] | None = None) -> Any:
+    def _default_request(self, method: str, path: str, *, data: Any = None, timeout: tuple[float, float] | None = None,
+                         response_metadata: bool = False, host_network_configuration: bool = False) -> Any:
+        # PVE only parses request bodies for POST/PUT; DELETE flags belong in the query.
+        payload_options = {"params": data} if method == "DELETE" else {"data": data}
         response = requests.request(
             method,
             f"{self.api_url}{path}",
             headers=self._auth_headers(),
-            data=data,
+            **payload_options,
             verify=not self.tls_insecure,
             timeout=timeout or (self.connect_timeout_seconds, self.read_timeout_seconds),
         )
@@ -166,7 +170,7 @@ class ProxmoxMutationClient:
                 },
             ) from exc
         payload = response.json()
-        return payload.get("data", payload)
+        return payload if response_metadata else payload.get("data", payload)
 
     def _request_json(
         self,
@@ -175,9 +179,14 @@ class ProxmoxMutationClient:
         *,
         data: Any = None,
         timeout: tuple[float, float] | None = None,
+        response_metadata: bool = False,
+        host_network_configuration: bool = False,
     ) -> Any:
         try:
-            return self._request(method, path, data=data, timeout=timeout)
+            options = {"response_metadata": True} if response_metadata else {}
+            if host_network_configuration:
+                options['host_network_configuration'] = True
+            return self._request(method, path, data=data, timeout=timeout, **options)
         except ProxmoxMutationError:
             raise
         except Exception as exc:
@@ -185,6 +194,130 @@ class ProxmoxMutationClient:
                 f"Proxmox API request failed: {method} {path}",
                 details={"method": method, "path": path, "error": str(exc)},
             ) from exc
+
+    def get_monitoring_data(self, *, kind, node, vmid=None, storage=None, timeframe=None):
+        from app.setup_integration.contracts import SetupError
+        paths = {
+            "node": f"/nodes/{quote(node, safe='')}",
+            "vm": f"/nodes/{quote(node, safe='')}/qemu/{vmid}",
+            "storage": f"/nodes/{quote(node, safe='')}/storage/{quote(storage or '', safe='')}",
+        }
+        if kind not in paths or (timeframe is not None and timeframe not in {'hour', 'day', 'week', 'month', 'year'}):
+            raise ProxmoxMutationError("Unsupported monitoring target or timeframe")
+        path = paths[kind] + ('/rrddata' if timeframe else '/status/current' if kind == 'vm' else '/status')
+        if timeframe:
+            path += f'?timeframe={timeframe}&cf=AVERAGE'
+        try:
+            return self._request('GET', path, timeout=(self.connect_timeout_seconds, self.read_timeout_seconds))
+        except (SetupError, ProxmoxMutationError):
+            raise
+        except (requests.RequestException, ValueError, OSError):
+            raise ProxmoxMutationError("Monitoring observation unavailable") from None
+
+    def list_nodes(self):
+        data = self._request_json("GET", "/nodes")
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise ProxmoxMutationError("Invalid node inventory response")
+        return data
+
+    def get_node_status(self, *, node):
+        data = self._request_json("GET", f"/nodes/{node}/status")
+        if not isinstance(data, dict):
+            raise ProxmoxMutationError("Invalid node status response")
+        return data
+
+    def get_vm_migration_preconditions(self, *, node, vmid, destination):
+        data = self._request_json("GET", f"/nodes/{node}/qemu/{vmid}/migrate?target={quote(destination, safe='')}")
+        if not isinstance(data, dict):
+            raise ProxmoxMutationError("Invalid migration precondition response")
+        return data
+
+    def migrate_vm_reviewed(self, *, node, vmid, destination):
+        from app.operations.vm_migrate.domain import request_body
+        return self._request_json("POST", f"/nodes/{node}/qemu/{vmid}/migrate", data=request_body(destination))
+
+    def get_node_network_snapshot(self, *, node):
+        payload = self._request_json("GET", f"/nodes/{node}/network", response_metadata=True)
+        if (not isinstance(payload, dict) or not isinstance(payload.get("data"), list)
+                or any(not isinstance(row, dict) for row in payload["data"])
+                or ("changes" in payload and not isinstance(payload["changes"], str))):
+            raise ProxmoxMutationError("Invalid network snapshot envelope")
+        # Do not expose the host configuration diff (addresses and other data).
+        return {"interfaces": payload["data"], "pending_changes": bool(payload.get("changes"))}
+
+    def get_bridge_permissions(self, *, bridge):
+        path = f"/sdn/zones/localnetwork/{bridge}"
+        payload = self._request_json("GET", "/access/permissions?path=" + quote(path, safe=""))
+        if not isinstance(payload, dict) or not isinstance(payload.get(path), dict):
+            raise ProxmoxMutationError("Invalid bridge permission response")
+        return set(payload[path])
+
+    def get_host_network_snapshot(self, *, node):
+        # The caller validates the full pending diff in memory; do not log this envelope.
+        payload = self._request_json('GET', f'/nodes/{node}/network', response_metadata=True, host_network_configuration=True)
+        if (not isinstance(payload, dict) or not isinstance(payload.get('data'), list)
+                or any(not isinstance(row, dict) for row in payload['data'])
+                or ('changes' in payload and not isinstance(payload['changes'], str))):
+            raise ProxmoxMutationError('Invalid host network snapshot envelope')
+        return {'interfaces': payload['data'], 'changes': payload.get('changes', '')}
+
+    def get_host_network_permissions(self, *, node):
+        permissions = {}
+        for path in (f'/nodes/{node}', '/sdn/zones/localnetwork'):
+            payload = self._request_json('GET', '/access/permissions?path=' + quote(path, safe=''))
+            if not isinstance(payload, dict) or not isinstance(payload.get(path), dict):
+                raise ProxmoxMutationError('Invalid host network permission response')
+            permissions[path] = set(payload[path])
+        return permissions
+
+    def stage_host_bridge(self, *, node, bridge, change):
+        from app.operations.host_network.domain import mutation_body
+        path = f'/nodes/{node}/network' + (f'/{bridge}' if change.mode == 'update' else '')
+        return self._request_json('PUT' if change.mode == 'update' else 'POST', path,
+                                  data=mutation_body(change, bridge_id=bridge))
+
+    def reload_host_network(self, *, node):
+        return self._request_json('PUT', f'/nodes/{node}/network', data={'regenerate-frr': 0})
+
+    def list_vm_resources(self):
+        result = self._request_json("GET", "/cluster/resources?type=vm")
+        if not isinstance(result, list) or any(not isinstance(row, dict) or type(row.get("vmid")) is not int for row in result):
+            raise ProxmoxMutationError("Invalid VM resource inventory")
+        return result
+
+    def assert_vmid_unused(self, *, vmid):
+        result = self._request_json("GET", f"/cluster/nextid?vmid={vmid}")
+        if not ((type(result) is int and result == vmid) or (isinstance(result, str) and result == str(vmid))):
+            raise ProxmoxMutationError("VMID absence is unconfirmed")
+        return True
+
+    def get_vm_snapshots(self, *, node, vmid):
+        result = self._request_json("GET", f"/nodes/{node}/qemu/{vmid}/snapshot")
+        if not isinstance(result, list) or any(not isinstance(row, dict) or not isinstance(row.get("name"), str) for row in result):
+            raise ProxmoxMutationError("Invalid snapshot inventory")
+        return result
+
+    def list_vm_storage_images(self, *, node, storage, vmid):
+        result = self._request_json("GET", f"/nodes/{node}/storage/{storage}/content?content=images&vmid={vmid}")
+        if not isinstance(result, list) or any(not isinstance(row, dict) or not isinstance(row.get("volid"), str) for row in result):
+            raise ProxmoxMutationError("Invalid VM volume inventory")
+        return result
+
+    def create_vm_from_image(self, *, node, config):
+        return self._request_json("POST", f"/nodes/{node}/qemu", data=config)
+
+    def convert_vm_to_template(self, *, node, vmid):
+        return self._request_json("POST", f"/nodes/{node}/qemu/{vmid}/template", data={})
+
+    def delete_vm_reviewed(self, *, node, vmid):
+        return self._request_json("DELETE", f"/nodes/{node}/qemu/{vmid}",
+                                  data={"purge": 0, "destroy-unreferenced-disks": 0})
+
+    def clone_vm_reviewed(self, *, node, vmid, new_vmid, name, storage, disk_format, description):
+        return self._request_json("POST", f"/nodes/{node}/qemu/{vmid}/clone", data={
+            "newid": new_vmid, "name": name, "storage": storage, "format": disk_format,
+            "full": 1, "description": description,
+        })
 
     def clone_vm(
         self,
@@ -283,6 +416,98 @@ class ProxmoxMutationClient:
     def get_vm_config(self, *, node: str, vmid: int) -> dict[str, Any]:
         data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/config")
         return dict(data) if isinstance(data, dict) else {}
+
+    def get_vm_current_config(self, *, node: str, vmid: int) -> dict[str, Any]:
+        data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/config?current=1")
+        if not isinstance(data, dict):
+            raise ProxmoxMutationError("Invalid current VM configuration response")
+        return dict(data)
+
+    def get_vm_pending(self, *, node: str, vmid: int) -> list[dict[str, Any]]:
+        data = self._request_json("GET", f"/nodes/{node}/qemu/{int(vmid)}/pending")
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise ProxmoxMutationError("Invalid pending VM configuration response")
+        return data
+
+    def get_vm_permissions(self, *, vmid: int) -> set[str]:
+        path = f"/vms/{int(vmid)}"
+        data = self._request_json("GET", f"/access/permissions?path={path}")
+        if not isinstance(data, dict) or not isinstance(data.get(path), dict):
+            raise ProxmoxMutationError("Invalid VM permission response")
+        return set(data[path])
+
+    def get_storage_permissions(self, *, storage: str) -> set[str]:
+        path = f"/storage/{storage}"
+        data = self._request_json("GET", "/access/permissions?path=" + quote(path, safe="/"))
+        if not isinstance(data, dict) or not isinstance(data.get(path), dict):
+            raise ProxmoxMutationError("Invalid storage permission response")
+        return set(data[path])
+
+    def get_storage_configuration_permissions(self) -> set[str]:
+        data = self._request_json('GET', '/access/permissions?path=/storage')
+        if not isinstance(data, dict) or not isinstance(data.get('/storage'), dict):
+            raise ProxmoxMutationError('Invalid storage configuration permissions')
+        return set(data['/storage'])
+
+    def list_storage_configurations(self):
+        data = self._request_json('GET', '/storage')
+        if not isinstance(data, list) or any(not isinstance(row, dict) or not isinstance(row.get('storage'), str) for row in data):
+            raise ProxmoxMutationError('Invalid storage configuration list')
+        return data
+
+    def get_storage_configuration(self, *, storage):
+        data = self._request_json('GET', '/storage/' + quote(storage, safe=''))
+        if not isinstance(data, dict) or data.get('storage') != storage:
+            raise ProxmoxMutationError('Invalid storage configuration target')
+        return data
+
+    def configure_directory_storage(self, *, node, storage, change, before):
+        from app.operations.host_storage.domain import mutation_body
+        body = mutation_body(change, node_id=node, storage_id=storage, before=before)
+        method, path = ('POST', '/storage') if change.mode == 'create' else ('PUT', '/storage/' + quote(storage, safe=''))
+        return self._request_json(method, path, data=body)
+
+    def get_node_storages(self, *, node: str) -> list[dict[str, Any]]:
+        data = self._request_json("GET", f"/nodes/{node}/storage")
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise ProxmoxMutationError("Invalid storage response")
+        return data
+
+    def get_backup_defaults(self, *, node: str, storage: str) -> dict[str, Any]:
+        data = self._request_json("GET", f"/nodes/{node}/vzdump/defaults?storage={quote(storage, safe='')}")
+        if not isinstance(data, dict) or not data:
+            raise ProxmoxMutationError("Invalid backup defaults response")
+        return data
+
+    def list_vm_backups(self, *, node: str, storage: str, vmid: int) -> list[dict[str, Any]]:
+        data = self._request_json("GET", f"/nodes/{node}/storage/{storage}/content?content=backup&vmid={vmid}")
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise ProxmoxMutationError("Invalid backup list response")
+        return data
+
+    def create_vm_backup(self, *, node: str, vmid: int, storage: str, operation_id: str) -> Any:
+        from app.backups.contracts import backup_body
+        return self._request_json("POST", f"/nodes/{node}/vzdump", data=backup_body(vmid, storage, operation_id))
+
+    def get_backup_config(self, *, node: str, archive: str) -> str:
+        data = self._request_json("GET", f"/nodes/{node}/vzdump/extractconfig?volume={quote(archive, safe='')}")
+        if not isinstance(data, str) or not data or len(data.encode('utf-8')) > 262144:
+            raise ProxmoxMutationError("Invalid backup configuration response")
+        return data
+
+    def restore_vm_backup(self, *, node: str, **kwargs) -> Any:
+        from app.backups.contracts import restore_body
+        return self._request_json("POST", f"/nodes/{node}/qemu", data=restore_body(**kwargs))
+
+    def get_volume_info(self, *, node: str, storage: str, volume: str) -> dict[str, Any]:
+        data = self._request_json("GET", f"/nodes/{node}/storage/{storage}/content/{quote(volume, safe='')}")
+        if not isinstance(data, dict):
+            raise ProxmoxMutationError("Invalid volume response")
+        return data
+
+    def resize_vm_disk_reviewed(self, *, node: str, vmid: int, size_gib: int, digest: str) -> Any:
+        return self._request_json("PUT", f"/nodes/{node}/qemu/{vmid}/resize",
+                                  data={"disk": "scsi0", "size": f"{size_gib}G", "digest": digest})
 
     def list_active_vm_tasks(self, *, node: str, vmid: int) -> list[dict[str, Any]]:
         data = self._request_json("GET", f"/nodes/{node}/tasks?source=active&vmid={int(vmid)}")

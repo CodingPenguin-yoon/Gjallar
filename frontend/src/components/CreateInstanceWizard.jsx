@@ -74,9 +74,9 @@ function DetailRow({ label, value }) {
   )
 }
 
-function SummaryTile({ label, value, icon: Icon }) {
+function SummaryTile({ label, value, icon: Icon, wide = false }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+    <div className={`min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 ${wide ? 'col-span-2 lg:col-span-1' : ''}`}>
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
         {Icon && <Icon className="h-3.5 w-3.5" />}
         {label}
@@ -306,7 +306,7 @@ function buildInitialForm(config, currentUser = null) {
   }
 }
 
-function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentUser = null, canExecuteLiveMutation = true }) {
+function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentUser = null, canExecuteLiveMutation = true, testTemplate = '' }) {
   const navigate = useNavigate()
   const [form, setForm] = useState(() => buildInitialForm(config, currentUser))
   const [step, setStep] = useState(0)
@@ -337,6 +337,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
 
   const nodeOptions = useMemo(() => normalizeNodeOptions(options.nodes), [options.nodes])
   const templateOptions = useMemo(() => normalizeTemplateOptions(options.templates), [options.templates])
+  const testTemplateUnavailable = Boolean(testTemplate) && !options.loading && !templateOptions.some(item => item.key === testTemplate)
   const storageOptions = useMemo(() => normalizeStorageOptions(options.storages), [options.storages])
   const allBridgeOptions = useMemo(() => normalizeBridgeOptions(options.networks), [options.networks])
   const profileOptions = useMemo(() => normalizeCreateVmProfiles(options.profiles), [options.profiles])
@@ -453,8 +454,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         changed = true
       }
       const currentTemplateKey = next.templateKey || (next.templateNodeId && next.templateVmid ? `${next.templateNodeId}/${next.templateVmid}` : next.templateId)
-      const template = selectPreferredTemplate(templateOptions, selectedProfile, currentTemplateKey)
-      if (template && currentTemplateKey !== template.key) {
+      const template = testTemplate ? templateOptions.find(item => item.key === testTemplate) : selectPreferredTemplate(templateOptions, selectedProfile, currentTemplateKey)
+      if (template && (currentTemplateKey !== template.key || !next.templateId)) {
         next.templateKey = template.key
         next.templateId = template.templateId
         next.templateVmid = template.vmid
@@ -487,7 +488,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       if (changed) onConfigChange(next)
       return changed ? next : current
     })
-  }, [nodeOptions, templateOptions, storageOptions, allBridgeOptions, options.loading, onConfigChange, selectedProfile])
+  }, [nodeOptions, templateOptions, storageOptions, allBridgeOptions, options.loading, onConfigChange, selectedProfile, testTemplate])
 
   useEffect(() => {
     let cancelled = false
@@ -500,6 +501,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
   }, [])
 
   const nextStep = () => {
+    if (testTemplateUnavailable) {
+      setError('테스트 원본 템플릿을 조회할 수 없습니다. 연결의 생성 원본 범위를 확인하세요.')
+      return
+    }
     const panel = document.getElementById('create-vm-inputs')
     if (panel && !Array.from(panel.querySelectorAll('input, select, textarea')).every((input) => input.reportValidity())) return
     setError(null)
@@ -567,6 +572,10 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
   }
 
   const runReview = async () => {
+    if (testTemplate && selectedTemplateKey !== testTemplate) {
+      setError('테스트 원본 템플릿을 조회할 수 없습니다. 생성 원본 범위에 등록·검증·전환한 뒤 다시 여세요.')
+      return
+    }
     if (!canExecuteLiveMutation) {
       setError(liveMutationDisabledReason)
       return
@@ -662,6 +671,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
 
   return (
     <div className="space-y-6">
+      {testTemplate && <p className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm">템플릿 {testTemplate} 테스트 배포입니다. 별도 새 VMID와 SSH 공개키를 입력하고 부팅 후 확인을 검토하세요. 생성 작업에서 항목별 검사·접속 결과·명시적 정리로 이어집니다.</p>}
+      {testTemplateUnavailable && <p role="alert" className="rounded-lg bg-amber-50 p-4 text-sm text-amber-900">지정한 원본 템플릿이 조회되지 않습니다. 생성 원본 범위에 등록·검증·전환한 뒤 다시 여세요.</p>}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -686,7 +697,8 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
         <div className="mt-6">
           <label className="space-y-1">
             <span className="text-sm font-medium text-slate-700">템플릿</span>
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={selectedTemplateKey || ''} onChange={(event) => handleTemplateChange(event.target.value)}>
+            <select disabled={Boolean(testTemplate)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={selectedTemplateKey || ''} onChange={(event) => handleTemplateChange(event.target.value)}>
+              {testTemplateUnavailable && <option value="">지정한 원본 조회 불가</option>}
               {templateOptions.length === 0 && <option value="">템플릿 없음</option>}
               {templateOptions.length > 0 && !templateSelection.options.some((template) => !template.disabled) && <option value="">요구사항 만족 템플릿 없음</option>}
               {templateOptions.map((template) => {
@@ -850,6 +862,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               <button
                 type="button"
                 onClick={() => updateForm('powerPolicy', 'stopped')}
+                aria-pressed={!bootAndVerifySelected}
                 className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
                   !bootAndVerifySelected ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 }`}
@@ -860,6 +873,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
               <button
                 type="button"
                 onClick={() => updateForm('powerPolicy', 'boot_and_verify')}
+                aria-pressed={bootAndVerifySelected}
                 className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
                   bootAndVerifySelected ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 }`}
@@ -899,18 +913,18 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
                 </div>
                 <StatusPill tone={reviewRiskTone}>{riskLabel(model.review.riskLevel)}</StatusPill>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                 <SummaryTile label="프로필" value={model.review.profileId || '직접 입력'} />
                 <SummaryTile label="VM 이름" value={model.review.vmName} icon={Server} />
                 <SummaryTile label="VMID" value={model.review.vmid} />
                 <SummaryTile label="생성 노드" value={model.review.targetNode} icon={Server} />
-                <SummaryTile label="IP" value={reviewedIpSummary} icon={Network} />
+                <SummaryTile label="IP" value={reviewedIpSummary} icon={Network} wide />
                 <SummaryTile label="사양" value={`${model.review.hardware.cpu} CPU / ${model.review.hardware.memoryMb} MB / ${model.review.hardware.diskGb} GB`} />
                 <SummaryTile label="스토리지" value={model.review.storage} />
                 <SummaryTile label="템플릿" value={model.review.template} />
                 <SummaryTile label="네트워크" value={`${selectedIpModeLabel} / ${model.review.network.bridge_id || model.review.network.bridgeId || form.bridgeId || ''}`} icon={Network} />
                 <SummaryTile label="접속 사용자" value={reviewedAccess.username || reviewedAccess.cloudInitUser || form.cloudInitUser} icon={KeyRound} />
-                <SummaryTile label="SSH 키" value={reviewedSshKeySummary} icon={KeyRound} />
+                <SummaryTile label="SSH 키" value={reviewedSshKeySummary} icon={KeyRound} wide />
                 <SummaryTile label="생성 후 상태" value={reviewedFirstBootLabel} />
               </div>
             </section>

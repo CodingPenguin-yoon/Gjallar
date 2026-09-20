@@ -197,8 +197,8 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
               <Eye className="h-3.5 w-3.5" /> observe only
             </span>
           </div>
-          <h2 className="mt-3 text-3xl font-semibold text-slate-950">Operational Insights</h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-600">Risk, readiness, capacity, placement 신호를 source·freshness·rule·evidence와 함께 조회합니다.</p>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-950">운영 상태 진단</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">위험, VM 준비 상태, 가용 용량과 배치를 관찰 근거와 함께 확인합니다.</p>
         </div>
         <button
           type="button"
@@ -216,8 +216,8 @@ export default function InsightsExplorer({ activeCategory = 'overview' }) {
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <div className="font-semibold">실행이 닫힌 관찰 경계</div>
-            <div className="mt-1">이 화면은 approval, operation, Proxmox mutation을 만들지 않습니다. allowed actions: none</div>
+            <div className="font-semibold">관찰된 상태를 바탕으로 진단합니다</div>
+            <div className="mt-1">관찰 시각과 근거를 확인하세요. 필요한 VM 작업은 해당 VM 상세에서 시작할 수 있습니다.</div>
           </div>
         </div>
       </div>

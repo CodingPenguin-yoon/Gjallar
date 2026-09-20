@@ -24,8 +24,27 @@ EXPECTED_API_V1_ROUTES = (
     ("GET", "/api/v1/jobs", "list_jobs", 200),
     ("GET", "/api/v1/jobs/{job_id}", "get_job", 200),
     ("GET", "/api/v1/jobs/{job_id}/artifacts", "list_job_artifacts", 200),
+    ("GET", "/api/v1/maintenance/nodes/{node_id}", "node_maintenance", 200),
+    ("GET", "/api/v1/monitoring/nodes/{node_id}", "node_metrics", 200),
+    ("GET", "/api/v1/monitoring/nodes/{node_id}/storage/{storage_id}", "storage_metrics", 200),
+    ("GET", "/api/v1/monitoring/nodes/{node_id}/vms/{vmid}", "vm_metrics", 200),
+    ("GET", "/api/v1/monitoring/operation-alerts", "get_operation_alerts", 200),
     ("GET", "/api/v1/networks", "list_networks", 200),
     ("GET", "/api/v1/nodes", "list_nodes", 200),
+    ("POST", "/api/v1/nodes/{node_id}/host-network/{bridge_id}/actions/configure", "configure_bridge", 200),
+    ("POST", "/api/v1/nodes/{node_id}/host-network/{bridge_id}/review", "review_bridge", 200),
+    ("POST", "/api/v1/nodes/{node_id}/host-storage/{storage_id}/actions/configure", "configure_storage", 200),
+    ("POST", "/api/v1/nodes/{node_id}/host-storage/{storage_id}/review", "review_storage", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/backup", "execute_backup", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/clone", "execute_clone", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/compute", "execute_compute", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/delete", "execute_delete", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/disk-resize", "execute_disk", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/image-build", "execute_image_build", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/image-cleanup", "execute_image_cleanup", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/migrate", "execute_migrate", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/network", "execute_network", 200),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/restore", "execute_restore", 200),
     (
         "POST",
         "/api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown",
@@ -38,12 +57,26 @@ EXPECTED_API_V1_ROUTES = (
         "start_vm_action_route",
         200,
     ),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/template", "execute_template", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/backup-review", "review_backup", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/backups", "list_backups", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/clone", "review_clone", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/compute", "review_compute", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/console", "review_console", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/deletion", "review_delete", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/disks/scsi0", "review_disk", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/image-build", "review_image_build", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/image-cleanup", "review_image_cleanup", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/migrate", "review_migrate", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/network", "review_network", 200),
     (
         "POST",
         "/api/v1/nodes/{node_id}/vms/{vmid}/post-create-readiness-evidence",
         "post_create_readiness_evidence_route",
         200,
     ),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/restore-review", "review_restore", 200),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/template-conversion", "review_template", 200),
     ("GET", "/api/v1/operations", "list_operations_route", 200),
     (
         "POST",
@@ -64,6 +97,8 @@ EXPECTED_API_V1_ROUTES = (
         "observe_operation_recovery_route",
         200,
     ),
+    ("GET", "/api/v1/operations/{operation_id}/restore-report", "read_restore_report", 200),
+    ("GET", "/api/v1/operations/{operation_id}/template-test", "get_template_test_report", 200),
     (
         "POST",
         "/api/v1/operations/{operation_id}/verification",
@@ -84,6 +119,7 @@ EXPECTED_API_V1_ROUTES = (
     ("POST", "/api/v1/setup/proxmox/registrations/{attempt_id}/{action}", "action", 200),
     ("GET", "/api/v1/storage", "list_storage", 200),
     ("GET", "/api/v1/templates", "list_templates", 200),
+    ("GET", "/api/v1/templates/cloud-images", "cloud_image_catalog", 200),
     ("POST", "/api/v1/vm-create/drafts", "create_vm_draft_route", 200),
     ("GET", "/api/v1/vm-create/suggested-vmid", "suggested_vm_id_route", 200),
     ("POST", "/api/v1/vm-create/{draft_id}/approve", "approve_vm_draft_route", 200),
@@ -106,6 +142,31 @@ EXPECTED_API_V1_ROUTES = (
 )
 
 OPERATOR_ROUTES = {
+    ("GET", "/api/v1/maintenance/nodes/{node_id}"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/image-cleanup"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/image-cleanup"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/deletion"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/delete"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/template"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/image-build"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/image-build"),
+    ("GET", "/api/v1/templates/cloud-images"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/template-conversion"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/clone"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/backup"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/restore"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/migrate"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/migrate"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/restore-review"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/backup-review"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/clone"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/network"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/network"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/compute"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/console"),
+    ("GET", "/api/v1/nodes/{node_id}/vms/{vmid}/disks/scsi0"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/disk-resize"),
+    ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/compute"),
     ("GET", "/api/v1/vm-create/suggested-vmid"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/shutdown"),
     ("POST", "/api/v1/nodes/{node_id}/vms/{vmid}/actions/start"),
@@ -166,7 +227,7 @@ def test_api_v1_route_registry_is_unchanged_during_router_extraction():
         )
     )
 
-    assert len(actual) == 45
+    assert len(actual) == 81
     assert actual == EXPECTED_API_V1_ROUTES
 
 
@@ -183,7 +244,7 @@ def test_api_v1_access_boundaries_are_unchanged_during_router_extraction():
             assert dependencies == {require_user}, route_key
         elif route.path.startswith("/api/v1/admin/"):
             assert dependencies == {require_admin}, route_key
-        elif route.path.startswith("/api/v1/setup/proxmox/registrations"):
+        elif route.path.startswith("/api/v1/setup/proxmox/registrations") or '/host-storage/' in route.path or '/host-network/' in route.path:
             assert dependencies == {require_viewer, require_admin}, route_key
         elif route_key in OPERATOR_ROUTES:
             assert dependencies == {require_viewer, require_operator}, route_key

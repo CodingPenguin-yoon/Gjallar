@@ -149,7 +149,7 @@ const explorer = readFileSync(new URL('../src/features/insights/InsightsExplorer
 const featureModel = readFileSync(new URL('../src/features/insights/model.js', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../src/app/App.jsx', import.meta.url), 'utf8')
 
-assert.match(explorer, /allowed actions: none/, 'Insights must make the execution-closed boundary visible')
+assert.match(explorer, /필요한 VM 작업은 해당 VM 상세에서/, 'Insights must make the execution-closed boundary visible')
 assert.match(explorer, /빈 결과를 정상 상태로 해석하지 않습니다/, 'Unavailable sources must not render as healthy empty data')
 assert.match(explorer, /section\.ruleVersion/, 'Every section view must expose its rule version')
 assert.match(explorer, /finding\.evidence/, 'Finding details must expose evidence')

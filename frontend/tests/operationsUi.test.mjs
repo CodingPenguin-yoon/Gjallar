@@ -281,9 +281,12 @@ assert.match(detailPage, /shouldPollOperation\(operation\.status, pollAttemptsRe
 assert.match(appSource, /const canObserveRecovery = canOperate\(currentUser\)/)
 assert.match(appSource, /canObserveRecovery=\{canObserveRecovery\}/)
 assert.doesNotMatch(detailPage, /leaseToken|lease_token/, 'Private recovery lease token must not be rendered')
-for (const operationType of ['vm_create', 'vm_start', 'vm_shutdown', 'guided_qm_vm_unlock']) {
-  assert.match(listPage, new RegExp(`value=["']${operationType}["']`), `Operations filter must expose ${operationType}`)
+const { OPERATION_TYPES } = await import('../src/entities/operation/model.js')
+for (const type of ['proxmox_registration', 'vm_create', 'vm_start', 'vm_shutdown', 'vm_compute', 'vm_disk_resize', 'vm_network', 'vm_clone', 'vm_delete', 'vm_backup', 'vm_restore', 'vm_migrate', 'vm_template', 'vm_image_build', 'vm_image_cleanup', 'host_network', 'host_storage', 'guided_qm_vm_unlock']) {
+  assert.ok(OPERATION_TYPES.includes(type), `Operations filter must expose ${type}`)
 }
+assert.equal(new Set(OPERATION_TYPES).size, OPERATION_TYPES.length)
+assert.match(listPage, /OPERATION_TYPES\.map/, 'Filter must use the same operation catalog as detail labels')
 assert.match(inventory, /operations\/guided-qm\/vm-unlock\?node_id=/, 'Workload row must link to a typed Guided qm plan')
 
 console.log('operations UI contract exercised')

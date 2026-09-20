@@ -553,11 +553,10 @@ assert.match(
   /<table className="[^"]*table-fixed[^"]*"/,
   'InstanceList VM table must use fixed table layout'
 )
-assert.match(
-  instanceListSource,
-  /<colgroup>[\s\S]*?<col className="w-\[15%\] min-w-\[12rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[6rem\]" \/>[\s\S]*?<col className="w-\[13%\] min-w-\[10rem\]" \/>[\s\S]*?<col className="w-\[6%\] min-w-\[4rem\]" \/>[\s\S]*?<col className="w-\[7%\] min-w-\[5rem\]" \/>[\s\S]*?<col className="w-\[27%\] min-w-\[21rem\]" \/>[\s\S]*?<col className="w-\[11%\] min-w-\[8rem\]" \/>[\s\S]*?<col className="w-\[14%\] min-w-\[7rem\]" \/>[\s\S]*?<\/colgroup>/,
-  'InstanceList VM table must define stable column widths with a colgroup'
-)
+const tableColumns = [...instanceListSource.matchAll(/<col className="w-\[(\d+)%\]/g)].map(match => Number(match[1]))
+assert.equal(tableColumns.length, 8, 'VM table keeps all eight information columns')
+assert.equal(tableColumns.reduce((sum, width) => sum + width, 0), 100)
+assert.ok(tableColumns[1] >= 10 && tableColumns[4] >= 9, 'Status and memory columns have readable widths')
 assert.match(
   instanceListSource,
   /function DiskStack\(\{ vm \}\)/,
@@ -684,9 +683,9 @@ hookHarness.beginRender()
 let tree = InstanceList({})
 let html = renderToStaticMarkup(tree)
 
-assert.match(html, /Workload Cockpit/)
-assert.match(html, /start verified operations from one workload context/)
-assert.match(html, /Refresh/)
+assert.match(html, /가상머신/)
+assert.match(html, /대상을 선택해 필요한 작업/)
+assert.match(html, /새로고침/)
 assert.match(html, /Yoonman Server 2/)
 assert.match(html, /yoonmanserver3/)
 assert.match(html, /2 instances/)

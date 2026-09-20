@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
-import { LogOut, Server, UserCircle } from 'lucide-react'
+import { LogOut, Server } from 'lucide-react'
 import middlepiaStackLogo from '../assets/middlepia-stack.svg'
-import { APP_SHELL_CLASS, navClass, navItemActive } from './navigationModel'
+import { APP_SHELL_CLASS, navClass, resolveSectionNavItems } from './navigationModel'
+import AccountMenu from './AccountMenu'
 
 const badgeTones = Object.freeze({
   green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -12,62 +13,58 @@ const badgeTones = Object.freeze({
 
 export default function AppShell({ currentUser, connectionBadge, navItems, pathname, onLogout, children }) {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <div className="gj-app min-h-screen bg-slate-100 text-slate-900">
       <a href="#main-content" className="sr-only z-50 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
-        Skip to main content
+        본문으로 바로가기
       </a>
-      <header className="border-b border-gray-200 bg-white shadow-sm">
-        <div className={`${APP_SHELL_CLASS} py-4 sm:py-5`}>
-          <div className="flex items-center justify-between gap-2 sm:gap-4">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <Server className="h-7 w-7 shrink-0 text-slate-700 sm:h-8 sm:w-8" />
+      <header className="gj-topbar border-b border-slate-700 bg-slate-900 text-slate-200">
+        <div className={`${APP_SHELL_CLASS} py-2`}>
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
+            <Link to="/" aria-label="Gjallar 대시보드" className="flex min-w-0 items-center gap-3">
+              <Server className="h-8 w-8 shrink-0 rounded-md bg-slate-800 p-1.5 text-teal-300" />
               <div className="min-w-0">
-                <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">Gjallar</h1>
-                <p className="hidden text-sm text-gray-500 md:block">Observe-first Operations Intelligence · Verified Actions</p>
+                <span className="text-lg font-bold tracking-tight text-white">Gjallar</span>
+                <p className="hidden text-[10px] font-medium tracking-widest text-slate-400 sm:block">PROXMOX OPERATIONS</p>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-              <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-semibold sm:inline-flex ${badgeTones[connectionBadge.tone] || badgeTones.slate}`}>
-                Proxmox {connectionBadge.label}
+            </Link>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${badgeTones[connectionBadge.tone] || badgeTones.slate}`}>
+                <span className="hidden lg:inline">Proxmox&nbsp;</span>{connectionBadge.label}
               </span>
               {connectionBadge.observation && (
-                <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-semibold sm:inline-flex ${badgeTones[connectionBadge.observationTone] || badgeTones.slate}`}>
+                <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-semibold md:inline-flex ${badgeTones[connectionBadge.observationTone] || badgeTones.slate}`}>
                   {connectionBadge.observation}
                 </span>
               )}
-              <div className="hidden items-center gap-2 text-sm text-slate-600 sm:flex">
-                <UserCircle className="h-4 w-4" />
-                <span className="font-medium text-slate-900">{currentUser?.username}</span>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">{currentUser?.role}</span>
-              </div>
-              <button type="button" onClick={onLogout} aria-label="Logout" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white p-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:px-3">
-                <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
+              <AccountMenu currentUser={currentUser} />
+              <button type="button" onClick={onLogout} aria-label="로그아웃" className="inline-flex items-center gap-2 rounded-md border border-slate-600 bg-slate-800 p-2 text-xs font-medium text-slate-200 hover:bg-slate-700 sm:px-3">
+                <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">로그아웃</span>
               </button>
-              <img src={middlepiaStackLogo} alt="MiddlePia Stack" className="h-9 w-auto shrink-0 sm:h-14 md:h-16" />
+              <img src={middlepiaStackLogo} alt="MiddlePia Stack" className="hidden h-6 w-auto shrink-0 rounded bg-white px-1 xl:block" />
             </div>
           </div>
         </div>
       </header>
 
-      <nav className="border-b border-gray-200 bg-white shadow-sm" aria-label="Gjallar primary navigation">
+      <nav className="border-b border-slate-200 bg-white" aria-label="주 메뉴">
         <div className={APP_SHELL_CLASS}>
-          <div className="flex overflow-x-auto">
-            {navItems.map(({ label, path, icon: Icon, activePrefixes, aliasPaths }) => (
+          <div className="flex">
+            {resolveSectionNavItems(navItems, pathname).map(({ label, path, icon: Icon, isActive }) => (
               <Link
                 key={path}
                 to={path}
                 aria-label={label}
-                aria-current={navItemActive({ path, activePrefixes, aliasPaths }, pathname) ? 'page' : undefined}
-                className={navClass({ isActive: navItemActive({ path, activePrefixes, aliasPaths }, pathname) })}
+                aria-current={isActive ? 'page' : undefined}
+                className={navClass({ isActive })}
               >
-                <Icon className="h-5 w-5" /> <span className="hidden sm:inline">{label}</span>
+                <Icon aria-hidden="true" className="h-[18px] w-[18px] shrink-0" /> <span className="whitespace-nowrap">{label}</span>
               </Link>
             ))}
           </div>
         </div>
       </nav>
 
-      <main id="main-content" className={`${APP_SHELL_CLASS} py-6 sm:py-8`}>{children}</main>
+      <main id="main-content" tabIndex={-1} className={`${APP_SHELL_CLASS} gj-content py-3 sm:py-4`}>{children}</main>
     </div>
   )
 }

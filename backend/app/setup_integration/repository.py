@@ -21,7 +21,11 @@ def lock_connection(session):
         session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": CONNECTION_LOCK_ID})
     else:
         # SQLite is explicitly test-only; it is not PostgreSQL concurrency proof.
+        transaction = session.get_transaction()
+        if transaction is not None and session.info.get("gjallar_connection_lock_transaction") is transaction:
+            return
         session.execute(text("BEGIN IMMEDIATE"))
+        session.info["gjallar_connection_lock_transaction"] = session.get_transaction()
 
 
 def public_attempt(row):

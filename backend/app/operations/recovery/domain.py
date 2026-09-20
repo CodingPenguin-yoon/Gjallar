@@ -10,8 +10,21 @@ from typing import Any, Mapping
 RECOVERY_STATUSES = frozenset({"pending", "leased", "retry_wait", "paused", "completed"})
 RECOVERY_KINDS = frozenset(
     {
+        "host_storage_observation",
+        "host_network_observation",
         "vm_start_observation",
         "vm_shutdown_observation",
+        "vm_compute_observation",
+        "vm_disk_observation",
+        "vm_network_observation",
+        "vm_clone_observation",
+        "vm_delete_observation",
+        "vm_template_observation",
+        "vm_image_build_observation",
+        "vm_image_cleanup_observation",
+        "vm_backup_observation",
+        "vm_restore_observation",
+        "vm_migrate_observation",
         "vm_create_observation",
         "guided_qm_unlock_observation",
     }

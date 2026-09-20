@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Protocol
 
+from app.operations.locks.binding import expected_lock_count, lock_references
 from app.operations.core.domain import OperationActor, OperationSnapshot, verify_event_chain
 from app.operations.core.ports import OperationStorePort
 from app.operations.recovery.domain import (
@@ -230,6 +231,23 @@ def _validate_recovery_binding(
         raise RecoveryBindingError("target_lock_id_mismatch")
     if wrapper_lock_id != durable_lock_id:
         raise RecoveryBindingError("target_lock_identity_mismatch")
+    if expected_lock_count(operation.operation_type) == 2:
+        references = lock_references(operation_type=operation.operation_type, target_id=operation.target_id,
+            operation_details=operation.details, recovery_details=details)
+        if len(references) != expected_lock_count(operation.operation_type):
+            raise RecoveryBindingError("related_target_lock_binding_mismatch")
+        for reference in references[1:]:
+            related = target_lock_reader("proxmox_vm", f"vmid:{reference['vmid']}")
+            durable_related = _mapping(related.get("durable")) if related else {}
+            if (not related or related.get("owner_id") != operation.operation_id
+                    or related.get("lock_id") != reference["lock_id"]
+                    or durable_related.get("operation_lock_id") != reference["lock_id"]
+                    or durable_related.get("owner_id") != operation.operation_id
+                    or durable_related.get("operation_type") != operation.operation_type
+                    or durable_related.get("cluster_id") != expected_cluster_id
+                    or durable_related.get("vmid") != reference["vmid"]):
+                raise RecoveryBindingError("related_target_lock_identity_mismatch")
+
 
 
 def _pause_binding_failure(

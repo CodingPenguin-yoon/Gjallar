@@ -203,6 +203,23 @@ def test_upgrade_schema_mismatch_keeps_original_and_does_not_stop(setup):
     assert not any("init-schema" in args for args, _ in runner.calls)
 
 
+def test_validated_images_keep_a_content_named_local_tag(setup):
+    bootstrap, runner = setup
+    bootstrap.install(administrator=admin)
+    for image_id in (APP, PG):
+        assert (["image", "tag", image_id, "gjallar-pinned:" + image_id.replace(":", "-")], None) in runner.calls
+
+
+def test_upgrade_checks_running_server_when_original_image_is_unavailable(setup):
+    bootstrap, runner = setup
+    bootstrap.install(administrator=admin)
+    runner.calls.clear()
+    runner.fail = lambda args: "run" in args and not any("upgrade-candidate.json" in arg for arg in args) and "stop" not in args and runner.running
+    assert bootstrap.upgrade("gjallar:next")["state"] == "running"
+    assert bootstrap.load()["image"] == NEXT
+    assert any("exec" in args and args[-1] == "check-ready" for args, _ in runner.calls)
+
+
 def test_upgrade_and_resume_pair_write_failure(setup, monkeypatch):
     bootstrap, runner = setup
     bootstrap.install(administrator=admin)

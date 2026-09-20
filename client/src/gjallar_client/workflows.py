@@ -48,18 +48,35 @@ def result_status(result):
             'next': f"{prefix} operations show {operation['operation_id']}" if operation.get('operation_id') else f'{prefix} operations list'}
 
 
-def mutation(app, path, payload, lookup):
+def mutation(app, path, payload, lookup, *, expected_operation=None, operation_id_field=None):
     response_received = False
     try:
         result = app.request(path, method='POST', body=payload, operator=True)
         response_received = True
         data = result['data']
         operation = data.get('operation') if isinstance(data, dict) else None
+        if operation is None and operation_id_field and isinstance(data, dict):
+            operation = {'operation_id': data.get(operation_id_field)}
         if not isinstance(operation, dict) or not operation.get('operation_id'):
             raise ClientError('PROTOCOL_ERROR', '실행 결과에 Operation ID가 없습니다.', 5)
+        if operation_id_field and data.get(operation_id_field) not in (None, operation['operation_id']):
+            raise ClientError('PROTOCOL_ERROR', '실행 결과의 작업 ID가 서로 다릅니다.', 5)
         observed = app.request('operations/' + segment(operation['operation_id']))['data']
         if not isinstance(observed, dict) or not isinstance(observed.get('operation'), dict):
             raise ClientError('PROTOCOL_ERROR', '작업 결과를 확인할 수 없습니다.', 5)
+        canonical = observed['operation']
+        if canonical.get('operation_id') != operation['operation_id']:
+            raise ClientError('PROTOCOL_ERROR', '작업 결과 ID가 실행 응답과 다릅니다.', 5)
+        if expected_operation:
+            details = canonical.get('details', {})
+            target_matches = (canonical.get('target_type') == expected_operation['target_type']
+                and canonical.get('target_id') == expected_operation['target_id'] and details.get('target') == expected_operation['target']) if 'target_type' in expected_operation else (
+                canonical.get('target_type') == 'proxmox_vm' and canonical.get('target_id') == f"vmid:{expected_operation['vmid']}"
+                and details.get('target', {}).get('node_id') == expected_operation['node'])
+            request_matches = (canonical.get('idempotency_key') == expected_operation['idempotency_key']
+                               if 'idempotency_key' in expected_operation else details.get('requested') == payload)
+            if canonical.get('operation_type') != expected_operation['type'] or not target_matches or not request_matches:
+                raise ClientError('PROTOCOL_ERROR', '작업 결과가 검토한 대상·종류·요청과 다릅니다.', 5)
         result = {**result, 'data': observed}
     except ClientError as exc:
         if response_received or exc.code in {'COMMUNICATION_FAILED', 'SERVER_ERROR', 'PROTOCOL_ERROR'}:
@@ -79,7 +96,10 @@ def power(app, action, vmid, node, request_id, confirm):
     payload = {'idempotency_key': request_id, f'vm_{action}_acknowledged': True,
                'expected_name': vm.get('name', ''), 'expected_status': 'stopped' if action == 'start' else 'running'}
     return mutation(app, f'nodes/{segment(node)}/vms/{vmid}/actions/{action}', payload,
-                    f'gjallar operations list --vmid {vmid}')
+                    f'gjallar operations list --vmid {vmid}', operation_id_field='job_id',
+                    expected_operation={'type': 'vm_' + action, 'target_type': 'proxmox_vm',
+                        'target_id': f'vmid:{vmid}', 'target': {'node_id': node, 'vmid': vmid},
+                        'idempotency_key': request_id})
 
 
 SPEC_KEYS = {'creation_mode', 'profile_id', 'vmid', 'vm_name', 'target_node_id', 'storage_id',

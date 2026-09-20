@@ -27,12 +27,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // noVNC's isolated lazy chunk uses top-level await for capability detection.
+    esbuild: { supported: { 'top-level-await': true } },
+    optimizeDeps: { esbuildOptions: { supported: { 'top-level-await': true } } },
     server: {
       port: frontendPort,
       proxy: {
         '/api': {
           target: backendUrl,
           changeOrigin: true,
+          ws: true,
         },
       },
     },

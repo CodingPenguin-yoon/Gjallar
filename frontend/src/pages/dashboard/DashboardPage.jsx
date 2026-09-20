@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Clock3, Database, HardDrive, List, Plus, RefreshCw, Server } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Activity, AlertTriangle, HardDrive, List, Plus, RefreshCw, Server } from 'lucide-react'
 import { apiV1Client } from '../../shared/api/apiV1'
+import ClusterTrends from '../../features/monitoring/ClusterTrends'
+import { aggregateValues } from '../../features/monitoring/clusterMetrics'
+import RecentOperations from './RecentOperations'
 
 const DASHBOARD_DATA_LABELS = ['Cluster', 'Nodes', 'VMs', 'Storage', 'Networks', 'Jobs/Runs', 'Risks/Alerts']
 
@@ -68,6 +71,7 @@ function asNumber(value, fallback = 0) {
 }
 
 function optionalNumber(value) {
+  if (value == null || value === '') return null
   const number = Number(value)
   return Number.isFinite(number) ? number : null
 }
@@ -101,7 +105,7 @@ function toneClasses(tone) {
 function formatGb(value) {
   const number = Number(value)
   if (!Number.isFinite(number) || number <= 0) return '-'
-  return `${Math.round(number).toLocaleString()} GB`
+  return `${Math.round(number).toLocaleString()} GiB`
 }
 
 function metricValueClass(tone) {
@@ -113,12 +117,12 @@ function metricValueClass(tone) {
 
 function MetricTile({ label, value, sub, tone = 'slate', icon: Icon }) {
   return (
-    <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="min-w-0 px-3 py-2">
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-        {Icon && <Icon className="h-4 w-4 text-slate-400" />}
+        {Icon && <Icon className="hidden h-4 w-4 text-slate-400 2xl:block" />}
       </div>
-      <div className={`mt-4 text-3xl font-bold ${metricValueClass(tone)}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tracking-tight ${metricValueClass(tone)}`}>{value}</div>
       {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
     </div>
   )
@@ -181,6 +185,9 @@ function buildDashboardModel({
       id,
       name: nodeNameOf(node),
       status: node.status || 'unknown',
+      cpuTotal: optionalNumber(node.cpu_total),
+      memoryTotalMb: optionalNumber(node.memory_total_mb),
+      memoryUsedMb: optionalNumber(node.memory_used_mb),
       tone: statusTone(node.status),
       vmCount: vmsAvailable ? nodeVms.length : null,
       runningVmCount: vmsAvailable
@@ -189,7 +196,7 @@ function buildDashboardModel({
       cpuLabel: cpuUsagePercent !== null ? `${Math.round(cpuUsagePercent)}%` : '-',
       cpuPercent: cpuUsagePercent !== null ? cpuUsagePercent : Number.NaN,
       memoryLabel: memoryUsagePercent !== null && memoryTotalGb > 0
-        ? `${Math.round(memoryUsedGb)} / ${Math.round(memoryTotalGb)} GB`
+        ? `${memoryUsedGb.toFixed(1)} / ${memoryTotalGb.toFixed(1)} GiB`
         : '-',
       memoryPercent: memoryUsagePercent !== null ? memoryUsagePercent : Number.NaN,
       storageLabel: storagesAvailable && storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : '-',
@@ -200,13 +207,22 @@ function buildDashboardModel({
     }
   })
 
+  const totals = aggregateValues(nodeRows, nodeRows.map(node => node.status === 'online' ? {
+    cpu_percent: node.cpuPercent,
+    memory_used_bytes: node.memoryUsedMb == null ? null : node.memoryUsedMb * 1024 ** 2,
+    memory_total_bytes: node.memoryTotalMb > 0 ? node.memoryTotalMb * 1024 ** 2 : null,
+  } : null))
   const onlineNodes = nodeRows.filter((node) => node.tone === 'green').length
   const runningVms = vmsAvailable
     ? observedVms.filter((vm) => String(vm.status || '').toLowerCase() === 'running').length
     : null
-  const storageTotalGb = observedStorages.reduce((sum, storage) => sum + Math.max(0, asNumber(storage.total_gb ?? storage.totalGb)), 0)
-  const storageFreeGb = observedStorages.reduce((sum, storage) => sum + Math.max(0, asNumber(storage.free_gb ?? storage.freeGb)), 0)
-  const hasNfs = observedStorages.some((storage) => String(storage.type || '').toLowerCase() === 'nfs')
+  const storageUsage = observedStorages.flatMap(storage => {
+    const total = optionalNumber(storage.total_gb ?? storage.totalGb)
+    const free = optionalNumber(storage.free_gb ?? storage.freeGb)
+    return total > 0 && free !== null && free >= 0 && free <= total
+      ? [{ node: storage.node_id || storage.nodeId, label: storage.storage_id || storage.storageId || 'storage', percent: (total - free) / total * 100 }] : []
+  }).sort((a, b) => b.percent - a.percent)
+  const highestStorage = storageUsage[0]
   const bridgeCount = networksAvailable
     ? new Set(observedNetworks.map((network) => `${network.node_id || network.nodeId}:${network.bridge_id || network.bridgeId}`).filter(Boolean)).size
     : null
@@ -217,6 +233,8 @@ function buildDashboardModel({
   return {
     clusterId: clusterAvailable ? cluster.cluster_id || 'gjallar-mvp' : 'unavailable',
     nodeRows,
+    storageUsage,
+    totals,
     summary: {
       nodesAvailable,
       nodes: nodesAvailable ? `${onlineNodes}/${nodeRows.length}` : '-',
@@ -227,12 +245,8 @@ function buildDashboardModel({
       guestAgentMissing: vmsAvailable && Array.isArray(vmObservation?.sources?.guest_agent?.failed_targets)
         ? new Set(vmObservation.sources.guest_agent.failed_targets).size
         : null,
-      storage: storagesAvailable
-        ? hasNfs ? 'NFS' : `${Math.max(0, Math.round(storageTotalGb - storageFreeGb)).toLocaleString()} GB`
-        : '-',
-      storageSub: !storagesAvailable
-        ? 'storage unavailable'
-        : storageTotalGb > 0 ? `${formatGb(storageFreeGb)} free` : 'storage inventory',
+      storage: storagesAvailable && highestStorage ? `${highestStorage.percent.toFixed(1)}%` : '-',
+      storageSub: storagesAvailable && highestStorage ? `${highestStorage.label} · 최대 사용률` : 'storage unavailable',
       bridges: bridgeCount,
       activeJobs: availability.jobs === true
         ? asArray(jobs).filter((job) => ['running', 'pending', 'in_progress', 'processing'].includes(String(job.status || '').toLowerCase())).length
@@ -273,6 +287,7 @@ export default function Dashboard() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [observedAt, setObservedAt] = useState('')
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -309,6 +324,7 @@ export default function Dashboard() {
       },
     }))
     setError(dashboardPartialError(results, observation))
+    setObservedAt(new Date().toISOString())
     setLoading(false)
   }
 
@@ -322,10 +338,8 @@ export default function Dashboard() {
     : model.summary.allObservedNodesOnline ? 'green' : 'yellow'
   const riskMetricValue = model.summary.redRisks === null ? '-' : model.summary.redRisks
   const riskMetricTone = model.summary.redRisks > 0 ? 'red' : 'slate'
-  const jobMetricContext = model.summary.activeJobs === null ? 'jobs unavailable' : `${model.summary.activeJobs} active jobs`
-  const riskMetricContext = model.summary.redRisks === null
-    ? `${jobMetricContext} · risks unavailable`
-    : `current response · ${jobMetricContext}`
+  const jobMetricContext = model.summary.activeJobs === null ? '작업 조회 불가' : `진행 중 생성 작업 ${model.summary.activeJobs}개`
+  const riskMetricContext = model.summary.redRisks === null ? '위험 조회 불가' : 'Red 진단 · 선택 범위'
   const incompleteVmSources = model.summary.incompleteSources.filter((source) => ['vm_config', 'vm_detail'].includes(source))
   const guestAgentContext = model.summary.guestAgentMissing > 0
     ? ` · 내부 IP 확인 불가 ${model.summary.guestAgentMissing}대`
@@ -334,35 +348,34 @@ export default function Dashboard() {
       : ''
   const vmMetricContext = model.summary.runningVms === null
     ? 'VM inventory unavailable'
-    : `${model.summary.runningVms} running${guestAgentContext}${incompleteVmSources.length ? ` · detail partial (${incompleteVmSources.join(', ')})` : ''}`
+    : `실행 ${model.summary.runningVms}대 · 선택 범위${guestAgentContext}${incompleteVmSources.length ? ` · detail partial (${incompleteVmSources.join(', ')})` : ''}`
   const nodeSummaryLabel = !model.summary.nodesAvailable
     ? 'Node inventory unavailable'
     : model.nodeRows.length > 0 ? onlineNodeLabel(model.nodeRows) : 'No nodes observed'
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <section className="space-y-3 gj-overview">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
-              Node inventory {model.summary.nodeStatus}
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Read-only inventory view</span>
+          <h1 className="text-xl font-semibold tracking-tight">클러스터 운영 현황</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span>{model.clusterId}</span><span>· 선택된 연결 범위</span>
+            <span className={healthTone === 'green' ? 'text-teal-700' : 'text-amber-700'}>{loading ? '자원 조회 중…' : model.summary.nodeStatus}</span>
+            <span>· {observedAt ? `조회 완료 ${new Date(observedAt).toLocaleTimeString()}` : '조회 중'}</span>
           </div>
-          <h2 className="mt-3 text-3xl font-semibold text-slate-950">Proxmox 클러스터 운영 화면</h2>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={loadDashboard} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={loadDashboard} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             새로고침
           </button>
           <button type="button" onClick={() => navigate('/instances')} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             <List className="h-4 w-4" />
-            VM Instances
+            VM 목록
           </button>
           <button type="button" onClick={() => navigate('/instances/create')} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">
             <Plus className="h-4 w-4" />
-            Create VM
+            VM 생성
           </button>
         </div>
       </div>
@@ -371,45 +384,21 @@ export default function Dashboard() {
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">{error}</div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="Nodes" value={model.summary.nodes} sub={model.clusterId} tone={healthTone} icon={Server} />
-        <MetricTile label="VMs" value={model.summary.vms} sub={vmMetricContext} tone="slate" icon={Activity} />
-        <MetricTile label="Storage" value={model.summary.storage} sub={model.summary.storageSub} tone="slate" icon={HardDrive} />
-        <MetricTile label="Red risks" value={riskMetricValue} sub={riskMetricContext} tone={riskMetricTone} icon={AlertTriangle} />
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-3 min-[850px]:grid-cols-6 [&>div]:bg-white" aria-label="클러스터 핵심 지표">
+        <MetricTile label="연결 노드" value={model.summary.nodes} sub="온라인 / 선택 노드" tone={healthTone} icon={Server} />
+        <MetricTile label="전체 CPU 사용률" value={model.totals.cpu_percent == null ? '—' : `${model.totals.cpu_percent.toFixed(1)}%`} sub={`${model.nodeRows.reduce((sum, node) => sum + (node.cpuTotal || 0), 0)} CPU 기준`} icon={Activity} />
+        <MetricTile label="전체 메모리 사용" value={model.totals.memory_used_bytes == null ? '—' : `${(model.totals.memory_used_bytes / 1024 ** 3).toFixed(1)} GiB`} sub={model.totals.memory_total_bytes == null ? '전체 용량 관찰 불가' : `/ ${(model.totals.memory_total_bytes / 1024 ** 3).toFixed(1)} GiB 전체`} icon={Server} />
+        <MetricTile label="관리 VM" value={model.summary.vms} sub={vmMetricContext} icon={Activity} />
+        <MetricTile label="스토리지 최대 사용" value={model.summary.storage} sub={model.summary.storageSub.replace(' · 최대 사용률', '')} icon={HardDrive} />
+        <MetricTile label="위험 진단 · Red" value={riskMetricValue} sub={riskMetricContext} tone={riskMetricTone} icon={AlertTriangle} />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Datacenter</div>
-          <div className="space-y-1">
-            <button type="button" onClick={() => navigate('/instances')} className="flex w-full items-center gap-3 rounded-lg bg-slate-950 px-3 py-2 text-left text-sm font-semibold text-white">
-              <Database className="h-4 w-4 text-yellow-300" />
-              {model.clusterId}
-            </button>
-            {model.nodeRows.map((node) => (
-              <button key={node.id} type="button" onClick={() => navigate('/instances')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
-                <span className="flex min-w-0 items-center gap-3">
-                  <Server className="h-4 w-4 shrink-0 text-slate-500" />
-                  <span className="truncate">{node.name}</span>
-                </span>
-                <span className={`h-2 w-2 shrink-0 rounded-full ${node.tone === 'green' ? 'bg-emerald-500' : node.tone === 'red' ? 'bg-red-500' : 'bg-yellow-400'}`} />
-              </button>
-            ))}
-            <button type="button" onClick={() => navigate('/operations/jobs')} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
-              <span className="flex items-center gap-3">
-                <Clock3 className="h-4 w-4 text-slate-500" />
-                Jobs
-              </span>
-              <span className="text-xs font-semibold text-slate-500">{model.summary.activeJobs ?? '-'}</span>
-            </button>
-          </div>
-        </aside>
-
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <section className="gj-panel min-w-0 overflow-hidden">
+          <div className="gj-panel-heading flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-lg font-semibold text-slate-950">Cluster Summary</h3>
-              <div className="mt-1 text-xs text-slate-500">노드별 VM 상태, 관찰된 CPU/메모리 사용량, 스토리지 여유 공간, 브리지 상태</div>
+              <h2 className="text-sm font-semibold text-slate-950">전체 노드 비교</h2>
+
             </div>
             <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${toneClasses(healthTone)}`}>
               {nodeSummaryLabel}
@@ -417,16 +406,16 @@ export default function Dashboard() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <table className="w-full min-w-[760px] divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-5 py-3 text-left font-semibold">Node</th>
-                  <th className="px-5 py-3 text-left font-semibold">Status</th>
-                  <th className="px-5 py-3 text-left font-semibold">VMs</th>
-                  <th className="px-5 py-3 text-left font-semibold">CPU usage</th>
-                  <th className="px-5 py-3 text-left font-semibold">Memory usage</th>
-                  <th className="px-5 py-3 text-left font-semibold">Network</th>
-                  <th className="px-5 py-3 text-left font-semibold">Storage</th>
+                  <th className="px-3 py-2 text-left font-semibold">노드</th>
+                  <th className="px-3 py-2 text-left font-semibold">상태</th>
+                  <th className="px-3 py-2 text-left font-semibold">관리 VM</th>
+                  <th className="px-3 py-2 text-left font-semibold">CPU 사용률</th>
+                  <th className="px-3 py-2 text-left font-semibold">메모리 사용</th>
+                  <th className="px-3 py-2 text-left font-semibold">브리지</th>
+                  <th className="px-3 py-2 text-left font-semibold">스토리지 여유</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -438,40 +427,55 @@ export default function Dashboard() {
                   </tr>
                 ) : model.nodeRows.map((node) => (
                   <tr key={node.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4">
-                      <div className="font-semibold text-slate-950">{node.name}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{node.id}</div>
+                    <td className="px-3 py-2">
+                      <Link className="font-semibold text-teal-800 hover:underline" to={`/nodes?node=${encodeURIComponent(node.id)}`}>{node.name} →</Link>
+
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-2">
                       <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${toneClasses(node.tone)}`}>
                         <span className={`h-2 w-2 rounded-full ${node.tone === 'green' ? 'bg-emerald-500' : node.tone === 'red' ? 'bg-red-500' : 'bg-yellow-400'}`} />
                         {node.status}
                       </span>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-2">
                       <div className="font-medium text-slate-900">
                         {node.vmsAvailable ? `${node.runningVmCount}/${node.vmCount}` : '-'}
                       </div>
-                      <div className="text-xs text-slate-500">{node.vmsAvailable ? 'running / total' : 'VM inventory unavailable'}</div>
+                      <div className="text-xs text-slate-500">{node.vmsAvailable ? '실행 / 선택 범위' : 'VM inventory unavailable'}</div>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-2">
                       <div className="font-medium text-slate-900">{node.cpuLabel}</div>
                       <UsageBar value={node.cpuPercent} tone={node.cpuPercent > 85 ? 'red' : node.cpuPercent > 65 ? 'yellow' : 'blue'} />
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-2">
                       <div className="font-medium text-slate-900">{node.memoryLabel}</div>
                       <UsageBar value={node.memoryPercent} tone={node.memoryPercent > 85 ? 'red' : node.memoryPercent > 65 ? 'yellow' : 'green'} />
                     </td>
-                    <td className="px-5 py-4 text-slate-700">
+                    <td className="px-3 py-2 text-slate-700">
                       {node.networksAvailable ? node.networks.length ? node.networks.join(' / ') : '-' : 'unavailable'}
                     </td>
-                    <td className="px-5 py-4 text-slate-700">{node.storagesAvailable ? node.storageLabel : 'unavailable'}</td>
+                    <td className="px-3 py-2 text-slate-700">{node.storagesAvailable ? node.storageLabel : 'unavailable'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </section>
+      </div>
+      <div className="grid items-start gap-3 min-[900px]:grid-cols-[minmax(0,1fr)_260px]">
+        <ClusterTrends nodes={model.nodeRows} refreshKey={observedAt} />
+        <div className="space-y-3">
+          <section className="gj-panel" aria-label="운영 확인 사항">
+            <header className="gj-panel-heading flex items-center justify-between"><h2 className="text-sm font-semibold">운영 확인 사항</h2><Link className="text-xs text-teal-700 hover:underline" to="/insights/risks">진단 →</Link></header>
+            <div className="divide-y divide-slate-100 text-xs">
+              <p className="px-3 py-2"><span className="font-semibold">노드 연결</span><span className="float-right">{nodeSummaryLabel}</span></p>
+              <p className="px-3 py-2"><span className="font-semibold">스토리지 80% 이상</span><span className="float-right">{snapshot.availability.storages ? `${model.storageUsage.filter(item => item.percent >= 80).length}개 노드 경로` : '관찰 불가'}</span></p>
+              <p className="px-3 py-2 text-slate-600">{jobMetricContext} · {model.summary.guestAgentMissing == null ? '게스트 관찰 확인 필요' : `게스트 IP 미확인 ${model.summary.guestAgentMissing}대`}</p>
+            </div>
+            <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">공유 스토리지는 노드마다 보일 수 있습니다. VM 수는 연결에서 선택한 범위입니다.</p>
+          </section>
+          <RecentOperations refreshKey={observedAt} />
+        </div>
       </div>
     </section>
   )

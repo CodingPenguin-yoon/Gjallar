@@ -216,16 +216,26 @@ class OperationLockRecord(Base):
     __tablename__ = "operation_locks"
     __table_args__ = (
         CheckConstraint(
-            "operation_type in ('vm_start', 'vm_create', 'guided_qm_vm_unlock', 'vm_shutdown')",
+            "operation_type in ('vm_start', 'vm_create', 'guided_qm_vm_unlock', 'vm_shutdown', 'vm_compute', 'vm_disk_resize', 'vm_network', 'vm_clone', 'vm_delete', 'vm_template', 'vm_image_build', 'vm_image_cleanup', 'vm_backup', 'vm_restore', 'vm_migrate', 'host_storage', 'host_network')",
             name="ck_operation_locks_operation_type",
         ),
         CheckConstraint(
-            "scope_type = 'proxmox_locator'",
+            "scope_type in ('proxmox_locator', 'proxmox_configuration')",
             name="ck_operation_locks_scope_type",
         ),
         CheckConstraint(
             "status in ('active', 'released', 'stale', 'reconciliation_required')",
             name="ck_operation_locks_status",
+        ),
+        CheckConstraint(
+            "(scope_type = 'proxmox_configuration' and operation_type in ('host_storage', 'host_network') and vmid is null) "
+            "or (scope_type = 'proxmox_locator' and operation_type not in ('host_storage', 'host_network'))",
+            name="ck_operation_locks_host_binding",
+        ),
+        Index(
+            "uq_operation_locks_open_configuration", "scope_type", "scope_key", unique=True,
+            sqlite_where=text("scope_type = 'proxmox_configuration' and status in ('active', 'stale', 'reconciliation_required')"),
+            postgresql_where=text("scope_type = 'proxmox_configuration' and status in ('active', 'stale', 'reconciliation_required')"),
         ),
         Index("ix_operation_locks_scope_status", "operation_type", "scope_type", "scope_key", "status"),
         Index("ix_operation_locks_expires_at", "expires_at"),

@@ -27,45 +27,45 @@ export default function LoginPage({ onLogin }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <div className="min-h-screen bg-slate-100 text-slate-900">
       <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6 py-10">
-        <section className="w-full rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60">
           <div className="flex items-center gap-3">
-            <Server className="h-7 w-7 text-slate-700" />
+            <Server className="h-12 w-12 rounded-xl bg-slate-900 p-3 text-teal-300" />
             <div>
-              <h1 className="text-xl font-semibold text-slate-950">Gjallar Login</h1>
-              <p className="mt-1 text-sm text-slate-500">Proxmox 운영 콘솔 접근</p>
+              <h1 className="text-xl font-semibold text-slate-950">Gjallar</h1>
+              <p className="mt-1 text-sm text-slate-500">Proxmox 운영 공간에 로그인하세요.</p>
             </div>
           </div>
           <form className="mt-6 space-y-4" onSubmit={submitLogin}>
             <label className="block space-y-1">
-              <span className="text-sm font-medium text-slate-700">Username</span>
+              <span className="text-sm font-medium text-slate-700">사용자 이름</span>
               <input
                 autoComplete="username"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-sm font-medium text-slate-700">Password</span>
+              <span className="text-sm font-medium text-slate-700">비밀번호</span>
               <input
                 type="password"
                 autoComplete="current-password"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
             </label>
             {error ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">{error}</div>
             ) : null}
             <button
               type="submit"
               disabled={submitting || !username || !password}
-              className="inline-flex w-full items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? 'Logging in...' : 'Login'}
+              {submitting ? '로그인 중…' : '로그인'}
             </button>
           </form>
         </section>

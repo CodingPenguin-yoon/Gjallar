@@ -57,6 +57,11 @@ class VmCreateOperationTracker:
                 },
                 "plan_artifact_id": plan.plan_artifact_id,
                 "risk_level": plan.risk_level,
+                "template_source": {
+                    "node_id": dict(plan.intent.get("review_confirm") or {}).get("template_node_id"),
+                    "vmid": dict(plan.intent.get("review_confirm") or {}).get("template_vmid"),
+                },
+                "power_policy": plan.intent.get("power_policy"),
                 "recovery_contract": PRE_DISPATCH_RECOVERY_CONTRACT,
                 "compatibility": {
                     "job_id": plan.operation_id,

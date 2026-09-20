@@ -45,7 +45,7 @@ def test_authenticated_cipher_rejects_wrong_key_row_and_tampering(cipher):
         with pytest.raises(CredentialKeyError):
             cipher.decrypt(nonce=nonce, ciphertext=ciphertext, key_id=cipher.key_id, **{**binding, **patch})
     with pytest.raises(CredentialKeyError):
-        cipher.decrypt(nonce=nonce, ciphertext=b"!" + ciphertext[1:], key_id=cipher.key_id, **binding)
+        cipher.decrypt(nonce=nonce, ciphertext=bytes([ciphertext[0] ^ 1]) + ciphertext[1:], key_id=cipher.key_id, **binding)
     with pytest.raises(CredentialKeyError):
         CredentialCipher(os.urandom(32)).decrypt(nonce=nonce, ciphertext=ciphertext, key_id=cipher.key_id, **binding)
     assert cipher.encrypt("synthetic-token", **binding)[0] != nonce

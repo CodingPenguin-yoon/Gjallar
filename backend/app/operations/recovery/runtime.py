@@ -10,6 +10,11 @@ import uuid
 from dataclasses import dataclass
 
 from app.operations.core.infrastructure.repository import SqlAlchemyOperationStore
+from app.operations.host_config.recovery import HostConfigurationRecoveryHandler
+from app.operations.host_storage.domain import StorageError
+from app.operations.host_network.domain import BridgeError
+from app.operations.host_network.facade import bridge_service
+from app.operations.host_storage.facade import storage_service
 from app.operations.guided_qm.infrastructure.adapters import SharedGuidedQmTargetLockAdapter
 from app.operations.guided_qm.recovery import GuidedQmUnlockRecoveryHandler
 from app.operations.recovery.application import (
@@ -26,6 +31,28 @@ from app.operations.recovery.infrastructure.observation import ProxmoxRecoveryOb
 from app.operations.recovery.infrastructure.repository import SqlAlchemyRecoveryStore
 from app.operations.target_lock import get_target_operation_lock
 from app.operations.vm_create.recovery import VmCreateRecoveryHandler
+from app.operations.vm_network.facade import network_service
+from app.operations.vm_network.recovery import NetworkRecoveryHandler
+from app.operations.vm_compute.facade import compute_service
+from app.operations.vm_compute.recovery import ComputeRecoveryHandler
+from app.operations.vm_clone.facade import clone_service
+from app.operations.vm_clone.recovery import CloneRecoveryHandler
+from app.operations.vm_image_build.facade import image_build_service
+from app.operations.vm_backup.facade import backup_service
+from app.operations.vm_migrate.facade import migrate_service
+from app.operations.vm_migrate.recovery import MigrateRecoveryHandler
+from app.operations.vm_restore.facade import restore_service
+from app.operations.vm_restore.recovery import RestoreRecoveryHandler
+from app.operations.vm_backup.recovery import BackupRecoveryHandler
+from app.operations.vm_image_cleanup.facade import image_cleanup_service
+from app.operations.vm_image_cleanup.recovery import ImageCleanupRecoveryHandler
+from app.operations.vm_image_build.recovery import ImageBuildRecoveryHandler
+from app.operations.vm_template.facade import template_service
+from app.operations.vm_template.recovery import TemplateRecoveryHandler
+from app.operations.vm_delete.facade import delete_service
+from app.operations.vm_delete.recovery import DeleteRecoveryHandler
+from app.operations.vm_disk.facade import disk_service
+from app.operations.vm_disk.recovery import DiskRecoveryHandler
 from app.operations.vm_create.recovery_adapters import (
     ProxmoxVmCreateRecoveryObservationAdapter,
     SqlAlchemyVmCreateRecoveryProjection,
@@ -120,6 +147,21 @@ def build_recovery_runner(*, config: RecoveryRuntimeConfig | None = None) -> Ope
             "vm_shutdown_observation": shutdown_handler,
             "vm_create_observation": create_handler,
             "guided_qm_unlock_observation": guided_handler,
+            "vm_network_observation": NetworkRecoveryHandler(operations=operations, recovery=recovery, service_factory=network_service),
+            "vm_compute_observation": ComputeRecoveryHandler(operations=operations, recovery=recovery, service_factory=compute_service),
+            "host_network_observation": HostConfigurationRecoveryHandler(operation_type='host_network', operations=operations,
+                recovery=recovery, service_factory=bridge_service, error_type=BridgeError),
+            "host_storage_observation": HostConfigurationRecoveryHandler(operation_type='host_storage', operations=operations,
+                recovery=recovery, service_factory=storage_service, error_type=StorageError),
+            "vm_clone_observation": CloneRecoveryHandler(operations=operations, recovery=recovery, service_factory=clone_service),
+            "vm_backup_observation": BackupRecoveryHandler(operations=operations, recovery=recovery, service_factory=backup_service),
+            "vm_migrate_observation": MigrateRecoveryHandler(operations=operations, recovery=recovery, service_factory=migrate_service),
+            "vm_restore_observation": RestoreRecoveryHandler(operations=operations, recovery=recovery, service_factory=restore_service),
+            "vm_image_cleanup_observation": ImageCleanupRecoveryHandler(operations=operations, recovery=recovery, service_factory=image_cleanup_service),
+            "vm_image_build_observation": ImageBuildRecoveryHandler(operations=operations, recovery=recovery, service_factory=image_build_service),
+            "vm_template_observation": TemplateRecoveryHandler(operations=operations, recovery=recovery, service_factory=template_service),
+            "vm_delete_observation": DeleteRecoveryHandler(operations=operations, recovery=recovery, service_factory=delete_service),
+            "vm_disk_observation": DiskRecoveryHandler(operations=operations, recovery=recovery, service_factory=disk_service),
         },
         worker_id=worker_id,
         lease_seconds=effective.lease_seconds,

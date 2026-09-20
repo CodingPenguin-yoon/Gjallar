@@ -152,12 +152,17 @@ def _assert_postgresql_generic_lock_contract(inspector) -> None:
     } == GENERIC_LOCK_COLUMNS
 
     indexes = {index["name"]: index for index in inspector.get_indexes("operation_locks")}
-    assert set(indexes) == GENERIC_LOCK_INDEXES
+    assert set(indexes) == GENERIC_LOCK_INDEXES | {"uq_operation_locks_open_configuration"}
     open_locator = indexes["uq_operation_locks_open_locator"]
     assert open_locator["unique"] is True
     predicate = str(open_locator.get("dialect_options", {}).get("postgresql_where") or "")
     assert "proxmox_locator" in predicate
     assert all(status in predicate for status in ("active", "stale", "reconciliation_required"))
+    open_configuration = indexes["uq_operation_locks_open_configuration"]
+    assert open_configuration["unique"] is True
+    host_predicate = str(open_configuration.get("dialect_options", {}).get("postgresql_where") or "")
+    assert "proxmox_configuration" in host_predicate
+    assert all(status in host_predicate for status in ("active", "stale", "reconciliation_required"))
 
     checks = {
         constraint["name"]: constraint["sqltext"]
@@ -167,6 +172,7 @@ def _assert_postgresql_generic_lock_contract(inspector) -> None:
         "ck_operation_locks_operation_type",
         "ck_operation_locks_scope_type",
         "ck_operation_locks_status",
+        "ck_operation_locks_host_binding",
     }
     operation_type_check = checks["ck_operation_locks_operation_type"]
     assert "drs_migration" not in operation_type_check
@@ -176,6 +182,9 @@ def _assert_postgresql_generic_lock_contract(inspector) -> None:
     )
     scope_check = checks["ck_operation_locks_scope_type"]
     assert "proxmox_locator" in scope_check
+    assert "proxmox_configuration" in scope_check
+    host_binding = checks["ck_operation_locks_host_binding"]
+    assert all(value in host_binding for value in ("host_storage", "host_network", "vmid IS NULL"))
     assert "vm_identity" not in scope_check
     assert "route" not in scope_check
     assert inspector.get_foreign_keys("operation_locks") == []

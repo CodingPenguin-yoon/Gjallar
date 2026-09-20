@@ -68,6 +68,16 @@ def release_target_operation_lock(handle: TargetOperationLockHandle) -> None:
 
 
 def get_target_operation_lock(target_type: str, target_id: str) -> dict[str, Any] | None:
+    if target_type == 'proxmox_connection':
+        # Registration serializes connection transactions separately from VM/host locks.
+        return None
+    if target_type in {'proxmox_storage', 'proxmox_network'}:
+        from app.operations.host_config.infrastructure import ConfigurationLockRepository
+        held = ConfigurationLockRepository().current(cluster_id=_cluster())
+        if held is None or (held.target_type, held.target_id) != (target_type, target_id):
+            return None
+        return {'target_type': target_type, 'target_id': target_id, 'owner_id': held.owner_id,
+                'lock_id': held.lock_id, 'durable': held.to_dict()}
     durable = SqlAlchemyDurableTargetLockRepository().current(cluster_id=_cluster(), vmid=_locator(target_type, target_id))
     return TargetOperationLockHandle(target_type, target_id, durable.owner_id, durable).to_dict() if durable else None
 

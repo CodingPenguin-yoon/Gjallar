@@ -8,7 +8,7 @@ from typing import Any
 
 
 SUPPORTED_TARGET_OPERATION_TYPES = frozenset(
-    {"vm_start", "vm_create", "guided_qm_vm_unlock", "vm_shutdown"}
+    {"vm_start", "vm_create", "guided_qm_vm_unlock", "vm_shutdown", "vm_compute", "vm_disk_resize", "vm_network", "vm_clone", "vm_delete", "vm_template", "vm_image_build", "vm_image_cleanup", "vm_backup", "vm_restore", "vm_migrate"}
 )
 OPEN_TARGET_LOCK_STATUSES = frozenset({"active", "stale", "reconciliation_required"})
 

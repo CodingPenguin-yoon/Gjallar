@@ -7,10 +7,11 @@ import uuid
 from .errors import ClientError
 
 
-def wizard(app, *, read, password, output, attempt_id=None):
+def wizard(app, *, read, password, output, attempt_id=None, include_compute=False, include_create=False, include_disk=False, include_network=False, include_clone=False, include_delete=False, include_console=False, include_template=False, include_image_build=False, include_image_cleanup=False, include_backup=False, include_restore=False, include_migrate=False, include_host_storage=False, include_host_network=False):
     if attempt_id:
         row = app.proxmox_setup("status", attempt_id=attempt_id)["data"]
     else:
+        output("기존 연결의 권한을 갱신하려면 같은 대상에 새 토큰을 등록·검증한 뒤 전환하세요. 이전 토큰은 자동 폐기하지 않으며 전환 후 모든 서버 프로세스 재시작이 필요합니다.")
         mode = "import_env" if read("서버의 기존 env token을 가져올까요? [yes/새 토큰 발급]: ").strip() == "yes" else "issue"
         endpoint = read("Proxmox HTTPS 주소: ").strip()
         owner = read("Proxmox 계정 (예: user@pam 또는 user@pve): ").strip()
@@ -26,9 +27,82 @@ def wizard(app, *, read, password, output, attempt_id=None):
         features = ["read"]
         if read("선택한 VM의 시작·정상 종료 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
             features.append("power")
+        if include_compute and read("선택한 VM의 CPU·메모리 변경 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("compute")
+        if include_disk and read("선택한 VM의 디스크 확장·storage 공간 할당 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("disk")
+        if include_network and read("선택한 VM의 NIC bridge·VLAN 변경과 bridge 사용 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("network")
+        if include_migrate and read("선택한 정지 VM의 shared NFS 노드 이동 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("migrate")
+            output("조회 node를 최소 두 개 선택하세요. VM.Migrate/Config.Disk와 선택 bridge 사용 권한을 추가합니다. storage 할당·host 수정·자동 부팅 권한은 추가하지 않습니다.")
+        creation_scope = {}
+        if include_create and read("템플릿에서 새 VM을 생성하는 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("create")
+            output("생성 대상 VMID에 할당·설정·전원·guest-agent 실행 권한이 포함됩니다. Gjallar는 cloud-init 상태 확인 명령만 실행하지만 PVE token 자체의 guest-agent 권한은 더 넓습니다.")
+            try:
+                creation_scope = {
+                    "template_vmids": [int(value.strip()) for value in read("복제 원본 템플릿 ID (쉼표 구분): ").split(",") if value.strip()],
+                    "create_vmids": [int(value.strip()) for value in read("생성할 VM ID (쉼표 구분, 기존 VM/원본과 분리): ").split(",") if value.strip()],
+                }
+            except ValueError:
+                raise ClientError("INVALID_VMID", "VMID는 숫자로 입력하세요.", 2) from None
+        if include_delete and read("선택한 VM의 전체 영구 삭제 권한(VM.Allocate, 선택 storage의 Datastore.Allocate 필요)도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("delete")
+            output("VM ACL 제거 후 disk 부재를 확인하려면 storage Allocate가 필요합니다. PVE 토큰 자체는 선택 storage 설정·다른 내용 삭제 권한도 가지므로 범위를 검토하세요. Gjallar는 검토한 VM 삭제만 허용합니다.")
+        if include_console and read("선택한 기존 VM의 화면·키보드·마우스 콘솔 권한(VM.Console)도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("console")
+        if include_template and read("선택한 기존 VM의 템플릿 전환 권한(VM.Allocate·Config.Disk, storage 조회 필요)도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("template")
+        clone_scope = {}
+        if include_clone and read("선택한 일반 VM의 full clone 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("clone")
+            output("원본·대상의 disk 조회에 Config.Disk가 필요합니다. PVE 토큰은 disk 변경도 가능하지만 Gjallar는 검토한 복제만 허용합니다.")
+            try:
+                clone_scope = {"clone_vmids": [int(value.strip()) for value in read("복제할 새 VM ID (쉼표 구분, 기존/생성/템플릿과 분리): ").split(",") if value.strip()]}
+            except ValueError:
+                raise ClientError("INVALID_VMID", "VMID는 숫자로 입력하세요.", 2) from None
+        image_scope = {}
+        if include_image_build and read("공식 이미지로 새 템플릿을 제작하는 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("image_build")
+            output("선택 storage의 import 업로드·공간 할당과 새 VM 설정·템플릿 전환 권한을 포함합니다. 제작 중 VM은 부팅하지 않습니다.")
+            try:
+                image_scope = {"image_vmids": [int(value.strip()) for value in read("제작할 새 템플릿 ID (쉼표 구분, 다른 VM 범위와 분리): ").split(",") if value.strip()]}
+            except ValueError:
+                raise ClientError("INVALID_VMID", "VMID는 숫자로 입력하세요.", 2) from None
+        cleanup_scope = {}
+        if include_image_cleanup and read("완료된 이미지 제작 자원 정리 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("image_cleanup")
+            output("기존 VMID 중 성공한 제작 소유 자원만 정리합니다. 선택 storage의 Datastore.Allocate는 PVE 토큰 자체로 storage 설정·다른 내용 삭제도 가능하므로 필요한 범위만 선택하세요.")
+            cleanup_scope = {"image_cleanup_storages": [value.strip() for value in read("정리 권한을 부여할 storage ID (위 조회 storage의 부분집합, 쉼표 구분): ").split(",") if value.strip()]}
+        backup_scope = {}
+        if include_backup and read("선택한 VM의 백업 조회·생성 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("backup")
+            output("원본 VM.Backup와 선택 backup storage의 AllocateSpace 권한을 사용합니다. Gjallar는 기존 백업 삭제·보존 정책 변경을 허용하지 않습니다.")
+            backup_scope = {"backup_storages": [value.strip() for value in read("백업 storage ID (위 조회 storage의 부분집합, 쉼표 구분): ").split(",") if value.strip()]}
+        restore_scope = {}
+        if include_restore and read("별도 VMID로 백업 복원·격리 부팅 검사 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("restore")
+            output("원본 백업 읽기·새 VM 할당/조회/전원/agent 조회·disk 확인·선택 storage 공간·bridge 사용 권한을 포함합니다. 자동 시작·NIC 연결·덮어쓰기는 허용하지 않습니다.")
+            if not backup_scope:
+                backup_scope = {"backup_storages": [value.strip() for value in read("읽을 백업 storage ID (조회 storage의 부분집합, 쉼표 구분): ").split(",") if value.strip()]}
+            try:
+                restore_scope["restore_vmids"] = [int(value.strip()) for value in read("복원할 새 VM ID (모든 기존/생성/제작 범위와 분리, 쉼표 구분): ").split(",") if value.strip()]
+            except ValueError:
+                raise ClientError("INVALID_VMID", "VMID는 숫자로 입력하세요.", 2) from None
+            restore_scope["restore_storages"] = [value.strip() for value in read("복원 대상 NFS images storage ID (조회 storage의 부분집합, 쉼표 구분): ").split(",") if value.strip()]
+        host_scope = {}
+        if include_host_storage and read("directory storage 등록·수정 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("host_storage")
+            output("PVE token은 /storage의 Datastore.Allocate로 클러스터 전체 storage 설정을 변경할 수 있습니다. Gjallar는 선택한 host storage ID와 허용된 directory 설정만 변경합니다.")
+            host_scope = {"host_storages": [value.strip() for value in read("설정할 host storage ID (신규 ID 포함, 쉼표 구분): ").split(",") if value.strip()]}
+        if include_host_network and read("VM용 bridge 설정·노드 전체 네트워크 반영 권한도 부여할까요? [yes/아니오]: ").strip() == "yes":
+            features.append("host_network")
+            output("PVE token은 선택 node의 Sys.Modify와 전체 local bridge 조회 권한이 필요합니다. Gjallar는 선택 bridge 설정만 변경하지만 실제 반영은 노드 전체 네트워크에 영향을 줍니다.")
+            host_scope["host_bridges"] = [value.strip() for value in read("설정할 host bridge (신규 vmbrN 포함, 쉼표 구분): ").split(",") if value.strip()]
         row = app.proxmox_setup("prepare", body={"idempotency_key": str(uuid.uuid4()), "intent": {
             "endpoint": endpoint, "owner": owner, "ca_pem": ca_pem,
-            "scope": {"nodes": nodes, "vmids": vmids, "storages": storages, "bridges": bridges},
+            "scope": {"nodes": nodes, "vmids": vmids, "storages": storages, "bridges": bridges, **creation_scope, **clone_scope, **image_scope, **cleanup_scope, **backup_scope, **restore_scope, **host_scope},
             "features": features, "expires_at": int(time.time()) + 30 * 86400,
             "mode": mode,
         }})["data"]

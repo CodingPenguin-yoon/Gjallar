@@ -93,6 +93,39 @@ def test_operation_detail_route_uses_generic_not_found_contract():
     assert raised.value.detail["canonical_code"] == "OPERATION_NOT_FOUND"
 
 
+@pytest.mark.parametrize("operation_type", ["proxmox_registration", "proxmox_credential_revocation"])
+def test_connection_operation_detail_and_alerts_keep_recorded_failures(operation_type):
+    from app.monitoring.operation_alerts import operation_alerts
+
+    operation_id = f"connection-detail-{operation_type}"
+    store = SqlAlchemyOperationStore()
+    store.create(OperationSpec(
+        operation_id=operation_id, operation_type=operation_type, execution_mode="managed_api",
+        target_type="proxmox_connection", target_id="connection-1",
+        idempotency_key=operation_id, intent_digest="sha256:intent", plan_digest="sha256:plan",
+        actor=OperationActor(user_id="admin-1", role="admin"),
+        initial_status="failed", initial_stage="verification",
+    ))
+
+    detail = get_operation(operation_id)
+    assert detail["operation"]["status"] == "failed"
+    assert detail["target_lock"] is None
+    assert detail["recovery_available_actions"] == []
+    report = operation_alerts()
+    assert report["unavailable_operations"] == []
+    assert len(report["alerts"]) == 1
+    assert report["alerts"][0]["operation_id"] == operation_id
+    assert report["alerts"][0]["state"] == "open"
+    assert store.get(operation_id).status == "failed"
+
+
+def test_connection_lock_read_does_not_relax_vm_locator_validation():
+    from app.operations.target_lock import get_target_operation_lock
+
+    with pytest.raises(ValueError, match="exact Proxmox VM locator"):
+        get_target_operation_lock("proxmox_vm", "connection-1")
+
+
 def test_recovery_observe_route_forwards_fenced_operator_request():
     from app.api.v1 import operations as api
 

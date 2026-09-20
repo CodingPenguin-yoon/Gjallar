@@ -1,4 +1,5 @@
 import { AlertTriangle, RefreshCw, Server } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { isProxmoxInventoryAvailable, isProxmoxOperational, normalizeProxmoxConnection } from './connection'
 
 const reasonMessages = Object.freeze({
@@ -13,7 +14,7 @@ const reasonMessages = Object.freeze({
   proxmox_inventory_partial: '일부 Proxmox inventory source를 완전히 관찰하지 못했습니다.',
 })
 
-export default function ProxmoxConnectionBoundary({ requestStatus, connection, onRetry, requireLive = false, children }) {
+export default function ProxmoxConnectionBoundary({ requestStatus, connection, onRetry, canConfigure = false, requireLive = false, children }) {
   if (requestStatus === 'loading' || requestStatus === 'idle') {
     return (
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm" aria-live="polite">
@@ -50,15 +51,25 @@ export default function ProxmoxConnectionBoundary({ requestStatus, connection, o
               : '실제 Proxmox inventory를 확인할 수 있을 때만 Overview와 Workloads 읽기 화면을 엽니다. Insights, Operations, Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다.'}
           </p>
 
-          {status.missingConfiguration.length > 0 ? (
-            <div className="mt-4 rounded-lg bg-slate-50 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">필요한 환경 변수</div>
+          {unconfigured ? (
+            <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+              {canConfigure ? (
+                <>
+                  <p>Proxmox 연결을 등록하고 사용할 자원과 권한을 확인하세요.</p>
+                  <Link to="/settings/proxmox" className="mt-3 inline-flex rounded-lg bg-slate-950 px-3 py-2 font-semibold text-white hover:bg-slate-800">Proxmox 연결 설정</Link>
+                </>
+              ) : <p>관리자에게 Proxmox 연결 등록을 요청하세요.</p>}
+            </div>
+          ) : null}
+          {canConfigure && status.missingConfiguration.length > 0 ? (
+            <details className="mt-4 rounded-lg bg-slate-50 p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-500">기존 환경 변수 방식의 설정 진단</summary>
               <div className="mt-2 flex flex-wrap gap-2">
                 {status.missingConfiguration.map((name) => (
                   <code key={name} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">{name}</code>
                 ))}
               </div>
-            </div>
+            </details>
           ) : null}
 
           <button type="button" onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">

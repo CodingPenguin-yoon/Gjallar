@@ -139,6 +139,9 @@ class Bootstrap:
         if (not isinstance(image_id, str) or not IMAGE_ID.fullmatch(image_id) or result.get("Os") != "linux"
                 or ARCHITECTURES.get(result.get("Architecture")) != self.engine_architecture):
             raise ClientError("INVALID_IMAGE", "검증할 수 없는 이미지입니다.", 2)
+        # Containerd image stores can drop an untagged index after its source tag moves.
+        # Keep a content-named reference; manifests still use the verified immutable ID.
+        self.runner(["image", "tag", image_id, "gjallar-pinned:" + image_id.replace(":", "-")])
         return image_id
 
     @staticmethod
@@ -363,8 +366,12 @@ class Bootstrap:
             candidate = {**manifest, "image": self.image(image)}
             # Check target schema/identity before stopping the current application.
             # No migration here: a schema-changing upgrade needs separate approval.
-            self.compose(manifest, ["run", "--rm", "--no-deps", "-T", "--entrypoint", "python", "maintenance",
-                                    "-m", "app.installation.maintenance", "check-ready"])
+            running = self.compose(manifest, ["ps", "--status", "running", "--services"]).splitlines()
+            if "gjallar" in running:
+                self.compose(manifest, ["exec", "-T", "gjallar", "python", "-m", "app.installation.maintenance", "check-ready"])
+            else:
+                self.compose(manifest, ["run", "--rm", "--no-deps", "-T", "--entrypoint", "python", "maintenance",
+                                        "-m", "app.installation.maintenance", "check-ready"])
             if candidate["image"] == manifest["image"]:
                 return {"ok": True, "state": "unchanged"}
             # Use a candidate compose file, never overwrite active config before validation.

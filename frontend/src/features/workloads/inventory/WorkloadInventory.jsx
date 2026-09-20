@@ -606,15 +606,15 @@ function WorkloadInventory({
   }
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-3">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <Server className="h-4 w-4" />
-            Observed workloads
+            VM INVENTORY
           </div>
-          <h2 className="mt-2 text-3xl font-semibold text-slate-950">Workload Cockpit</h2>
-          <p className="mt-1 text-sm text-slate-600">Inspect VM state and start verified operations from one workload context.</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">가상머신</h2>
+          <p className="mt-1 text-sm text-slate-600">VM 상태와 자원을 확인하고, 대상을 선택해 필요한 작업을 시작하세요.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -623,7 +623,7 @@ function WorkloadInventory({
             className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
           >
             <Plus className="h-4 w-4" />
-            Create VM
+            VM 생성
           </button>
           <button
             type="button"
@@ -632,11 +632,14 @@ function WorkloadInventory({
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            새로고침
           </button>
         </div>
       </div>
 
+      {model && <details className="rounded-xl border border-slate-200 bg-white p-4" open={model.context.insightsStatus !== 'available' || model.context.insightsTruncated || model.context.operationsStatus !== 'available' || model.observations.some(item => item.freshness !== 'fresh')}>
+        <summary className="cursor-pointer text-sm font-medium text-slate-600">관찰 근거 · {model.observations.length ? formatObservedAt(model.observations[0].observedAt) : '시각 확인 불가'} · 자세히 보기</summary>
+        <div className="mt-3 space-y-3">
       {model?.observations?.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2">
           {model.observations.map((observation) => (
@@ -657,6 +660,9 @@ function WorkloadInventory({
           </div>
         </div>
       ) : null}
+
+        </div>
+      </details>}
 
       {errorMessage && (
         <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 shadow-sm">
@@ -834,27 +840,27 @@ function WorkloadInventory({
         </div>
       ) : null}
 
-      <div className="space-y-5">
+      <div className="space-y-3">
         {model?.summary ? (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="gj-stat">
               <div className="text-xs font-medium uppercase text-slate-500">VMs</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.runningVms} / {model.summary.totalVms}</div>
+              <div className="mt-2 text-xl font-semibold text-slate-950">{model.summary.runningVms} / {model.summary.totalVms}</div>
               <div className="mt-1 text-xs text-slate-500">running / total</div>
             </div>
-            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="gj-stat">
               <div className="text-xs font-medium uppercase text-slate-500">Nodes</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.totalNodes}</div>
+              <div className="mt-2 text-xl font-semibold text-slate-950">{model.summary.totalNodes}</div>
               <div className="mt-1 text-xs text-slate-500">observed nodes</div>
             </div>
-            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="gj-stat">
               <div className="text-xs font-medium uppercase text-slate-500">IP visibility</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.visibleIpCount}</div>
+              <div className="mt-2 text-xl font-semibold text-slate-950">{model.summary.visibleIpCount}</div>
               <div className="mt-1 text-xs text-slate-500">VMs with IP evidence</div>
             </div>
-            <div className="min-h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="gj-stat">
               <div className="text-xs font-medium uppercase text-slate-500">Guest agent</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-950">{model.summary.guestAgentCount}</div>
+              <div className="mt-2 text-xl font-semibold text-slate-950">{model.summary.guestAgentCount}</div>
               <div className="mt-1 text-xs text-slate-500">with network evidence</div>
             </div>
           </div>
@@ -948,13 +954,13 @@ function WorkloadInventory({
                           <div className="hidden overflow-x-auto lg:block">
                           <table className="min-w-[73rem] w-full table-fixed divide-y divide-slate-200 text-sm">
                             <colgroup>
-                              <col className="w-[15%] min-w-[12rem]" />
-                              <col className="w-[7%] min-w-[6rem]" />
-                              <col className="w-[13%] min-w-[10rem]" />
-                              <col className="w-[6%] min-w-[4rem]" />
-                              <col className="w-[7%] min-w-[5rem]" />
-                              <col className="w-[27%] min-w-[21rem]" />
-                              <col className="w-[11%] min-w-[8rem]" />
+                              <col className="w-[14%] min-w-[12rem]" />
+                              <col className="w-[10%] min-w-[6rem]" />
+                              <col className="w-[14%] min-w-[10rem]" />
+                              <col className="w-[5%] min-w-[4rem]" />
+                              <col className="w-[9%] min-w-[5rem]" />
+                              <col className="w-[22%] min-w-[21rem]" />
+                              <col className="w-[12%] min-w-[8rem]" />
                               <col className="w-[14%] min-w-[7rem]" />
                             </colgroup>
                             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">

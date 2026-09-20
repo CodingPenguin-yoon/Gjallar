@@ -290,14 +290,31 @@ export function createOperationRequestGuard() {
   }
 }
 
-export function operationTypeLabel(type) {
-  const labels = {
+const OPERATION_TYPE_LABELS = Object.freeze({
+    proxmox_registration: 'Proxmox 연결 등록',
     vm_start: 'VM Start',
     vm_shutdown: 'VM Shutdown',
+    vm_compute: 'CPU·메모리 변경',
+    vm_disk_resize: '디스크 확장',
+    vm_network: '네트워크 변경',
+    vm_clone: 'VM full clone',
+    vm_delete: 'VM 삭제',
+    vm_backup: 'VM 백업',
+    vm_restore: 'VM 격리 복원',
+    vm_migrate: 'VM 노드 이동',
+    host_network: '호스트 bridge 설정',
+    host_storage: '호스트 storage 설정',
+    vm_template: '템플릿 전환',
+    vm_image_build: '공식 이미지 템플릿 제작',
+    vm_image_cleanup: '제작 소유 자원 정리',
     vm_create: 'Create VM',
     [GUIDED_QM_UNLOCK_OPERATION_TYPE]: 'Guided qm unlock',
-  }
-  return labels[type] || String(type || 'Unknown operation').replaceAll('_', ' ')
+})
+
+export const OPERATION_TYPES = Object.freeze(Object.keys(OPERATION_TYPE_LABELS))
+
+export function operationTypeLabel(type) {
+  return OPERATION_TYPE_LABELS[type] || String(type || 'Unknown operation').replaceAll('_', ' ')
 }
 
 export function operationStatusLabel(status) {

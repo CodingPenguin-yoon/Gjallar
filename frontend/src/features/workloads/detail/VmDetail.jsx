@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   Activity,
@@ -27,6 +27,7 @@ import {
   workloadActionPath,
 } from '../../../shared/navigation/targetPaths'
 import { loadVmDetailModel } from './model'
+const VmResourcePanels = lazy(() => import('./VmResourcePanels'))
 
 function formatNumber(value, digits = 0) {
   const parsed = Number(value)
@@ -118,12 +119,12 @@ function ActionEntries({ vm, canMutate }) {
     <div className="flex flex-wrap gap-2">
       {canStart ? (
         <Link to={workloadActionPath(vm.vmid, 'start')} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
-          <Play className="h-4 w-4" /> Start 확인
+          <Play className="h-4 w-4" /> 시작 검토
         </Link>
       ) : null}
       {canShutdown ? (
         <Link to={workloadActionPath(vm.vmid, 'shutdown')} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100">
-          <Power className="h-4 w-4" /> Shutdown 확인
+          <Power className="h-4 w-4" /> 정상 종료 검토
         </Link>
       ) : null}
       {canGuideUnlock ? (
@@ -131,7 +132,7 @@ function ActionEntries({ vm, canMutate }) {
           to={`/operations/guided-qm/vm-unlock?node_id=${encodeURIComponent(vm.nodeId)}&vmid=${encodeURIComponent(vm.vmid)}`}
           className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
         >
-          <Terminal className="h-4 w-4" /> Guided qm unlock
+          <Terminal className="h-4 w-4" /> 잠금 해제 안내
         </Link>
       ) : null}
       {!canStart && !canShutdown && !canGuideUnlock ? (
@@ -144,6 +145,8 @@ function ActionEntries({ vm, canMutate }) {
 export default function VmDetail({ canMutate = false }) {
   const { vmid = '' } = useParams()
   const [model, setModel] = useState(null)
+  const [conversion, setConversion] = useState(null)
+  const [deletion, setDeletion] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const requestGeneration = useRef(0)
@@ -178,6 +181,34 @@ export default function VmDetail({ canMutate = false }) {
       requestGeneration.current += 1
     }
   }, [loadModel])
+
+  if (conversion?.vmid === vmid) {
+    return <section role="status" className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-xl font-semibold">VM {vmid} 템플릿 전환을 확인했습니다</h2>
+      <p className="text-sm">정지된 template 상태, 실제 base volume과 관련 설정 보존을 확인했습니다. 원본 직접 부팅은 사용할 수 없습니다.</p>
+      <ul className="space-y-1 break-all text-sm">{conversion.result.observed_after.volumes.map(row => <li key={row.volume_id}>{row.slot} · {row.volume_id} · {row.size_bytes / 1024 ** 3} GiB</li>)}</ul>
+      <p className="text-sm text-amber-900">게스트 준비는 운영자 확인이며 실제 배포 검증은 남아 있습니다. 생성용 template scope에 이 VMID를 포함하도록 연결 권한을 갱신한 뒤 테스트 배포하세요.</p>
+      <div className="flex flex-wrap gap-4 text-sm font-semibold">
+        <Link className="underline" to={`/operations/${encodeURIComponent(conversion.result.operation_id)}`}>전환 결과·이력</Link>
+        <Link className="underline" to="/settings/proxmox">생성 연결 권한 갱신</Link>
+        <Link className="underline" to={`/instances/create?${new URLSearchParams({template_node: conversion.nodeId, template_vmid: vmid})}`}>테스트 VM 배포</Link>
+        <Link className="underline" to="/instances">Workloads로 돌아가기</Link>
+      </div>
+    </section>
+  }
+
+  if (deletion?.vmid === vmid) {
+    return <section role="status" className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-xl font-semibold">VM {vmid} 삭제를 확인했습니다</h2>
+      <p className="text-sm">PVE 작업 완료, VMID 미사용과 아래 volume의 부재를 확인했습니다. 삭제 전 상세 상태는 더 이상 표시하지 않습니다.</p>
+      <ul className="space-y-1 break-all text-sm">{deletion.result.observed_after.deleted_volumes.map(volume => <li key={volume}>삭제 확인: {volume}</li>)}</ul>
+      <ul className="space-y-1 break-all text-sm">{deletion.result.observed_after.preserved_volumes.map(volume => <li key={volume}>보존 확인: {volume}</li>)}</ul>
+      <div className="flex flex-wrap gap-4 text-sm font-semibold">
+        <Link className="underline" to={`/operations/${encodeURIComponent(deletion.result.operation_id)}`}>삭제 결과·이력</Link>
+        <Link className="underline" to="/instances">Workloads로 돌아가기</Link>
+      </div>
+    </section>
+  }
 
   if (loading && !model) {
     return <div role="status" className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading exact VM context...</div>
@@ -218,18 +249,19 @@ export default function VmDetail({ canMutate = false }) {
   ].filter(Boolean).join('; ')
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-3">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link to="/instances" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
-            <ArrowLeft className="h-4 w-4" /> Workloads
+            <ArrowLeft className="h-4 w-4" /> VM 목록
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(vm.status)}`}>{vm.status}</span>
             <span className="font-mono text-xs text-slate-500">{vm.targetId}</span>
           </div>
-          <h2 className="mt-2 text-3xl font-semibold text-slate-950">{vm.name}</h2>
-          <p className="mt-1 text-sm text-slate-600">Exact VM 상태에서 Insights 원인과 검증 Operation을 같은 target identity로 확인합니다.</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">{vm.name}</h2>
+          <p className="mt-1 text-sm text-slate-600">현재 상태를 확인하고 VM 작업과 결과를 이어서 확인합니다.</p>
+          <Link className="mt-2 inline-block text-sm font-semibold underline" to={`/insights/metrics?${new URLSearchParams({kind: 'vm', node: vm.nodeId, vmid: vm.vmid})}`}>사용량·PVE 추이</Link>
         </div>
         <button
           type="button"
@@ -237,7 +269,7 @@ export default function VmDetail({ canMutate = false }) {
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
         >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> 새로고침
         </button>
       </header>
 
@@ -286,16 +318,21 @@ export default function VmDetail({ canMutate = false }) {
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="vm-action-entry-title">
-        <h3 id="vm-action-entry-title" className="text-xl font-semibold text-slate-950">Supported action entry</h3>
-        <p className="mt-1 text-sm text-slate-600">실제 Start/Shutdown은 기존 Workloads의 확인·acknowledgement 흐름에서 계속 수행합니다.</p>
+        <h3 id="vm-action-entry-title" className="text-xl font-semibold text-slate-950">VM 작업</h3>
+        <p className="mt-1 text-sm text-slate-600">시작·정상 종료는 대상과 영향을 확인한 뒤 실행합니다.</p>
         <div className="mt-4"><ActionEntries vm={vm} canMutate={canMutate} /></div>
+        {!vm.template && canMutate && <Link className="mr-2 mt-3 inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100" to={`/instances/${vm.vmid}/migrate?${new URLSearchParams({node: vm.nodeId})}`}>정지 VM 노드 이동</Link>}
+        {!vm.template && <Link className="mt-3 inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100" to={`/instances/${vm.vmid}/backups?${new URLSearchParams({node: vm.nodeId, storage: vm.storageId || ''})}`}>백업 목록·새 백업</Link>}
+        {canMutate && !vm.template && <Suspense fallback={<p className="mt-4 text-sm text-slate-500">VM 변경 도구 불러오는 중…</p>}>
+          <VmResourcePanels key={`${vm.nodeId}:${vm.vmid}`} vm={vm} onUpdated={loadModel} onConverted={result => {requestGeneration.current += 1; setConversion({vmid, nodeId: vm.nodeId, result})}} onDeleted={result => {requestGeneration.current += 1; setDeletion({vmid, result})}} />
+        </Suspense>}
       </section>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="vm-insights-title">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 id="vm-insights-title" className="flex items-center gap-2 text-xl font-semibold text-slate-950"><Activity className="h-5 w-5" /> Related Insights</h3>
+              <h3 id="vm-insights-title" className="flex items-center gap-2 text-xl font-semibold text-slate-950"><Activity className="h-5 w-5" /> 관련 진단</h3>
               <p className="mt-1 text-sm text-slate-600">target {vm.targetId}와 정확히 일치하는 finding입니다.</p>
             </div>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">{model.findings.length}</span>
@@ -325,7 +362,7 @@ export default function VmDetail({ canMutate = false }) {
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="vm-operations-title">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 id="vm-operations-title" className="flex items-center gap-2 text-xl font-semibold text-slate-950"><Clock3 className="h-5 w-5" /> Related Operations</h3>
+              <h3 id="vm-operations-title" className="flex items-center gap-2 text-xl font-semibold text-slate-950"><Clock3 className="h-5 w-5" /> 최근 작업</h3>
               <p className="mt-1 text-sm text-slate-600">exact target filter · latest {model.context.operationQueryLimit}</p>
             </div>
             <Link to={operationsTargetPath(vm.targetType, vm.targetId)} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Filtered Operations</Link>
@@ -344,8 +381,8 @@ export default function VmDetail({ canMutate = false }) {
         </section>
       </div>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="vm-observation-details-title">
-        <h3 id="vm-observation-details-title" className="text-xl font-semibold text-slate-950">Observed configuration details</h3>
+      <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <summary className="cursor-pointer text-lg font-semibold text-slate-950">설정 관찰 상세 · 잠금·태그·디스크</summary>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Config lock</dt><dd className="mt-1 font-mono text-slate-900">{configObserved ? vm.raw?.config_lock || 'none observed' : 'unavailable in partial observation'}</dd></div>
           <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Tags</dt><dd className="mt-1 break-words text-slate-900">{configObserved ? vm.tags.join(', ') || 'none returned' : 'unavailable in partial observation'}</dd></div>
@@ -367,7 +404,7 @@ export default function VmDetail({ canMutate = false }) {
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
     </section>
   )
 }

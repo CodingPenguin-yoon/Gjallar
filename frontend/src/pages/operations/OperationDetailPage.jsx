@@ -199,11 +199,13 @@ export default function OperationDetailPage({ canExecute = false, canObserveReco
         onChanged={acceptChanged}
       />
 
+      {operation.type === 'vm_restore' && operation.status === 'succeeded' && <Link className="block rounded-xl border border-slate-200 bg-white p-5 text-sm font-semibold underline" to={`/instances/restore-tests/${encodeURIComponent(operation.id)}`}>별도 VM 복원 검사·현재 원본/백업 보존·부팅 안내</Link>}
       {operation.type === 'vm_create' && createReadiness ? (
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="create-readiness-title">
           <div>
             <h2 id="create-readiness-title" className="text-xl font-semibold text-slate-950">Post-create readiness evidence</h2>
             <p className="mt-1 text-sm text-slate-600">Create Operation이 소유한 관찰 결과와 artifact checksum입니다.</p>
+            <Link className="mt-2 inline-block text-sm font-semibold underline" to={`/instances/templates/tests/${encodeURIComponent(operation.id)}`}>배포 검사·접속 결과 기록·테스트 VM 정리</Link>
           </div>
           <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-lg border border-slate-200 p-4">

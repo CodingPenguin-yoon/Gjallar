@@ -24,15 +24,18 @@ if env_path.exists():
     load_dotenv(env_path, override=False)
 
 from app.api.v1.router import router as api_v1_router
+from app.api.v1.vm_console import websocket_router as console_websocket_router
 from app.auth.admin_api import router as admin_router
 from app.auth.api import router as auth_router
 from app.auth.config import allowed_origins
 from app.auth.origin import reject_unexpected_unsafe_origin
+from app.console.log_safety import install_console_log_filter
 from app.operations.recovery.runtime import RecoveryRuntimeConfig, run_recovery_loop
 
 
 @asynccontextmanager
 async def _application_lifespan(_app: FastAPI):
+    install_console_log_filter()
     config = RecoveryRuntimeConfig.from_env()
     stop_event = asyncio.Event()
     task = asyncio.create_task(run_recovery_loop(stop_event, config=config)) if config.enabled else None
@@ -72,6 +75,7 @@ app.middleware("http")(reject_unexpected_unsafe_origin)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(api_v1_router)
+app.include_router(console_websocket_router)
 # PRD v1 MVP exposes only the explicit /api/v1 operator surface.
 
 FRONTEND_DIST_ENV = "GJALLAR_FRONTEND_DIST"

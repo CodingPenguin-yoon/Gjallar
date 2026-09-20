@@ -8,6 +8,7 @@ import {
   formatOperationTime,
   normalizeOperation,
   OPERATION_STATUSES,
+  OPERATION_TYPES,
   operationTypeLabel,
 } from '../../entities/operation/model'
 import OperationStatusBadge from '../../entities/operation/ui/OperationStatusBadge'
@@ -51,11 +52,11 @@ export default function OperationsListPage({ canExecute = false }) {
   }
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-3">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Verified operations</div>
-          <h2 className="mt-2 text-3xl font-semibold text-slate-950">Operations</h2>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">실행 작업</h2>
           <p className="mt-1 text-sm text-slate-600">API와 guided manual 작업의 현재 상태와 검증 이력을 함께 확인합니다.</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -100,10 +101,7 @@ export default function OperationsListPage({ canExecute = false }) {
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
           >
             <option value="">All types</option>
-            <option value="vm_create">Create VM</option>
-            <option value="vm_start">VM Start</option>
-            <option value="vm_shutdown">VM Shutdown</option>
-            <option value="guided_qm_vm_unlock">Guided qm unlock</option>
+            {OPERATION_TYPES.map(type => <option key={type} value={type}>{operationTypeLabel(type)}</option>)}
           </select>
         </label>
       </div>

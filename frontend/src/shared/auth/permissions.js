@@ -24,6 +24,7 @@ export function canAdmin(user) {
 }
 
 export function authFailureMessage(error, fallback = '요청을 처리하지 못했습니다.') {
+  if (error?.status === 401 && error?.code === 'LOGIN_FAILED') return '계정명 또는 비밀번호가 올바르지 않습니다.'
   if (error?.status === 401) return '로그인이 필요합니다.'
   if (error?.status === 403) return '권한이 부족합니다.'
   return error?.message || fallback

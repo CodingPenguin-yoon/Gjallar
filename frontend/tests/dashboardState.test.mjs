@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { aggregateValues } from '../src/features/monitoring/clusterMetrics.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
@@ -12,8 +13,8 @@ function compileDashboardSource(source) {
       'const { useEffect, useMemo, useState } = globalThis.__DASHBOARD_TEST_MOCKS__.react'
     )
     .replace(
-      /import\s+\{\s*useNavigate\s*\}\s+from\s+'react-router-dom'/,
-      'const { useNavigate } = globalThis.__DASHBOARD_TEST_MOCKS__.router'
+      /import\s+\{\s*Link,\s*useNavigate\s*\}\s+from\s+'react-router-dom'/,
+      'const { Link, useNavigate } = globalThis.__DASHBOARD_TEST_MOCKS__.router'
     )
     .replace(
       /import\s+\{[\s\S]*?\}\s+from\s+'lucide-react'/,
@@ -42,6 +43,8 @@ function loadCommonJsModule(code, filename) {
   const module = { exports: {} }
   const dirname = path.dirname(filename)
   const localRequire = (specifier) => {
+    if (['../../features/monitoring/ClusterTrends', './RecentOperations'].includes(specifier)) return { default: () => null }
+    if (specifier === '../../features/monitoring/clusterMetrics') return { aggregateValues }
     if (specifier === 'react/jsx-runtime') return { jsx, jsxs, Fragment: Symbol.for('react.fragment') }
     throw new Error(`Unexpected require in compiled Dashboard test module: ${specifier}`)
   }
@@ -59,7 +62,7 @@ globalThis.__DASHBOARD_TEST_MOCKS__ = {
     useMemo: (factory) => factory(),
     useState: (initialValue) => [initialValue, () => {}],
   },
-  router: { useNavigate: () => () => {} },
+  router: { Link: () => null, useNavigate: () => () => {} },
   icons: {
     Activity: icon,
     AlertTriangle: icon,
@@ -128,7 +131,7 @@ assert.equal(observedModel.summary.nodeStatus, '1/1 online')
 assert.equal(observedModel.summary.allObservedNodesOnline, true)
 assert.equal(observedModel.summary.vms, '1')
 assert.equal(observedModel.summary.runningVms, 1)
-assert.equal(observedModel.summary.storage, 'NFS')
+assert.equal(observedModel.summary.storage, '40.0%')
 assert.equal(observedModel.summary.bridges, 1)
 assert.equal(observedModel.summary.activeJobs, 1)
 assert.equal(observedModel.summary.redRisks, 1)
@@ -238,3 +241,24 @@ assert.equal(missingAgentModel.summary.guestAgentMissing, 2)
 assert.equal(buildDashboardModel({ ...observedSnapshot, vmObservation: null }).summary.guestAgentMissing, null)
 assert.equal(buildDashboardModel({ ...observedSnapshot, vmObservation: { sources: { guest_agent: { complete: true, failed_targets: [] } } } }).summary.guestAgentMissing, 0)
 assert.equal(buildDashboardModel({ ...observedSnapshot, availability: { ...observedSnapshot.availability, vms: false }, vmObservation: guestOnly }).summary.guestAgentMissing, null)
+
+const duplicateShared = buildDashboardModel({ ...observedSnapshot, storages: [
+  {node_id: 'node-a', storage_id: 'shared', total_gb: 100, free_gb: 20},
+  {node_id: 'node-b', storage_id: 'shared', total_gb: 100, free_gb: 20},
+  {node_id: 'node-a', storage_id: 'unknown', total_gb: 100, free_gb: null},
+] })
+assert.equal(duplicateShared.summary.storage, '80.0%', 'Storage summary reports maximum usage, without summing shared storage capacity')
+assert.match(duplicateShared.summary.storageSub, /shared/)
+assert.equal(buildDashboardModel({...observedSnapshot, storages: [{total_gb: 100, free_gb: null}]}).summary.storage, '-')
+
+const clusterModel = buildDashboardModel({...observedSnapshot, nodes:[
+  {...observedSnapshot.nodes[0],cpu_total:8,cpu_usage_percent:100},
+  {...observedSnapshot.nodes[0],node_id:'node-b',cpu_total:24,cpu_usage_percent:0},
+]})
+assert.equal(clusterModel.totals.cpu_percent,25)
+assert.equal(clusterModel.totals.memory_used_bytes,4096 * 1024 ** 2)
+const missingNodeCpu = buildDashboardModel({...observedSnapshot,nodes:[{...observedSnapshot.nodes[0],cpu_total:8,cpu_usage_percent:null}]})
+assert.equal(missingNodeCpu.totals.cpu_percent,null)
+assert.equal(missingNodeCpu.nodeRows[0].cpuLabel,'-')
+assert.equal(buildDashboardModel({...observedSnapshot, availability:{...observedSnapshot.availability,nodes:false}}).totals.memory_used_bytes,null)
+assert.equal(buildDashboardModel({...observedSnapshot,nodes:[{...observedSnapshot.nodes[0],status:'offline'}]}).totals.memory_used_bytes,null)
