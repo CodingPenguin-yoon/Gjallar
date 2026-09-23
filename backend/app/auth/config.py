@@ -61,3 +61,7 @@ def allowed_origins() -> set[str]:
     if configured:
         origins.update(origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip())
     return origins
+
+
+def allow_same_origin() -> bool:
+    return _truthy(os.getenv("GJALLAR_ALLOW_SAME_ORIGIN")) is True

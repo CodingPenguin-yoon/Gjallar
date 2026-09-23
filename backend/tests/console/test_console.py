@@ -272,3 +272,16 @@ def test_source_change_closes_active_stream(flow, monkeypatch):
             ws.receive_bytes()
         assert failure.value.reason == 'SETUP_RESTART_REQUIRED'
     assert fake.prepared == fake.closed == 1
+
+
+def test_console_accepts_dynamic_same_origin_but_rejects_other_origin(flow, monkeypatch):
+    client, fake = flow
+    monkeypatch.setenv('GJALLAR_ALLOW_SAME_ORIGIN', 'true')
+    login(client)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(PATH + '/socket', headers={'origin': 'http://other-host'}):
+            pass
+    assert fake.prepared == 0
+    with client.websocket_connect(PATH + '/socket', headers={'origin': 'http://testserver'}) as ws:
+        assert ws.receive_json()['type'] == 'ready'
+    assert fake.closed_event.wait(2)

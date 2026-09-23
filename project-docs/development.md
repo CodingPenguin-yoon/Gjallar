@@ -557,9 +557,19 @@ docker build -t gjallar:local .
 client/.venv/bin/gjallar --session-mode memory bootstrap --install-dir "$HOME/.local/share/gjallar" --port 8000 --image gjallar:local
 ```
 
+VM의 웹을 다른 컴퓨터에서 직접 열려면 신규 설치에 `--bind-address 0.0.0.0`을 지정한다. VM IP나 DNS 이름을 코드·설정에 등록할 필요는 없다.
+
+```bash
+client/.venv/bin/gjallar --session-mode memory bootstrap \
+  --install-dir "$HOME/.local/share/gjallar" --image gjallar:local \
+  --bind-address 0.0.0.0 --port 8000
+```
+
+설치 뒤 브라우저에서 `http://<VM IP>:8000`으로 접속한다. 앱은 모든 IPv4 interface에 공개되며 `GJALLAR_ALLOW_SAME_ORIGIN=true`로 실제 요청 주소와 Origin의 scheme·host·port가 일치하는 웹 요청과 콘솔 WebSocket을 허용한다. 다른 Origin은 기존 명시적 허용 목록 외에 허용하지 않으며, 신뢰 주소를 Origin/X-Forwarded-Host에서 만들어내지 않는다. HTTP는 로그인 정보·세션을 암호화하지 않으므로 신뢰하는 내부망에서 사용한다. VM 방화벽은 자동 변경하지 않고 DB port는 비공개다. TLS proxy 자동 구성과 원격 CLI HTTPS 정책은 변경하지 않는다. 설치 VM의 CLI는 계속 loopback을 사용한다. 대화형 마법사는 loopback 기본값이므로 외부 웹 설치는 위 명령을 사용한다.
+
 현재 배포 입력은 사용자가 준비한 **이번 코드의 이미지**이며 공개 release registry/서명된 배포 manifest는 아직 제공하지 않는다. 앱 이미지를 자동 build하지 않는다. PostgreSQL은 `postgres:17-bookworm`을 가져와 실제 image ID로 고정하고, 앱도 image ID로 고정한다. 재시작에서 tag를 다시 해석하지 않으며 PostgreSQL major를 변경하는 option은 없다. 검증된 patch/digest의 공개 release 배포와 OS별 지원 확정은 후속 검증이다.
 
-1. Linux/macOS amd64·arm64, Compose 2.20 이상, local Unix-socket Docker context·Linux engine, engine/image CPU 일치, loopback port, 전용 설치 경로와 기존 파일/volume을 검사한다. Linux 배포판별·macOS 버전별 지원 완료 선언은 아직 하지 않는다. Docker가 없으면 공식 설치 링크를 안내하고 중단한다. 패키지·권한·Docker 서비스를 자동 설치/기동하지 않는다.
+1. Linux/macOS amd64·arm64, Compose 2.20 이상, local Unix-socket Docker context·Linux engine, engine/image CPU 일치, 선택 bind 주소의 port, 전용 설치 경로와 기존 파일/volume을 검사한다. Linux 배포판별·macOS 버전별 지원 완료 선언은 아직 하지 않는다. Docker가 없으면 공식 설치 링크를 안내하고 중단한다. 패키지·권한·Docker 서비스를 자동 설치/기동하지 않는다.
 2. 새로운 UUID/project/volume을 기록하고 전용 `secrets/`를 준비한다. postgres superuser·제한된 `gjallar` DB role의 비밀번호와 DB URL은 host 0600 전용 파일이며 manifest/Compose에는 파일 참조만 있다. 평문 일반 설정 fallback이 아니다. host 접근 통제·디스크 암호화·secret 별도 backup은 운영 책임이다. PostgreSQL용 secret은 root wrapper가 컨테이너 tmpfs에 postgres 소유 0400으로 복사하며 host 파일 권한을 넓히지 않는다.
 3. named volume label과 manifest identity를 확인한다. DB 최초 실행 전 `storage_ready`를 기록해 이후 volume 유실 시 빈 DB 재생성을 금지한다. DB에는 빈 schema에서만 `gjallar_installation` marker를 만들고 명시적 `init-schema`가 Alembic/초기 profile seed를 실행한다. marker 없는 기존 DB·identity 불일치는 거부한다.
 4. 최초 관리자 입력은 server maintenance의 stdin으로 전달한다. 현재 head·설치 marker·users 전체 0건·업무 이력 부재를 검사하고 users write lock 아래 관리자·account audit·ready marker를 같은 transaction에 기록한다. 기존 계정/비밀번호를 덮어쓰지 않는다. commit 후 응답 유실은 재실행에서 ready를 읽어 관리자 입력을 건너뛴다.
@@ -574,11 +584,11 @@ client/.venv/bin/gjallar service stop --install-dir "$HOME/.local/share/gjallar"
 client/.venv/bin/gjallar upgrade --install-dir "$HOME/.local/share/gjallar" --image gjallar:next
 ```
 
-- 설치 중단은 **같은 경로/port**로 bootstrap을 재실행한다. ready 설치의 bootstrap은 기존 이미지를 유지하고 start로 간다. 다른 `--image`는 upgrade 명령으로 안내한다. start는 migration·seed·admin을 실행하지 않는다.
+- 설치 중단은 **같은 경로/port/bind-address**으로 bootstrap을 재실행한다. 외부 웹 설치의 옵션을 생략하거나 기존 설치의 공개 주소를 변경하면 거부한다. ready 설치의 bootstrap은 기존 이미지를 유지하고 start로 간다. 다른 `--image`는 upgrade 명령으로 안내한다. start는 migration·seed·admin을 실행하지 않는다.
 - stop은 앱 다음 PostgreSQL을 중지하며 volume/config/계정/작업 기록을 남긴다. `down -v`, uninstall, prune, DB major upgrade·데이터 이동/삭제를 제공하지 않는다.
 - upgrade는 후보 이미지의 현재 DB head/identity/ready 검사에 통과한 **동일 schema** 전환만 한다. 이전 두 설정을 `before-upgrade-*`에 보존하고 `upgrade.json`으로 두 파일 교체의 중단을 복구한다. status가 `upgrade_pending`이면 service start로 이어간다. DB revision 변경은 앱을 정지하기 전에 거부하고 기존 DB migration의 별도 backup/승인 절차로 보낸다. 되돌릴 때도 schema가 같은 기존 image ID만 사용한다. image prune을 하지 않고 이전 이미지와 volume을 보존한다.
 - missing/손상 secret·누락된 기존 volume·외부 수정 config·identity 충돌은 자동 덮어쓰기/재생성하지 않는다. backup에서 해당 설치의 원본을 복구해야 한다. initdb 자체가 불완전한 volume도 삭제하지 않는다. PostgreSQL 로그/파일을 검토하는 별도 복구가 필요할 수 있다. CLI 오류는 subprocess 원문을 출력하지 않으므로 민감정보를 제외한 정확한 단계와 Docker 상태를 확인한다.
-- 기본 공개는 `127.0.0.1:<port>`뿐이며 DB port는 publish하지 않는다. 원격 HTTP 공개 option은 없다. 원격 브라우저 공개는 별도 검증된 TLS proxy·canonical HTTPS origin·Secure cookie·SameSite 정책을 먼저 준비한 별도 배포 구성에서만 수행한다. 현재 bootstrap은 proxy를 자동 설치하지 않고 수동 변경된 관리형 Compose를 덮어쓰지 않는다. Linux VM의 로컬 웹 검증에는 승인된 SSH tunnel을 사용할 수 있다.
+- 기본 공개는 `127.0.0.1:<port>`이며 신규 설치의 명시적 `--bind-address 0.0.0.0`로 외부 웹을 지원한다. v3 manifest에 공개 설정을 보존하며 기존 v1/v2 설치를 자동 변환하지 않는다. DB port는 publish하지 않는다. TLS proxy·canonical HTTPS origin·Secure cookie는 별도 배포 구성 대상이다. bootstrap은 proxy를 자동 설치하지 않고 수동 변경된 관리형 Compose를 덮어쓰지 않는다. loopback 설치에는 SSH tunnel을 사용할 수 있다.
 
 ### 실제 환경에서 남은 검증 순서
 

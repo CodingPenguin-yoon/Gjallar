@@ -66,7 +66,7 @@ class FakeDocker:
 @pytest.fixture
 def setup(tmp_path):
     runner = FakeDocker()
-    bootstrap = Bootstrap(tmp_path / "install", runner, port_check=lambda port: None)
+    bootstrap = Bootstrap(tmp_path / "install", runner, port_check=lambda port, bind_address: None)
     return bootstrap, runner
 
 
@@ -280,7 +280,7 @@ def test_preflight_remote_context_and_occupied_port(setup):
     assert error.value.code == "REMOTE_DOCKER_REJECTED"
     assert not bootstrap.directory.exists()
     bootstrap.runner = runner
-    bootstrap.port_check = lambda port: (_ for _ in ()).throw(ClientError("PORT_IN_USE", "충돌"))
+    bootstrap.port_check = lambda port, bind_address: (_ for _ in ()).throw(ClientError("PORT_IN_USE", "충돌"))
     with pytest.raises(ClientError):
         bootstrap.install(administrator=admin)
     assert not bootstrap.manifest_path.exists() and not runner.volumes
@@ -311,3 +311,56 @@ def test_stop_during_pending_upgrade_never_starts_services(setup):
     assert bootstrap.service("stop")["state"] == "stopped"
     assert not any("up" in args or "run" in args for args, _ in runner.calls)
     assert (bootstrap.directory / "upgrade.json").exists()
+
+
+def test_external_web_binding_survives_resume_start_and_upgrade(setup):
+    bootstrap, runner = setup
+    checks = []
+    bootstrap.port_check = lambda port, address: checks.append((port, address))
+    options = dict(bind_address="0.0.0.0")
+    runner.fail = lambda args: args[-1] == "setup-admin"
+    with pytest.raises(ClientError):
+        bootstrap.install(administrator=admin, **options)
+    secrets_before = {p.name: p.read_bytes() for p in (bootstrap.directory / "secrets").iterdir()}
+    runner.fail = None
+    result = bootstrap.install(administrator=admin, **options)
+    assert result["url"] == "http://127.0.0.1:8000"
+    assert result["bind_address"] == "0.0.0.0"
+    assert bootstrap.load()["version"] == 3
+    config = compose_config(bootstrap.load())
+    assert config["services"]["gjallar"]["ports"] == ["0.0.0.0:8000:8000"]
+    assert config["services"]["gjallar"]["environment"]["GJALLAR_ALLOWED_ORIGINS"] == "http://127.0.0.1:8000"
+    assert config["services"]["gjallar"]["environment"]["GJALLAR_ALLOW_SAME_ORIGIN"] == "true"
+    assert "ports" not in config["services"]["postgres"]
+    bootstrap.service("stop")
+    assert bootstrap.service("start")["bind_address"] == "0.0.0.0"
+    bootstrap.upgrade("gjallar:next")
+    assert bootstrap.service("status")["bind_address"] == "0.0.0.0"
+    assert bootstrap.load()["bind_address"] == "0.0.0.0"
+    assert all(check == (8000, "0.0.0.0") for check in checks)
+    assert secrets_before == {p.name: p.read_bytes() for p in (bootstrap.directory / "secrets").iterdir()}
+    assert runner.admin_calls == 1
+
+
+def test_invalid_bind_rejected_before_docker(setup):
+    bootstrap, runner = setup
+    with pytest.raises(ClientError) as error:
+        bootstrap.install(bind_address="*", administrator=admin)
+    assert error.value.code == "INVALID_BIND_ADDRESS"
+    assert not runner.calls and not bootstrap.directory.exists()
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_existing_binding_change_preserves_files_and_service(setup, external):
+    bootstrap, runner = setup
+    options = dict(bind_address="0.0.0.0")
+    bootstrap.install(administrator=admin, **(options if external else {}))
+    before = bootstrap.manifest_path.read_bytes()
+    config = (bootstrap.directory / "compose.json").read_bytes()
+    runner.calls.clear()
+    with pytest.raises(ClientError) as error:
+        bootstrap.install(administrator=admin, **({} if external else options))
+    assert error.value.code == "INSTALLATION_EXISTS"
+    assert before == bootstrap.manifest_path.read_bytes()
+    assert config == (bootstrap.directory / "compose.json").read_bytes()
+    assert not any("stop" in args or "up" in args for args, _ in runner.calls)

@@ -1058,3 +1058,24 @@
 - 배포된18000에서 실제3/3노드·48CPU·179.2GiB 전체용량·약93.8GiB 사용과4개 집계 차트를 확인했다. node2 비교표 링크가 해당 상세로 연결되고16logicalCPU·59.7GiB·선택storage/bridge를 보여준다. 개발 화면에서 하루 추이1440관찰값도 확인했다.320px 배포 화면은 document폭320, 표760/컨테이너294로 페이지 overflow 없이 표 내부에서만 가로스크롤한다. 브라우저 오류로그 없음. `cluster-overview-final-0920.png`를 보존했다.
 - PRD·architecture·roadmap·development에 전체/상세 탐색과 집계 계약·사용 절차를 반영했다. 임시 dev5175를 종료하고 viewport를 해제했으며 사용자 검토용18000·DB는 유지한다. PVE mutation·DB migration·commit/push 없음.
 - 이번 UI 요청은 구현·자동검증·실제 화면 확인 완료다. 전체 Goal의 M3 제작/배포, M5 백업/복원, M6 이동/호스트변경 및 마지막 신규PVE로그인/발급 실검증은 여전히 남는다. 위 M3의40001 exact scope 승인 회신 확인과 최신 연결 확인을 다음 재개 지점으로 유지하며 Goal 완료로 처리하지 않는다.
+
+### 자동 회귀 재검증 (2026-09-23)
+
+- 사용자 검증 요청으로 clean checkout `712ff12`에서 재실행했다. 제품 코드 변경 없이 결과와 로드맵만 갱신한다.
+- `pnpm run verify` exit 0: Client 257 passed, Backend 1645 passed / 78 skipped, Frontend 전체 test/lint/build 통과. 로컬 Node 26.8.1은 기준 Node 24와 달라 engine 경고가 발생했다.
+- `pnpm run verify:container` exit 0: Python 3.13 Backend 1645 passed / 78 skipped 및 runtime 이미지 빌드 성공. 캐시를 사용한 Client·Frontend 단계는 별도로 현재 이미지에서 다시 실행했다. Client 257 passed, Node 24.21.0 Frontend test/lint/build exit 0을 확인했다. 생성된 이미지는 서비스에 배포하지 않았다.
+- 별도 loopback 임의 포트·tmpfs PostgreSQL 17 테스트 컨테이너를 생성하고 새 DB만 `20260919_0042`까지 초기화한 뒤 integration 78 passed / skip 0을 확인했다. 비밀번호는 실행 중 메모리·비공개 환경변수로만 전달했고 출력에서 제거했다. 종료 후 이번 임시 컨테이너와 tmpfs DB를 정리했다. 기존 설치 DB는 사용하지 않았다.
+- 기존 Alembic 등의 deprecation 경고와 Vite 주 chunk 606.43 kB 경고가 남는다. 실패한 검사는 없으며 기준 Node 24에서도 동일한 빌드 크기 경고가 발생했다.
+- 실행 로그: `/tmp/gjallar-verify-0923.log`, `/tmp/gjallar-container-0923.log`, `/tmp/gjallar-pg-0923.log`, `/tmp/gjallar-client-container-0923.log`, `/tmp/gjallar-frontend24-0923.log`. 임시 로그는 영구 보존 자료가 아니므로 결과 요약을 이 문서에 기록한다.
+- 이번 범위는 자동 회귀 검증이다. 실제 브라우저·PVE 조회/변경·설치·token/ACL·운영 migration은 실행하지 않았다. M3 제작/배포, M5 백업/복원, M6 이동/호스트변경과 신규 PVE 로그인/발급 등의 실사용 검증은 미완료로 유지한다.
+
+### VM 웹 직접 접속 bootstrap (2026-09-23, 구현 검증 완료)
+
+- 최신 사용자 요청: VM IP를 코드나 설정에 고정하지 않고 `0.0.0.0`에 웹을 공개한다. 신규 bootstrap의 `--bind-address 0.0.0.0`만 사용하며 별도 웹 Origin 입력은 받지 않는다. 기본 loopback과 기존 v1/v2 설치는 보존한다.
+- 범위: v3 manifest에 bind만 저장하고 Compose 앱 포트에 적용한다. 외부 bind에서는 `GJALLAR_ALLOW_SAME_ORIGIN=true`로 요청 URL과 동일한 scheme·host·port의 Origin을 HTTP/콘솔 WebSocket에서 허용한다. 기본 비활성, 기존 명시적 허용 목록·다른 Origin 거부·인증/권한·DB 비공개·원격 CLI HTTPS 정책을 유지한다. 설치 CLI는 loopback을 사용한다. HTTP는 전송 암호화를 제공하지 않는다.
+- 검증: 잘못된 bind와 기존 설치 설정 변경 거부, 신규 설치·중단 재개·재시작·업그레이드의 설정/secret 보존, 복수 IP와 DNS 주소에서 로그인/세션/로그아웃, 다른 Origin·port·scheme 및 위조 forwarded header 거부, 콘솔 same-origin 연결, 로컬/컨테이너 공통 검증 및 문서 검사.
+- 복구: 기존 설치를 자동 변환하지 않는다. 신규 설치 중단 시 동일 경로·bind로 재개하고 기존 DB·secret·volume 삭제 또는 수동 Compose 덮어쓰기를 하지 않는다. 실제 사용자 VM 설치·방화벽·Proxmox 변경은 이번 코드 수정에 포함하지 않는다.
+
+- 최종 `pnpm run verify`, `pnpm run verify:container` 모두 exit 0: Client 262 passed, Backend 1650 passed / 78 skipped, 로컬 Frontend test/lint/build 성공 및 기준 runtime 이미지 빌드 성공. 변경 없는 Node 24 Frontend 단계는 기존 성공 cache를 사용했다. PostgreSQL 전용 78개는 같은 날 앞선 격리 DB 검사에서 통과했으며 이번 bind/Origin 변경에서는 재실행하지 않았다.
+- 집중 로그인·API·콘솔 검사 67개, 문서 계약 10개, `git diff --check` 통과. 초기 추가 테스트의 auth/me 응답 경로 기대값을 실제 data.user 계약에 맞춘 후 통과했다. 최종 IP 비고정 방식에서 복수 주소와 same-origin/다른 Origin 거부를 재검증했다.
+- 사용법·아키텍처·로드맵을 갱신했다. 최종 로그는 `/tmp/gjallar-bind-final-verify-0923.log`, `/tmp/gjallar-bind-final-container-0923.log`다. 기존 Vite chunk 크기·라이브러리 deprecation 경고와 로컬 Node 26 engine 경고는 남는다. 사용자 VM에는 배포하지 않았으며 실제 외부 브라우저·VM 네트워크 접속은 미검증이다. commit/push 없음.

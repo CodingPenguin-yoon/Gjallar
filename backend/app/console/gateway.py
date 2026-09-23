@@ -9,6 +9,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 from websockets.exceptions import ConnectionClosed
 
 from app.auth.config import allowed_origins, session_cookie_name
+from app.auth.origin import is_same_origin
 from app.auth.roles import role_at_least
 from app.auth.sessions import actor_for_session_token
 from app.console.domain import ConsoleError, validate_target
@@ -89,7 +90,7 @@ async def serve_console(websocket, *, node_id, vmid):
     close_code, reason = 1011, 'CONSOLE_UNAVAILABLE'
     try:
         validate_target(node_id, vmid)
-        if websocket.query_params or websocket.headers.get('origin') not in allowed_origins():
+        if websocket.query_params or (websocket.headers.get('origin') not in allowed_origins() and not is_same_origin(websocket, websocket.headers.get('origin'))):
             raise ConsoleError('CONSOLE_ORIGIN_REJECTED', '허용된 웹 origin에서만 콘솔에 접속할 수 있습니다.', 403)
         token = websocket.cookies.get(session_cookie_name())
         actor = await run_in_threadpool(authenticated_actor, token)

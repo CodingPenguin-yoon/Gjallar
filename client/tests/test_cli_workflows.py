@@ -289,3 +289,17 @@ def test_followup_session_failure_preserves_uncertain_mutation(environment, monk
         workflows.power(app, 'start', 101, 'pve', 'request-1', lambda _: None)
     assert error.value.code == 'MUTATION_UNCONFIRMED' and error.value.exit_code == 8
     assert sum('/actions/' in r.url.path for r in server.calls) == 1
+
+
+def test_bootstrap_external_web_keeps_cli_loopback_profile(tmp_path, monkeypatch, capsys):
+    from gjallar_client.bootstrap import Bootstrap
+    options = {}
+    def install(self, **kwargs):
+        options.update(kwargs)
+        return {'ok': True, 'state': 'running', 'url': 'http://127.0.0.1:8000', 'bind_address': '0.0.0.0'}
+    monkeypatch.setattr(Bootstrap, 'install', install)
+    assert cli.main(['bootstrap', '--config-dir', str(tmp_path/'config'), '--bind-address', '0.0.0.0', '--json']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['bind_address'] == '0.0.0.0'
+    assert options['bind_address'] == '0.0.0.0'
+    assert Connections(tmp_path/'config').read()['connections']['local-8000']['origin'] == 'http://127.0.0.1:8000'

@@ -40,14 +40,14 @@ class Docker:
         return result.stdout
 
 
-def check_port(port):
+def check_port(port, bind_address="127.0.0.1"):
     if not 1024 <= port <= 65535:
         raise ClientError("INVALID_PORT", "port는 1024~65535 범위여야 합니다.", 2)
     with socket.socket() as probe:
         try:
-            probe.bind(("127.0.0.1", port))
+            probe.bind((bind_address, port))
         except OSError:
-            raise ClientError("PORT_IN_USE", "선택한 loopback port가 사용 중입니다. 다른 port를 선택하세요.", 2) from None
+            raise ClientError("PORT_IN_USE", "선택한 주소의 port를 사용할 수 없습니다. 다른 port를 선택하세요.", 2) from None
 
 
 def parse_json(value):
@@ -68,6 +68,7 @@ def compose_config(manifest):
             "GJALLAR_INSTALLATION_ID": identity,
             **({"GJALLAR_CREDENTIAL_KEY_FILE": "/run/secrets/credential_key"} if credential_secrets else {}),
             "GJALLAR_ALLOWED_ORIGINS": f'http://127.0.0.1:{manifest["port"]}',
+            **({"GJALLAR_ALLOW_SAME_ORIGIN": "true"} if manifest.get("bind_address") == "0.0.0.0" else {}),
             "GJALLAR_SESSION_COOKIE_SECURE": "false",
             "GJALLAR_SESSION_COOKIE_SAMESITE": "lax",
             "GJALLAR_INVENTORY_MODE": "live",
@@ -90,7 +91,7 @@ def compose_config(manifest):
             },
             "maintenance": {**common, "profiles": ["maintenance"], "command": ["status"]},
             "gjallar": {**common, "entrypoint": ["python", "-m", "app.installation.serve"],
-                        "restart": "unless-stopped", "ports": [f'127.0.0.1:{manifest["port"]}:8000'],
+                        "restart": "unless-stopped", "ports": [f'{manifest.get("bind_address", "127.0.0.1")}:{manifest["port"]}:8000'],
                         "healthcheck": {"test": ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"],
                                         "interval": "3s", "timeout": "5s", "retries": 30}},
         },
@@ -146,7 +147,12 @@ class Bootstrap:
 
     @staticmethod
     def validate_manifest(data):
-        if set(data) != {"version", "id", "project", "volume", "port", "image", "postgres_image", "state"} or data["version"] not in {1, 2}:
+        if not isinstance(data, dict):
+            raise ValueError
+        expected = {"version", "id", "project", "volume", "port", "image", "postgres_image", "state"}
+        if data.get("version") == 3:
+            expected |= {"bind_address"}
+        if set(data) != expected or data["version"] not in {1, 2, 3}:
             raise ValueError
         uid = str(uuid.UUID(data["id"]))
         if data["project"] != "gjallar-" + uid or data["volume"] != "gjallar-" + uid + "-pgdata":
@@ -156,6 +162,8 @@ class Bootstrap:
         if not all(IMAGE_ID.fullmatch(data[key]) for key in ("image", "postgres_image")):
             raise ValueError
         if data["state"] not in {"preparing", "prepared", "storage_ready", "ready"}:
+            raise ValueError
+        if data["version"] == 3 and data["bind_address"] != "0.0.0.0":
             raise ValueError
         return data
 
@@ -259,7 +267,9 @@ class Bootstrap:
             raise ClientError("INITIALIZATION_FAILED", "서버 초기화가 거부되었습니다. 기존 DB·계정·revision을 보존하고 상태를 확인하세요.")
         return result["state"]
 
-    def install(self, *, image=None, port=8000, administrator=None):
+    def install(self, *, image=None, port=8000, administrator=None, bind_address="127.0.0.1"):
+        if bind_address not in {"127.0.0.1", "0.0.0.0"}:
+            raise ClientError("INVALID_BIND_ADDRESS", "bind-address는 127.0.0.1 또는 0.0.0.0이어야 합니다.", 2)
         self.preflight()
         with self.locked():
             self.recover_upgrade()
@@ -269,6 +279,8 @@ class Bootstrap:
                     raise ClientError("UPGRADE_REQUIRED", "기존 설치 이미지 변경은 upgrade --image로 명시하세요.", 2)
                 if manifest["port"] != port:
                     raise ClientError("INSTALLATION_EXISTS", "기존 port를 보존합니다. 기존 설치 port로 재실행하세요.", 2)
+                if manifest.get("bind_address", "127.0.0.1") != bind_address:
+                    raise ClientError("INSTALLATION_EXISTS", "기존 bind-address를 보존합니다. 동일한 옵션으로 재실행하세요.", 2)
                 # Never change an existing install image implicitly.
                 if manifest["state"] == "ready":
                     return self._start(manifest)
@@ -276,10 +288,12 @@ class Bootstrap:
                 unknown = set(p.name for p in self.directory.iterdir()) - {".installation.lock"}
                 if unknown:
                     raise ClientError("PATH_NOT_EMPTY", "설치 경로에 기존 파일이 있습니다. 덮어쓰지 않습니다.", 2)
-                self.port_check(port)
+                self.port_check(port, bind_address)
                 uid = str(uuid.uuid4())
                 manifest = {"version": 2, "id": uid, "project": "gjallar-" + uid, "volume": "gjallar-" + uid + "-pgdata",
                             "port": port, "image": self.image(image or "gjallar:local"), "postgres_image": self.image("postgres:17-bookworm", pull=True), "state": "preparing"}
+                if bind_address == "0.0.0.0":
+                    manifest.update(version=3, bind_address=bind_address)
                 if manifest["volume"] in self.volumes():
                     raise ClientError("VOLUME_CONFLICT", "새 설치 이름의 volume이 이미 존재합니다.")
                 atomic_json(self.manifest_path, manifest)
@@ -320,12 +334,12 @@ class Bootstrap:
         # Running port belongs to this project only if Compose reports it running.
         running = self.compose(manifest, ["ps", "--status", "running", "--services"]).splitlines()
         if "gjallar" not in running:
-            self.port_check(manifest["port"])
+            self.port_check(manifest["port"], manifest.get("bind_address", "127.0.0.1"))
         self.compose(manifest, ["up", "-d", "--wait", "--wait-timeout", "120", "postgres"])
         self.maintenance(manifest, "check-ready")
         self.compose(manifest, ["up", "-d", "--wait", "--wait-timeout", "120", "gjallar"])
-        return {"ok": True, "state": "running", "url": f'http://127.0.0.1:{manifest["port"]}',
-                "message": "설치 시 만든 Gjallar 계정으로 로그인하세요. Proxmox 연결은 로그인 후 별도로 등록·확인합니다. TUI 종료는 서비스를 중지하지 않습니다."}
+        return {"ok": True, "state": "running", "bind_address": manifest.get("bind_address", "127.0.0.1"), "url": f'http://127.0.0.1:{manifest["port"]}',
+                "message": (f'웹은 http://<VM IP>:{manifest["port"]}에서 접속할 수 있습니다. HTTP는 암호화되지 않습니다. ' if manifest.get("bind_address") == "0.0.0.0" else "") + "설치 시 만든 Gjallar 계정으로 로그인하세요. Proxmox 연결은 로그인 후 별도로 등록·확인합니다. TUI 종료는 서비스를 중지하지 않습니다."}
 
     def service(self, action):
         self.preflight()
@@ -353,7 +367,7 @@ class Bootstrap:
                 rows = parse_json(text) if text.startswith("[") else [parse_json(line) for line in text.splitlines()]
                 return {"ok": True, "installation_state": manifest["state"], "services": [
                     {key: row.get(key) for key in ("Service", "State", "Health")} for row in rows],
-                    "url": f'http://127.0.0.1:{manifest["port"]}'}
+                    "bind_address": manifest.get("bind_address", "127.0.0.1"), "url": f'http://127.0.0.1:{manifest["port"]}'}
             raise ClientError("INVALID_ACTION", "start/status/stop 중 하나를 사용하세요.", 2)
 
     def upgrade(self, image):

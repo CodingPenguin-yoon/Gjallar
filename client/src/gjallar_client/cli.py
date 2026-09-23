@@ -370,6 +370,7 @@ def parser():
     install.add_argument("--install-dir", type=Path, default=Path.home() / ".local/share/gjallar")
     install.add_argument("--image")
     install.add_argument("--port", type=int, default=8000)
+    install.add_argument("--bind-address", choices=["127.0.0.1", "0.0.0.0"], default="127.0.0.1", help="웹 공개 주소 (기본 loopback)")
     service = add(commands, "service", help="로컬 서비스 상태·시작·종료")
     service.add_argument("action", choices=["start", "status", "stop"])
     service.add_argument("--install-dir", type=Path, default=Path.home() / ".local/share/gjallar")
@@ -635,12 +636,13 @@ def main(argv=None, *, session_store=None, in_shell=False):
             from .bootstrap import Bootstrap
             bootstrap = Bootstrap(args.install_dir)
             if args.command == 'bootstrap':
-                result = bootstrap.install(image=args.image, port=args.port, administrator=administrator)
-                name = 'local-' + result['url'].rsplit(':', 1)[-1]
+                result = bootstrap.install(image=args.image, port=args.port, administrator=administrator, bind_address=args.bind_address)
+                origin = result['url']
+                name = 'local-' + origin.rsplit(':', 1)[-1]
                 profiles = connections.read()['connections']
                 if name not in profiles:
-                    connections.add(name, result['url'])
-                elif profiles[name]['origin'] != result['url']:
+                    connections.add(name, origin)
+                elif profiles[name]['origin'] != origin:
                     raise ClientError('CONNECTION_CONFLICT', '설치는 완료했지만 local 별칭이 다른 주소입니다. connect로 새 별칭을 저장하세요.', 2)
                 result['next'] = f'gjallar login --connection {name} (설치 시 만든 계정)'
             else:

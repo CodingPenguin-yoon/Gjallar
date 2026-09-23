@@ -863,3 +863,18 @@ def test_create_vm_records_authenticated_actor_not_payload_operator_id(monkeypat
         assert row.actor_username == "creator"
         assert row.actor_role == "operator"
         assert row.actor_username != payload["operator_id"]
+
+
+def test_dynamic_same_origin_requires_opt_in_and_rejects_forwarded_origin(monkeypatch):
+    from app.main import app
+    origin = 'http://192.168.2.40:8000'
+    _create_user(monkeypatch, username='same-origin')
+    payload = {'username': 'same-origin', 'password': 'correct horse battery staple'}
+    with TestClient(app, base_url=origin) as client:
+        monkeypatch.delenv('GJALLAR_ALLOW_SAME_ORIGIN', raising=False)
+        assert client.post('/api/v1/auth/login', json=payload, headers={'Origin': origin}).status_code == 403
+        monkeypatch.setenv('GJALLAR_ALLOW_SAME_ORIGIN', 'true')
+        for other in ('null', 'http://192.168.2.40:8001', 'https://192.168.2.40:8000', 'http://other.home:8000'):
+            response = client.post('/api/v1/auth/login', json=payload, headers={'Origin': other, 'X-Forwarded-Host': other.removeprefix('http://'), 'Forwarded': 'host=other.home:8000'})
+            assert response.status_code == 403
+        assert client.post('/api/v1/auth/login', json=payload, headers={'Origin': origin}).status_code == 200
