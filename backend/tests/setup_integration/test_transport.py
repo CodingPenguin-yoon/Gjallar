@@ -35,3 +35,20 @@ def test_tls_failure_never_sends_credentials(monkeypatch):
     assert "synthetic" not in str(error.value)
     assert seen == [("192.168.100.5", 8006), "closed"]
     assert error.value.code == "PROXMOX_TLS_FAILED"
+
+
+@pytest.mark.parametrize('failure,code', [
+    (ConnectionRefusedError('synthetic-detail'), 'PROXMOX_COMMUNICATION_FAILED'),
+    (TimeoutError('synthetic-detail'), 'PROXMOX_COMMUNICATION_FAILED'),
+    (ssl.SSLError('synthetic-detail'), 'PROXMOX_TLS_FAILED'),
+    (ValueError('synthetic-detail'), 'PROXMOX_PROTOCOL_ERROR'),
+])
+def test_certificate_probe_distinguishes_failures_without_raw_details(monkeypatch, failure, code):
+    monkeypatch.setattr(ProxmoxSetupTransport, '__init__',
+                        lambda self, endpoint: self.__dict__.update(host='pve.example.test', address='192.168.100.5', port=8006))
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(socket, 'create_connection', fail)
+    with pytest.raises(SetupError) as error:
+        ProxmoxSetupTransport.probe_certificate(endpoint='https://pve.example.test:8006/api2/json')
+    assert error.value.code == code and 'synthetic' not in str(error.value)

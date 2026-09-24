@@ -267,3 +267,17 @@ def test_locked_keyring_does_not_fallback_or_leak():
     assert error.value.code == "KEYRING_UNAVAILABLE"
     assert TOKEN not in str(error.value)
     assert "memory" in str(error.value)
+
+
+@pytest.mark.parametrize('code', ['PROXMOX_TLS_FAILED', 'PROXMOX_ENDPOINT_UNAVAILABLE', 'PROXMOX_COMMUNICATION_FAILED'])
+def test_setup_upstream_failure_keeps_safe_code_without_server_message(setup, code):
+    _, _, profile, _ = setup
+    response = httpx.Response(502, json={'detail': {'code': code, 'message': PASSWORD, 'debug': TOKEN}})
+    api = Api(profile, httpx.MockTransport(lambda _: response))
+    try:
+        with pytest.raises(ClientError) as error:
+            api.request('POST', 'setup/proxmox/registrations/trust', body={'endpoint': 'https://pve.example.test'})
+        assert error.value.code == code
+        assert PASSWORD not in str(error.value) and TOKEN not in str(error.value)
+    finally:
+        api.close()

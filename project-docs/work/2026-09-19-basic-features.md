@@ -1106,3 +1106,12 @@
 - `pnpm run verify:container` 통과: client 264개, backend 1678개 통과·78개 skip, production image `gjallar:local` 빌드 완료. 로그 `/tmp/gjallar-simple-final-container.log`.
 - 별도 일회용 PostgreSQL 17에서 새 schema head와 통합 검사 78개 모두 통과. 로그 `/tmp/gjallar-simple-postgres.log`. 테스트 컨테이너·임시 secret을 정리했다.
 - 커밋·푸시와 사용자 VM 배포는 실행하지 않았다. 실제 신규 PVE token/ACL 발급 검증은 남아 있다.
+
+### 인증서 조회 오류 진단 (2026-09-24, 표시 수정 IMPLEMENTED·VM 원인 확인 대기)
+
+- 사용자 VM에서 주소·계정 입력 직후 `SERVER_ERROR`가 발생했다. 인증서 조회 전후 단계이며 비밀번호 입력·token 발급 이전이다. 개발 호스트에서 해당 PVE의 인증정보 없는 TLS 지문 조회는 성공했지만 사용자 VM에서의 실패 원인은 아직 확인 중이다.
+- CLI가 안전한 upstream 오류 코드도 일반 `SERVER_ERROR`로 덮는 문제를 실패 테스트 3건으로 재현했다. 등록 경로의 알려진 502 오류 코드만 고정된 로컬 문구로 표시한다. 서버 응답 message·debug 원문은 출력하지 않는다.
+- 인증서 probe의 연결 실패·TLS 실패·인증서 형식 오류를 기존 오류 코드로 구분한다. TLS 검증·인증·권한·저장 방식은 바꾸지 않는다. 사용자 VM의 시각·연결 결과를 별도로 확인한다. 복구는 기존 코드로 되돌릴 수 있으며 DB 변경은 없다.
+- 기존 배포 이미지 `gjallar:local`의 일회용 컨테이너에서도 동일 PVE에 인증정보 없는 probe가 성공했다. 따라서 개발 호스트·해당 이미지에서 재현된 실패로 단정하지 않는다. 사용자 VM의 네트워크·시각·실제 응답 확인이 남아 있다.
+- 검증: `git diff --check`, `pnpm run verify`, `pnpm run verify:container` 통과. local/container 모두 client 267개, backend 1682개 통과·PostgreSQL 전용 78개 skip. frontend test·lint·build 및 production image 빌드 통과. 로그는 `/tmp/gjallar-probe-errors-verify.log`, `/tmp/gjallar-probe-errors-container.log`다. DB 변경이 없어 PostgreSQL 통합 검사는 이번 수정에서 재실행하지 않았다.
+- 추가 사용자 증거: VM 호스트의 HTTP 조회 200, 실행 중인 컨테이너의 직접 certificate probe 성공, Gjallar 로그인 200과 실제 `POST /registrations/trust` 502를 확인했다. 실제 API 응답의 상세 오류 코드는 기존 CLI가 숨기므로 아직 실패 원인을 확정하지 않는다. CLI만 갱신해 기존 서버의 알려진 502 오류 코드를 볼 수 있다. 사용자 VM의 실패가 해결됐다고 판정하지 않는다.

@@ -6,6 +6,16 @@ import httpx
 from .errors import ClientError
 
 
+SETUP_UPSTREAM_ERRORS = {
+    "PROXMOX_TLS_FAILED": "Proxmox 인증서를 확인할 수 없습니다. Gjallar 서버 시각과 인증서 유효기간·저장한 지문 또는 CA를 확인하세요.",
+    "PROXMOX_ENDPOINT_UNAVAILABLE": "Gjallar 서버에서 Proxmox 주소를 해석할 수 없거나 CA를 읽지 못했습니다. 주소·DNS·CA 설정을 확인하세요.",
+    "PROXMOX_COMMUNICATION_FAILED": "Gjallar 서버에서 Proxmox에 연결하거나 응답을 확인하지 못했습니다. 서버 컨테이너의 네트워크·8006 포트를 확인하세요. 변경 요청은 자동 재시도하지 마세요.",
+    "PROXMOX_PROTOCOL_ERROR": "Proxmox 응답 형식을 확인할 수 없습니다. 주소가 Proxmox API를 가리키는지 확인하세요.",
+    "PROXMOX_AUTH_FAILED": "Proxmox 계정·realm·비밀번호를 확인하세요.",
+    "PROXMOX_PERMISSION_DENIED": "Proxmox 계정 또는 토큰에 요청한 작업의 권한이 없습니다.",
+}
+
+
 def is_tls_error(exc):
     seen = set()
     while exc is not None and id(exc) not in seen:
@@ -55,6 +65,10 @@ class Api:
         if response.is_error:
             detail = payload.get("detail", {}) if isinstance(payload, dict) else {}
             code = detail.get("code") if isinstance(detail, dict) else None
+            if (path.startswith("setup/proxmox/registrations/") and response.status_code == 502
+                    and isinstance(code, str) and code in SETUP_UPSTREAM_ERRORS):
+                # Never echo upstream messages: they may contain credentials.
+                raise ClientError(code, SETUP_UPSTREAM_ERRORS[code], 5)
             if code in {"PROXMOX_INVENTORY_UNCONFIGURED", "PROXMOX_INVENTORY_DEGRADED"}:
                 raise ClientError(code, "Proxmox 미설정 또는 관찰 불가입니다. Gjallar 서버의 연결 상태를 확인하세요.", 6)
             if response.status_code == 404:

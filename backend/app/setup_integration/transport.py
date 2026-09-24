@@ -43,8 +43,12 @@ class ProxmoxSetupTransport:
                 with pinned_tls_context().wrap_socket(plain, server_hostname=transport.host) as peer:
                     fingerprint = certificate_fingerprint(peer.getpeercert(binary_form=True))
             return {"endpoint": endpoint, "certificate_sha256": fingerprint}
-        except (OSError, ValueError):
+        except ssl.SSLError:
             raise SetupError("PROXMOX_TLS_FAILED", "Proxmox 서버 인증서를 확인할 수 없습니다.", 502) from None
+        except OSError:
+            raise SetupError("PROXMOX_COMMUNICATION_FAILED", "Gjallar 서버에서 Proxmox에 연결할 수 없습니다. 네트워크·API 포트를 확인하세요.", 502) from None
+        except ValueError:
+            raise SetupError("PROXMOX_PROTOCOL_ERROR", "Proxmox 서버 인증서 형식을 확인할 수 없습니다.", 502) from None
 
     def request(self, method, path, *, data=None, ticket=None, csrf=None, token_id=None, secret=None, timeout=None,
                 response_metadata=False):
