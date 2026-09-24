@@ -25,9 +25,9 @@ def inventory_adapter():
         raise inventory_unavailable_http(exc) from exc
 
 
-def mutation_inventory_adapter():
+def mutation_inventory_adapter(*, node_id: str, vmid: int):
     try:
-        return inventory_query().require_mutation_adapter()
+        return inventory_query().require_mutation_adapter(node_id=node_id, vmid=vmid)
     except WorkloadInventoryUnavailableError as exc:
         raise inventory_unavailable_http(exc) from exc
 

@@ -11,7 +11,6 @@ const reasonMessages = Object.freeze({
   proxmox_authentication_failed: 'Proxmox API 인증에 실패했습니다.',
   proxmox_api_rejected: 'Proxmox API가 inventory 요청을 거부했습니다.',
   proxmox_inventory_unavailable: 'Proxmox inventory를 불러오지 못했습니다.',
-  proxmox_inventory_partial: '일부 Proxmox inventory source를 완전히 관찰하지 못했습니다.',
 })
 
 export default function ProxmoxConnectionBoundary({ requestStatus, connection, onRetry, canConfigure = false, requireLive = false, children }) {
@@ -47,7 +46,7 @@ export default function ProxmoxConnectionBoundary({ requestStatus, connection, o
           <h2 className="mt-2 text-xl font-semibold text-slate-950">{message}</h2>
           <p className="mt-2 text-sm text-slate-600">
             {status.inventoryAvailable && requireLive
-              ? '읽기 가능한 partial inventory는 유지하지만 Create와 mutation에는 complete live observation이 필요합니다.'
+              ? '각 작업에 필요한 대상 정보와 권한은 실행 전에 확인합니다.'
               : '실제 Proxmox inventory를 확인할 수 있을 때만 Overview와 Workloads 읽기 화면을 엽니다. Insights, Operations, Jobs, Risks, Account, Admin은 계속 사용할 수 있습니다.'}
           </p>
 

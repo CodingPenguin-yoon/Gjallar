@@ -19,7 +19,7 @@
 - Proxmox 관찰 시: 기존 env 연결 또는 등록·활성화한 관리형 연결. env 경로는 API URL·token ID·token secret·TLS 정책을 설정하고, 관리형 경로는 아래 등록·암호화 키 절차를 따른다. 관리형 연결은 read와 선택적 power/compute/create/disk/network/clone를 지원하며 Guided 실행 권한은 제공하지 않는다.
 - `.env`, password, token, private key를 repository, command history, log, artifact에 남기지 않는다.
 
-product runtime은 Proxmox 설정 누락이나 연결 실패를 fake inventory로 대체하지 않는다. authoritative snapshot이 있으면 `degraded/partial`에서도 Overview·Workloads·VM 상세를 읽을 수 있다. Create 입력·검토는 partial base snapshot에서도 가능하다. Create 실행은 guest agent 외 source의 complete 관찰을 요구한다. 고정 IP는 입력한 주소의 ping 응답과 기존 VM 설정·guest agent IP 정보를 함께 확인한다. 어느 쪽이든 점유가 발견되면 red로 차단하며, 점유 미발견·조회 불가는 yellow로 직접 확보한 IP인지 확인받는다. 기존 VM의 guest agent 누락만으로 차단하지 않는다. DHCP discovery 경고와 최초 mutation 직전 재검증은 유지한다. Start/Shutdown/Guided의 complete-live 조건은 유지한다. snapshot이 없는 경우에만 inventory-dependent 읽기 화면을 연결 안내로 차단한다.
+product runtime은 Proxmox 설정 누락이나 연결 실패를 fake inventory로 대체하지 않는다. authoritative snapshot을 얻으면 연결은 `live/fresh`로 표시한다. 항목별 조회 누락은 availability에 남기며 전체 VM 작업을 차단하는 `partial` 연결 상태는 사용하지 않는다. Create 입력·검토는 일부 항목이 누락된 base snapshot에서도 가능하다. Create 실행은 guest agent 외 source의 complete 관찰을 요구한다. 고정 IP는 입력한 주소의 ping 응답과 기존 VM 설정·guest agent IP 정보를 함께 확인한다. 어느 쪽이든 점유가 발견되면 red로 차단하며, 점유 미발견·조회 불가는 yellow로 직접 확보한 IP인지 확인받는다. 기존 VM의 guest agent 누락만으로 차단하지 않는다. DHCP discovery 경고와 최초 mutation 직전 재검증은 유지한다. Start/Shutdown은 새 snapshot에서 해당 VM의 config/detail 조회와 기존 대상·상태 조건을 확인한다. 해당 정보 조회 실패는 `PROXMOX_VM_OBSERVATION_UNAVAILABLE`과 대상·source로 안내한다. Guided의 별도 실행 조건은 유지한다. snapshot이 없는 경우에만 inventory-dependent 읽기 화면을 연결 안내로 차단한다.
 
 ## 2. 최초 로컬 준비
 

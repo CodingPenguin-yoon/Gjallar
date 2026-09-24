@@ -495,9 +495,9 @@ class ProxmoxInventoryAdapterTests(unittest.TestCase):
         self.assertEqual([], snapshot["nodes"][0]["storage"])
         self.assertEqual([], snapshot["nodes"][0]["networks"])
         self.assertFalse(snapshot["vms"][0]["guest_agent"]["available"])
-        self.assertEqual("degraded", observation.status.state)
-        self.assertEqual("partial", observation.status.freshness)
-        self.assertEqual("proxmox_inventory_partial", observation.status.reason)
+        self.assertEqual("live", observation.status.state)
+        self.assertEqual("fresh", observation.status.freshness)
+        self.assertEqual("", observation.status.reason)
         self.assertTrue(observation.status.inventory_available)
         self.assertNotIn("sensitive upstream failure", repr(snapshot))
 

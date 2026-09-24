@@ -366,19 +366,20 @@ class ApiV1InventoryPayloadTests(unittest.TestCase):
                     ),
                 )
 
+        PartialLiveAdapter.fresh_snapshot = PartialLiveAdapter.snapshot
         adapter = PartialLiveAdapter()
         query = WorkloadInventoryQuery(adapter)
         with patch.object(v1_router.inventory_context, "inventory_query", return_value=query):
             read_response = self._run(v1_router.list_vms())
             with self.assertRaises(HTTPException) as raised:
-                v1_router.inventory_context.mutation_inventory_adapter()
+                v1_router.inventory_context.mutation_inventory_adapter(node_id="node-a", vmid=301)
 
         self.assertTrue(read_response["ok"])
         self.assertEqual([301], [vm["vmid"] for vm in read_response["data"]])
-        self.assertEqual("partial", read_response["meta"]["freshness"])
+        self.assertEqual("fresh", read_response["meta"]["freshness"])
         self.assertFalse(read_response["meta"]["availability"]["complete"])
         self.assertEqual(503, raised.exception.status_code)
-        self.assertEqual("PROXMOX_INVENTORY_DEGRADED", raised.exception.detail["code"])
+        self.assertEqual("PROXMOX_VM_OBSERVATION_UNAVAILABLE", raised.exception.detail["code"])
         self.assertEqual([], raised.exception.detail["side_effects"])
         self.assertFalse(raised.exception.detail["proxmox_mutation_enabled"])
 

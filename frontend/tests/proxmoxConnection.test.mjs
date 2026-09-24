@@ -18,7 +18,7 @@ const live = {
 }
 assert.equal(isProxmoxOperational(live), true)
 assert.equal(isProxmoxInventoryAvailable(live), true)
-assert.deepEqual(proxmoxConnectionBadge('ready', live), { label: '연결됨', tone: 'green', observation: '관찰 완료', observationTone: 'green' })
+assert.deepEqual(proxmoxConnectionBadge('ready', live), { label: '연결됨', tone: 'green', observation: '연결 확인', observationTone: 'green' })
 
 const unconfigured = {
   state: 'unconfigured',
@@ -40,8 +40,8 @@ const partial = {
   inventory_available: true,
 }
 assert.equal(isProxmoxInventoryAvailable(partial), true, 'Partial authoritative inventory must remain readable')
-assert.equal(isProxmoxOperational(partial), false, 'Partial inventory must not enable mutation')
-assert.deepEqual(proxmoxConnectionBadge('ready', partial), { label: '연결됨', tone: 'green', observation: '관찰 일부 누락', observationTone: 'yellow' })
+assert.equal(isProxmoxOperational(partial), true, 'Per-resource failures must not close all operation screens')
+assert.deepEqual(proxmoxConnectionBadge('ready', partial), { label: '연결됨', tone: 'green', observation: '연결 확인', observationTone: 'green' })
 
 const fixture = {
   state: 'test_fixture',
@@ -54,7 +54,7 @@ assert.deepEqual(proxmoxConnectionBadge('ready', fixture), { label: '연결 확�
 
 const boundary = readFileSync(new URL('../src/shared/proxmox/ProxmoxConnectionBoundary.jsx', import.meta.url), 'utf8')
 assert.match(boundary, /isProxmoxInventoryAvailable/)
-assert.match(boundary, /partial inventory는 유지하지만 Create와 mutation에는 complete live observation이 필요합니다/)
+assert.match(boundary, /각 작업에 필요한 대상 정보와 권한은 실행 전에 확인합니다/)
 assert.doesNotMatch(boundary, /DRS 폐기 안내/)
 assert.doesNotMatch(boundary, /demo data|mock data|샘플 데이터/)
 

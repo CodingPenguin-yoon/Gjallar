@@ -283,7 +283,7 @@ assert.match(detailModel, /client\.getVmWithMeta\(Number\(exactVmid\)\)/)
 assert.match(detailModel, /target_type: 'proxmox_vm'/)
 assert.match(detailModel, /target_id: initialModel\.vm\.targetId/)
 assert.match(detail, /VM 작업/)
-assert.match(detail, /empty fields are not treated as confirmed absence/)
+assert.match(detail, /빈 값은 실제 자원 부재를 뜻하지 않습니다/)
 assert.match(detail, /findingCoverageComplete/)
 assert.match(detail, /active finding 부재를 확정할 수 없습니다/)
 assert.match(detail, /insightFindingPath\(finding\)/)
@@ -299,3 +299,8 @@ assert.match(operationsList, /target_type: requestedTargetType, target_id: reque
 assert.match(operationsList, /vmDetailPathFromTarget\(operation\.targetType, operation\.targetId\)/)
 
 console.log('exact VM context and target-preserving deep-link contract exercised')
+
+const unrelatedFailure = buildVmDetailModel({requestedVmid: 306, vm, vmMeta: {
+  ...vmMeta, availability: {...vmMeta.availability, complete: false},
+}})
+assert.equal(unrelatedFailure.observation.status, 'available', 'Other resources must not degrade an observed VM')

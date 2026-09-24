@@ -702,7 +702,7 @@ function WorkloadInventory({
 
       {!canMutateVms ? (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 shadow-sm">
-          VM lifecycle actions require operator or admin role and a complete live Proxmox observation. Current role: {currentUser?.role || 'unknown'}.
+          VM 작업에는 operator 또는 admin 권한과 Proxmox 연결이 필요합니다. Current role: {currentUser?.role || 'unknown'}.
         </div>
       ) : null}
 

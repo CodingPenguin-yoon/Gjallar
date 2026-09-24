@@ -112,11 +112,11 @@ def observe_proxmox_connection(adapter: Any, *, fresh: bool = False) -> ProxmoxC
         configured = False
         reason = ""
     else:
-        complete = snapshot.availability.complete
-        state = "live" if complete else "degraded"
-        freshness = "fresh" if complete else "partial"
+        # Connection truth is independent of optional/per-target read failures.
+        state = "live"
+        freshness = "fresh"
         configured = True
-        reason = "" if complete else "proxmox_inventory_partial"
+        reason = ""
     return ProxmoxConnectionObservation(
         status=ProxmoxConnectionStatus(
             state=state,

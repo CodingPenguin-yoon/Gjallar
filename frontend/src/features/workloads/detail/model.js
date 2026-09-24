@@ -121,8 +121,7 @@ function inventoryContext(meta, vm) {
   if (availability.available === false) {
     status = 'unavailable'
   } else if (hasAvailability) {
-    status = availability.complete === true
-      && CURRENT_INVENTORY_FRESHNESS.has(freshness)
+    status = CURRENT_INVENTORY_FRESHNESS.has(freshness)
       && !targetIncomplete
       ? 'available'
       : 'partial'

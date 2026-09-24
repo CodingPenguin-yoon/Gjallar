@@ -283,7 +283,7 @@ export default function VmDetail({ canMutate = false }) {
         <div className="font-semibold">Inventory observation · {observation.source} · {observation.freshness} · {formatObservedAt(observation.observedAt)}</div>
         {observation.status !== 'available' ? (
           <div className="mt-1 text-xs">
-            Detail coverage is {observation.status}; empty fields are not treated as confirmed absence. vm_config {sourceStatusLabel(observation.sources.vmConfig.status)} · guest_agent {sourceStatusLabel(observation.sources.guestAgent.status)} · vm_detail {sourceStatusLabel(observation.sources.vmDetail.status)}
+            조회하지 못한 항목이 있습니다. 빈 값은 실제 자원 부재를 뜻하지 않습니다. vm_config {sourceStatusLabel(observation.sources.vmConfig.status)} · guest_agent {sourceStatusLabel(observation.sources.guestAgent.status)} · vm_detail {sourceStatusLabel(observation.sources.vmDetail.status)}
           </div>
         ) : null}
       </div>
@@ -301,7 +301,7 @@ export default function VmDetail({ canMutate = false }) {
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500"><Network className="h-4 w-4" /> Network evidence</div>
-          <div className="mt-3 break-words font-mono text-xs font-semibold text-slate-950">{ipAddresses.join(', ') || (ipEvidenceComplete ? 'No IP evidence returned' : 'IP evidence unavailable in partial observation')}</div>
+          <div className="mt-3 break-words font-mono text-xs font-semibold text-slate-950">{ipAddresses.join(', ') || (ipEvidenceComplete ? 'No IP evidence returned' : 'IP 정보를 조회하지 못했습니다')}</div>
           <div className="mt-1 text-xs text-slate-500">
             {guestApplicable
               ? guestObserved
@@ -384,9 +384,9 @@ export default function VmDetail({ canMutate = false }) {
       <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <summary className="cursor-pointer text-lg font-semibold text-slate-950">설정 관찰 상세 · 잠금·태그·디스크</summary>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Config lock</dt><dd className="mt-1 font-mono text-slate-900">{configObserved ? vm.raw?.config_lock || 'none observed' : 'unavailable in partial observation'}</dd></div>
-          <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Tags</dt><dd className="mt-1 break-words text-slate-900">{configObserved ? vm.tags.join(', ') || 'none returned' : 'unavailable in partial observation'}</dd></div>
-          <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">NIC bridges</dt><dd className="mt-1 break-words font-mono text-xs text-slate-900">{configObserved ? bridges.map((item) => item.bridge_id).filter(Boolean).join(', ') || 'none returned' : 'unavailable in partial observation'}</dd></div>
+          <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Config lock</dt><dd className="mt-1 font-mono text-slate-900">{configObserved ? vm.raw?.config_lock || 'none observed' : '설정 정보를 조회하지 못했습니다'}</dd></div>
+          <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Tags</dt><dd className="mt-1 break-words text-slate-900">{configObserved ? vm.tags.join(', ') || 'none returned' : '설정 정보를 조회하지 못했습니다'}</dd></div>
+          <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">NIC bridges</dt><dd className="mt-1 break-words font-mono text-xs text-slate-900">{configObserved ? bridges.map((item) => item.bridge_id).filter(Boolean).join(', ') || 'none returned' : '설정 정보를 조회하지 못했습니다'}</dd></div>
           <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase text-slate-500">Template</dt><dd className="mt-1 text-slate-900">{vm.template ? 'yes' : 'no'}</dd></div>
         </dl>
         <div className="mt-4 overflow-x-auto">
@@ -400,7 +400,7 @@ export default function VmDetail({ canMutate = false }) {
                   <td className="px-3 py-2 text-right text-slate-700">{formatGb(disk.sizeGb)}</td>
                   <td className="px-3 py-2 text-xs text-slate-500">{[disk.format, disk.discard === 'on' ? 'discard' : '', disk.ssd === '1' ? 'ssd' : ''].filter(Boolean).join(' · ') || '-'}</td>
                 </tr>
-              )) : <tr><td colSpan="4" className="px-3 py-4 text-center text-slate-500">{diskEvidenceComplete ? 'No disk detail returned' : 'Disk detail unavailable in partial observation'}</td></tr>}
+              )) : <tr><td colSpan="4" className="px-3 py-4 text-center text-slate-500">{diskEvidenceComplete ? 'No disk detail returned' : '디스크 정보를 조회하지 못했습니다'}</td></tr>}
             </tbody>
           </table>
         </div>

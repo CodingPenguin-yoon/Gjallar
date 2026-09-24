@@ -34,7 +34,9 @@ async def start_vm_action(
             vmid=vmid,
             payload=payload or {},
             actor=actor_evidence(actor) if actor is not None else None,
-            inventory_adapter=inventory_context.mutation_inventory_adapter(),
+            inventory_adapter=await run_in_threadpool(
+                inventory_context.mutation_inventory_adapter, node_id=node_id, vmid=vmid,
+            ),
             client_factory=get_default_proxmox_mutation_client,
         )
     except VmStartError as exc:
@@ -66,7 +68,9 @@ async def shutdown_vm_action(
             vmid=vmid,
             payload=payload or {},
             actor=actor_evidence(actor) if actor is not None else None,
-            inventory_adapter=inventory_context.mutation_inventory_adapter(),
+            inventory_adapter=await run_in_threadpool(
+                inventory_context.mutation_inventory_adapter, node_id=node_id, vmid=vmid,
+            ),
             client_factory=get_default_proxmox_mutation_client,
         )
     except VmShutdownError as exc:

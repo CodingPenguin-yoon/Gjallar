@@ -42,10 +42,10 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 
 Proxmox가 VM·노드·config·위치·전원·task actual state를 소유한다. Gjallar DB는 입력·승인·작업 이력과 실행 조정을 담당한다. 과거 workload 결과를 현재 인프라 상태로 사용하지 않는다.
 
-- 필수 연결 설정 부재는 `unconfigured`, complete snapshot은 `live/fresh`, 일부 source 실패는 `degraded/partial`, snapshot 부재는 `degraded`다. fake inventory로 대체하지 않는다.
-- authoritative partial snapshot이 있으면 관찰된 데이터를 표시한다. snapshot 부재 시 과거 inventory를 보여주는 durable stale fallback은 없다.
+- 필수 연결 설정 부재는 `unconfigured`, base snapshot 조회 성공은 `live/fresh`, snapshot 부재는 `degraded`다. 개별 source 실패로 전체 연결 상태를 낮추지 않는다. fake inventory로 대체하지 않는다.
+- authoritative snapshot이 있으면 조회된 데이터를 표시하고 누락 항목은 availability로 구분한다. snapshot 부재 시 과거 inventory를 보여주는 durable stale fallback은 없다.
 - read adapter에는 기본 10초 process-local cache가 있다. 최초 Create mutation 직전에는 별도 adapter의 cache 없는 관찰을 사용한다.
-- Create 입력·검토는 partial base snapshot에서도 가능하다. 실행은 guest agent 외 source의 complete 관찰과 action별 조건을 요구한다. Start·Shutdown·Guided의 complete-live 조건은 유지한다.
+- Create 입력·검토는 일부 항목이 누락된 base snapshot에서도 가능하다. 실행은 guest agent 외 source의 complete 관찰과 action별 조건을 요구한다. 연결은 base snapshot 조회 성공 시 live/fresh로 표시하고 항목별 누락은 availability에 남긴다. Start·Shutdown은 새 snapshot의 해당 VM config/detail 관찰과 기존 실행 조건으로 판단하며 다른 자원·guest agent 누락으로 전체 VM을 차단하지 않는다. Guided의 별도 실행 조건은 유지한다.
 - 고정 IP는 ping 응답과 기존 VM config·guest-agent IP 정보를 함께 확인한다. 점유 발견은 red 차단, 미발견·확인 불가는 yellow와 사용자 확인이다. 기존 VM guest agent 누락만으로 차단하지 않으며, 미발견을 미사용 보장으로 해석하지 않는다.
 - Insights는 risk/readiness/capacity/placement를 요청 시 조합한다. section 장애는 `unknown`/`unavailable`, 최대 200개 초과 finding은 truncation metadata로 표현한다. 별도 TSDB·지속 수집·알림 시스템은 없다.
 - VM이 켜져 있다는 사실은 애플리케이션 정상 동작을 뜻하지 않는다. `live`도 mutation 권한이 검증됐다는 뜻은 아니다.

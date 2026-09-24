@@ -38,11 +38,10 @@ def test_guest_failure_has_explicit_mode_specific_risk(mode, level):
 
 
 @pytest.mark.parametrize('fresh', [False, True])
-def test_create_guest_failure_does_not_relax_other_mutation_gate(fresh):
+def test_guest_failure_does_not_block_create_or_power(fresh):
     query = WorkloadInventoryQuery(partial('guest_agent'))
     assert not query.require_create_adapter(fresh=fresh).snapshot().availability.complete
-    with pytest.raises(WorkloadInventoryUnavailableError):
-        query.require_mutation_adapter()
+    assert not query.require_mutation_adapter(node_id="node", vmid=101).snapshot().availability.complete
 
 
 @pytest.mark.parametrize('source', ['storage', 'network', 'vm_config', 'vm_detail'])

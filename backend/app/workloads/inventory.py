@@ -35,6 +35,18 @@ class WorkloadInventoryUnavailableError(RuntimeError):
         }
 
 
+class WorkloadTargetObservationUnavailableError(WorkloadInventoryUnavailableError):
+    def __init__(self, observation: ProxmoxConnectionObservation, target: str, source: str) -> None:
+        super().__init__(observation)
+        self.code = "PROXMOX_VM_OBSERVATION_UNAVAILABLE"
+        self.message = f"VM {target}의 {source} 정보를 조회하지 못했습니다. 다시 조회한 후 실행하세요."
+        self.target = target
+        self.source = source
+
+    def to_detail(self) -> dict[str, Any]:
+        return {**super().to_detail(), "target": self.target, "source": self.source}
+
+
 class ObservedInventoryAdapter:
     """Read-only view pinned to one validated request-scoped observation."""
 
@@ -79,14 +91,20 @@ class WorkloadInventoryQuery:
         self.require_observation()
         return self.adapter
 
-    def require_mutation_adapter(self) -> Any:
-        observation = self.require_observation()
-        if (
-            observation.status.state not in {"live", "test_fixture"}
-            or not observation.snapshot.availability.complete
-        ):
+    def require_mutation_adapter(self, *, node_id: str, vmid: int) -> ObservedInventoryAdapter:
+        observation = observe_proxmox_connection(self.adapter, fresh=True)
+        if observation.snapshot is None:
             raise WorkloadInventoryUnavailableError(observation)
-        return self.adapter
+        target = f"{node_id}:{vmid}"
+        for source in observation.snapshot.availability.sources:
+            if source.source not in {"vm_config", "vm_detail"}:
+                continue
+            if target in source.failed_targets or (not source.complete and not source.failed_targets):
+                raise WorkloadTargetObservationUnavailableError(observation, target, source.source)
+        return ObservedInventoryAdapter(
+            observation.snapshot,
+            is_test_fixture=bool(getattr(self.adapter, "is_test_fixture", False)),
+        )
 
     def require_create_adapter(self, *, fresh: bool = False) -> Any:
         observation = observe_proxmox_connection(self.adapter, fresh=fresh)
