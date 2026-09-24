@@ -113,3 +113,39 @@ def test_other_trust_profiles_keep_default_strict_verification():
     legacy, modern, not_ca = root(), root(legacy=False), root(is_ca=False)
     for certificates in ('', pem(modern[1]), pem(not_ca[1]), pem(legacy[1]) + pem(modern[1])):
         assert transport(certificates).context.verify_flags & ssl.VERIFY_X509_STRICT
+
+
+@pytest.mark.parametrize('timing', ['valid', 'expired', 'future'])
+def test_explicit_leaf_pin_checks_identity_and_validity_before_http(monkeypatch, timing):
+    from app.setup_integration.contracts import SetupError
+    ca = root()
+    _, cert = leaf(ca, timing=timing)
+    der = cert.public_bytes(serialization.Encoding.DER)
+    fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+    for pin in (fingerprint, '0' * 64):
+        client = ProxmoxSetupTransport('https://pve.example.test:8006/api2/json', certificate_sha256=pin,
+            resolver=lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.100.5', 8006))])
+        sent = []
+        class Peer:
+            def getpeercert(self, binary_form=False):
+                assert binary_form
+                return der
+            def settimeout(self, value):
+                pass
+            def sendall(self, value):
+                sent.append(value)
+                raise OSError('Stop after observing HTTP credentials')
+            def close(self):
+                pass
+        class Context:
+            def wrap_socket(self, *args, **kwargs):
+                return Peer()
+        client.context = Context()
+        monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: Peer())
+        with pytest.raises(SetupError) as failure:
+            client.request('POST', '/access/ticket', data={'password': 'synthetic-password'})
+        if timing == 'valid' and pin == fingerprint:
+            assert sent and failure.value.code == 'PROXMOX_COMMUNICATION_FAILED'
+        else:
+            assert not sent and failure.value.code == 'PROXMOX_TLS_FAILED'
+        assert 'synthetic' not in str(failure.value)

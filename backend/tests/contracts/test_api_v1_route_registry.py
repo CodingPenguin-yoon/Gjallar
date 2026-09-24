@@ -115,6 +115,7 @@ EXPECTED_API_V1_ROUTES = (
     ),
     ("GET", "/api/v1/setup/proxmox/registrations", "list_attempts", 200),
     ("POST", "/api/v1/setup/proxmox/registrations", "prepare", 200),
+    ("POST", "/api/v1/setup/proxmox/registrations/trust", "trust", 200),
     ("GET", "/api/v1/setup/proxmox/registrations/{attempt_id}", "status", 200),
     ("POST", "/api/v1/setup/proxmox/registrations/{attempt_id}/{action}", "action", 200),
     ("GET", "/api/v1/storage", "list_storage", 200),
@@ -227,7 +228,7 @@ def test_api_v1_route_registry_is_unchanged_during_router_extraction():
         )
     )
 
-    assert len(actual) == 81
+    assert len(actual) == 82
     assert actual == EXPECTED_API_V1_ROUTES
 
 

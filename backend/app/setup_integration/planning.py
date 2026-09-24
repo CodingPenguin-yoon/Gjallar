@@ -36,7 +36,12 @@ ROLE_PRIVILEGES = {
 }
 
 
+ROLE_PRIVILEGES["GjallarClusterV1"] = sorted({privilege for values in ROLE_PRIVILEGES.values() for privilege in values})
+
+
 def acl_plan(intent):
+    if intent.access_mode == "cluster":
+        return [{"path": "/", "role": "GjallarClusterV1", "propagate": 1}]
     scope = intent.scope
     rows = [{"path": f"/nodes/{value}", "role": "GjallarNodeReadV1", "propagate": 1} for value in scope.nodes]
     if 'host_network' in intent.features:
@@ -120,6 +125,8 @@ def permissions_at(request, path):
 
 
 def authority_warnings(intent):
+    if intent.access_mode == "cluster":
+        return ["현재와 이후 추가되는 클러스터 전체 자원을 관리합니다. 토큰에는 호스트 설정·VM 삭제·guest-agent 권한이 포함되며 Gjallar는 구현된 작업만 실행합니다."]
     warnings = []
     if 'host_storage' in intent.features:
         warnings.append('PVE token은 /storage의 Datastore.Allocate로 클러스터 전체 storage 설정을 변경할 수 있습니다. Gjallar는 별도로 선택한 host storage ID와 directory 설정 필드만 허용합니다.')
@@ -156,8 +163,10 @@ def build_plan(intent, request, *, attempt_id, connection_version):
             "expires_at": intent.expires_at, "privsep": 1, "scope": intent.scope.model_dump(),
             "features": intent.features, "roles": roles, "create_roles": create_roles, "acls": acls,
             "missing_privileges": missing, "connection_version": connection_version,
-            "trust_digest": digest(intent.ca_pem), "version": "pve9-managed-host-network.v17",
+            "trust_digest": digest(intent.certificate_sha256 or intent.ca_pem), "version": "pve9-managed-host-network.v17",
             "authority_warnings": authority_warnings(intent)}
+    if intent.access_mode == "cluster":
+        plan.update(access_mode="cluster", version="pve9-cluster.v1")
     return {**plan, "digest": digest(plan), "can_confirm": not missing}
 
 
@@ -175,6 +184,15 @@ def verify_token(intent, request):
     visible_nodes = {row.get("node") for row in nodes}
     if not set(intent.scope.nodes) <= visible_nodes:
         raise SetupError("PROXMOX_SCOPE_UNAVAILABLE", "선택한 노드를 모두 확인할 수 없습니다.", 502)
+    if intent.access_mode == "cluster":
+        if any(not isinstance(node, str) or not node for node in visible_nodes):
+            raise SetupError("PROXMOX_PROTOCOL_ERROR", "노드 이름을 확인할 수 없습니다.", 502)
+        for node in sorted(visible_nodes):
+            for resource in ("qemu", "storage", "network"):
+                values = request("GET", f"/nodes/{node}/{resource}")
+                if not isinstance(values, list) or any(not isinstance(row, dict) for row in values):
+                    raise SetupError("PROXMOX_PROTOCOL_ERROR", "클러스터 자원 목록을 확인할 수 없습니다.", 502)
+        return {"nodes": sorted(visible_nodes), "access_mode": "cluster"}
     seen = set()
     existing_vmids = set(intent.scope.vmids) | set(intent.scope.template_vmids)
     seen_storage = set()

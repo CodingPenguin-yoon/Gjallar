@@ -157,3 +157,59 @@ def wizard(app, *, read, password, output, attempt_id=None, include_compute=Fals
     if read("검증한 연결로 전환할까요? 전환 후 서버 재시작이 필요합니다. [yes/아니오]: ").strip() == "yes":
         row = step("activate")
     return {"ok": True, "data": row}
+
+
+def simple_wizard(app, *, read, password, output, attempt_id=None):
+    """Connect a whole cluster with one credential and one durable token."""
+    if attempt_id:
+        row = app.proxmox_setup('status', attempt_id=attempt_id)['data']
+        if row.get('access_mode') != 'cluster':
+            return wizard(app, read=read, password=password, output=output, attempt_id=attempt_id)
+    else:
+        endpoint = read('Proxmox 주소 (IP 또는 HTTPS 주소): ').strip()
+        if '://' not in endpoint:
+            endpoint = 'https://' + endpoint
+        owner = read('Proxmox 계정 [root]: ').strip() or 'root'
+        if '@' not in owner:
+            owner += '@pam'
+        trust = app.proxmox_setup('trust', body={'endpoint': endpoint})['data']
+        output('서버 인증서 SHA256: ' + trust['certificate_sha256'])
+        if read('이 Proxmox 인증서를 신뢰하고 저장할까요? [yes/아니오]: ').strip() != 'yes':
+            return {'ok': True, 'message': '연결을 취소했습니다.'}
+        row = app.proxmox_setup('prepare', body={'idempotency_key': str(uuid.uuid4()), 'intent': {
+            'endpoint': trust['endpoint'], 'owner': owner, 'certificate_sha256': trust['certificate_sha256'],
+            'scope': {}, 'access_mode': 'cluster', 'mode': 'issue',
+            'expires_at': int(time.time()) + 30 * 86400,
+        }})['data']
+    output('등록 ID: ' + row['attempt_id'] + ' · 중단 시 proxmox-setup --resume ' + row['attempt_id'])
+
+    def step(action, **fields):
+        return app.proxmox_setup(action, attempt_id=row['attempt_id'],
+                                 body={'expected_version': row['version'], **fields})['data']
+
+    if row['phase'] == 'active':
+        return {'ok': True, 'data': row, 'message': '연결이 저장됐습니다. 모든 Gjallar 서버 프로세스를 재시작한 뒤 자원을 조회하세요.'}
+    if row['phase'] in {'cancelled', 'revoked'}:
+        return {'ok': True, 'data': row, 'message': '종료된 등록입니다. --resume 없이 새 연결을 시작하세요.'}
+    if row['phase'] in {'prepared', 'authenticated', 'mfa_required', 'planned'}:
+        row = step('login', password=password('Proxmox 비밀번호: '))
+        if row.get('mfa_required'):
+            row = step('mfa', otp=password('TOTP: '))
+        row = step('plan')
+        if not row['plan']['can_confirm']:
+            return {'ok': False, 'data': row, 'message': '토큰 발급에 필요한 Proxmox 계정 권한이 부족합니다.', 'exit_code': 4}
+        output('현재와 이후 추가되는 전체 노드·VM·스토리지에 Gjallar의 관리 권한을 부여합니다. 토큰 유효기간은 30일이며 비밀번호는 저장하지 않습니다.')
+        if read('전용 토큰을 발급·저장하고 이 연결을 사용할까요? [yes/아니오]: ').strip() != 'yes':
+            return {'ok': True, 'data': row, 'message': '계획을 보존했습니다. 아직 토큰을 발급하지 않았습니다.'}
+        row = step('confirm', plan_digest=row['plan_digest'])
+    elif row['phase'] in {'secret_staged', 'verifying', 'acl_applying', 'acl_unknown', 'verified'}:
+        # Observation only: never replay token creation or ACL mutations after interruption.
+        row = step('verify')
+        if read('검증한 전체 연결을 사용할까요? [yes/아니오]: ').strip() != 'yes':
+            return {'ok': True, 'data': row}
+    else:
+        return {'ok': False, 'data': row, 'exit_code': 5,
+                'message': '발급 결과 확인이 필요합니다. proxmox-setup --advanced --resume ' + row['attempt_id'] + '에서 observe로 확인하세요.'}
+    row = step('activate')
+    return {'ok': True, 'data': row,
+            'message': '전용 토큰을 암호화 저장했습니다. 모든 Gjallar 서버 프로세스를 재시작하면 Gjallar 로그인으로 전체 자원을 관리할 수 있습니다. 이전 토큰은 자동 폐기하지 않습니다.'}

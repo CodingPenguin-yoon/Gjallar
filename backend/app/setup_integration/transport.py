@@ -10,22 +10,41 @@ import ssl
 from urllib.parse import urlencode, urlsplit
 
 from app.setup_integration.contracts import SetupError, permitted_address
-from app.setup_integration.tls import proxmox_tls_context
+from app.setup_integration.tls import proxmox_tls_context, pinned_tls_context, certificate_fingerprint, verify_certificate_pin
 
 
 class ProxmoxSetupTransport:
-    def __init__(self, endpoint, ca_pem="", *, resolver=socket.getaddrinfo):
+    def __init__(self, endpoint, ca_pem="", *, resolver=socket.getaddrinfo, certificate_sha256=""):
+        if certificate_sha256 and (ca_pem or not re.fullmatch(r"[a-f0-9]{64}", certificate_sha256)):
+            raise SetupError("PROXMOX_REQUEST_INVALID", "인증서 fingerprint를 확인하세요.", 422)
+        self.certificate_sha256 = certificate_sha256
         self.origin = urlsplit(endpoint)
         self.host = self.origin.hostname
         self.port = self.origin.port or 8006
         try:
-            self.context = proxmox_tls_context(ca_pem)
+            self.context = pinned_tls_context() if certificate_sha256 else proxmox_tls_context(ca_pem)
             addresses = {result[4][0] for result in resolver(self.host, self.port, type=socket.SOCK_STREAM)}
             if not addresses or any(not permitted_address(ipaddress.ip_address(value)) for value in addresses):
                 raise SetupError("PROXMOX_ENDPOINT_REJECTED", "이 Proxmox 주소는 사용할 수 없습니다.", 422)
             self.address = sorted(addresses)[0]
         except (OSError, ValueError):
             raise SetupError("PROXMOX_ENDPOINT_UNAVAILABLE", "Proxmox 주소 또는 CA 인증서를 확인하세요.", 502) from None
+
+    def verify_peer(self, ssl_object):
+        if self.certificate_sha256:
+            verify_certificate_pin(ssl_object.getpeercert(binary_form=True), self.certificate_sha256)
+
+    @classmethod
+    def probe_certificate(cls, *, endpoint):
+        # No HTTP request and no authentication data during first-use trust discovery.
+        transport = cls(endpoint)
+        try:
+            with socket.create_connection((transport.address, transport.port), timeout=5) as plain:
+                with pinned_tls_context().wrap_socket(plain, server_hostname=transport.host) as peer:
+                    fingerprint = certificate_fingerprint(peer.getpeercert(binary_form=True))
+            return {"endpoint": endpoint, "certificate_sha256": fingerprint}
+        except (OSError, ValueError):
+            raise SetupError("PROXMOX_TLS_FAILED", "Proxmox 서버 인증서를 확인할 수 없습니다.", 502) from None
 
     def request(self, method, path, *, data=None, ticket=None, csrf=None, token_id=None, secret=None, timeout=None,
                 response_metadata=False):
@@ -107,6 +126,7 @@ class ProxmoxSetupTransport:
             except BaseException:
                 plain.close()
                 raise
+            self.verify_peer(connection.sock)
             connection.sock.settimeout(read_timeout)
             connection.request(method, route, body=body, headers=headers)
             response = connection.getresponse()

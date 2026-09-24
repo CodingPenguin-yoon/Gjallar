@@ -16,9 +16,12 @@ class SetupError(RuntimeError):
         self.status = status
 
 
+FEATURES = {"read", "power", "compute", "create", "disk", "network", "clone", "delete", "console", "template", "image_build", "image_cleanup", "backup", "restore", "migrate", "host_storage", "host_network"}
+
+
 class Scope(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    nodes: list[str] = Field(min_length=1, max_length=128)
+    nodes: list[str] = Field(default_factory=list, max_length=128)
     vmids: list[int] = Field(default_factory=list, max_length=4096)
     template_vmids: list[int] = Field(default_factory=list, max_length=4096)
     restore_vmids: list[int] = Field(default_factory=list, max_length=4096)
@@ -61,6 +64,8 @@ class RegistrationIntent(BaseModel):
     ca_pem: str = Field(default="", max_length=65536)
     owner: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}@(pam|pve)$")
     scope: Scope
+    access_mode: Literal["scoped", "cluster"] = "scoped"
+    certificate_sha256: str = Field(default="", pattern=r"^(?:[a-f0-9]{64})?$")
     features: list[str] = Field(default_factory=lambda: ["read"], min_length=1, max_length=17)
     expires_at: int = Field(gt=0)
     mode: Literal["issue", "import_env"] = "issue"
@@ -108,12 +113,21 @@ class RegistrationIntent(BaseModel):
     @field_validator("features")
     @classmethod
     def supported_features(cls, value):
-        if not set(value) <= {"read", "power", "compute", "create", "disk", "network", "clone", "delete", "console", "template", "image_build", "image_cleanup", "backup", "restore", "migrate", "host_storage", "host_network"} or "read" not in value:
+        if not set(value) <= FEATURES or "read" not in value:
             raise ValueError("Unsupported feature combination")
         return sorted(set(value))
 
     @model_validator(mode="after")
     def creation_scope(self):
+        if self.ca_pem and self.certificate_sha256:
+            raise ValueError("Choose CA verification or certificate pinning")
+        if self.access_mode == "cluster":
+            if self.mode != "issue" or any(self.scope.model_dump().values()):
+                raise ValueError("Cluster registration issues a new token without resource lists")
+            self.features = sorted(FEATURES)
+            return self
+        if not self.scope.nodes:
+            raise ValueError("Scoped registration requires nodes")
         if ('host_network' in self.features) != bool(self.scope.host_bridges):
             raise ValueError('Host network configuration requires its own explicit bridge scope')
         if ('host_storage' in self.features) != bool(self.scope.host_storages):

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from gjallar_client.proxmox_setup import wizard
 
 
@@ -193,3 +195,46 @@ def test_host_network_scope_is_opt_in_and_tui_default_stays_unchanged():
         assert intent['features']==(['read','host_network'] if enabled else ['read'])
         assert intent['scope'].get('host_bridges',[])==(['vmbr40'] if enabled else [])
         assert any('Sys.Modify' in line for line in output) is enabled
+
+
+def test_simple_registration_only_asks_address_account_trust_password_and_confirmation():
+    from gjallar_client.proxmox_setup import simple_wizard
+    prompts, output, calls = [], [], []
+    answers = iter(['192.168.2.11', 'root', 'yes', 'yes'])
+    class Server:
+        version = 0
+        def proxmox_setup(self, action, *, attempt_id=None, body=None):
+            calls.append((action, body))
+            if action == 'trust':
+                assert body == {'endpoint': 'https://192.168.2.11'}
+                return {'data': {'endpoint': 'https://192.168.2.11:8006/api2/json', 'certificate_sha256': 'a'*64}}
+            if action == 'prepare':
+                assert body['intent']['owner'] == 'root@pam'
+                assert body['intent']['scope'] == {} and body['intent']['access_mode'] == 'cluster'
+                assert 'features' not in body['intent'] and 'password' not in str(body)
+            else:
+                assert body['expected_version'] == self.version
+            self.version += 1
+            row = {'attempt_id': 'synthetic-id', 'version': self.version, 'access_mode': 'cluster',
+                   'phase': {'prepare': 'prepared', 'login': 'authenticated', 'plan': 'planned',
+                             'confirm': 'verified', 'activate': 'active'}[action]}
+            if action == 'plan':
+                row.update(plan={'can_confirm': True}, plan_digest='plan-digest')
+            return {'data': row}
+    result = simple_wizard(Server(), read=lambda prompt: prompts.append(prompt) or next(answers),
+                           password=lambda prompt: prompts.append(prompt) or 'synthetic-password', output=output.append)
+    assert result['data']['phase'] == 'active'
+    assert [call[0] for call in calls] == ['trust', 'prepare', 'login', 'plan', 'confirm', 'activate']
+    assert len(prompts) == 5
+    assert 'synthetic-password' not in json.dumps(result) + ''.join(output)
+
+
+def test_simple_resume_unknown_does_not_replay_mutations():
+    from gjallar_client.proxmox_setup import simple_wizard
+    app = SetupServer('issue_unknown')
+    app.row['access_mode'] = 'cluster'
+    result = simple_wizard(app, read=lambda _: pytest.fail('No input required'),
+                           password=lambda _: pytest.fail('No password required'), output=lambda _: None,
+                           attempt_id='example-attempt')
+    assert [call[0] for call in app.calls] == ['status']
+    assert result['exit_code'] == 5 and '--advanced --resume' in result['message']

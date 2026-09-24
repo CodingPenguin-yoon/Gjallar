@@ -6,7 +6,7 @@ import os
 import socket
 from urllib.parse import urlencode
 
-from websockets.asyncio.client import connect
+from websockets.asyncio.client import connect, ClientConnection
 from websockets.exceptions import WebSocketException
 
 from app.console.domain import ConsoleError, ProxyTicket, review_vm, validate_target
@@ -81,9 +81,15 @@ class ConsoleClient:
         sock.setblocking(False)
         try:
             await asyncio.wait_for(asyncio.get_running_loop().sock_connect(sock, (transport.address, transport.port)), 5)
+            class PinnedConnection(ClientConnection):
+                async def handshake(self, *args, **kwargs):
+                    # TLS is established, but WebSocket headers/ticket have not been sent.
+                    transport.verify_peer(self.transport.get_extra_info('ssl_object'))
+                    return await super().handshake(*args, **kwargs)
+
             # Supplying an already connected socket also forbids all redirects in websockets.
             async with connect(uri, sock=sock, ssl=transport.context, server_hostname=transport.host,
-                    proxy=None, compression=None, additional_headers={'Authorization': f'PVEAPIToken={self.token_id}={self.secret}'},
+                    create_connection=PinnedConnection, proxy=None, compression=None, additional_headers={'Authorization': f'PVEAPIToken={self.token_id}={self.secret}'},
                     logger=_protocol_log, open_timeout=5, close_timeout=2, max_size=4 * 1024 * 1024, max_queue=16) as upstream:
                 yield upstream
         except (OSError, TimeoutError, WebSocketException, ValueError):

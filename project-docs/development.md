@@ -220,6 +220,12 @@ PROXMOX_TLS_INSECURE=false
 
 ### 관리형 Proxmox 등록 (지원 조합·운영 복구 검증 미완료)
 
+기본 CLI는 `gjallar proxmox-setup`(셸 안에서는 `proxmox-setup`)이다. Proxmox 주소에 IP만 입력해도 HTTPS/8006으로 정규화하고 계정은 Enter 또는 `root`이면 `root@pam`으로 처리한다. 인증서 SHA256 신뢰 확인 후 비밀번호를 입력하고 전체 연결을 확인하면 전용 토큰을 발급·암호화 저장·검증·전환한다. 노드·VM·스토리지·bridge·기능별 질문은 없다. 최초 신뢰할 지문은 Proxmox 서버 인증서와 대조하며, 이후 인증서가 변경되면 비밀번호/token 전송 전에 차단된다. 비밀번호는 저장하지 않는다.
+
+전환 후 모든 Gjallar 서버 프로세스를 재시작한다. bootstrap 설치는 같은 설치 경로로 `gjallar service stop --install-dir <경로>` 후 `gjallar service start --install-dir <경로>`를 실행한다. 웹·CLI에서 이후 추가된 자원도 재등록 없이 조회·관리한다. 토큰 유효기간은 30일이며 만료 전에 새 등록·전환으로 갱신한다. 이전 토큰은 자동 폐기하지 않는다. CLI와 서버 이미지를 모두 이번 코드로 갱신해야 하며 bootstrap이 기존 설치 이미지를 자동 교체하지 않는다.
+
+기존 연결은 자동 확대되지 않는다. 대상별 제한·기존 env 가져오기와 상세 복구는 `gjallar proxmox-setup --advanced`를 사용한다. 아래 기능별 scope 선택 설명은 이 제한 연결 및 기존 웹/TUI 상세 등록에 적용한다. 기본 전체 연결은 개별 scope 등록을 요구하지 않지만 VM 작업 자체의 지원 조건·검토·실행 확인은 유지한다.
+
 로그인·MFA·token 발급·ACL·암호화 저장·전환·폐기 흐름은 구현돼 있다. 사용자는 `2026-09-18` 실제 Proxmox 연결 성공을 확인했다. 정확한 연결 방식·package/realm/MFA/TLS 조합과 등록 중단·전환·폐기까지 검증했다는 근거는 아니므로 아래 전체 지원·복구 검증은 별도로 남긴다.
 
 신규 manifest v2 bootstrap은 installation UUID와 0600 `secrets/credential_key`를 준비하고 서버에 read-only로 mount한다. master key 원문은 env·manifest·DB에 넣지 않는다. 기존 manifest v1의 start/status/stop 호환은 유지하지만 자동 v2 변환·schema upgrade는 제공하지 않는다. 기존/운영 설치는 아래 migration·identity·키 backup 계획을 먼저 세우며 관리형 Compose를 임의로 수정해 검사를 우회하지 않는다.

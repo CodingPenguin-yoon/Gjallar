@@ -32,3 +32,27 @@ def proxmox_tls_context(ca_pem=''):
         # while accepting that legacy format, without a failed-request fallback.
         context.verify_flags &= ~ssl.VERIFY_X509_STRICT
     return context
+
+
+def pinned_tls_context():
+    """The caller MUST check the explicit leaf pin before sending application data."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+def certificate_fingerprint(der):
+    from datetime import datetime, timezone
+    from cryptography.hazmat.primitives import hashes
+    certificate = x509.load_der_x509_certificate(der)
+    now = datetime.now(timezone.utc)
+    if not certificate.not_valid_before_utc <= now <= certificate.not_valid_after_utc:
+        raise ssl.SSLError('Certificate outside validity period')
+    return certificate.fingerprint(hashes.SHA256()).hex()
+
+
+def verify_certificate_pin(der, expected):
+    import hmac
+    if not hmac.compare_digest(certificate_fingerprint(der), expected):
+        raise ssl.SSLError('Certificate fingerprint mismatch')

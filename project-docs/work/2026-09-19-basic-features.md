@@ -1079,3 +1079,30 @@
 - 최종 `pnpm run verify`, `pnpm run verify:container` 모두 exit 0: Client 262 passed, Backend 1650 passed / 78 skipped, 로컬 Frontend test/lint/build 성공 및 기준 runtime 이미지 빌드 성공. 변경 없는 Node 24 Frontend 단계는 기존 성공 cache를 사용했다. PostgreSQL 전용 78개는 같은 날 앞선 격리 DB 검사에서 통과했으며 이번 bind/Origin 변경에서는 재실행하지 않았다.
 - 집중 로그인·API·콘솔 검사 67개, 문서 계약 10개, `git diff --check` 통과. 초기 추가 테스트의 auth/me 응답 경로 기대값을 실제 data.user 계약에 맞춘 후 통과했다. 최종 IP 비고정 방식에서 복수 주소와 same-origin/다른 Origin 거부를 재검증했다.
 - 사용법·아키텍처·로드맵을 갱신했다. 최종 로그는 `/tmp/gjallar-bind-final-verify-0923.log`, `/tmp/gjallar-bind-final-container-0923.log`다. 기존 Vite chunk 크기·라이브러리 deprecation 경고와 로컬 Node 26 engine 경고는 남는다. 사용자 VM에는 배포하지 않았으며 실제 외부 브라우저·VM 네트워크 접속은 미검증이다. commit/push 없음.
+
+### 간단한 Proxmox 전체 연결 (2026-09-24, IMPLEMENTED)
+
+- 사용자 승인: 주소·root/비밀번호로 최초 한 번 인증해 전용 토큰을 암호화 저장하고 이후 Gjallar 로그인만으로 운영한다. 기본 CLI에서 env 가져오기·기능별 권한·노드/VM/storage/bridge 사전 목록 질문을 제거한다. bare IP와 root를 정규화한다.
+- 권한 계약: 신규 `cluster` 접근 profile은 현재와 미래 클러스터 자원 전체에서 Gjallar가 구현한 기능을 허용한다. 전용 privilege-separated token에 지원 기능들의 고정 권한을 루트 ACL로 부여한다. 기존 scoped 연결은 자동 확대하지 않고 유지한다. 개별 작업의 역할·검토/실행·지원 필드·잠금·결과 확인·미확정 복구는 유지한다. raw shell API를 새로 제공하지 않는다.
+- TLS/인증: 기본 연결은 비밀을 보내기 전 서버 인증서 fingerprint를 조회·확인해 고정한다. 인증서 변경은 비밀번호/token 전송 전에 차단하며 insecure 자동 fallback은 없다. 기존 CA 경로는 호환한다. root 비밀번호·ticket은 영구 저장하지 않는다. 기존 registration CAS·단계별 durable evidence·암호화·명시적 전환과 재시작 경계를 재사용한다. 기존 DB schema/credential ciphertext를 변환하지 않는다.
+- 범위: 서버 계약·token 계획/검증·전체 자원 runtime, CLI 기본 간단 등록(기존 상세 흐름은 명시적 옵션), 웹에서 저장된 연결 사용. bootstrap 자체의 Proxmox 자동 실행·기존 설치 자동 배포·실제 PVE token/ACL 생성은 이 코드 변경에 포함하지 않는다.
+- 검증: 정규화/입력 거부, fingerprint mismatch와 인증 전 실패, root 인증·발급·암호화·활성화, 미래 VM/노드/스토리지 처리, 기존 scoped 제한·불허 요청 보존, 단계별 실패/중복 요청, CLI 질문/secret 비노출, 공통 로컬/컨테이너·PostgreSQL 통합 검사.
+- 복구: 등록 중단은 기존 attempt 상태에서 관찰/재개하며 token 생성·ACL 요청을 자동 반복하지 않는다. 기존 연결을 자동 폐기하거나 범위를 확대하지 않는다. 전체 연결 전환 실패 시 기존 활성 연결·작업 이력을 유지하며 단순히 질문을 감추기 위해 검증을 우회하지 않는다.
+
+구현 결과:
+
+- 기본 `proxmox-setup`은 주소·계정·인증서 신뢰·비밀번호·전체 연결 확인으로 끝난다. IP에 HTTPS/8006, realm 없는 계정에 `@pam`을 적용한다. env 가져오기와 대상·기능별 질문은 `--advanced`에 남긴다. TOTP는 서버가 요구할 때만 묻는다. 중단된 발급은 자동 재전송하지 않고 상세 관찰 경로를 안내한다.
+- `RegistrationIntent.access_mode=cluster`는 빈 scope와 현재 지원 feature 전체를 사용하며 전용 `GjallarClusterV1`·루트 전파 ACL·privsep=1을 계획한다. 기존 scoped intent의 기본값·hash·저장 설정·암호화 AAD를 보존한다. 새 schema/migration은 없다.
+- `cluster_scope.py`는 요청의 대상만 기존 필드 정책에 투영한다. 전체 연결의 admission·inventory·console·제작 경로에서 기존 등록 목록을 요구하지 않는다. 기존 scope 제한, 임의 shell/설정 거부, Operation 검토·실행·복구는 유지한다.
+- 관리자 `/trust`는 인증정보 없이 서버 인증서 지문을 조회한다. 확인한 pin을 저장하고 HTTP·이미지 upload·WSS 인증정보 전송 전에 비교한다. 불일치·기간 오류는 실패하며 자동 trust fallback은 없다. root 비밀번호는 저장하지 않고 발급 token은 기존 credential 암호화를 사용한다.
+- PRD·아키텍처·개발 안내·로드맵에 기본 전체 연결과 기존 제한 연결의 차이를 반영했다. 기본 token은 기존과 같은 30일 만료이며 자동 갱신은 없다. 새 코드의 CLI와 서버 이미지가 모두 필요하고 연결 전환 후 모든 서버 프로세스를 재시작한다.
+- 검증 중간 결과: 관련 backend/console/client 479개 통과, 임시 PostgreSQL 17 새 DB의 migration head 및 통합 검사 78개 통과·컨테이너 정리 완료. 전체 local/container 검사 결과는 아래 최종 기록을 따른다.
+- 실환경 제한: 실제 PVE 로그인·신규 token/ACL 발급과 사용자 VM 설치의 업데이트는 실행하지 않았다. 기존 PVE 사용자·token·설치 DB를 변경하지 않았다.
+
+최종 검증:
+
+- `git diff --check` 통과.
+- `pnpm run verify` 통과: client 264개, backend 1678개 통과·PostgreSQL 전용 78개 skip, frontend test·lint·build 통과. 로그 `/tmp/gjallar-simple-verified.log`.
+- `pnpm run verify:container` 통과: client 264개, backend 1678개 통과·78개 skip, production image `gjallar:local` 빌드 완료. 로그 `/tmp/gjallar-simple-final-container.log`.
+- 별도 일회용 PostgreSQL 17에서 새 schema head와 통합 검사 78개 모두 통과. 로그 `/tmp/gjallar-simple-postgres.log`. 테스트 컨테이너·임시 secret을 정리했다.
+- 커밋·푸시와 사용자 VM 배포는 실행하지 않았다. 실제 신규 PVE token/ACL 발급 검증은 남아 있다.

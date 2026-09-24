@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.session import session_scope
 from app.setup_integration.contracts import SetupError
+from app.setup_integration.cluster_scope import request_scope
 from app.setup_integration.crypto import CredentialCipher, CredentialKeyError
 from app.setup_integration.models import ProxmoxConnectionRecord, ProxmoxCredentialRecord
 from app.setup_integration.repository import decrypt_credential, lock_connection
@@ -101,7 +102,7 @@ def admit_mutation(session, *, cluster_id, vmid, operation_type):
         targets = list(config["scope"]["vmids"]) + list(config["scope"].get("restore_vmids", []))
     if feature == "clone":
         targets = list(config["scope"]["vmids"]) + list(config["scope"].get("clone_vmids", []))
-    if vmid not in targets:
+    if config.get("access_mode", "scoped") != "cluster" and vmid not in targets:
         raise SetupError("SETUP_TARGET_NOT_SELECTED", "현재 연결의 VM 범위에 포함되지 않습니다.", 403)
     try:
         decrypt_credential(CredentialCipher.configured(), connection, credential)
@@ -130,7 +131,7 @@ def admit_host_mutation(session, *, cluster_id, operation_type, target):
     scope = config['scope']
     resource_key, resource_id = (('host_storages', target['storage_id']) if operation_type == 'host_storage'
                                  else ('host_bridges', target['bridge_id']))
-    if target['node_id'] not in scope['nodes'] or resource_id not in scope.get(resource_key, []):
+    if config.get('access_mode', 'scoped') != 'cluster' and (target['node_id'] not in scope['nodes'] or resource_id not in scope.get(resource_key, [])):
         raise SetupError('SETUP_TARGET_NOT_SELECTED', '현재 연결의 호스트 설정 범위에 포함되지 않습니다.', 403)
     try:
         decrypt_credential(CredentialCipher.configured(), connection, credential)
@@ -143,10 +144,11 @@ class ManagedRequests:
         from app.setup_integration.transport import ProxmoxSetupTransport
         self.configuration = selection["configuration"]
         self.secret = selection["secret"]
-        self.transport = ProxmoxSetupTransport(self.configuration["endpoint"], self.configuration["ca_pem"])
+        self.transport = ProxmoxSetupTransport(self.configuration["endpoint"], self.configuration["ca_pem"], **(
+            {"certificate_sha256": self.configuration["certificate_sha256"]} if self.configuration.get("certificate_sha256") else {}))
 
     def request(self, method, path, *, data=None, timeout=None, response_metadata=False, host_network_configuration=False):
-        scope = self.configuration["scope"]
+        scope = request_scope(self.configuration, path, data)
         if host_network_configuration and ('host_network' not in self.configuration['features'] or not response_metadata):
             raise SetupError('SETUP_FEATURE_NOT_SELECTED', '전체 네트워크 관찰은 host_network 선택이 필요합니다.', 403)
         if response_metadata and (method != "GET" or data is not None
@@ -310,7 +312,7 @@ class ManagedRequests:
         if method == "GET" and len(pieces) == 5 and pieces[2] == "storage" and pieces[4] == "content" and data == {"content": "import"}:
             if not isinstance(result, list) or any(not isinstance(row, dict) or not isinstance(row.get("volid"), str) for row in result):
                 raise SetupError("PROXMOX_PROTOCOL_ERROR", "이미지 staging 목록을 확인할 수 없습니다.", 502)
-            return [row for row in result if selected_import(row["volid"], scope, include_existing="image_cleanup" in self.configuration["features"]) and row["volid"].split(":", 1)[0] == pieces[3]]
+            return [row for row in result if selected_import(row["volid"], request_scope(self.configuration, path, {"volume": row["volid"]}), include_existing="image_cleanup" in self.configuration["features"]) and row["volid"].split(":", 1)[0] == pieces[3]]
         filter_key = None
         selected = None
         if method == "GET":
@@ -336,12 +338,13 @@ class ManagedRequests:
                 raise SetupError("PROXMOX_PROTOCOL_ERROR", "VMID 점유 여부를 확인할 수 없습니다.", 502)
             if path == '/storage' and any(not isinstance(item.get('storage'),str) for item in result):
                 raise SetupError('PROXMOX_PROTOCOL_ERROR','storage ID 존재 여부를 확인할 수 없습니다.',502)
-            result = [item for item in result if item.get(filter_key) in selected]
+            if self.configuration.get("access_mode", "scoped") != "cluster":
+                result = [item for item in result if item.get(filter_key) in selected]
         return {**metadata, "data": result} if metadata is not None else result
 
     def image_base_dependents(self, *, node, vmid, storage, volume):
         """Observe backing references without exposing unrelated VM/storage content."""
-        scope = self.configuration["scope"]
+        scope = request_scope(self.configuration, f"/nodes/{node}/qemu/{vmid}", {"storage": storage})
         if ("image_cleanup" not in self.configuration["features"] or node not in scope["nodes"]
                 or type(vmid) is not int or vmid not in scope["vmids"]
                 or storage not in scope.get("image_cleanup_storages", [])
@@ -361,7 +364,7 @@ class ManagedRequests:
                 if row.get("parent") == volume or row["volid"].startswith(volume + "/"))}
 
     def upload_image(self, *, node, vmid, storage, operation_id, image_id, file, heartbeat):
-        scope = self.configuration["scope"]
+        scope = request_scope(self.configuration, f"/nodes/{node}/qemu/{vmid}", {"storage": storage})
         if ("image_build" not in self.configuration["features"] or node not in scope["nodes"]
                 or type(vmid) is not int or vmid not in scope.get("image_vmids", []) or storage not in scope["storages"]):
             raise SetupError("SETUP_TARGET_NOT_SELECTED", "선택한 이미지 제작 VMID·노드·storage 범위를 확인하세요.", 403)
@@ -402,6 +405,6 @@ def console_selection(*, node_id, vmid):
         config = selection["configuration"]
         if "console" not in config["features"]:
             raise SetupError("SETUP_FEATURE_NOT_SELECTED", "현재 연결에서 콘솔 권한을 선택하지 않았습니다.", 403)
-        if node_id not in config["scope"]["nodes"] or vmid not in config["scope"]["vmids"]:
+        if config.get("access_mode", "scoped") != "cluster" and (node_id not in config["scope"]["nodes"] or vmid not in config["scope"]["vmids"]):
             raise SetupError("SETUP_TARGET_NOT_SELECTED", "현재 연결의 콘솔 대상 범위에 포함되지 않습니다.", 403)
     return selection

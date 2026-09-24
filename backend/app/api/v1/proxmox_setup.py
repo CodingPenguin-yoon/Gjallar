@@ -73,6 +73,19 @@ async def prepare(request: Request, actor=Depends(require_admin)):
         cluster_id=str(os.getenv("GJALLAR_CLUSTER_ID") or "gjallar-mvp").strip())
 
 
+@router.post("/trust")
+async def trust(request: Request, actor=Depends(require_admin)):
+    from app.setup_integration.transport import ProxmoxSetupTransport
+    payload = await body(request)
+    if set(payload) != {"endpoint"} or not isinstance(payload["endpoint"], str) or len(payload["endpoint"]) > 512:
+        raise error()
+    try:
+        endpoint = RegistrationIntent.endpoint_origin(payload["endpoint"])
+    except ValueError:
+        raise error() from None
+    return await call(ProxmoxSetupTransport.probe_certificate, endpoint=endpoint)
+
+
 @router.get("/{attempt_id}")
 async def status(attempt_id: str, request: Request, actor=Depends(require_admin)):
     return await call(service.status, attempt_id=attempt_id, actor_id=actor.user_id,

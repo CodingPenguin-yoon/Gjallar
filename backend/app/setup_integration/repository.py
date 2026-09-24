@@ -31,6 +31,7 @@ def lock_connection(session):
 def public_attempt(row):
     return {"attempt_id": row.attempt_id, "operation_id": row.operation_id,
             "mode": row.intent.get("mode", "issue"),
+            "access_mode": row.intent.get("access_mode", "scoped"),
             "token_id": row.intent["owner"] + "!gjallar-" + row.attempt_id if row.intent.get("mode", "issue") == "issue" else None,
             "phase": row.phase, "version": row.version, "resolved": row.resolved,
             "connection_version": row.expected_connection_version,
@@ -57,6 +58,11 @@ class RegistrationRepository:
             raise SetupError("SETUP_ADMIN_REQUIRED", "관리자 권한이 필요합니다.", 403)
         installation_id = str(uuid.UUID(installation_id))
         normalized = intent.model_dump(mode="json")
+        # Preserve the canonical input hash of existing scoped registrations.
+        if normalized["access_mode"] == "scoped":
+            normalized.pop("access_mode")
+        if not normalized["certificate_sha256"]:
+            normalized.pop("certificate_sha256")
         intent_hash = digest(normalized)
         identity_hash = hashlib.sha256(idempotency_key.encode()).hexdigest()
         # Check key availability before creating a workflow that can issue tokens.

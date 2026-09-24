@@ -57,3 +57,39 @@ def test_browser_websocket_debug_cannot_log_cookie_or_rfb_credentials():
     error = logging.LogRecord('uvicorn.error', logging.ERROR, '', 0, 'connection failed', (), None)
     error.websocket = object()
     assert ConsoleProtocolFilter().filter(error) and error.getMessage() == 'connection failed'
+
+
+def test_wss_pin_is_checked_before_auth_headers_or_ticket(monkeypatch):
+    import ssl
+    calls = []
+    sock = SimpleNamespace(setblocking=lambda _: None, close=lambda: None)
+    monkeypatch.setattr(infrastructure, 'socket', SimpleNamespace(socket=lambda *a: sock, AF_INET=2, AF_INET6=30, SOCK_STREAM=1))
+    async def send_handshake(self, *a, **k):
+        calls.append('credentials sent')
+    monkeypatch.setattr(infrastructure.ClientConnection, 'handshake', send_handshake)
+    @asynccontextmanager
+    async def connect(uri, **kwargs):
+        connection = kwargs['create_connection'].__new__(kwargs['create_connection'])
+        connection.transport = SimpleNamespace(get_extra_info=lambda name: 'peer-certificate')
+        await connection.handshake(additional_headers=kwargs['additional_headers'])
+        yield connection
+    monkeypatch.setattr(infrastructure, 'connect', connect)
+    def reject(peer):
+        assert peer == 'peer-certificate'
+        calls.append('pin checked')
+        raise ssl.SSLError('Fingerprint mismatch')
+    client = infrastructure.ConsoleClient.__new__(infrastructure.ConsoleClient)
+    client.path, client.token_id, client.secret = '/nodes/new/qemu/65001', 'root@pam!test', 'synthetic-secret'
+    client.transport = SimpleNamespace(host='pve.example.test', address='192.168.2.10', port=8006,
+                                      context=object(), verify_peer=reject)
+    async def run():
+        async def dial(*args):
+            pass
+        monkeypatch.setattr(asyncio.get_running_loop(), 'sock_connect', dial)
+        with pytest.raises(ConsoleError) as failure:
+            async with client.open(ProxyTicket(5901, 'synthetic-ticket', 'synthetic-password')):
+                pytest.fail('Must reject changed certificate')
+        assert failure.value.code == 'CONSOLE_UPSTREAM_FAILED'
+        assert 'synthetic' not in str(failure.value)
+    asyncio.run(run())
+    assert calls == ['pin checked']

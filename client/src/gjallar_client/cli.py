@@ -364,6 +364,7 @@ def parser():
     show = add(queries, "show", help="작업 결과·이벤트·복구 상태")
     show.add_argument("operation_id")
     setup = add(commands, "proxmox-setup", help="관리자용 Proxmox 연결 등록")
+    setup.add_argument("--advanced", action="store_true", help="대상·기능별 제한 또는 기존 토큰 가져오기")
     setup.add_argument("--resume")
     setup.add_argument("--list", action="store_true")
     install = add(commands, "bootstrap", help="로컬 설치·시작 (로그인은 별도 login)")
@@ -597,8 +598,11 @@ def execute(args, app):
         return workflows.create_execute(app, args.review_file, args.ack_yellow,
                                         lambda value: confirm_change(value, args.yes))
     if args.command == 'proxmox-setup':
-        from .proxmox_setup import wizard
+        from .proxmox_setup import wizard, simple_wizard
         from .output import text
+        if not args.list and not args.advanced:
+            return simple_wizard(app, read=prompt, password=secure_password,
+                output=lambda message: print(text(message), file=sys.stderr), attempt_id=args.resume)
         return app.proxmox_setup('list') if args.list else wizard(
             app, read=prompt, password=secure_password,
             output=lambda message: print(text(message), file=sys.stderr), attempt_id=args.resume,

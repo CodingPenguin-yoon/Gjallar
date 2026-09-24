@@ -150,6 +150,10 @@ M1의 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Pro
 
 ### Proxmox 등록과 credential 선택
 
+기본 CLI는 `access_mode=cluster`와 빈 scope로 신규 발급한다. 서버가 현재 지원하는 17개 feature를 확정하고 전용 privilege-separated token에 `GjallarClusterV1`의 지원 권한을 `/`·propagate=1 ACL로 부여한다. 현재·미래 자원을 포함하며 임의 PVE API/명령 실행 기능을 추가하지 않는다. 기존 intent의 기본값은 `scoped`이며 이전 canonical hash·암호화 AAD·DB schema를 보존한다. 아래 기능별 사전 대상 목록 계약은 `scoped`에 적용된다. 전체 연결도 각 작업의 실제 상태·지원 필드·역할·검토·잠금·복구 계약을 사용한다. runtime은 요청에 등장하는 대상을 기존 입력 정책에 투영하고, 자원 목록을 사전 등록 목록으로 필터링하지 않는다. 신규 자원마다 재등록할 필요가 없다.
+
+관리자 전용 collection `POST /trust`는 endpoint만 받아 인증정보 없는 TLS handshake로 유효기간과 leaf SHA256을 조회한다. CLI가 지문 신뢰 확인을 받은 뒤 `certificate_sha256`을 intent에 저장한다. 이 profile은 매 HTTP 요청 및 WSS handshake의 인증 header/ticket 전송 **전에** leaf 지문·기간을 확인한다. CA/hostname profile과 동시 지정하지 않으며 인증서 변경 시 실패하고 자동 재신뢰하지 않는다. 계획의 trust digest와 credential AAD에 pin이 결합된다. 기본 CLI는 30일 토큰을 발급하며 자동 갱신은 제공하지 않는다. 자체 인증서의 최초 지문 신뢰는 사용자가 확인한다. 아래 CA/hostname 검증 설명은 기존 CA profile에 적용한다.
+
 관리자 전용 `/settings/proxmox`, `gjallar proxmox-setup`, TUI `p`가 같은 `/api/v1/setup/proxmox/registrations` API를 사용한다. collection GET/POST는 본인 이력/등록, item GET은 상태, item POST `/{action}`은 login·mfa·plan·confirm·verify·activate·observe·cancel·revoke·import-plan·import-env다. create는 strict intent와 idempotency key, action은 expected_version을 요구한다. confirm/import-env는 plan_digest, revoke는 전체 token_id도 요구한다. 비밀번호·OTP는 login/mfa body로만 받으며 validation/upstream 오류에 원문을 반환하지 않는다.
 
 검증 대상은 사용자가 제공한 pve-manager `9.0.11`, pam/pve 비밀번호·TOTP다. 실제 package/realm 조합 지원을 확정한 것은 아니다. 서버는 HTTPS CA/hostname 검증 후 비밀번호를 전송한다. 명시적으로 제공한 단일 self-issued CA가 critical BasicConstraints CA=true이며 KeyUsage 확장을 생략한 구형 PVE root 형식일 때만 `setup_integration/tls.py`가 Python 3.13의 VERIFY_X509_STRICT 형식 검사를 완화한다. CERT_REQUIRED·chain signature·hostname·기간·TLS protocol/cipher 검증은 유지하고 system CA·현대 CA·복수 bundle은 기본 strict 정책을 따른다. 이 정책은 trust anchor 로드 시 결정하며 실패 후 insecure fallback/retry하지 않는다. DNS 목적지를 고정하고 loopback/link-local 등을 거부하며 proxy·redirect·자동 retry를 사용하지 않는다. PVE ticket/CSRF는 Gjallar actor/session에 결합한 최대 5분의 process 메모리 context이며 재시작·만료 후 재로그인이 필요하다. 다중 worker 간 context 공유는 없다.

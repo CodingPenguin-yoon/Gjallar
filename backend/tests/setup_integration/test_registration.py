@@ -19,7 +19,8 @@ from app.setup_integration.repository import RegistrationRepository
 
 
 class FakeProxmox:
-    def __init__(self):
+    def __init__(self, owner="test@pve"):
+        self.owner = owner
         self.calls = []
         self.token = None
         self.token_secret = "synthetic-issued-secret"
@@ -36,13 +37,13 @@ class FakeProxmox:
         if path == "/access/ticket":
             if self.totp and "tfa-challenge" not in data:
                 ticket = "PVE:!tfa!" + quote(json.dumps({"totp": True}), safe="") + ":fake-signature"
-                return {"username": "test@pve", "ticket": ticket, "CSRFPreventionToken": "synthetic-csrf"}
+                return {"username": self.owner, "ticket": ticket, "CSRFPreventionToken": "synthetic-csrf"}
             if "tfa-challenge" in data:
                 assert data["password"] == "totp:123456" and "otp" not in data
-            return {"username": "test@pve", "ticket": "PVE:synthetic-ticket", "CSRFPreventionToken": "synthetic-csrf"}
+            return {"username": self.owner, "ticket": "PVE:synthetic-ticket", "CSRFPreventionToken": "synthetic-csrf"}
         if path == "/version":
             return {"version": "9.0.11", "release": "9.0", "repoid": "fixture-only"}
-        if path == "/access/users/test%40pve":
+        if path == "/access/users/" + quote(self.owner, safe=""):
             return {"enable": 1, "expire": 0}
         if path.endswith("/token"):
             return [self.token] if self.token else []
@@ -50,7 +51,7 @@ class FakeProxmox:
             self.token = {"tokenid": path.split("/")[-1], **data}
             if self.fail_issue:
                 raise SetupError("PROXMOX_COMMUNICATION_FAILED", "lost response", 502)
-            return {"full-tokenid": "test@pve!" + self.token["tokenid"], "value": self.token_secret}
+            return {"full-tokenid": self.owner + "!" + self.token["tokenid"], "value": self.token_secret}
         if "/token/gjallar-" in path and method == "DELETE":
             self.token = None
             if self.fail_revoke:

@@ -100,7 +100,8 @@ class RegistrationService:
         intent = self.repository.intent(attempt_id, actor_id)
         if intent.mode != "issue":
             raise SetupError("SETUP_IMPORT_FLOW_REQUIRED", "환경변수 가져오기는 Proxmox 비밀번호 로그인을 사용하지 않습니다.")
-        transport = self.transport_factory(intent.endpoint, intent.ca_pem)
+        transport = self.transport_factory(intent.endpoint, intent.ca_pem, **(
+            {"certificate_sha256": intent.certificate_sha256} if intent.certificate_sha256 else {}))
         data = {"username": intent.owner, "password": password, "new-format": 1}
         if otp is not None:
             data["otp"] = otp
@@ -220,7 +221,8 @@ class RegistrationService:
             raise SetupError("SETUP_PHASE_CONFLICT", "현재 상태에서 token을 검증할 수 없습니다.")
         intent = self.repository.intent(attempt_id, actor_id)
         configuration, secret = self.repository.pending_credential(attempt_id=attempt_id, actor_id=actor_id)
-        transport = self.transport_factory(intent.endpoint, intent.ca_pem)
+        transport = self.transport_factory(intent.endpoint, intent.ca_pem, **(
+            {"certificate_sha256": intent.certificate_sha256} if intent.certificate_sha256 else {}))
         def request(method, path, **kwargs):
             return transport.request(method, path, token_id=configuration["token_id"], secret=secret, **kwargs)
         observed = verify_token(intent, request)
@@ -321,7 +323,8 @@ class RegistrationService:
                 "authority_warnings": authority_warnings(intent)}
         if digest(plan) != plan_digest:
             raise SetupError("SETUP_PLAN_CONFLICT", "기존 연결이 변경됐습니다. 계획을 다시 확인하세요.")
-        transport = self.transport_factory(intent.endpoint, intent.ca_pem)
+        transport = self.transport_factory(intent.endpoint, intent.ca_pem, **(
+            {"certificate_sha256": intent.certificate_sha256} if intent.certificate_sha256 else {}))
         verify_token(intent, lambda method, path, **kwargs: transport.request(method, path,
             token_id=token_id, secret=secret, **kwargs))
         if row["phase"] == "planned":

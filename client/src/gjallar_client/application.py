@@ -147,14 +147,16 @@ class Application:
     def proxmox_setup(self, action, *, attempt_id=None, body=None):
         import uuid
 
-        if action not in {"list", "prepare", "status", "login", "mfa", "plan", "confirm", "verify", "activate", "observe", "cancel", "revoke", "import-plan", "import-env"}:
+        if action not in {"trust", "list", "prepare", "status", "login", "mfa", "plan", "confirm", "verify", "activate", "observe", "cancel", "revoke", "import-plan", "import-env"}:
             raise ClientError("INVALID_ACTION", "지원하지 않는 연결 등록 작업입니다.", 2)
         name, profile = self.connections.get(self.connection_name)
         identity = self.status(name)
         if identity["user"]["role"] != "admin":
             raise ClientError("PERMISSION_DENIED", "Proxmox 연결 등록은 Gjallar 관리자만 할 수 있습니다.", 4)
         path = "setup/proxmox/registrations"
-        if action not in {"prepare", "list"}:
+        if action == "trust":
+            path += "/trust"
+        elif action not in {"prepare", "list"}:
             try:
                 path += "/" + str(uuid.UUID(attempt_id))
             except (ValueError, TypeError, AttributeError):
