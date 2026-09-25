@@ -2,49 +2,43 @@
 
 **English** · [한국어](README.ko.md)
 
-**Run your Proxmox environment from one place.**
+**Manage Proxmox VMs, templates, monitoring, and recovery from one web interface.**
 
-Gjallar is building a simpler way to prepare templates, manage VMs, monitor infrastructure, and recover from problems. The goal is to finish everyday Proxmox operations through Gjallar's web interface, without switching back to the Proxmox management UI.
+Gjallar is a web operations tool for Proxmox VE. It connects resource discovery, change review, execution, and result verification. Proxmox remains the execution engine and the source of truth; Gjallar keeps accounts, approvals, operation history, and recovery records.
 
-Proxmox remains the engine and the source of truth. Gjallar connects the steps: understand the current state, make a change, and verify the result.
+> **Under active development.** The features below are implemented in the current code. Live validation varies by feature and environment; implementation does not mean every workflow is production-validated. See the validation status below and the [roadmap](project-docs/roadmap.md).
 
-> **Under active development.** Product operations are web-only. The local tool retains installation, service management, and same-schema image upgrades; the user CLI and TUI have been removed. See the architecture and roadmap for implemented features and remaining live validation.
+## Implemented features
 
-## What matters
+The web interface has six main areas: overview, VM management, templates, monitoring, infrastructure, and operation history. Account and session management are available from the account menu.
 
-- **Easy to start.** Make installation and Proxmox connection straightforward.
-- **Finish the job.** Keep preparation, management, monitoring, and recovery in one workflow.
-- **Trust the result.** Show what changed, whether it worked, and what still needs attention. An accepted request is not proof of success.
-
-The immediate focus is a solid everyday tool for individual operators and small teams. Enterprise features and AI assistance are later extensions of that foundation.
-
-## The experience we are building
-
-| Area | Goal |
+| Area | Current implementation |
 |---|---|
-| Setup | Simple bootstrap on macOS and Linux, connection checks, and clear configuration guidance |
-| Templates | Register, prepare, validate, and manage reusable VM templates |
-| VM management | Create, clone, remove, start, shut down, change resources, and access VM consoles |
-| Monitoring | See node, VM, and storage health, resource usage, trends, and failed tasks |
-| Recovery | Inspect failures, manage backups, restore VMs, and verify outcomes |
-| Infrastructure | Inspect and manage the nodes, storage, and networks needed for everyday work |
-| Web operations | Complete supported workflows through the web interface |
+| Installation and connection | Managed Docker Compose bootstrap, service start/status/stop, and image upgrades with an unchanged DB schema. Web-based Proxmox registration through dedicated token issuance or existing-token import, verification, and activation |
+| Overview and inventory | Cluster overview, node comparison and detail, and VM/template/storage/network observations. New connections discover current and future resources without entering individual resource IDs; mutation capabilities are selected separately |
+| VM creation and power | Clone an existing Proxmox template using direct specifications or an optional preset; review and approve the plan; optionally boot and verify guest agent, IP, and cloud-init. Start and graceful shutdown with result checks |
+| VM configuration | Change CPU cores and memory on supported stopped VMs; expand NFS `scsi0` disks; change an existing NIC's bridge/VLAN; full clone and explicit deletion with source/preserved-resource checks |
+| Web console | Authenticated noVNC screen console for running QEMU VMs, with explicit connection and disconnection |
+| Templates | Convert a prepared stopped VM to a template; build from the fixed AlmaLinux 9.8 GenericCloud x86_64 catalog; explicitly clean up owned templates/uploaded sources; inspect test deployments and record operator-confirmed access results |
+| Monitoring | Current node/VM/storage metrics, PVE history for hour/day/week/month/year, threshold exceedance/clearance intervals, operation failure/recovery history, and risk/readiness/capacity/placement insights |
+| Backup and restore | List backups and explicitly back up supported stopped VMs to NFS; restore an archive to a separate VMID with its NIC disconnected; inspect preservation, configuration, and subsequent boot/guest-agent observations |
+| Maintenance and host settings | Manually move supported stopped VMs between nodes using shared NFS; inspect node maintenance readiness; register/update existing directory storage; create/update limited VM Linux bridges and apply node-wide network changes |
+| Operations and accounts | Operation status, events, evidence, creation history, and supported recovery observations; externally executed Guided `qm unlock`; local login, sessions, and `viewer`/`operator`/`admin` roles |
 
-**The priority question: “What still makes an operator leave Gjallar and open Proxmox?”** Each supported workflow should be complete before adding more surface area. Proxmox's own emergency administration paths remain available.
+Detailed support conditions and execution procedures are maintained in the [architecture](project-docs/architecture.md) and [operations runbook](project-docs/development.md).
 
-These are product goals, not a list of shipped features. See the [product specification](project-docs/prd.md) for the agreed direction and current implementation boundary.
+## Validation status and limits
 
-## Available today
+Recorded live checks include managed installation on macOS, existing-token import, full-cluster inventory, template-based creation with boot/DHCP/guest-agent/cloud-init checks, power operations, CPU/memory changes, disk expansion, NIC changes, full clone, deletion, and console connection/disconnection. Monitoring has been compared with actual PVE metrics and history. These checks cover specific environments and targets, not every supported combination.
 
-| Capability | Current support |
-|---|---|
-| Inventory | Node, VM, template, storage, and network observations; VM details linked to recent operations |
-| Insights | Risk, readiness, capacity, and placement findings with evidence and observation freshness |
-| VM creation | Clone an existing Proxmox template, enter specifications directly or use an optional preset, review and approve the plan, and optionally boot and verify |
-| Power operations | Start and graceful shutdown with pre-checks and result verification |
-| Guided unlock | A restricted `qm unlock` procedure executed externally by the operator, followed by API verification |
-| Operation history | Status, event timelines, evidence, job history, and supported recovery observations |
-| Accounts | Local authentication, sessions, and `viewer`, `operator`, and `admin` roles |
+Template conversion/image building/cleanup, backup creation/restore, stopped-VM node migration, and host storage/bridge changes still need live mutation validation. New Proxmox login/token issuance and the remaining installation/authentication combinations also need validation. Console connection checks do not establish guest login success; actual SSH login and some alert transition/recovery scenarios remain unverified. The [roadmap](project-docs/roadmap.md#진행-상태) tracks the evidence and remaining work.
+
+- Product operations are web-only. The local `gjallar` tool retains `bootstrap`, `service start/status/stop`, and `upgrade`; user CLI/TUI operations have been removed.
+- VM creation requires an existing Proxmox template. ISO installation and empty-VM creation are not supported.
+- Configuration, clone, backup, restore, and migration support specific VM/storage/network combinations. Disk shrinking, running-VM hotplug, live migration, and automatic DRS are outside the current scope.
+- Monitoring reads PVE observations/history on request. There is no separate telemetry store, continuous collector, or external alert delivery.
+- Restore preserves the original VM and backup and initially leaves the new VM stopped with its NIC disconnected. Boot and access checks are separate steps.
+- Host settings are limited to existing directory storage and VM Linux bridges. Management IP/gateway changes, physical NIC rearrangement, disk formatting, and Ceph management are not supported.
 
 ### Honest state and explicit outcomes
 
@@ -53,11 +47,19 @@ These are product goals, not a list of shipped features. See the [product specif
 - Recovery observation rechecks Proxmox and reconciles local records. It does not blindly replay the original change. The background recovery observer is disabled by default.
 - Monitoring uses Proxmox observations and available history; it does not run a separate telemetry store. A running VM does not by itself prove that its applications are healthy.
 
-The broader VM, template, monitoring, backup/restore, and infrastructure flows are implemented with varying live-validation coverage. See the roadmap for exact limits. VM creation requires an existing Proxmox template; ISO installation and empty-VM creation are not supported.
-
 ## Run the current application
 
 For the managed bootstrap installer and manual setup, follow the [operations runbook](project-docs/development.md) for dependency installation, environment configuration, PostgreSQL initialization, and account creation.
+
+### Managed installation
+
+The Python installation tool runs the application and PostgreSQL through Docker Compose. It requires Python **3.13+**, Docker, Compose **2.20+**, and an application image built from this repository. A public release registry and signed release manifest are not yet provided.
+
+Follow the runbook's [installer preparation](project-docs/development.md#설치-도구-준비와-웹-접속) and [new installation](project-docs/development.md#새-로컬-설치-별도-실행-승인검증-대상) procedures. The default web binding is loopback; new installations can explicitly use `--bind-address 0.0.0.0` for access from other machines. Database ports are not published, and TLS proxy setup is separate.
+
+Managed initialization is explicit: normal service startup does not run migrations or recreate the administrator. `upgrade` only switches between images with the same DB schema. Existing-database migration follows a separate runbook procedure.
+
+After installation, sign in through the browser and register or import a connection under **Infrastructure → Proxmox connection**. Select the permitted operations, verify and activate the connection, then restart all Gjallar server processes as instructed in the runbook. Existing environment-based Proxmox configuration is also supported.
 
 ### Local development
 
@@ -78,7 +80,7 @@ Default local addresses:
 
 A Dockerfile is included. The production image serves the built web interface and FastAPI backend together; PostgreSQL is configured separately.
 
-Follow the runbook's container instructions. Container startup applies database migrations, seeds optional creation presets, and can bootstrap an administrator. Review the existing-database procedure before pointing it at an existing installation.
+Follow the runbook's container instructions. The legacy manual container entrypoint runs migrations, preset seeding, and optional administrator bootstrap on startup; it differs from managed service startup. Review the existing-database procedure before pointing it at an existing installation.
 
 ## Development and verification
 
@@ -88,21 +90,26 @@ The repository contains a React frontend, FastAPI backend, PostgreSQL/Alembic pe
 |---|---|
 | `frontend/` | Web interface |
 | `backend/app/` | API, observations, operations, and Proxmox integration |
-| `backend/tests/` | Backend and contract tests |
+| `backend/alembic/` | Database migrations |
+| `backend/tests/` | Backend, contract, and integration tests |
 | `client/` | Local installation/service tool only; historical package path retained |
 | `project-docs/` | Shared product and engineering documentation |
 
-With the required development dependencies installed:
+With the installer, backend, and frontend development dependencies installed:
 
 ```bash
 pnpm run verify
 ```
+
+This runs installer and backend tests, frontend tests, ESLint, and the frontend production build. PostgreSQL integration tests require a separate disposable test database configured as described in the runbook.
 
 For container-based verification with Docker available:
 
 ```bash
 pnpm run verify:container
 ```
+
+Container verification builds the installer/backend test images and production image; it does not start the application or run live Proxmox mutations.
 
 ## Documentation
 
