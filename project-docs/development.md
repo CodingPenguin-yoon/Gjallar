@@ -220,6 +220,8 @@ PROXMOX_TLS_INSECURE=false
 
 ### 관리형 Proxmox 등록 (지원 조합·운영 복구 검증 미완료)
 
+웹 `/settings/proxmox`의 새 연결은 자원 ID 입력 없이 전체 노드·VM·템플릿·스토리지·네트워크를 조회한다. 새 자원도 자동 발견한다. 허용할 작업은 별도 선택하며 선택하지 않으면 read-only다. 선택 작업은 클러스터 전체에 적용되지만 실제 실행의 대상·권한·검토·잠금 검사는 유지한다. 기존 token import는 필요한 권한이 토큰에 이미 있어야 하며 upstream 권한을 바꾸지 않는다. 기존 제한 연결은 새 등록→검증→활성화→모든 서버 process 재시작으로 전환한다.
+
 기본 CLI는 `gjallar proxmox-setup`(셸 안에서는 `proxmox-setup`)이다. Proxmox 주소에 IP만 입력해도 HTTPS/8006으로 정규화하고 계정은 Enter 또는 `root`이면 `root@pam`으로 처리한다. 인증서 SHA256 신뢰 확인 후 비밀번호를 입력하고 전체 연결을 확인하면 전용 토큰을 발급·암호화 저장·검증·전환한다. 노드·VM·스토리지·bridge·기능별 질문은 없다. 최초 신뢰할 지문은 Proxmox 서버 인증서와 대조하며, 이후 인증서가 변경되면 비밀번호/token 전송 전에 차단된다. 비밀번호는 저장하지 않는다.
 
 전환 후 모든 Gjallar 서버 프로세스를 재시작한다. bootstrap 설치는 같은 설치 경로로 `gjallar service stop --install-dir <경로>` 후 `gjallar service start --install-dir <경로>`를 실행한다. 웹·CLI에서 이후 추가된 자원도 재등록 없이 조회·관리한다. 토큰 유효기간은 30일이며 만료 전에 새 등록·전환으로 갱신한다. 이전 토큰은 자동 폐기하지 않는다. CLI와 서버 이미지를 모두 이번 코드로 갱신해야 하며 bootstrap이 기존 설치 이미지를 자동 교체하지 않는다.

@@ -1,6 +1,6 @@
 """Exact role/ACL planning for opt-in PVE 9 capabilities."""
 from app.cloud_images.contracts import VM_PRIVILEGES
-from app.setup_integration.contracts import SetupError, digest
+from app.setup_integration.contracts import FEATURES, SetupError, digest
 
 
 ROLE_PRIVILEGES = {
@@ -38,10 +38,32 @@ ROLE_PRIVILEGES = {
 
 ROLE_PRIVILEGES["GjallarClusterV1"] = sorted({privilege for values in ROLE_PRIVILEGES.values() for privilege in values})
 
+CLUSTER_FEATURE_ROLES = {
+    "read": ["GjallarNodeReadV1", "GjallarVmReadV1", "GjallarStorageReadV1", "GjallarBridgeReadV1"],
+    "power": ["GjallarVmPowerV1"],
+    "compute": ["GjallarVmComputeV1"],
+    "console": ["GjallarVmConsoleV1"],
+    "template": ["GjallarVmTemplateV2"],
+    "delete": ["GjallarVmDeleteV1", "GjallarVmDeleteStorageV1"],
+    "disk": ["GjallarVmDiskV1", "GjallarStorageAllocateV1"],
+    "network": ["GjallarVmNetworkV1", "GjallarBridgeUseV1"],
+    "clone": ["GjallarVmCloneV2", "GjallarVmCloneTargetV2", "GjallarStorageAllocateV1", "GjallarBridgeUseV1"],
+    "create": ["GjallarTemplateCloneV1", "GjallarVmCreateV1", "GjallarStorageAllocateV1", "GjallarBridgeUseV1"],
+    "backup": ["GjallarVmBackupV1", "GjallarStorageAllocateV1"],
+    "restore": ["GjallarVmBackupV1", "GjallarVmRestoreV1", "GjallarStorageAllocateV1", "GjallarBridgeUseV1"],
+    "migrate": ["GjallarVmMigrateV1", "GjallarBridgeUseV1"],
+    "image_build": ["GjallarImageBuildV1", "GjallarImageUploadV1", "GjallarStorageAllocateV1", "GjallarBridgeUseV1"],
+    "image_cleanup": ["GjallarImageCleanupV1", "GjallarImageCleanupStorageV1"],
+    "host_storage": ["GjallarHostStorageV1"],
+    "host_network": ["GjallarHostNetworkV1"],
+}
+
 
 def acl_plan(intent):
     if intent.access_mode == "cluster":
-        return [{"path": "/", "role": "GjallarClusterV1", "propagate": 1}]
+        roles = (["GjallarClusterV1"] if set(intent.features) == FEATURES else
+                 sorted({role for feature in intent.features for role in CLUSTER_FEATURE_ROLES[feature]}))
+        return [{"path": "/", "role": role, "propagate": 1} for role in roles]
     scope = intent.scope
     rows = [{"path": f"/nodes/{value}", "role": "GjallarNodeReadV1", "propagate": 1} for value in scope.nodes]
     if 'host_network' in intent.features:
@@ -125,9 +147,10 @@ def permissions_at(request, path):
 
 
 def authority_warnings(intent):
-    if intent.access_mode == "cluster":
-        return ["현재와 이후 추가되는 클러스터 전체 자원을 관리합니다. 토큰에는 호스트 설정·VM 삭제·guest-agent 권한이 포함되며 Gjallar는 구현된 작업만 실행합니다."]
-    warnings = []
+    warnings = (["현재와 이후 추가되는 클러스터 전체 자원을 조회합니다. 선택한 작업 권한도 전체 자원에 적용됩니다."]
+                if intent.access_mode == "cluster" else [])
+    if "create" in intent.features or "image_build" in intent.features:
+        warnings.append("생성 기능에는 전원·guest-agent 권한이 포함됩니다. Gjallar의 허용 작업보다 PVE 토큰 자체 권한은 넓을 수 있습니다.")
     if 'host_storage' in intent.features:
         warnings.append('PVE token은 /storage의 Datastore.Allocate로 클러스터 전체 storage 설정을 변경할 수 있습니다. Gjallar는 별도로 선택한 host storage ID와 directory 설정 필드만 허용합니다.')
     if 'host_network' in intent.features:

@@ -122,9 +122,10 @@ class RegistrationIntent(BaseModel):
         if self.ca_pem and self.certificate_sha256:
             raise ValueError("Choose CA verification or certificate pinning")
         if self.access_mode == "cluster":
-            if self.mode != "issue" or any(self.scope.model_dump().values()):
-                raise ValueError("Cluster registration issues a new token without resource lists")
-            self.features = sorted(FEATURES)
+            if any(self.scope.model_dump().values()):
+                raise ValueError("Cluster registration does not accept resource lists")
+            if "features" not in self.model_fields_set:
+                self.features = sorted(FEATURES)
             return self
         if not self.scope.nodes:
             raise ValueError("Scoped registration requires nodes")

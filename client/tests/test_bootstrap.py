@@ -364,3 +364,25 @@ def test_existing_binding_change_preserves_files_and_service(setup, external):
     assert before == bootstrap.manifest_path.read_bytes()
     assert config == (bootstrap.directory / "compose.json").read_bytes()
     assert not any("stop" in args or "up" in args for args, _ in runner.calls)
+
+
+def test_port_check_rejects_listener_but_allows_closed_connection():
+    import socket
+    from gjallar_client.bootstrap import check_port
+
+    with socket.socket() as server, socket.socket() as peer:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('127.0.0.1', 0))
+        port = server.getsockname()[1]
+        server.listen(1)
+        with pytest.raises(ClientError) as error:
+            check_port(port)
+        assert error.value.code == 'PORT_IN_USE'
+        peer.connect(('127.0.0.1', port))
+        accepted, _ = server.accept()
+        with accepted:
+            accepted.shutdown(socket.SHUT_WR)
+            assert peer.recv(1) == b''
+            peer.close()
+            assert accepted.recv(1) == b''
+    check_port(port)

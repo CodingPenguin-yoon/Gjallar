@@ -12,7 +12,7 @@ from app.db.session import session_scope, get_engine
 from app.operations.core.domain import OperationActor
 from app.setup_integration.contracts import RegistrationIntent, SetupError, FEATURES
 from app.setup_integration.crypto import CredentialCipher
-from app.setup_integration.models import ProxmoxCredentialRecord
+from app.setup_integration.models import ProxmoxConnectionRecord, ProxmoxCredentialRecord
 from app.setup_integration.registration import RegistrationService
 from app.setup_integration.repository import RegistrationRepository
 from app.setup_integration import runtime
@@ -79,8 +79,51 @@ def test_cluster_partial_failure_never_reissues_token(cluster, phase):
 
 
 def test_cluster_is_explicit_and_cannot_silently_expand_scoped_intent():
-    for changes in ({'access_mode': 'scoped'}, {'scope': {'nodes': ['node1']}}, {'mode': 'import_env'},
+    for changes in ({'access_mode': 'scoped'}, {'scope': {'nodes': ['node1']}},
                     {'certificate_sha256': 'invalid'}):
         values = intent().model_dump()
         with pytest.raises(ValidationError):
             RegistrationIntent(**{**values, **changes})
+
+
+def test_cluster_explicit_features_plan_only_selected_privileges():
+    from app.setup_integration.planning import acl_plan, ROLE_PRIVILEGES
+    selected = intent(features=['read'])
+    assert selected.features == ['read']
+    privileges = {p for row in acl_plan(selected) for p in ROLE_PRIVILEGES[row['role']]}
+    assert privileges == {'Sys.Audit', 'VM.Audit', 'VM.GuestAgent.Audit', 'Datastore.Audit', 'SDN.Audit'}
+    assert all(row['path'] == '/' and row['propagate'] == 1 for row in acl_plan(selected))
+    assert intent(mode='import_env', features=['read']).features == ['read']
+
+
+def test_cluster_import_is_read_only_and_preserves_selected_features(cluster, monkeypatch):
+    service, fake, previous = cluster
+    def action_args(row, **extra):
+        return {k: v for k, v in args(row, **extra).items() if k != 'session_id'}
+    service.cancel(**action_args(previous))
+    with session_scope() as session:
+        installation_id = session.get(ProxmoxConnectionRecord, 1).installation_id
+    selected = intent(mode='import_env', features=['read', 'power'])
+    monkeypatch.setenv('PROXMOX_API_URL', selected.endpoint)
+    monkeypatch.setenv('PROXMOX_API_TOKEN_ID', 'root@pam!existing')
+    monkeypatch.setenv('PROXMOX_API_TOKEN_SECRET', fake.token_secret)
+    monkeypatch.delenv('PROXMOX_TLS_INSECURE', raising=False)
+    row = service.repository.prepare(intent=selected, idempotency_key='cluster-import',
+        actor=OperationActor(user_id='admin', role='admin'), installation_id=installation_id, cluster_id='gjallar-mvp')
+    planned = service.import_plan(**action_args(row))
+    assert planned['plan']['access_mode'] == 'cluster'
+    assert planned['plan']['features'] == ['power', 'read']
+    assert planned['plan']['upstream_changes'] is False
+    with pytest.raises(SetupError) as missing:
+        service.import_env(**action_args(planned, plan_digest=planned['plan_digest']))
+    assert missing.value.code == 'PROXMOX_TOKEN_SCOPE_INCOMPLETE'
+    fake.granted = {('/', 'GjallarClusterV1')}
+    verified = service.import_env(**action_args(planned, plan_digest=planned['plan_digest']))
+    active = service.activate(**action_args(verified))
+    assert active['phase'] == 'active'
+    assert all(method == 'GET' for method, *_ in fake.calls)
+    runtime._pins.pop(get_engine(), None)
+    with session_scope() as session:
+        runtime.admit_mutation(session, cluster_id='gjallar-mvp', vmid=65001, operation_type='vm_start')
+        with pytest.raises(SetupError):
+            runtime.admit_mutation(session, cluster_id='gjallar-mvp', vmid=65001, operation_type='vm_delete')

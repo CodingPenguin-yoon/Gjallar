@@ -89,6 +89,7 @@ Proxmox가 VM·노드·config·위치·전원·task actual state를 소유한다
 - 검토 후 입력 변경·다시 검토는 새 작업 identity와 승인·동의 초기화를 요구한다. VMID 추천은 예약이 아니다. 실행 직전 승인 조건 drift는 `409 PROXMOX_CREATE_STATE_CHANGED`, 필수 관찰 불가는 `503`으로 최초 mutation 전에 중단한다.
 - `stopped` 또는 `boot_and_verify`를 지원한다. 후자는 guest agent IP뿐 아니라 허용된 guest-exec로 cloud-init 완료 검사가 필요할 수 있다. 차단된 guest-exec 정책을 자동 해제하지 않는다.
 - 현대 완료 replay·evidence는 succeeded Operation의 당시 `details.workload`를 읽는다. 현재 VMID 재사용·이동이 과거 결과를 바꾸지 않는다. 손상된 성공 결과를 현재 row로 대체하지 않고 reconciliation을 요구한다. legacy는 exact job/node/VMID linkage만 사용한다.
+- 완료·성공 증거가 있는 Create 실행 재요청은 저장 계획을 사용하며 plan/preflight/review artifact를 새 관찰로 덮어쓰지 않는다. 같은 입력의 순수 계산 결과와 저장 계획을 비교하되 현재 관찰의 위험 요약은 역사적 replay 비교에서 제외한다. 생성된 자기 VM의 VMID·이름 충돌은 재실행 사유가 아니다. 생략한 VMID는 당시 선택값을 사용하며 변경된 설정·승인 checksum은 계속 거부한다. 신규 실행의 fresh 사전 검증은 유지한다.
 - 완료 VMID 독점·readiness owner 추정·current-workload writer는 제거됐다. readiness 증거는 명시적 Create Operation에 연결한다.
 
 ### Guided unlock의 보존할 의미
@@ -150,7 +151,9 @@ M1의 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Pro
 
 ### Proxmox 등록과 credential 선택
 
-기본 CLI는 `access_mode=cluster`와 빈 scope로 신규 발급한다. 서버가 현재 지원하는 17개 feature를 확정하고 전용 privilege-separated token에 `GjallarClusterV1`의 지원 권한을 `/`·propagate=1 ACL로 부여한다. 현재·미래 자원을 포함하며 임의 PVE API/명령 실행 기능을 추가하지 않는다. 기존 intent의 기본값은 `scoped`이며 이전 canonical hash·암호화 AAD·DB schema를 보존한다. 아래 기능별 사전 대상 목록 계약은 `scoped`에 적용된다. 전체 연결도 각 작업의 실제 상태·지원 필드·역할·검토·잠금·복구 계약을 사용한다. runtime은 요청에 등장하는 대상을 기존 입력 정책에 투영하고, 자원 목록을 사전 등록 목록으로 필터링하지 않는다. 신규 자원마다 재등록할 필요가 없다.
+기본 CLI는 `access_mode=cluster`와 빈 scope로 신규 발급한다. features를 생략하면 서버가 현재 지원하는 17개 feature를 확정하고 전용 privilege-separated token에 `GjallarClusterV1`의 지원 권한을 `/`·propagate=1 ACL로 부여한다. 현재·미래 자원을 포함하며 임의 PVE API/명령 실행 기능을 추가하지 않는다. 기존 intent의 기본값은 `scoped`이며 이전 canonical hash·암호화 AAD·DB schema를 보존한다. 아래 기능별 사전 대상 목록 계약은 `scoped`에 적용된다. 전체 연결도 각 작업의 실제 상태·지원 필드·역할·검토·잠금·복구 계약을 사용한다. runtime은 요청에 등장하는 대상을 기존 입력 정책에 투영하고, 자원 목록을 사전 등록 목록으로 필터링하지 않는다. 신규 자원마다 재등록할 필요가 없다.
+
+웹 신규 등록은 `access_mode=cluster`, 빈 scope와 명시적 features를 사용한다. 기본 read로 클러스터 전체·미래 자원을 조회하고 선택한 기능만 작업을 허용한다. 선택 기능의 기존 역할을 `/`·propagate=1로 계획·검증하며 전체 기능을 선택한 기존 연결은 `GjallarClusterV1`을 유지한다. features를 생략한 기존 기본 CLI의 전체 기능 계약은 보존한다. cluster도 기존 token import를 지원하며 plan digest에 access_mode를 포함한다. 기존 토큰의 실제 권한을 검사하고 PVE token/ACL을 수정하지 않는다. 이전 scoped 연결·암호화 AAD는 자동 변경하지 않으며 표준 등록·활성화·재시작으로 전환한다. 웹에서 자원별 등록 입력은 제거했지만 기존 등록 이력과 제한 연결 API/고급 CLI의 호환은 유지한다.
 
 관리자 전용 collection `POST /trust`는 endpoint만 받아 인증정보 없는 TLS handshake로 유효기간과 leaf SHA256을 조회한다. CLI가 지문 신뢰 확인을 받은 뒤 `certificate_sha256`을 intent에 저장한다. 이 profile은 매 HTTP 요청 및 WSS handshake의 인증 header/ticket 전송 **전에** leaf 지문·기간을 확인한다. CA/hostname profile과 동시 지정하지 않으며 인증서 변경 시 실패하고 자동 재신뢰하지 않는다. 계획의 trust digest와 credential AAD에 pin이 결합된다. 기본 CLI는 30일 토큰을 발급하며 자동 갱신은 제공하지 않는다. 자체 인증서의 최초 지문 신뢰는 사용자가 확인한다. 아래 CA/hostname 검증 설명은 기존 CA profile에 적용한다.
 

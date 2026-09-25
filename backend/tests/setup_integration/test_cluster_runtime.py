@@ -67,3 +67,25 @@ def test_cluster_access_does_not_bypass_operation_field_validation(cluster, meth
     with pytest.raises(SetupError):
         client.request(method, path, data=data)
     assert not calls
+
+
+def test_cluster_read_only_discovers_new_vms_but_never_writes(cluster):
+    client, calls, replies = cluster
+    client.configuration['features'] = ['read']
+    replies['/nodes/new-node/qemu'] = [{'vmid': 65001}, {'vmid': 65002}]
+    assert len(client.request('GET', '/nodes/new-node/qemu')) == 2
+    calls.clear()
+    for method, path, data in [
+        ('POST', '/nodes/new-node/qemu/65001/status/start', {}),
+        ('DELETE', '/nodes/new-node/qemu/65001', {'purge': 0, 'destroy-unreferenced-disks': 0}),
+        ('PUT', '/nodes/new-node/qemu/65001/config', {'cores': 4, 'memory': 8192, 'digest': 'a'*40}),
+    ]:
+        with pytest.raises(SetupError):
+            client.request(method, path, data=data)
+    assert not calls
+    client.configuration['features'] = ['read', 'power']
+    client.request('POST', '/nodes/new-node/qemu/65001/status/start', data={})
+    assert len(calls) == 1
+    with pytest.raises(SetupError):
+        client.request('DELETE', '/nodes/new-node/qemu/65001', data={'purge': 0, 'destroy-unreferenced-disks': 0})
+    assert len(calls) == 1

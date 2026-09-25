@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import Any
 
 from app.auth.roles import AuthenticatedUser, actor_detail_fields, actor_evidence
@@ -21,6 +21,7 @@ from app.db.vm_runtime import (
     record_vm_create_request,
 )
 from app.jobs.runs import record_job_run, run_dir
+from app.jobs.models import ArtifactRecord
 from app.operations.core.domain import (
     OperationActor,
     OperationIntentConflict,
@@ -49,6 +50,7 @@ from app.vm_create.drafts import build_default_vm_draft
 from app.db.create_vm_profiles import get_active_create_vm_profiles_by_id
 from app.vm_create.planner import calculate_vm_create_plan
 from app.vm_create.plan_persistence import persist_vm_create_plan
+from app.vm_create.models import VmCreatePlan
 from app.workloads.inventory import WorkloadInventoryQuery, WorkloadInventoryUnavailableError
 from app.vm_create.preflight import run_preflight
 from app.vm_create.proxmox_runner import build_proxmox_create_preview, run_proxmox_create
@@ -205,6 +207,35 @@ def build_preview_plan(
     draft = build_draft_from_payload(draft_id, payload, inventory_adapter=inventory_adapter)
     preflight = run_preflight(draft, profiles=_profiles_for_payload(payload), inventory_adapter=inventory_adapter)
     return persist_vm_create_plan(calculate_vm_create_plan(draft, preflight), run_dir=preview_run_dir(draft.job_id))
+
+
+def _build_execution_plan(draft_id, payload, *, inventory_adapter):
+    """Replay a completed intent without replacing its historical plan artifacts."""
+    existing = get_vm_create_request_record(str(payload.get("job_id", draft_id)))
+    result = (existing or {}).get("result") or {}
+    if not (existing and existing.get("status") == "completed" and result.get("success") is True
+            and result.get("observed_after_artifact")):
+        return build_preview_plan(draft_id, payload, inventory_adapter=inventory_adapter)
+
+    stored = existing["request_payload"]
+    replay_payload = dict(payload)
+    if replay_payload.get("vmid") is None:
+        replay_payload["vmid"] = stored["vmid"]
+    draft = build_draft_from_payload(draft_id, replay_payload, inventory_adapter=inventory_adapter)
+    preflight = run_preflight(draft, profiles=_profiles_for_payload(payload), inventory_adapter=inventory_adapter)
+    calculated = calculate_vm_create_plan(draft, preflight)
+    approved = {**stored, **stored["review_confirm"]}
+    # A completed VM naturally collides with itself in today's inventory. Only
+    # observational risk is excluded; requested configuration must still match.
+    if any(approved.get(key) != value for key, value in calculated.core.items()
+           if key not in {"risk_summary", "side_effects", "execution_intent"}):
+        raise _vm_create_operation_conflict(OperationIntentConflict(existing["request_id"]), draft_id=draft_id)
+    return VmCreatePlan(
+        **{field.name: stored[field.name] for field in fields(VmCreatePlan)
+           if field.name not in {"artifacts", "side_effects", "_transient_ssh_public_key"}},
+        artifacts=[ArtifactRecord(**artifact) for artifact in stored["artifacts"]],
+        side_effects=[], _transient_ssh_public_key=draft.access.transient_ssh_public_key,
+    )
 
 
 def _validate_fresh_create_state(plan, payload, inventory_adapter) -> None:
@@ -1015,7 +1046,7 @@ async def execute_proxmox_create(
 ) -> VmCreateApplicationResult:
     payload = payload or {}
     actor_payload = actor_evidence(actor) if actor is not None else {}
-    plan = await asyncio.to_thread(build_preview_plan, draft_id, payload, inventory_adapter=inventory_adapter)
+    plan = await asyncio.to_thread(_build_execution_plan, draft_id, payload, inventory_adapter=inventory_adapter)
     decision = validate_approval_request(
         plan,
         plan_artifact_id=str(payload.get("plan_artifact_id", "")),

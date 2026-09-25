@@ -1115,3 +1115,41 @@
 - 기존 배포 이미지 `gjallar:local`의 일회용 컨테이너에서도 동일 PVE에 인증정보 없는 probe가 성공했다. 따라서 개발 호스트·해당 이미지에서 재현된 실패로 단정하지 않는다. 사용자 VM의 네트워크·시각·실제 응답 확인이 남아 있다.
 - 검증: `git diff --check`, `pnpm run verify`, `pnpm run verify:container` 통과. local/container 모두 client 267개, backend 1682개 통과·PostgreSQL 전용 78개 skip. frontend test·lint·build 및 production image 빌드 통과. 로그는 `/tmp/gjallar-probe-errors-verify.log`, `/tmp/gjallar-probe-errors-container.log`다. DB 변경이 없어 PostgreSQL 통합 검사는 이번 수정에서 재실행하지 않았다.
 - 추가 사용자 증거: VM 호스트의 HTTP 조회 200, 실행 중인 컨테이너의 직접 certificate probe 성공, Gjallar 로그인 200과 실제 `POST /registrations/trust` 502를 확인했다. 실제 API 응답의 상세 오류 코드는 기존 CLI가 숨기므로 아직 실패 원인을 확정하지 않는다. CLI만 갱신해 기존 서버의 알려진 502 오류 코드를 볼 수 있다. 사용자 VM의 실패가 해결됐다고 판정하지 않는다.
+
+### VM 생성·관리 실사용 마무리 (2026-09-25, 진행 중)
+
+- 사용자 요청: 로컬에서 VM 생성부터 관리까지 완성한다. 기존 M2 흐름을 실제 사용 기준으로 확인한다. 이전 사용자 지정 환경은 PVE 192.168.2.11, yoonmanserver3, nas-server, vmbr0/vmbr2, 테스트 VMID40000~40010이며 기존40000 복제 검증은 부팅 금지였다. 이전 완료 기록을 신규 template 생성/부팅 승인으로 확대하지 않는다.
+- 사용자가 기존 loopback18000 설치의 최신 이미지 업데이트·앱 재시작을 명시 승인했다. 첫 시도는 INSTALLATION_INVALID로 앱 중지 전에 종료됐다. 현재 컨테이너는 healthy다.
+- 원인 관찰: `/private/tmp/gjallar-m1-acceptance-0919`의 installation.json/compose.json과 secrets 원본이 없고 before-upgrade 디렉터리도 비어 있다. 임시 경로 정리 가능성이 있지만 삭제 주체는 확정하지 않았다. 실행 중인 앱 컨테이너의 원본 credential_key/database_url 마운트는 남아 있다.
+- 복구 준비: 실행 중 컨테이너의 기존 secret·DB script 원본을 비공개0600/0700 복구 묶음으로 보존하고, 설치ID/이미지/port/volume/DB ready를 대조한다. 새 비밀번호·암호화 키·DB를 만들지 않는다. 설치 manifest/Compose 복원은 runtime 원본 설정과 일치하는 범위만 허용하며 불일치 시 중단한다. 원래 앱/DB를 먼저 정지하거나 삭제하지 않는다. 복구 완료 전 upgrade 재시도와 실제 PVE mutation을 하지 않는다.
+
+- 기존 설치 복구 중단: secret mount는 stat상 남아 있지만 실제 읽기는 ENOENT이며 `check-ready`도 실패했다. 기존 암호화 키 복구·설치 복원이 완료된 것이 아니다. 기존 앱/DB는 정지·삭제하지 않았다.
+- 사용자가 별도 영속 경로의 새 로컬 설치를 명시 승인했다. `~/.local/share/gjallar-dev`에 표준 Bootstrap으로 최신 `gjallar:local`을 설치하고 `127.0.0.1:18001`에서 실행했다. 새 DB와 관리자 계정을 생성했으며 로그인 정보는 해당 설치의 private0600 파일에만 보관했다. 최초 Docker 단계 실패 후 동일 bootstrap 재개가 성공했다. 최초 실패 원인은 확정하지 않았다.
+- 기존 토큰과 사용자가 제공한 공개 CA로 표준 인증·등록 API의 prepare→import-plan→import-env→activate를 실행했다. 신규 토큰/ACL은 만들지 않았다. 새 앱만 재시작했다. 현재 features는 read이며 노드3개, 기존 VM7001/템플릿118·3000, nas-server, vmbr0/vmbr2를 지정했다.
+- 실검증: 새 HTTP 로그인·auth/me·connection·vms·templates 모두200. 연결은 live/fresh, VM목록1개·템플릿2개. PVE 직접 GET으로40000~40010이 비어 있고118/3000 모두 nas-server50GiB cloud-init/agent 템플릿임을 확인했다. 실제 VM 생성·전원·설정·삭제 검증은 아직 수행하지 않았다.
+- 다음 live 검증 제안(승인 대기): 템플릿118을 원본으로 yoonmanserver3/nas-server에40002 생성, DHCP/vmbr0·2CPU·4GiB·50GiB, 시작 및 guest/cloud-init 관찰, 정상종료, 정지 상태 CPU/메모리와 디스크52GiB 변경·NIC vmbr2→vmbr0 변경, 테스트40002만 삭제한다. 기존7001 및 원본 템플릿은 변경하지 않는다. 등록 scope는 이 대상에 필요한 create/power/compute/disk/network/delete만 추가한다. 실패하면 자동 강제정지/강제삭제하지 않고 작업상태·실제 리소스를 확인한 뒤 동일 테스트 소유 리소스만 정리한다. 기존40000의 부팅금지 승인을 이 계획에 적용하거나 확대하지 않는다.
+- 위40002 live 검증 범위를 사용자가 “위 범위 생성·관리·삭제 허용”으로 명시 승인했다. 새 로컬 연결의 해당 기능/scope 등록 후 표준 HTTP workflow로 실행한다. 원본 템플릿·기존 VM은 변경하지 않는다.
+- 생성 실행: 필수 SSH 공개키 누락은 preflight red로 차단됐다. 테스트 전용 키를 비공개 임시 파일에 생성하고 공개키만 입력했다. 변경된 입력은 새 job_id로 계획·승인했다. 최종 preflight는 DHCP discovery 경고만 yellow였다.
+- `job-live-40002-key-0925`는 표준 HTTP draft/preflight/plan/approve/proxmox-create를 거쳐 succeeded로 종료했다.50GiB full clone task OK, 설정·정지 상태 사후 검증 통과. 시작 API도 completed이며40002 running과 guest agent IPv4 192.168.2.207을 확인했다. 최초 agent 조회는 부팅 직후 실패했으나 재조회가 성공했다. cloud-init은 오류 없이 running으로 관찰돼 완료를 기다린다.
+- 재시도 결함 재현: 성공한 생성 요청의 동일 payload를 다시 제출하면 새 inventory에 생성된 자기 VM이 포함돼 위험 요약이 바뀌고, 기존 결과 반환 전에 `PROXMOX_CREATE_IDEMPOTENCY_CONFLICT`가 발생했다. 중복 mutation은 없었다.
+- 수정 범위·검증·복구: 완료·성공 증거가 있는 같은 생성 요청에만 저장된 계획을 재사용한다. 현재 입력의 대상·리소스·접속·전원·템플릿 등은 순수 계산 결과와 저장 계획을 비교하고, 현재 관찰 위험 요약만 역사적 replay에서 제외한다. 승인 checksum과 mutation 동의, 기존 operation/workload 일치 검사는 유지한다. 신규/진행/실패 요청의 실행·잠금·복구 계약, DB schema는 바꾸지 않는다. 생성된 VM을 inventory에 반영한 회귀 테스트, 변경 입력·checksum 거부 및 과거 artifact 불변을 확인하고 전체 검증 후 새 로컬 이미지를 갱신한다. 문제 시 코드/새 로컬 이미지를 직전 버전으로 되돌리며 VM40002 정리는 승인 범위로 계속한다.
+- 게스트 최종 결과: DHCP IPv4·guest agent 확인 후 cloud-init의 패키지 초기화가 끝나 `status=done`, `extended_status=done`, errors/recoverable_errors 없음으로 확인됐다. SSH 실제 로그인은 이번 검증에 포함하지 않았다.
+- 표준 관리 API 검증: 정상종료 completed·실제 stopped, CPU2→3·memory4096→5120MiB succeeded, NFS scsi0 실volume50→52GiB succeeded, net0 vmbr0→vmbr2→vmbr0 각각 succeeded. MAC은 보존됐으며 모든 변경은40002에만 실행했다.
+- 회귀 테스트는 생성된 자기 VM을 inventory에 추가한 상태에서 원래 plan artifact 재작성 없이 replay를 검증한다. 다른 CPU·VMID·사용자 입력, 잘못된 승인 checksum, mutation 미동의를 계속 거부하고 runner 추가 호출이 없음을 확인했다. 관련66개 및 추가 회귀 검사 통과. `pnpm run verify` 통과(client267/backend1693·78skip, frontend test/lint/build). 기준 container 검증과 실제 새 이미지 replay·삭제 확인이 남아 있다.
+- 최종: `pnpm run verify:container` 통과(client 검사는 cache 재사용, backend1693통과·78skip, frontend production 빌드 포함). `gjallar:local`을 표준 upgrade로 새18001에 적용·재시작했고 로그인·기존 DB/관리형 연결을 보존했다. 실제 동일 생성/시작 요청 모두 `idempotent_replay=true`로 성공했으며 추가 mutation은 없었다.
+- 삭제 검증: 표준 deletion review/action에서40002 이름·digest·소유volume manifest를 확인한 뒤 succeeded. `vmid_unused=true`, cloud-init/scsi0 두 volume 삭제, remaining/preservation_unconfirmed 빈 목록. 최종 PVE GET에서40000~40010은 비어 있고118/3000 템플릿과 running7001이 보존됐다. 테스트 임시 SSH private key도 제거했다.
+- 이번 요청의 승인된 생성→부팅→관리→삭제 실검증 완료. 코드·회귀 테스트·아키텍처·로드맵 갱신 및 `git diff --check` 확인. 커밋·푸시는 이번 작업에서 실행하지 않았다. 실제 SSH 로그인·신규 PVE token 발급·백업/복원/이동 등은 이번 검증으로 완료 처리하지 않는다. 기존18000의 소실된 키 문제는 그대로 보존하며 현재 사용 환경은 영속 설치18001이다.
+
+### 전체 조회 기본 연결과 선택 작업 권한 (2026-09-25, IMPLEMENTED)
+
+- 사용자 지시: 웹 연결에서 자원 ID를 일일이 등록하는 입력을 없애고 전체 조회·새 자원 자동 발견을 기본으로 하며 작업 권한을 별도로 선택한다. 기존 cluster runtime을 재사용하고 새 웹 등록은 빈 scope+cluster로 준비한다. 기존 scoped 등록 이력·암호화 바인딩은 보존한다.
+- 권한 변경 범위: cluster에 명시한 features만 허용·계획·검증한다. 기능 생략은 기존 CLI 호환 전체 기능이며 웹은 read 기본/작업 opt-in을 명시한다. cluster 기존 토큰 import도 지원하되 upstream ACL/token 변경 없이 기존 권한을 검증한다. 기본 전체 조회는 현재와 미래 자원을 포함하고 개별 mutation은 역할·선택기능·상태·승인·잠금으로 계속 제한한다.
+- 검증: read-only 연결의 write 거부, 선택 power 외 작업 거부, 신규 자원 조회, import의 mutation 부재·암호화/계획 범위 결합, 웹 입력 제거/기능 선택 계약, 기존 scoped/cluster 회귀, local/container 전체 검사. 새18001 설치를 갱신해 기존 토큰의 전체 조회와 현재 선택 기능만 표준 import/activate로 전환한다. 실제 VM/호스트 mutation·신규 PVE token/ACL 변경은 하지 않는다.
+- 복구: DB schema 변경 없음. 기존 revision·토큰·설치 backup을 보존한다. 전환 실패는 기존 연결을 유지하며 자동 DB 수정/재발급을 하지 않는다. 코드 문제 시 직전 이미지로 복귀한다.
+- 구현: 웹 새 등록에서 자원 ID 필드를 제거하고 조회 자동 포함/작업 선택으로 바꿨다. cluster 등록은 명시적 기능을 보존하며 필요한 기존 역할만 루트에 전파한다. 전체 기능을 생략하는 기존 기본 CLI 계약은 보존한다. 기존 토큰 import도 전체 연결과 선택 기능을 검증하고 plan digest에 access_mode를 결합한다.
+- 관련 검증179개 통과. read-only 연결의 write 요청은 transport 호출 전에 거부하고 power 선택만으로 delete를 허용하지 않는다. 기존 토큰 권한 부족 시 import를 거부하고, 충분한 토큰으로 암호화·활성화한 뒤에도 선택 외 기능을 차단한다. upstream 요청은 모두 GET이었다. 프론트엔드 전체 테스트·lint 통과.
+- 전체 검증: `pnpm run verify`와 `pnpm run verify:container` 통과(client267, backend1696·PostgreSQL 전용78skip, frontend test/lint/build). 최종 안내 문구 수정 후 frontend test/lint/build도 통과했다. DB 변경이 없어 PostgreSQL 전용 검사는 이번에 재실행하지 않았다.
+- 배포 중 bootstrap 포트 검사가 종료된 TCP 연결의 TIME_WAIT를 사용 중인 포트로 오판했다. 실제 listener가 없음을 확인하고 검사 socket에 SO_REUSEADDR를 적용했다. 실제 listener는 계속 거부하고 종료된 연결은 허용하는 socket 회귀 검사를 추가했다. 최초 sandbox 검사는 bind 권한으로 실패했으며 승인된 로컬 재실행과 기준 client container 모두268개 통과했다.
+- 새18001만 표준 upgrade 재개로 복구·갱신하고 기존 토큰을 표준 import-plan→import-env→activate로 전체 연결에 전환했다. read/create/power/compute/disk/network/delete 선택을 보존했다. 기존 등록 이력·DB·계정을 유지했으며 신규 token/ACL 발급이나 실제 VM/호스트 변경은 하지 않았다. 기존18000은 그대로 보존했다.
+- 최종 실제 조회: PVE 원본의 일반 VM29개와 앱 목록29개가 누락·추가 없이 일치했다. yoonmanserver12개, yoonmanserver2 9개, yoonmanserver3 8개이며 연결 live/fresh다. 브라우저에서29개·3노드 목록과 새 등록의 자원 ID 입력 제거·기본 조회/선택 작업 권한을 확인했다.
+- PRD·아키텍처·개발 안내·로드맵을 갱신했다. `git diff --check` 통과. 이번 작업은 커밋·푸시하지 않았다. 신규 PVE 로그인/토큰 발급 실검증과 기존18000의 소실된 암호화 키 문제는 이번 완료 범위에 포함하지 않는다.

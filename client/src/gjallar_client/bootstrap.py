@@ -44,6 +44,9 @@ def check_port(port, bind_address="127.0.0.1"):
     if not 1024 <= port <= 65535:
         raise ClientError("INVALID_PORT", "port는 1024~65535 범위여야 합니다.", 2)
     with socket.socket() as probe:
+        # Closed connections can remain in TIME_WAIT after an upgrade stops the
+        # app. Reuse that address while still rejecting a live listening socket.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind((bind_address, port))
         except OSError:

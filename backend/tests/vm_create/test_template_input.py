@@ -80,7 +80,7 @@ def test_template_family_is_not_restricted_to_ubuntu():
     assert plan.selected_template["family"] == "debian"
 
 
-@pytest.mark.parametrize("linkage", ["valid", "missing", "foreign", "corrupt_history", "reused_vmid"])
+@pytest.mark.parametrize("linkage", ["valid", "missing", "foreign", "corrupt_history", "reused_vmid", "live_collision"])
 def test_template_execute_persists_result_without_profile_catalog(monkeypatch, linkage):
     from app.db.vm_runtime import get_vm_instance_record, get_vm_create_request_record
     from app.jobs.artifacts import write_json_artifact
@@ -148,11 +148,29 @@ def test_template_execute_persists_result_without_profile_catalog(monkeypatch, l
         ))
         assert second.data["operation"]["status"] == "succeeded"
         assert second.data["operation"]["operation_id"] != result.data["operation"]["operation_id"]
+    if linkage == "live_collision":
+        adapter._vms += (replace(adapter._vms[0], vmid=plan.vmid, name=plan.vm_name,
+                                 node_id=plan.target_node_id),)
+        monkeypatch.setattr(application, "persist_vm_create_plan", Mock(side_effect=AssertionError("historical plan overwritten")))
     replay = asyncio.run(application.execute_proxmox_create(
         plan.draft_id, payload, actor=None, inventory_adapter=adapter, mutation_client_factory=lambda: object(),
     ))
     assert replay.data["idempotent_replay"] is True
     assert replay.data["vm_instance"] == result.data["vm_instance"]
+    if linkage == "live_collision":
+        for patch, code in [
+            ({"hardware_overrides": {"cpu": 4}}, "PROXMOX_CREATE_IDEMPOTENCY_CONFLICT"),
+            ({"vmid": plan.vmid + 1}, "PROXMOX_CREATE_IDEMPOTENCY_CONFLICT"),
+            ({"access": {"cloud_init_user": "different"}}, "PROXMOX_CREATE_IDEMPOTENCY_CONFLICT"),
+            ({"review_summary_checksum": "sha256:" + "0" * 64}, "PROXMOX_CREATE_APPROVAL_GATE_BLOCKED"),
+            ({"proxmox_mutation_acknowledged": False}, "PROXMOX_CREATE_ACK_REQUIRED"),
+        ]:
+            with pytest.raises(application.VmCreateApplicationError) as error:
+                asyncio.run(application.execute_proxmox_create(
+                    plan.draft_id, {**payload, **patch}, actor=None,
+                    inventory_adapter=adapter, mutation_client_factory=lambda: object(),
+                ))
+            assert error.value.detail["code"] == code
     if linkage == "foreign":
         row = get_vm_instance_record(plan.target_node_id, plan.vmid, create_job_id="another-job")
         assert row["name"] == "foreign-vm"

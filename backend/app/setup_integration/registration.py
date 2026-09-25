@@ -307,6 +307,8 @@ class RegistrationService:
                 "trust_digest": digest(intent.ca_pem), "mode": "import_env", "upstream_changes": False,
                 "expires_at": None, "can_confirm": True, "roles": {}, "create_roles": [], "acls": [],
                 "authority_warnings": authority_warnings(intent)}
+        if intent.access_mode == "cluster":
+            plan["access_mode"] = "cluster"
         row = self.advance(row, actor_id, "planned", plan_digest=digest(plan))
         return {**row, "plan": {**plan, "digest": row["plan_digest"]}}
 
@@ -321,6 +323,8 @@ class RegistrationService:
                 "trust_digest": digest(intent.ca_pem), "mode": "import_env", "upstream_changes": False,
                 "expires_at": None, "can_confirm": True, "roles": {}, "create_roles": [], "acls": [],
                 "authority_warnings": authority_warnings(intent)}
+        if intent.access_mode == "cluster":
+            plan["access_mode"] = "cluster"
         if digest(plan) != plan_digest:
             raise SetupError("SETUP_PLAN_CONFLICT", "기존 연결이 변경됐습니다. 계획을 다시 확인하세요.")
         transport = self.transport_factory(intent.endpoint, intent.ca_pem, **(
