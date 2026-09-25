@@ -5,11 +5,13 @@ import { transformSync } from 'esbuild'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
 import * as createVmFlow from '../src/utils/createVmFlow.js'
+import * as requestId from '../src/shared/requestId.js'
 
 const source = readFileSync(new URL('../src/components/CreateInstanceWizard.jsx', import.meta.url), 'utf8')
 const compiled = transformSync(source, { loader: 'jsx', format: 'cjs', jsx: 'automatic' }).code
 const compiledModule = { exports: {} }
 const localRequire = (specifier) => {
+  if (specifier === '../shared/requestId.js') return requestId
   if (specifier === 'react/jsx-runtime') return { jsx, jsxs, Fragment }
   if (specifier === '../utils/createVmFlow') return createVmFlow
   if (['react', 'react-router-dom', 'lucide-react', '../services/apiV1', '../utils/auth', '../utils/createVmDefaults'].includes(specifier)) return {}

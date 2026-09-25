@@ -1,1 +1,1 @@
-"""Independent Gjallar client; no backend or Proxmox imports."""
+"""Gjallar installation and local service maintenance tools."""

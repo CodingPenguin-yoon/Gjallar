@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 from gjallar_client.bootstrap import Bootstrap, Docker, compose_config
-from gjallar_client.connections import atomic_json, file_lock
+from gjallar_client.storage import atomic_json, file_lock
 from gjallar_client.errors import ClientError
 
 APP = "sha256:" + "a" * 64

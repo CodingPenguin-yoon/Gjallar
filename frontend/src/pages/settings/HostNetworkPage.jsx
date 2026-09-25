@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -45,7 +46,7 @@ export default function HostNetworkPage() {
   function prepare(event) {
     event.preventDefault()
     if (!ack || confirmation !== review.confirmation) {setError('대상 확인 문구와 노드 전체 반영 영향을 확인하세요.'); return}
-    setError(''); setPlan({...reviewInput, idempotency_key: crypto.randomUUID(), expected_review_digest: review.review_digest,
+    setError(''); setPlan({...reviewInput, idempotency_key: randomUUID(), expected_review_digest: review.review_digest,
       confirmation, acknowledge_node_reload: true})
   }
   async function execute() {

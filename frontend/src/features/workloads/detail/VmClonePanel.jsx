@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/requestId.js'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../../shared/api/apiV1'
@@ -26,7 +27,7 @@ export default function VmClonePanel({vm, onUpdated}) {
     if (!currentReview || !/^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/.test(name) || !ack) {setError('현재 복제 범위를 조회하고 새 이름·guest identity 복사 위험을 확인하세요.'); return}
     const source = review.observed_before.source
     setError('')
-    setPlan({idempotency_key:crypto.randomUUID(), expected_digest:source.digest, expected_name:source.name,
+    setPlan({idempotency_key:randomUUID(), expected_digest:source.digest, expected_name:source.name,
       expected_volume:source.volume_id, expected_size_bytes:source.size_bytes, new_vmid:Number(newId),
       name, storage_id:storage, guest_identity_acknowledged:true})
   }

@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import uuid
 
-from .connections import atomic_json, file_lock, private_directory
+from .storage import atomic_json, file_lock, private_directory
 from .errors import ClientError
 
 IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")

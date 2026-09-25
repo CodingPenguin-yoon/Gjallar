@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -56,7 +57,7 @@ function BackupForm({ vmid, initial, canOperate }) {
     const before = review.observed_before
     if (!ack || confirmation !== `${vmid}/${before.name}`) { setError('VMID/이름과 공간·IO 영향을 확인하세요.'); return }
     setError('')
-    setPlan({storage_id: storage, idempotency_key: crypto.randomUUID(), expected_name: before.name,
+    setPlan({storage_id: storage, idempotency_key: randomUUID(), expected_name: before.name,
       expected_review_digest: before.review_digest, confirmation, backup_acknowledged: true})
   }
   const change = setter => event => {setter(event.target.value); setListing(null); resetReview()}

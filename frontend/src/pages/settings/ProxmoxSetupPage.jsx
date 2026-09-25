@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useEffect, useRef, useState } from 'react'
 import { apiV1Client } from '../../shared/api/apiV1'
 import { connectionFeatures, permissionGroups } from './proxmoxRegistration'
@@ -30,7 +31,7 @@ export default function ProxmoxSetupPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [observation, setObservation] = useState(null)
-  const requestIdentity = useRef(crypto.randomUUID())
+  const requestIdentity = useRef(randomUUID())
   const pendingPrepare = useRef(null)
   const generation = useRef(0)
 
@@ -81,7 +82,7 @@ export default function ProxmoxSetupPage() {
     }
     const signature = JSON.stringify(intent)
     if (!pendingPrepare.current || pendingPrepare.current.signature !== signature) {
-      if (pendingPrepare.current) requestIdentity.current = crypto.randomUUID()
+      if (pendingPrepare.current) requestIdentity.current = randomUUID()
       pendingPrepare.current = { signature, body: {
         idempotency_key: requestIdentity.current,
         intent: { ...intent, expires_at: Math.floor(Date.now() / 1000) + 30 * 86400 },
@@ -119,7 +120,7 @@ export default function ProxmoxSetupPage() {
     </details>
     {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {attempt && ['active', 'cancelled', 'revoked'].includes(attempt.phase) && <button disabled={busy} className={buttonClass}
-      onClick={() => { setShowNewRegistration(true); setAttempt(null); setPlan(null); setObservation(null); pendingPrepare.current = null; requestIdentity.current = crypto.randomUUID() }}>새 연결 등록</button>}
+      onClick={() => { setShowNewRegistration(true); setAttempt(null); setPlan(null); setObservation(null); pendingPrepare.current = null; requestIdentity.current = randomUUID() }}>새 연결 등록</button>}
     {recent.length > 0 && <label className="block text-sm">기존 등록 확인
       <select className={`${inputClass} mt-1`} disabled={busy} value={attempt?.attempt_id || ''}
         onChange={(event) => { const id = event.target.value; if (id) { setPlan(null); setObservation(null); perform(() => apiV1Client.getProxmoxRegistration(id)) } }}>
@@ -182,7 +183,7 @@ export default function ProxmoxSetupPage() {
         onClick={() => act('import-env', { plan_digest: attempt.plan_digest })}>기존 토큰 암호화 저장·검증 재개</button>}
       {attempt.phase === 'verified' && <div className="space-y-2"><p className="text-sm">전환은 미완결 VM·호스트 작업이 없을 때 가능합니다. 전환 후 모든 Gjallar 서버 프로세스를 재시작하세요.</p>
         <button disabled={busy} className={buttonClass} onClick={() => act('activate')}>검증한 연결로 전환</button></div>}
-      {attempt.phase === 'active' && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">연결을 저장했습니다. 서버 재시작 후 Overview·Workloads 또는 CLI에서 실제 자원 조회를 확인하세요.</p>}
+      {attempt.phase === 'active' && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">연결을 저장했습니다. 서버 재시작 후 전체 현황·VM 관리에서 실제 자원 조회를 확인하세요.</p>}
       {canCancel && <button disabled={busy} className="text-sm text-slate-600 underline" onClick={() => act('cancel')}>발급 전 등록 취소</button>}
       {needsCleanup && <div className="space-y-3 rounded-lg border border-amber-200 p-4"><p className="text-sm">발급·권한 설정 결과가 불명확하면 먼저 토큰을 확인하세요. 다시 로그인해야 할 수 있습니다.</p>
         <button disabled={busy} className={buttonClass} onClick={() => act('observe')}>등록 토큰 존재 확인</button>

@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -47,7 +48,7 @@ function ImageBuildForm() {
       if (current !== generation.current) return
       if (data.target.node_id !== nodeId || data.target.vmid !== vmid || data.target.name !== configuration.name) throw new Error('조회한 제작 대상이 입력과 다릅니다.')
       setReview(data)
-      setPlan({...configuration, idempotency_key: crypto.randomUUID(), expected_review_digest: data.review_digest})
+      setPlan({...configuration, idempotency_key: randomUUID(), expected_review_digest: data.review_digest})
       setConfirmation(''); setAck(false)
     } catch (failure) {
       if (current === generation.current) setError(failure.message)

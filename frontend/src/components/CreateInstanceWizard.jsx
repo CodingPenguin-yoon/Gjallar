@@ -1,3 +1,4 @@
+import { randomUUID } from '../shared/requestId.js'
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, ClipboardCheck, KeyRound, Loader2, Network, PlayCircle, Rocket, Server, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -274,7 +275,7 @@ function buildInitialForm(config, currentUser = null) {
   const defaults = buildCreateVmDefaults()
   const input = buildCreateVmInputFromConfig(config, {
     operatorId: currentUser?.username || 'authenticated-session',
-    jobId: `ui-${crypto.randomUUID()}`,
+    jobId: `ui-${randomUUID()}`,
     creationMode: config.creationMode || 'template',
     profileId: '',
     targetNodeId: '',
@@ -427,7 +428,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
 
   const applyFormPatch = (patch) => {
     setForm((current) => {
-      const next = { ...current, ...patch, ...(model ? { jobId: `ui-${crypto.randomUUID()}` } : {}) }
+      const next = { ...current, ...patch, ...(model ? { jobId: `ui-${randomUUID()}` } : {}) }
       onConfigChange(next)
       return next
     })
@@ -590,7 +591,7 @@ function CreateInstanceWizard({ config = {}, onConfigChange = () => {}, currentU
       return
     }
     // A new review captures new observations; an existing job keeps its exact plan.
-    const reviewInput = { ...form, jobId: `ui-${crypto.randomUUID()}` }
+    const reviewInput = { ...form, jobId: `ui-${randomUUID()}` }
     setForm(reviewInput)
     onConfigChange(reviewInput)
     setLoading(true)

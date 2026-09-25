@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/requestId.js'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../../shared/api/apiV1'
@@ -20,7 +21,7 @@ export default function VmDeletePanel({ vm, onDeleted }) {
       setError('VMID/이름을 그대로 입력하고 영구 삭제 영향을 확인하세요.'); return
     }
     setError('')
-    setPlan({idempotency_key: crypto.randomUUID(), expected_digest: before.digest, expected_name: before.name,
+    setPlan({idempotency_key: randomUUID(), expected_digest: before.digest, expected_name: before.name,
       expected_resources_digest: before.resources_digest, confirmation, delete_acknowledged: true})
   }
   return <div className="mt-4 space-y-3 border-t border-red-200 pt-4">

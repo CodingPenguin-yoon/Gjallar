@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/requestId.js'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../../shared/api/apiV1'
@@ -23,7 +24,7 @@ export default function VmNetworkPanel({ vm, onUpdated }) {
     }
     if (bridge === before.bridge_id && value === before.vlan_tag) {setError('현재 설정과 같습니다. 변경할 값이 없습니다.'); return}
     setError('')
-    setPlan({idempotency_key: crypto.randomUUID(), expected_digest: before.digest, expected_name: before.name,
+    setPlan({idempotency_key: randomUUID(), expected_digest: before.digest, expected_name: before.name,
       expected_net0: before.net0, bridge_id: bridge, vlan_tag: value})
   }
   return <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">

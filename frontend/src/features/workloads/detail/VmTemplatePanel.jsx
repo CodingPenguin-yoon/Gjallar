@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/requestId.js'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../../shared/api/apiV1'
@@ -21,7 +22,7 @@ export default function VmTemplatePanel({ vm, onConverted }) {
       setError('VMID/이름과 게스트 준비·전환 영향을 모두 확인하세요.'); return
     }
     setError('')
-    setPlan({ idempotency_key: crypto.randomUUID(), expected_digest: before.digest, expected_name: before.name,
+    setPlan({ idempotency_key: randomUUID(), expected_digest: before.digest, expected_name: before.name,
       expected_resources_digest: before.resources_digest, confirmation, guest_prepared: true, conversion_acknowledged: true })
   }
   return <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">

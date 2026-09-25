@@ -4,11 +4,11 @@
 
 **Run your Proxmox environment from one place.**
 
-Gjallar is building a simpler way to prepare templates, manage VMs, monitor infrastructure, and recover from problems. The goal is to finish everyday Proxmox operations through Gjallar's web interface or CLI, without switching back to the Proxmox management UI.
+Gjallar is building a simpler way to prepare templates, manage VMs, monitor infrastructure, and recover from problems. The goal is to finish everyday Proxmox operations through Gjallar's web interface, without switching back to the Proxmox management UI.
 
 Proxmox remains the engine and the source of truth. Gjallar connects the steps: understand the current state, make a change, and verify the result.
 
-> **Under active development.** The current application provides a web interface for inventory, template-based VM creation, start/shutdown, and operation tracking. The CLI, bootstrap installer, template authoring, embedded VM console, and backup/restore workflows are planned, not available today.
+> **Under active development.** Product operations are web-only. The local tool retains installation, service management, and same-schema image upgrades; the user CLI and TUI have been removed. See the architecture and roadmap for implemented features and remaining live validation.
 
 ## What matters
 
@@ -28,7 +28,7 @@ The immediate focus is a solid everyday tool for individual operators and small 
 | Monitoring | See node, VM, and storage health, resource usage, trends, and failed tasks |
 | Recovery | Inspect failures, manage backups, restore VMs, and verify outcomes |
 | Infrastructure | Inspect and manage the nodes, storage, and networks needed for everyday work |
-| CLI and web | Use the same permissions, operations, and results from either interface |
+| Web operations | Complete supported workflows through the web interface |
 
 **The priority question: “What still makes an operator leave Gjallar and open Proxmox?”** Each supported workflow should be complete before adding more surface area. Proxmox's own emergency administration paths remain available.
 
@@ -51,13 +51,13 @@ These are product goals, not a list of shipped features. See the [product specif
 - Missing or failed Proxmox connections are reported as such; production does not substitute fake inventory.
 - Partial observations remain visible with their limitations. Create input and review can use a partial base snapshot; execution has additional source and action-specific checks.
 - Recovery observation rechecks Proxmox and reconciles local records. It does not blindly replay the original change. The background recovery observer is disabled by default.
-- Current monitoring is inventory and operational insight, not a complete historical metrics or alerting system. A running VM does not by itself prove that its applications are healthy.
+- Monitoring uses Proxmox observations and available history; it does not run a separate telemetry store. A running VM does not by itself prove that its applications are healthy.
 
-Template authoring, general VM editing/deletion, embedded consoles, backup/restore, migration, and infrastructure configuration are not implemented. VM creation currently requires an existing Proxmox template; ISO installation and empty-VM creation are not supported.
+The broader VM, template, monitoring, backup/restore, and infrastructure flows are implemented with varying live-validation coverage. See the roadmap for exact limits. VM creation requires an existing Proxmox template; ISO installation and empty-VM creation are not supported.
 
 ## Run the current application
 
-There is no one-command installer yet. Follow the [operations runbook](project-docs/development.md) for dependency installation, environment configuration, PostgreSQL initialization, and account creation.
+For the managed bootstrap installer and manual setup, follow the [operations runbook](project-docs/development.md) for dependency installation, environment configuration, PostgreSQL initialization, and account creation.
 
 ### Local development
 
@@ -89,6 +89,7 @@ The repository contains a React frontend, FastAPI backend, PostgreSQL/Alembic pe
 | `frontend/` | Web interface |
 | `backend/app/` | API, observations, operations, and Proxmox integration |
 | `backend/tests/` | Backend and contract tests |
+| `client/` | Local installation/service tool only; historical package path retained |
 | `project-docs/` | Shared product and engineering documentation |
 
 With the required development dependencies installed:

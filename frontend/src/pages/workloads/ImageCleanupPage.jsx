@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -30,7 +31,7 @@ function CleanupForm({ initial }) {
     if (!ack || confirmation !== `${vmid}/${before.name}/${resource}`) { setError('VMID/이름/정리 종류와 영구 삭제 영향을 확인하세요.'); return }
     setError('')
     setPlan({parent_operation_id: parent, resource, expected_name: before.name, expected_review_digest: before.review_digest,
-      idempotency_key: crypto.randomUUID(), confirmation, cleanup_acknowledged: true})
+      idempotency_key: randomUUID(), confirmation, cleanup_acknowledged: true})
   }
   const otherResource = resource === 'template' ? 'source' : 'template'
   return <section className="gj-workflow space-y-3">

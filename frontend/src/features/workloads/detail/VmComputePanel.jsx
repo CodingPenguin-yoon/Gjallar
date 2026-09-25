@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/requestId.js'
 import { useState } from 'react'
 import { useVmChange } from './useVmChange'
 import { Link } from 'react-router-dom'
@@ -24,7 +25,7 @@ export default function VmComputePanel({ vm, onUpdated }) {
       setError('현재 설정과 같습니다. 변경할 값을 입력하세요.'); return
     }
     setError('')
-    setPlan({idempotency_key: crypto.randomUUID(), expected_digest: review.observed_before.digest,
+    setPlan({idempotency_key: randomUUID(), expected_digest: review.observed_before.digest,
       expected_name: review.observed_before.name, cores: nextCores, memory_mib: nextMemory})
   }
 

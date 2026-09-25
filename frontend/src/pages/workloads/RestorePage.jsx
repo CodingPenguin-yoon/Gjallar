@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -38,7 +39,7 @@ function RestoreForm({ vmid, initial, canOperate }) {
     if (!ack || confirmation !== `${vmid}/${newVmid}/${name}`) {setError('원본/새 VMID/이름과 격리 복원 영향을 확인하세요.'); return}
     setError('')
     setPlan({archive, new_vmid: Number(newVmid), name, storage_id: storage, bridge_id: bridge,
-      idempotency_key: crypto.randomUUID(), expected_name: review.observed_before.name,
+      idempotency_key: randomUUID(), expected_name: review.observed_before.name,
       expected_review_digest: review.observed_before.review_digest, confirmation, isolation_acknowledged: true})
   }
   const change = setter => event => {setter(event.target.value); resetReview()}

@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -33,7 +34,7 @@ function MigrateForm({ vmid, initialNode, initialDestination, canOperate }) {
     event.preventDefault()
     if (!ack || confirmation !== expected) {setError('VMID/이름/원본->목적 노드와 이동 영향을 확인하세요.'); return}
     setError('')
-    setPlan({destination_node: destination, idempotency_key: crypto.randomUUID(),
+    setPlan({destination_node: destination, idempotency_key: randomUUID(),
       expected_name: review.observed_before.name, expected_review_digest: review.observed_before.review_digest,
       confirmation, migration_acknowledged: true})
   }

@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/requestId.js'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiV1Client } from '../../../shared/api/apiV1'
@@ -20,7 +21,7 @@ export default function VmDiskPanel({ vm, onUpdated }) {
       setError('현재 실제 용량보다 큰 1~65536 GiB 정수를 입력하세요. 축소는 지원하지 않습니다.'); return
     }
     setError('')
-    setPlan({idempotency_key: crypto.randomUUID(), expected_digest: before.digest, expected_name: before.name,
+    setPlan({idempotency_key: randomUUID(), expected_digest: before.digest, expected_name: before.name,
       expected_volume: before.volume_id, expected_size_bytes: before.size_bytes, size_gib: value})
   }
   return <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">

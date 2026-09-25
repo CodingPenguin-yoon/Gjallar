@@ -14,7 +14,7 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 옵션 recovery observer ─────→ Proxmox GET + 로컬 기록 정합화
 ```
 
-현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 독립 Python CLI·전체 화면 TUI·관리형 Compose bootstrap과 서버 중계 Proxmox 등록의 코드·격리 검증을 구현했다. macOS arm64의 전용 loopback 설치·기존 token 관리형 import·CA 검증·재시작 보존을 확인했으며 신규 PVE 로그인/발급 및 다른 지원 조합 검증은 남아 있다. 정지 VM CPU·메모리·NFS scsi0 디스크 확장·기존 NIC bridge/VLAN 변경·정지 VM full clone·명시적 전체 삭제·인증된 웹 콘솔과 선택적 관리형 권한은 웹·CLI에 추가했다. 7001 CPU·메모리 웹 변경·CLI 원복·전원, 40000 full clone·디스크 확장·NIC 변경/원복·삭제와 소유volume 부재, 7001 입력 없는 콘솔 연결/종료를 실제 확인했다. 준비된 VM 템플릿 전환·공식 이미지 제작/소유 자원 정리·기존 생성 기반 테스트 배포 검사와 접속 증거 기록을 구현했으며 실환경 검증은 남아 있다. 현재 지표/PVE 이력·임계 초과/해제·기존 작업 실패/복구 이력은 웹·CLI로 구현했다. 관리형 설치의 노드/VM 현재·1시간 및 긴 기간 추이와 알림 조회를 확인했으며 storage·실제 초과/해제 사례는 남아 있다. 정지 VM NFS 백업 조회·생성은 웹·CLI로 구현했으며 실제 생성 검증은 남아 있다. 별도 VMID 격리 복원·검사 보고서는 웹·CLI로 구현했고 실환경 검증은 남아 있다. 정지 VM의 공유 NFS 노드 이동과 노드 준비 보고서, 제한된 directory storage/VM bridge 설정은 구현·자동 검증됐으며 실제 PVE 변경 검증은 남아 있다.
+현재는 inventory·VM 상세·Insights, 기존 템플릿 복제 기반 Create, Start, graceful Shutdown, Guided `qm unlock`, Operations·Jobs 이력과 로컬 계정을 제공한다. 템플릿 직접 입력과 선택적 DB 프리셋은 구현됐다. 관리형 Compose bootstrap과 서버 중계 Proxmox 등록의 코드·격리 검증을 구현했다. macOS arm64의 전용 loopback 설치·기존 token 관리형 import·CA 검증·재시작 보존을 확인했으며 신규 PVE 로그인/발급 및 다른 지원 조합 검증은 남아 있다. 정지 VM CPU·메모리·NFS scsi0 디스크 확장·기존 NIC bridge/VLAN 변경·정지 VM full clone·명시적 전체 삭제·인증된 웹 콘솔과 선택적 관리형 권한은 웹에 추가했다. 7001 CPU·메모리 웹 변경·CLI 원복·전원, 40000 full clone·디스크 확장·NIC 변경/원복·삭제와 소유volume 부재, 7001 입력 없는 콘솔 연결/종료를 실제 확인했다. 준비된 VM 템플릿 전환·공식 이미지 제작/소유 자원 정리·기존 생성 기반 테스트 배포 검사와 접속 증거 기록을 구현했으며 실환경 검증은 남아 있다. 현재 지표/PVE 이력·임계 초과/해제·기존 작업 실패/복구 이력은 웹으로 구현했다. 관리형 설치의 노드/VM 현재·1시간 및 긴 기간 추이와 알림 조회를 확인했으며 storage·실제 초과/해제 사례는 남아 있다. 정지 VM NFS 백업 조회·생성은 웹으로 구현했으며 실제 생성 검증은 남아 있다. 별도 VMID 격리 복원·검사 보고서는 웹으로 구현했고 실환경 검증은 남아 있다. 정지 VM의 공유 NFS 노드 이동과 노드 준비 보고서, 제한된 directory storage/VM bridge 설정은 구현·자동 검증됐으며 실제 PVE 변경 검증은 남아 있다.
 
 ## 2. 책임과 코드 찾기
 
@@ -32,7 +32,7 @@ Browser → React → FastAPI /api/v1 → Proxmox VE API
 | Create 호환 경로 | `backend/app/vm_create/`, `vm_actions/` | 기존 API·Jobs consumer 보존 |
 | 인사이트 | `backend/app/insights/` | 읽기 전용, 자동 실행·승인 생성 없음 |
 | DB·Jobs | `backend/app/db/`, `jobs/`, `backend/alembic/` | 현재 저장 단위·호환 기록·migration 보존 |
-| 독립 client·설치 호스트 | `client/src/gjallar_client/` | API session·조회와 명시적 Compose bootstrap 분리, backend/DB 직접 import 없음 |
+| 설치 호스트 | `client/src/gjallar_client/` | 명시적 Compose bootstrap·서비스·동일 schema 이미지 전환, 사용자 API client 없음 |
 | 관리형 서버 초기화 | `backend/app/installation/` | 빈 DB identity marker·일회성 admin, 일반 serve에서 migration 금지 |
 | 화면 | `frontend/src/app/`, `pages/`, `features/`, `entities/`, `shared/` | app → pages/features → entities/shared 방향 |
 
@@ -139,25 +139,25 @@ Proxmox 호출과 PostgreSQL은 원자적 transaction이 아니다. `session_sco
 
 Proxmox actual-state authority, modular monolith, 명시적 연결 truth, PostgreSQL durable coordination, action별 검증, 현재 이력 보존을 유지한다. 과거 observe-first의 네 action 제한과 템플릿 제작 제외는 장기 제품 경계로 유지하지 않으며 새 목표는 PRD를 따른다. DRS 자동 배치·무승인 자동 복구·임의 shell은 복원하지 않는다.
 
-현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·추가 기능의 CLI mutation·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
+현재는 한 configured cluster를 전제로 하며 다중 클러스터 식별·worker 분리·지속 관측·새 action 계약은 후속 설계다. 기능 확장을 이유로 기존 API·데이터·복구 계약을 묵시적으로 변경하지 않는다. migration은 새 revision으로만 수행하고 적용된 revision을 고치지 않는다. `20260824_0029`의 DRS hard-zero preflight·production 적용·파일 guard 전환 절차는 개발 안내에 유지한다.
 
-M1의 구조는 웹·CLI·TUI → 선택한 로컬 또는 원격 Gjallar → Proxmox다. 클라이언트가 Proxmox를 직접 조작하는 별도 운영 경로는 없고 기존 서버의 권한·작업·잠금·검증 경계를 공유한다. 등록 설계·실행 근거와 남은 검증은 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에 기록한다.
+M1의 구조는 웹 → 로컬 또는 원격 Gjallar 서버 → Proxmox다. 클라이언트가 Proxmox를 직접 조작하는 별도 운영 경로는 없고 기존 서버의 권한·작업·잠금·검증 경계를 공유한다. 등록 설계·실행 근거와 남은 검증은 [M1 작업 기록](work/2026-09-16-m1-installation-connection.md)에 기록한다.
 
-`2026-09-17` M1-1·M1-2는 사용자 승인 후 구현했다. Python client는 기존 cookie API를 사용하며 connection UUID/origin별 keyring 또는 명시적 process-memory session을 관리한다. 원격 HTTPS·고정 origin·redirect 금지·별칭의 atomic 저장과 동기식 CLI/TUI application을 공유한다. 기존 env Proxmox 설정을 자동 전환하지 않는다.
+2026-09-25 사용자 결정으로 사용자 CLI·TUI와 API client·연결 profile·Keychain/SecretService·memory session을 제거했다. 제품 업무는 웹에 집중한다. `client/`와 `gjallar-client` package/`gjallar` entrypoint는 기존 설치 갱신을 위해 유지하지만 로컬 bootstrap·서비스 상태/기동/종료·동일 schema 이미지 전환만 제공한다. `storage.py`의 atomic 파일·잠금 helper와 기존 Compose/manifest/volume/secret 보존 계약을 재사용하며 외부 runtime dependency는 없다. bootstrap 완료 후 브라우저 로그인을 안내하고 CLI profile을 생성하지 않는다. 기존 로컬 profile·keyring·검토 파일은 자동 삭제하지 않으며 필요 시 웹에서 기존 session을 폐기한다. 웹 인증·서버 API·Proxmox 실행 권한은 변경하지 않는다. [전환 기록](work/2026-09-25-web-only.md)을 따른다.
 
-신규 Compose는 기본 loopback 앱/비공개 PostgreSQL 17 named volume과 image ID 고정을 사용한다. 2026-09-23 사용자 요청으로 신규 설치에 명시적 IPv4 wildcard bind 옵션을 추가했다. v3 manifest의 bind_address를 Compose 포트에 적용하고 VM IP를 저장하지 않는다. 외부 bind에서만 GJALLAR_ALLOW_SAME_ORIGIN을 활성화해 요청 URL의 scheme·host·port와 동일한 Origin을 HTTP와 콘솔 WebSocket에서 허용한다(ws/wss는 http/https로 대조). 기존 명시적 Origin 허용 목록은 유지하며 다른 Origin·null은 거부한다. 기본값은 비활성이어서 기존 배포의 인증 경계는 그대로다. CLI 자동 연결은 loopback, cookie는 HttpOnly/SameSite=Lax이며 원격 CLI HTTPS 정책은 변경하지 않는다. v1/v2 설치와 기존 공개 설정은 자동 변환하지 않고 재시작·동일 schema upgrade에도 보존한다. 외부 웹 HTTP는 전송 암호화를 제공하지 않으며 TLS proxy 자동 구성은 포함하지 않는다. 설치 manifest/volume label/DB marker identity를 결합하며 secret 전용 파일·mount와 관리자 stdin을 쓴다. `GJALLAR_DATABASE_URL_FILE`은 기존 URL env와 상호 배타적 입력이다. 빈 DB에서만 `gjallar_installation(singleton, installation_id, state)`를 만드는 infrastructure 초기화는 기존 Alembic revision을 수정하지 않으며, 일반/기존 DB에 자동 marker를 추가하지 않는다. PostgreSQL advisory lock으로 schema 초기화를 직렬화하고 users table EXCLUSIVE lock 아래 zero-user/history 검사·admin·account audit·ready marker를 원자적으로 기록한다. 기존 VM lock/recovery는 변경하지 않는다.
+신규 Compose는 기본 loopback 앱/비공개 PostgreSQL 17 named volume과 image ID 고정을 사용한다. 2026-09-23 사용자 요청으로 신규 설치에 명시적 IPv4 wildcard bind 옵션을 추가했다. v3 manifest의 bind_address를 Compose 포트에 적용하고 VM IP를 저장하지 않는다. 외부 bind에서만 GJALLAR_ALLOW_SAME_ORIGIN을 활성화해 요청 URL의 scheme·host·port와 동일한 Origin을 HTTP와 콘솔 WebSocket에서 허용한다(ws/wss는 http/https로 대조). 기존 명시적 Origin 허용 목록은 유지하며 다른 Origin·null은 거부한다. 기본값은 비활성이어서 기존 배포의 인증 경계는 그대로다. cookie는 HttpOnly/SameSite=Lax이며 제품 로그인은 웹에서 수행한다. v1/v2 설치와 기존 공개 설정은 자동 변환하지 않고 재시작·동일 schema upgrade에도 보존한다. 외부 웹 HTTP는 전송 암호화를 제공하지 않으며 TLS proxy 자동 구성은 포함하지 않는다. 설치 manifest/volume label/DB marker identity를 결합하며 secret 전용 파일·mount와 관리자 stdin을 쓴다. `GJALLAR_DATABASE_URL_FILE`은 기존 URL env와 상호 배타적 입력이다. 빈 DB에서만 `gjallar_installation(singleton, installation_id, state)`를 만드는 infrastructure 초기화는 기존 Alembic revision을 수정하지 않으며, 일반/기존 DB에 자동 marker를 추가하지 않는다. PostgreSQL advisory lock으로 schema 초기화를 직렬화하고 users table EXCLUSIVE lock 아래 zero-user/history 검사·admin·account audit·ready marker를 원자적으로 기록한다. 기존 VM lock/recovery는 변경하지 않는다.
 
-`init-schema`만 새 설치 migration/seed를 실행하고 `serve`·start는 현재 Alembic head/ready 확인만 한다. 같은 schema의 image upgrade만 제공하며 revision 변경·기존 DB migration은 별도 승인 경계에 남긴다. 검증한 image ID에는 digest 기반 로컬 보존 tag를 추가해 원래 tag 이동 뒤에도 image 참조를 유지한다. 실행 중 upgrade의 기존 readiness는 해당 container에서, 정지 설치와 candidate는 one-off maintenance에서 검사하며 후보 schema/설치 identity 불일치 시 서비스 전환을 시작하지 않는다. host manifest의 준비/volume 준비/완료 상태와 upgrade journal로 중단을 재개하고 volume·secret·계정·이력을 자동 삭제/덮어쓰지 않는다. PostgreSQL 17의 격리 동시성 검증은 통과했으며 OS keyring·VM 설치는 미검증이다. manifest v2부터 credential key 파일·mount를 추가한다. v1 설치는 읽기·서비스 관리 호환을 유지하고 자동 변환하지 않는다.
+`init-schema`만 새 설치 migration/seed를 실행하고 `serve`·start는 현재 Alembic head/ready 확인만 한다. 같은 schema의 image upgrade만 제공하며 revision 변경·기존 DB migration은 별도 승인 경계에 남긴다. 검증한 image ID에는 digest 기반 로컬 보존 tag를 추가해 원래 tag 이동 뒤에도 image 참조를 유지한다. 실행 중 upgrade의 기존 readiness는 해당 container에서, 정지 설치와 candidate는 one-off maintenance에서 검사하며 후보 schema/설치 identity 불일치 시 서비스 전환을 시작하지 않는다. host manifest의 준비/volume 준비/완료 상태와 upgrade journal로 중단을 재개하고 volume·secret·계정·이력을 자동 삭제/덮어쓰지 않는다. PostgreSQL 17의 격리 동시성 검증은 통과했으며 나머지 지원 조합의 VM 설치 검증은 남아 있다. manifest v2부터 credential key 파일·mount를 추가한다. v1 설치는 읽기·서비스 관리 호환을 유지하고 자동 변환하지 않는다.
 
 ### Proxmox 등록과 credential 선택
 
-기본 CLI는 `access_mode=cluster`와 빈 scope로 신규 발급한다. features를 생략하면 서버가 현재 지원하는 17개 feature를 확정하고 전용 privilege-separated token에 `GjallarClusterV1`의 지원 권한을 `/`·propagate=1 ACL로 부여한다. 현재·미래 자원을 포함하며 임의 PVE API/명령 실행 기능을 추가하지 않는다. 기존 intent의 기본값은 `scoped`이며 이전 canonical hash·암호화 AAD·DB schema를 보존한다. 아래 기능별 사전 대상 목록 계약은 `scoped`에 적용된다. 전체 연결도 각 작업의 실제 상태·지원 필드·역할·검토·잠금·복구 계약을 사용한다. runtime은 요청에 등장하는 대상을 기존 입력 정책에 투영하고, 자원 목록을 사전 등록 목록으로 필터링하지 않는다. 신규 자원마다 재등록할 필요가 없다.
+전체 연결 API는 `access_mode=cluster`와 빈 scope를 지원한다. features를 생략하면 서버가 현재 지원하는 17개 feature를 확정하고 전용 privilege-separated token에 `GjallarClusterV1`의 지원 권한을 `/`·propagate=1 ACL로 부여한다. 현재·미래 자원을 포함하며 임의 PVE API/명령 실행 기능을 추가하지 않는다. 기존 intent의 기본값은 `scoped`이며 이전 canonical hash·암호화 AAD·DB schema를 보존한다. 아래 기능별 사전 대상 목록 계약은 `scoped`에 적용된다. 전체 연결도 각 작업의 실제 상태·지원 필드·역할·검토·잠금·복구 계약을 사용한다. runtime은 요청에 등장하는 대상을 기존 입력 정책에 투영하고, 자원 목록을 사전 등록 목록으로 필터링하지 않는다. 신규 자원마다 재등록할 필요가 없다.
 
-웹 신규 등록은 `access_mode=cluster`, 빈 scope와 명시적 features를 사용한다. 기본 read로 클러스터 전체·미래 자원을 조회하고 선택한 기능만 작업을 허용한다. 선택 기능의 기존 역할을 `/`·propagate=1로 계획·검증하며 전체 기능을 선택한 기존 연결은 `GjallarClusterV1`을 유지한다. features를 생략한 기존 기본 CLI의 전체 기능 계약은 보존한다. cluster도 기존 token import를 지원하며 plan digest에 access_mode를 포함한다. 기존 토큰의 실제 권한을 검사하고 PVE token/ACL을 수정하지 않는다. 이전 scoped 연결·암호화 AAD는 자동 변경하지 않으며 표준 등록·활성화·재시작으로 전환한다. 웹에서 자원별 등록 입력은 제거했지만 기존 등록 이력과 제한 연결 API/고급 CLI의 호환은 유지한다.
+웹 신규 등록은 `access_mode=cluster`, 빈 scope와 명시적 features를 사용한다. 기본 read로 클러스터 전체·미래 자원을 조회하고 선택한 기능만 작업을 허용한다. 선택 기능의 기존 역할을 `/`·propagate=1로 계획·검증하며 전체 기능을 선택한 기존 연결은 `GjallarClusterV1`을 유지한다. features를 생략한 기존 등록의 전체 기능 API 계약은 보존한다. cluster도 기존 token import를 지원하며 plan digest에 access_mode를 포함한다. 기존 토큰의 실제 권한을 검사하고 PVE token/ACL을 수정하지 않는다. 이전 scoped 연결·암호화 AAD는 자동 변경하지 않으며 표준 등록·활성화·재시작으로 전환한다. 웹에서 자원별 등록 입력은 제거했지만 기존 등록 이력과 제한 연결 API의 호환은 유지한다.
 
-관리자 전용 collection `POST /trust`는 endpoint만 받아 인증정보 없는 TLS handshake로 유효기간과 leaf SHA256을 조회한다. CLI가 지문 신뢰 확인을 받은 뒤 `certificate_sha256`을 intent에 저장한다. 이 profile은 매 HTTP 요청 및 WSS handshake의 인증 header/ticket 전송 **전에** leaf 지문·기간을 확인한다. CA/hostname profile과 동시 지정하지 않으며 인증서 변경 시 실패하고 자동 재신뢰하지 않는다. 계획의 trust digest와 credential AAD에 pin이 결합된다. 기본 CLI는 30일 토큰을 발급하며 자동 갱신은 제공하지 않는다. 자체 인증서의 최초 지문 신뢰는 사용자가 확인한다. 아래 CA/hostname 검증 설명은 기존 CA profile에 적용한다.
+관리자 전용 collection `POST /trust`는 endpoint만 받아 인증정보 없는 TLS handshake로 유효기간과 leaf SHA256을 조회한다. 기존 지문 등록 계약은 사용자의 신뢰 확인 뒤 `certificate_sha256`을 intent에 저장한다. 이 profile은 매 HTTP 요청 및 WSS handshake의 인증 header/ticket 전송 **전에** leaf 지문·기간을 확인한다. CA/hostname profile과 동시 지정하지 않으며 인증서 변경 시 실패하고 자동 재신뢰하지 않는다. 계획의 trust digest와 credential AAD에 pin이 결합된다. 기존 30일 발급 토큰을 보존하며 자동 갱신은 제공하지 않는다. 자체 인증서의 최초 지문 신뢰는 사용자가 확인한다. 아래 CA/hostname 검증 설명은 기존 CA profile에 적용한다.
 
-관리자 전용 `/settings/proxmox`, `gjallar proxmox-setup`, TUI `p`가 같은 `/api/v1/setup/proxmox/registrations` API를 사용한다. collection GET/POST는 본인 이력/등록, item GET은 상태, item POST `/{action}`은 login·mfa·plan·confirm·verify·activate·observe·cancel·revoke·import-plan·import-env다. create는 strict intent와 idempotency key, action은 expected_version을 요구한다. confirm/import-env는 plan_digest, revoke는 전체 token_id도 요구한다. 비밀번호·OTP는 login/mfa body로만 받으며 validation/upstream 오류에 원문을 반환하지 않는다.
+관리자 전용 웹 `/settings/proxmox`가 `/api/v1/setup/proxmox/registrations` API를 사용한다. collection GET/POST는 본인 이력/등록, item GET은 상태, item POST `/{action}`은 login·mfa·plan·confirm·verify·activate·observe·cancel·revoke·import-plan·import-env다. create는 strict intent와 idempotency key, action은 expected_version을 요구한다. confirm/import-env는 plan_digest, revoke는 전체 token_id도 요구한다. 비밀번호·OTP는 login/mfa body로만 받으며 validation/upstream 오류에 원문을 반환하지 않는다.
 
 검증 대상은 사용자가 제공한 pve-manager `9.0.11`, pam/pve 비밀번호·TOTP다. 실제 package/realm 조합 지원을 확정한 것은 아니다. 서버는 HTTPS CA/hostname 검증 후 비밀번호를 전송한다. 명시적으로 제공한 단일 self-issued CA가 critical BasicConstraints CA=true이며 KeyUsage 확장을 생략한 구형 PVE root 형식일 때만 `setup_integration/tls.py`가 Python 3.13의 VERIFY_X509_STRICT 형식 검사를 완화한다. CERT_REQUIRED·chain signature·hostname·기간·TLS protocol/cipher 검증은 유지하고 system CA·현대 CA·복수 bundle은 기본 strict 정책을 따른다. 이 정책은 trust anchor 로드 시 결정하며 실패 후 insecure fallback/retry하지 않는다. DNS 목적지를 고정하고 loopback/link-local 등을 거부하며 proxy·redirect·자동 retry를 사용하지 않는다. PVE ticket/CSRF는 Gjallar actor/session에 결합한 최대 5분의 process 메모리 context이며 재시작·만료 후 재로그인이 필요하다. 다중 worker 간 context 공유는 없다.
 
@@ -173,15 +173,7 @@ Create는 기존 조회 `vmids`와 별도 `template_vmids`·`create_vmids`를 �
 
 과거 상세 ADR·API/DB 목록·단계별 기록은 [보관본](archive/README.md)에서 복원할 수 있다. 현재 문서는 여기와 PRD·개발 안내를 갱신하고, 별도 도메인·API·DB·ADR 문서를 관성적으로 추가하지 않는다.
 
-### 전체 화면 TUI
-
-`2026-09-18` client의 `terminal.py`는 curses 화면·키 입력·마스킹·제어문자 escape를, `tui.py`는 기존 Application을 호출하는 탐색 흐름을 담당한다. CLI JSON 출력·서버 API·session 저장·등록 확인 계약은 유지한다. 조회와 설치는 기존 동기식 호출이며 작업 중 표시를 제공한다. 주기적 자동 갱신이나 백그라운드 실행은 추가하지 않았다. 목록·상세·검색·저장된 연결 선택과 화면 내 입력을 제공하며 `q`는 session 폐기나 서비스 종료를 호출하지 않는다. [작업 기록](work/2026-09-18-fullscreen-tui.md)에 검증 범위를 기록한다.
-
-### CLI 운영 명령
-
-`2026-09-18` CLI 우선 흐름을 추가했다. `cli.py`는 명령/확인/종료 코드, `output.py`는 터미널 표·요약과 파이프/명시적 JSON, `workflows.py`는 기존 VM power/Create/Operation API 조합을 담당한다. 인자 없는 실행은 도움말이며 TUI는 명시적 `tui`다. memory `shell`은 동일 Application session 저장소를 공유하는 동기식 CLI 루프이고 OS 명령 실행기가 아니다. 기본 Keychain/SecretService 저장 계약은 유지한다.
-
-CLI bootstrap은 설치·별칭 저장 후 로그인을 별도로 안내한다. VM 시작·정상 종료는 exact target과 요청 identity를 확인하며, 생성은 신규 0600 검토 파일의 원래 payload·서버 checksum·origin/profile identity를 사용한다. 서버 권한·승인·잠금·idempotency/recovery는 기존 계약을 재사용한다. 변경 POST 뒤 Operation GET의 성공 및 coordination 완료를 확인하고 결과 미확정/차단은 nonzero로 반환한다. 자동 mutation retry·보상이나 DB 변경은 없다. 자세한 명령·제약은 개발 안내, 검증 결과는 [CLI 작업 기록](work/2026-09-18-cli-workflows.md)에 둔다.
+### 웹 작업 결과 확인
 
 웹 VM 변경·템플릿 제작/정리의 결과 확인은 공통 `assertChangeResult`로 실행 응답과 canonical Operation의 ID·종류·VM target·node/VMID·전체 제출 내용을 대조한다. 복제/복원은 새 VMID를 결과 대상으로 사용한다. 다른 요청의 성공 또는 조정 미완료는 완료로 표시하지 않으며 요청 ID와 작업 조회 경로를 유지한다.
 
@@ -243,7 +235,7 @@ operator `GET /api/v1/nodes/{node_id}/vms/{vmid}/console`은 화면 VM의 상태
 
 `console.gateway`는 process별 전체 32개/사용자 2개로 제한하고 최대 15분 뒤 종료한다. 5초 주기로 Gjallar 로그인·역할과 현재 연결 scope/pin을 다시 확인한다. max frame·queue·send chunk를 제한하고 클라이언트 이탈·서버 오류·만료·취소 시 양쪽 연결과 slot을 정리한다. 재시작 시 콘솔은 종료되며 자동 재연결하지 않는다. VM config 변경이나 background recovery 업무가 아니므로 durable target lock·Operation·신규 DB schema는 만들지 않는다. 게스트 입력은 상태를 바꿀 수 있으나 입력 내용/화면은 기록하지 않는다.
 
-웹 VM 상세는 noVNC 1.7.0을 연결 시 lazy load해 기존 대시보드 bundle을 유지한다. RFB handshake 완료 전에는 연결 중으로 표시하고 오류·종료 후에는 직접 준비/연결을 요구한다. 클립보드 자동 공유·전원 제어·호스트 shell은 제공하지 않는다. CLI는 같은 검토 API와 웹 상세의 console anchor를 안내하며 cookie나 임시 PVE credential을 브라우저에 넘기지 않는다.
+웹 VM 상세는 noVNC 1.7.0을 연결 시 lazy load해 기존 대시보드 bundle을 유지한다. RFB handshake 완료 전에는 연결 중으로 표시하고 오류·종료 후에는 직접 준비/연결을 요구한다. 클립보드 자동 공유·전원 제어·호스트 shell은 제공하지 않는다.
 
 PVE의 port는 정수 또는 5900~5999의 ASCII decimal 문자열을 허용하고 후자는 정수로 정규화한다. 범위외·공백·bool·float는 거부하며 ticket/password 검증은 유지한다. 브라우저 disconnect를 받은 뒤 서버가 중복 close를 보내지 않는다. 2026-09-20 PVE 9.0.11/기존 token 관리형 연결에서 실제7001의 RFB handshake·화면·명시적 종료를 확인했다. 화면은 게스트 display 미초기화 안내였으며 OS 로그인·게스트 입력 검증은 하지 않았다. 권한 거부·만료 검사는 자동 검증과 구분한다.
 
@@ -271,23 +263,23 @@ PVE API에는 digest 조건부 인자가 없으며 flag 또는 일부 volume을 
 
 `vm_image_build` Operation은 upload(imgcopy, 빈 VMID) → import(qmcreate, 새 VMID) → conversion(qmtemplate, 같은 VMID)의 각 dispatch/UPID/task/실제 관찰을 저장한다. recovery ledger에도 stage/dispatch state/UPID/stages digest를 같은 transaction에 기록한다. 새 0037은 해당 VM lock action만 확장하며 기존 이력을 보존하고 사용 이력 downgrade를 거부한다. 복구는 GET-only이고 중간 완료 뒤 남은 mutation은 자동 시작하지 않는다. 단일 요청 반복은 원래 Operation을 반환하며 진행 중 admission 경합은 busy로 거부할 수 있다.
 
-최종 성공은 검증한 원본 hash·업로드/생성 완료 근거와 실제 정지 template/base volume·고정 설정/소유 Operation description을 모두 확인해야 한다. guest boot/cloud-init/network/접속 검증은 별도다. 원본 staging은 성공 후에도 보존되며 아래 명시적 소유 자원 정리 흐름으로 제거한다. 실제 PVE 제작·정리 검증도 별도 승인 대기다. 웹 `/instances/templates/build`와 CLI `vm image-build catalog/show/plan/execute`는 검토·명시적 실행·canonical Operation 결과를 사용한다.
+최종 성공은 검증한 원본 hash·업로드/생성 완료 근거와 실제 정지 template/base volume·고정 설정/소유 Operation description을 모두 확인해야 한다. guest boot/cloud-init/network/접속 검증은 별도다. 원본 staging은 성공 후에도 보존되며 아래 명시적 소유 자원 정리 흐름으로 제거한다. 실제 PVE 제작·정리 검증도 별도 승인 대기다. 웹 `/instances/templates/build`는 검토·명시적 실행·canonical Operation 결과를 사용한다.
 
 ### TPL-02 제작 소유 template·원본 정리
 
 `operations/vm_image_cleanup`는 성공한 vm_image_build와 completed recovery, 같은 cluster/node/VMID, 고정 source integrity와 제작 template 증거를 요구한다. `GET /api/v1/nodes/{node_id}/vms/{vmid}/image-cleanup`은 parent_operation_id와 resource(template/source)를 받아 삭제·보존 manifest를 제공한다. `POST .../actions/image-cleanup`은 그 값과 expected_name/expected_review_digest/idempotency_key, 정확한 `VMID/name/resource` confirmation, cleanup_acknowledged를 요구한다. 두 자원은 별도 요청이며 자동 연쇄 삭제하지 않는다.
 
-image_cleanup은 기존 vmids와 선택 storages의 명시적 부분집합인 image_cleanup_storages를 사용한다. VM은 GjallarImageCleanupV1(Allocate/Audit), 정리 storage만 GjallarImageCleanupStorageV1(Datastore.Allocate)다. 이 PVE 권한은 storage 설정·다른 내용 삭제까지 가능하므로 등록 화면·CLI에서 밝힌다. 관리형 transport는 전용 import 파일 또는 정확한 VM의 고정 DELETE만 허용한다. 기존 image_build는 정리 권한을 자동 얻지 않는다. 제작이 끝난 VMID를 미래 image_vmids에서 기존 vmids로 옮겨 새 연결을 등록·검증·전환한다.
+image_cleanup은 기존 vmids와 선택 storages의 명시적 부분집합인 image_cleanup_storages를 사용한다. VM은 GjallarImageCleanupV1(Allocate/Audit), 정리 storage만 GjallarImageCleanupStorageV1(Datastore.Allocate)다. 이 PVE 권한은 storage 설정·다른 내용 삭제까지 가능하므로 등록 화면에서 밝힌다. 관리형 transport는 전용 import 파일 또는 정확한 VM의 고정 DELETE만 허용한다. 기존 image_build는 정리 권한을 자동 얻지 않는다. 제작이 끝난 VMID를 미래 image_vmids에서 기존 vmids로 옮겨 새 연결을 등록·검증·전환한다.
 
 template는 보호/lock/pending/snapshot 없는 정지 상태·원래 description/config fingerprint/volume manifest를 확인한다. 선택 NFS storage Allocate 권한으로 전체 images 목록을 관찰하되 선택 base의 parent reference 개수만 반환한다. linked clone이 있으면 차단한다. qmdestroy 성공 뒤 VMID 미사용·승인 disk 부재·미참조 disk 보존을 확인한다. PVE가 VM ACL을 제거한 뒤에도 storage Allocate로 누락 없는 volume 목록을 관찰한다. source는 부모 Operation의 정확한 전용 파일명·현재 qcow2/virtual bytes를 검토하며 imgdel의 storage binding과 파일 부재를 확인한다. 현재 원격 파일의 hash 재계산 API는 없으므로 provenance hash와 현재 size/format 관찰을 구분하고 외부 staging 변경을 금지한다.
 
-0038은 vm_image_cleanup lock action만 추가하며 이력 downgrade를 거부한다. 공통 TaskChangeService·단일 VMID admission·UPID 기록·GET-only recovery·lease fence를 재사용한다. 미확정 제작 잠금을 강제로 해제하거나 실패한 삭제를 자동 재실행하지 않는다. 웹 `/instances/templates/cleanup`, CLI `vm image-cleanup show/plan/execute`는 제작 Operation과 resource를 보존한다. 실제 PVE 삭제 검증은 별도 승인 대기다.
+0038은 vm_image_cleanup lock action만 추가하며 이력 downgrade를 거부한다. 공통 TaskChangeService·단일 VMID admission·UPID 기록·GET-only recovery·lease fence를 재사용한다. 미확정 제작 잠금을 강제로 해제하거나 실패한 삭제를 자동 재실행하지 않는다. 웹 `/instances/templates/cleanup`은 제작 Operation과 resource를 보존한다. 실제 PVE 삭제 검증은 별도 승인 대기다.
 
 ### 템플릿 테스트 배포 검사 (TPL-03)
 
 - 테스트 VM 생성은 기존 template `vm_create`의 검토·승인·`boot_and_verify`를 재사용한다. 신규 생성 Operation에는 `template_source`의 node/VMID와 `power_policy`만 추가 기록한다. 과거 Operation을 추정 보완하거나 재작성하지 않는다.
 - `GET /api/v1/operations/{operation_id}/template-test`는 인증된 viewer가 읽는 역사적 보고서다. 정확한 managed VM 생성 대상만 허용하고 생성 관찰의 running/cloud-init/guest agent/IP 항목을 접속 증거와 구분한다. 생성만(`stopped`) 선택은 `not_run`, 증거 누락은 `unavailable`, false 검사는 `not_verified`다. IP 관찰은 외부 네트워크·SSH 성공을 뜻하지 않는다. 조회에서 PVE/게스트 명령·현재 상태 관찰을 실행하지 않는다.
-- 접속 결과는 기존 operator `post-create-readiness-evidence` API와 동일한 actor·artifact·멱등 기록·정확한 성공 Create 연결을 사용한다. 웹/CLI는 `access` 하나의 passed/failed/not_run/unavailable만 보내며 비밀·자유형 명령·출력을 수집하지 않는다. 보고서는 연결된 증거의 Operation ID·node/VMID·artifact ID/checksum을 검사하고 다른 대상의 기록을 채택하지 않는다. 웹/CLI도 조회 report의 작업·대상을 대조하고, 기록 응답의 access 상태·시각·artifact ID/checksum이 재조회 report에 연결된 경우에만 기록 확인을 표시한다. 명시적 idempotent replay는 새 입력으로 원래 증거를 덮어쓰지 않고 원래 상태·시각을 대조하며 기존 기록임을 표시한다. 조정 미완료나 생성 미성공을 전체 검사 성공으로 승격하지 않는다.
+- 접속 결과는 기존 operator `post-create-readiness-evidence` API와 동일한 actor·artifact·멱등 기록·정확한 성공 Create 연결을 사용한다. 웹은 `access` 하나의 passed/failed/not_run/unavailable만 보내며 비밀·자유형 명령·출력을 수집하지 않는다. 보고서는 연결된 증거의 Operation ID·node/VMID·artifact ID/checksum을 검사하고 다른 대상의 기록을 채택하지 않는다. 웹도 조회 report의 작업·대상을 대조하고, 기록 응답의 access 상태·시각·artifact ID/checksum이 재조회 report에 연결된 경우에만 기록 확인을 표시한다. 명시적 idempotent replay는 새 입력으로 원래 증거를 덮어쓰지 않고 원래 상태·시각을 대조하며 기존 기록임을 표시한다. 조정 미완료나 생성 미성공을 전체 검사 성공으로 승격하지 않는다.
 - 웹 `/instances/templates/tests/:operationId`는 생성 작업 상세에서 진입한다. 제작/전환 결과는 원본 식별자를 가진 `/instances/create?template_node=...&template_vmid=...`로 연결하며 조회되지 않는 원본을 다른 템플릿으로 자동 대체하지 않는다. 생성 원본·새 VMID·create/power/guest-agent 및 삭제 storage 권한은 명시적 관리형 연결 갱신이 필요하다.
 - 정리는 보고서에서 현재 VM 상세로 이동해 정상 종료와 VM-05 삭제 검토를 각각 수행한다. 동일 VMID 재사용 위험 때문에 역사적 검사만으로 삭제 대상 소유를 확정하지 않는다. 실제 삭제 완료 증거는 별도 삭제 Operation에 남으며 테스트 결과는 보존한다. 템플릿/업로드 원본 정리는 TPL-02의 독립 경로다. 새로운 schema·executor·자동 삭제는 없다.
 
@@ -297,7 +289,7 @@ template는 보호/lock/pending/snapshot 없는 정지 상태·원래 descriptio
 - 관리형 transport는 기존 selected node/VM/storage와 read 권한만 사용한다. RRD 고정 query와 storage status를 허용하되 미선택 자원·임의 query·mutation은 거부한다. env 연결도 동일 domain 정규화를 거친다. 관리형 연결 실패 시 env 자동 fallback은 없다.
 - node CPU/메모리/네트워크, QEMU VM CPU/메모리/네트워크/disk IO, storage 사용/전체 bytes를 지원한다. CPU는 0~1 fraction을 percent로 변환한다. RRD network/disk IO는 bytes/s이며 현재 status 누적 카운터는 rate로 사용하지 않는다. 정지 VM 현재 CPU/사용 메모리는 null, 구성 메모리 한도는 별도 관찰값이다.
 - 응답은 10,000개 이하 정렬된 고유 정수 timestamp만 허용한다. 비정상 숫자·없는 metric은 null이다. 해상도는 실제 timestamp 간격이 일정할 때만 고정 숫자로 반환한다. 지표별 마지막 실제 값이 두 sample 간격+60초보다 오래되거나 간격/값이 없으면 최신 여부 미확인이다. 요청 기간 전체 보존을 보장하지 않는다.
-- 웹 `/insights/metrics`는 실제 관찰 범위·단절된 차트·시각 선택·최근 20개 표를 제공하고 VM 상세와 연결한다. 현재 관찰값만 카드로 표시하고 미관찰 지표는 이름을 모아 안내하며 0과 결측을 구분한다. 모바일 차트는 높이와 축 텍스트를 확보하고 결측 segment는 유지한다. CLI `metrics node/vm/storage`는 같은 보고서를 반환한다. 기존 TUI는 유지한다. 웹은 승인된 공통 탐색·스타일 개편을 따른다. 수집기·스케줄러·TSDB·외부 알림은 추가하지 않았다.
+- 웹 `/insights/metrics`는 실제 관찰 범위·단절된 차트·시각 선택·최근 20개 표를 제공하고 VM 상세와 연결한다. 현재 관찰값만 카드로 표시하고 미관찰 지표는 이름을 모아 안내하며 0과 결측을 구분한다. 모바일 차트는 높이와 축 텍스트를 확보하고 결측 segment는 유지한다. 웹은 승인된 공통 탐색·스타일 개편을 따른다. 수집기·스케줄러·TSDB·외부 알림은 추가하지 않았다.
 
 ### M4 임계 상태·실패/복구 이력
 
@@ -305,7 +297,7 @@ template는 보호/lock/pending/snapshot 없는 정지 상태·원래 descriptio
 
 GET `/api/v1/monitoring/operation-alerts?limit=20`은 viewer가 최신 1~50개 Operation과 각 append-only event를 읽는 보고서다. `failed/needs_reconciliation` 연속 구간을 합치고 이후 `succeeded`를 해제로 표시한다. 조정 미완료는 재확인 필요로 남긴다. 사전 blocked/rejected는 실행 실패가 아니다. 최근 실패 구간 최대 100개·전체 개수·잘림·개별 조회 실패를 반환한다. 외부 mutation·기록 변경·자동 복구·메시지 발송을 하지 않는다. raw event payload·오류 메시지·명령 출력은 보고서에 복사하지 않는다. 연결 등록/폐기 Operation도 조회 대상에 포함한다. `proxmox_connection`은 별도 connection transaction으로 직렬화하므로 공통 상세 조회에서 VM/host durable target lock을 찾지 않는다. VM locator 검증과 실제 lock 취득·해제는 그대로 유지한다.
 
-웹 `/insights/metrics`의 임계 이력과 `/insights/alerts`의 작업 실패/복구·원본 작업 링크, CLI `metrics`·`alerts`가 같은 보고서를 사용한다. 기존 TUI는 유지하며 웹은 공통 UI 개편을 따른다. 자동·격리 화면 검증 및 env PVE 읽기 protocol 검증에 더해, 설치된 관리형 서버에서 node yoonmanserver3·VM 7001의 현재/1시간 이력과 작업 알림을 실제 웹·CLI로 확인했다. 이어서 VM/node의 day/week/month/year를 실제 CLI로 조회하고 동일 timestamp의 직접 PVE RRD와 CPU·메모리·network 및 VM disk rate 값·결측·단위를 대조했다. 웹 VM year/node month와 모바일 결측 표시도 확인했다. 요청 기간 전체의 원천 보존을 보장하지 않으며 storage와 실제 초과/해제 사례의 실환경 검증은 남아 있다.
+웹 `/insights/metrics`의 임계 이력과 `/insights/alerts`의 작업 실패/복구·원본 작업 링크는 같은 보고서를 사용한다. 웹은 공통 UI 개편을 따른다. 자동·격리 화면 검증 및 env PVE 읽기 protocol 검증에 더해, 설치된 관리형 서버에서 node yoonmanserver3·VM 7001의 현재/1시간 이력과 작업 알림을 실제 웹·CLI로 확인했다. 이어서 VM/node의 day/week/month/year를 실제 CLI로 조회하고 동일 timestamp의 직접 PVE RRD와 CPU·메모리·network 및 VM disk rate 값·결측·단위를 대조했다. 웹 VM year/node month와 모바일 결측 표시도 확인했다. 요청 기간 전체의 원천 보존을 보장하지 않으며 storage와 실제 초과/해제 사례의 실환경 검증은 남아 있다.
 
 ### M5 BAK-01 명시적 백업
 
@@ -319,7 +311,7 @@ PVE POST는 한 VMID, snapshot mode, zstd, remove=0/all=0/stop=0, fleecing off, 
 
 0039는 lock action에 `vm_backup`만 추가하며 이력 존재 시 downgrade를 거부한다. `vm_backup_observation`은 task node/type/VMID를 검증하고 GET으로만 결과를 확인한다. task OK + 정확한 Operation marker의 단일 신규 양수 크기 archive + 원본 설정/정지/volume metadata와 기존 archive 보존이 확인돼야 성공이다. 응답 유실·task 실패·부분 결과는 잠금을 유지한 needs_reconciliation이며 자동 재백업/삭제하지 않는다. archive 성공은 restore_verified=false다.
 
-웹 `/instances/:vmid/backups`는 VM 상세에서 연결하고 CLI `vm backup list/plan/execute`는 같은 보고서/Operation을 쓴다. 웹과 CLI는 canonical Operation ID를 실행 응답과 대조하며 백업은 type/node/VMID/전체 제출 payload도 확인한다. 실제 PVE 생성·restore 검증은 별도 승인 대기다.
+웹 `/instances/:vmid/backups`는 VM 상세에서 연결하며 서버의 보고서/Operation을 사용한다. 웹은 canonical Operation ID를 실행 응답과 대조하며 백업은 type/node/VMID/전체 제출 payload도 확인한다. 실제 PVE 생성·restore 검증은 별도 승인 대기다.
 
 ### M5 BAK-02 별도 VMID 격리 복원·검사
 
@@ -333,7 +325,7 @@ POST `/nodes/{node}/qemu`는 정확한 archive/new VMID/name/storage와 Operatio
 
 0040은 `operation_locks` action에 vm_restore만 추가하고 이력 존재 시 downgrade를 거부한다. `vm_restore_observation`은 source/target binding이 양쪽 이력과 잠금에 같아야 진행·해제한다. 불명/실패/부분 결과는 두 잠금을 유지하며 재복원·자동 부팅·삭제하지 않는다. 원래 Operation의 GET-only 관찰만 재개한다.
 
-공개 API는 operator의 `GET /api/v1/nodes/{node_id}/vms/{vmid}/restore-review`와 `POST .../actions/restore`, viewer의 `GET /api/v1/operations/{operation_id}/restore-report`다. 복원 Operation의 target은 새 VMID이고 source는 별도 기록한다. 웹 `/instances/:vmid/restore`·`/instances/restore-tests/:operationId`, CLI `vm restore plan/execute/report`는 canonical Operation ID/type/node/new VMID/전체 제출 payload를 대조한다. 보고서는 성공한 정확한 복원 Operation에 대해 현재 원본·archive·target과 격리/전원/agent를 개별 조회한다. QEMU running, agent 응답, 외부 접속 성공은 구분하고 외부 접속은 미검증으로 표시한다. 새 부팅은 기존 Start, 정상 종료는 Shutdown에서 별도 실행한다. 검사 보고서 자체는 조회 전용이며 DB schema·보고서 보존·자동 정리 흐름을 추가하지 않는다.
+공개 API는 operator의 `GET /api/v1/nodes/{node_id}/vms/{vmid}/restore-review`와 `POST .../actions/restore`, viewer의 `GET /api/v1/operations/{operation_id}/restore-report`다. 복원 Operation의 target은 새 VMID이고 source는 별도 기록한다. 웹 `/instances/:vmid/restore`·`/instances/restore-tests/:operationId`는 canonical Operation ID/type/node/new VMID/전체 제출 payload를 대조한다. 보고서는 성공한 정확한 복원 Operation에 대해 현재 원본·archive·target과 격리/전원/agent를 개별 조회한다. QEMU running, agent 응답, 외부 접속 성공은 구분하고 외부 접속은 미검증으로 표시한다. 새 부팅은 기존 Start, 정상 종료는 Shutdown에서 별도 실행한다. 검사 보고서 자체는 조회 전용이며 DB schema·보고서 보존·자동 정리 흐름을 추가하지 않는다.
 
 
 ### M6 OPS-01 정지 VM 노드 이동
@@ -346,11 +338,11 @@ POST `/nodes/{node}/qemu`는 정확한 archive/new VMID/name/storage와 Operatio
 
 `vm_migrate`는 기존 cluster+VMID 단일 admission·idempotency·lease를 사용한다. canonical target은 같은 VMID와 **원본 node**(task 조회 위치)이고 destination은 별도 details다. 신규 0041은 lock action check만 추가하며 이력 존재 시 downgrade를 거부한다. 성공은 정확한 source-node qmigrate/VMID task OK, cluster index의 단일 VM이 목적 node에 있음, 목적 VM의 설정/identity·disk 크기/형식·NIC와 환경 보존·정지/onboot=0을 함께 요구한다. PVE config digest 자체의 이동 후 변경은 허용하되 실제 config fingerprint는 동일해야 한다. `vm_migrate_observation`은 GET-only로 관찰하며 불명/부분 실패 때 잠금을 유지하고 자동 재이동·역이동·부팅·삭제하지 않는다.
 
-operator API는 `GET /api/v1/nodes/{node_id}/vms/{vmid}/migrate?destination_node=...`, `POST .../actions/migrate`다. 웹 `/instances/:vmid/migrate`·CLI `vm migrate show/plan/execute`는 동일 검토·명시적 VMID/이름/원본->목적 확인을 사용하며 canonical Operation ID/type/source node/VMID/전체 payload를 대조한다. 결과의 목적 위치·설정 보존과 별도 부팅/접속 검사를 구분한다. 실제 PVE 이동·관리형 권한 적용·설치 검증은 별도 승인 대기다.
+operator API는 `GET /api/v1/nodes/{node_id}/vms/{vmid}/migrate?destination_node=...`, `POST .../actions/migrate`다. 웹 `/instances/:vmid/migrate`는 동일 검토·명시적 VMID/이름/원본->목적 확인을 사용하며 canonical Operation ID/type/source node/VMID/전체 payload를 대조한다. 결과의 목적 위치·설정 보존과 별도 부팅/접속 검사를 구분한다. 실제 PVE 이동·관리형 권한 적용·설치 검증은 별도 승인 대기다.
 
 ### M6 OPS-02 노드 유지보수 준비 조회
 
-`maintenance/`는 기존 workload inventory와 backup listing·migration review의 application 경계를 조합한다. operator `GET /api/v1/maintenance/nodes/{node_id}`는 선택적 destination_node/backup_storage, 최근 백업 기준 1~720시간(기본 24), 추가 검사 1~20개(기본 10)를 받는다. 웹 `/insights/maintenance`, CLI `maintenance node`는 같은 조회 보고서를 사용한다. 새 Operation·DB 저장·background 수집·PVE mutation은 없다. 조회에 기존 선택 기능 권한이 필요할 수 있으나 자동 추가하지 않는다.
+`maintenance/`는 기존 workload inventory와 backup listing·migration review의 application 경계를 조합한다. operator `GET /api/v1/maintenance/nodes/{node_id}`는 선택적 destination_node/backup_storage, 최근 백업 기준 1~720시간(기본 24), 추가 검사 1~20개(기본 10)를 받는다. 웹 `/insights/maintenance`는 조회 보고서를 사용한다. 새 Operation·DB 저장·background 수집·PVE mutation은 없다. 조회에 기존 선택 기능 권한이 필요할 수 있으나 자동 추가하지 않는다.
 
 영향 범위는 현재 연결에 보이는 해당 node의 QEMU VM/template와 storage/bridge다. 최대 200개와 전체 관찰 개수·잘림을 표시하며 template은 중복 collection을 합친다. 권한으로 숨겨진 VM·LXC·HA/cluster service·호스트 의존성은 관찰했다고 주장하지 않는다. 빈 목록은 `no_visible_targets`이고 `node_shutdown_safe=false`를 유지한다. 원본에 남은 VM을 이동 완료로 간주하지 않는다.
 
@@ -366,14 +358,14 @@ operator API는 `GET /api/v1/nodes/{node_id}/vms/{vmid}/migrate?destination_node
 
 lock·Operation·recovery lease는 같은 transaction에서 준비한다. Operation/recovery의 종류·cluster·scope·target·lock ID와 실제 lock owner/evidence/VMID null을 매 checkpoint에서 대조한다. 대상 binding은 observation patch나 projector로 바꿀 수 없다. 불일치 시 dispatch·완료·해제를 거부하고 상태 전환/해제 없는 paused 오류 기록만 허용한다. 기존 연결 전환의 미완료 검사에는 host lock과 recovery도 포함된다.
 
-웹과 CLI의 호스트 설정 완료 표시는 canonical Operation ID·종류·대상·전체 요청이 일치하고 status가 succeeded이며 Operation과 상세 응답의 coordination_incomplete가 모두 해제됐을 때만 제공한다. 조정이 남은 성공 기록은 결과 확인 필요로 표시하고 기존 Operation의 잠금·복구 확인으로 연결한다. 이 표시가 새로운 설정 요청이나 자동 재전송을 유발하지 않는다.
+웹의 호스트 설정 완료 표시는 canonical Operation ID·종류·대상·전체 요청이 일치하고 status가 succeeded이며 Operation과 상세 응답의 coordination_incomplete가 모두 해제됐을 때만 제공한다. 조정이 남은 성공 기록은 결과 확인 필요로 표시하고 기존 Operation의 잠금·복구 확인으로 연결한다. 이 표시가 새로운 설정 요청이나 자동 재전송을 유발하지 않는다.
 
-0042는 기존 VM index·이력·VMID를 보존하고 host action/scope check, host VMID null 제약과 열린 host lock unique index를 추가한다. host 이력이 있으면 downgrade를 거부한다. 관리형 admission은 명시적 host 기능과 node/resource 선택, 기존 source/revision pin·암호화 키를 요구한다. 기존 연결에는 권한을 자동 추가하지 않는다. directory storage의 adapter·관리형 권한·공개 API·웹/CLI·GET-only 복구 handler는 연결했다. Linux bridge 저장·노드 전체 반영·단계별 결과 확인도 연결했다. 실제 PVE 검증은 남아 있다. 운영 DB 적용과 실제 호스트 반영은 별도 승인 대상이다.
+0042는 기존 VM index·이력·VMID를 보존하고 host action/scope check, host VMID null 제약과 열린 host lock unique index를 추가한다. host 이력이 있으면 downgrade를 거부한다. 관리형 admission은 명시적 host 기능과 node/resource 선택, 기존 source/revision pin·암호화 키를 요구한다. 기존 연결에는 권한을 자동 추가하지 않는다. directory storage의 adapter·관리형 권한·공개 API·웹·GET-only 복구 handler는 연결했다. Linux bridge 저장·노드 전체 반영·단계별 결과 확인도 연결했다. 실제 PVE 검증은 남아 있다. 운영 DB 적용과 실제 호스트 반영은 별도 승인 대상이다.
 
 
 #### OPS-03 directory storage 등록·수정
 
-admin `POST /api/v1/nodes/{node_id}/host-storage/{storage_id}/review`는 create/update·path(create 전용)·content·enabled를 검토한다. `POST .../actions/configure`는 같은 변경과 검토 digest·idempotency key·`node/storage/mode` 확인 문구·명시적 cluster 영향 동의를 받는다. 웹 `/settings/host-storage`와 CLI `host storage plan/execute`는 같은 계약을 사용하고 canonical Operation의 종류·전체 target·전체 요청을 대조한다.
+admin `POST /api/v1/nodes/{node_id}/host-storage/{storage_id}/review`는 create/update·path(create 전용)·content·enabled를 검토한다. `POST .../actions/configure`는 같은 변경과 검토 digest·idempotency key·`node/storage/mode` 확인 문구·명시적 cluster 영향 동의를 받는다. 웹 `/settings/host-storage`는 같은 계약을 사용하고 canonical Operation의 종류·전체 target·전체 요청을 대조한다.
 
 첫 등록은 기존 절대 경로의 비공유 dir storage, 선택 node 하나, 사용 상태만 지원한다. 수정은 content·사용 여부와 자동 디렉터리 생성 해제만 바꾸며 path/nodes/shared/기타 설정을 보존한다. 삭제·mount·포맷·경로 이동은 없다. 기존 nodes가 없으면 전체 노드에 영향을 주며 이 범위를 검토에 표시한다. `create-base-path=0`·`create-subdirs=0`으로 기존 directory만 사용한다. 하위 content directory 존재·실제 VM/backup 작성은 별도 미검증이다.
 
@@ -386,7 +378,7 @@ admin `POST /api/v1/nodes/{node_id}/host-storage/{storage_id}/review`는 create/
 
 #### OPS-03 VM용 Linux bridge 설정·반영
 
-admin `POST /api/v1/nodes/{node_id}/host-network/{bridge_id}/review`는 create/update·autostart·vlan_aware·vlan_ids를 검토한다. `POST .../actions/configure`는 동일 변경·검토 digest·요청 ID·`node/bridge/mode` 확인 문구·명시적 node reload 동의를 받는다. 웹 `/settings/host-network`와 CLI `host network plan/execute`는 같은 계약과 canonical Operation target/payload 대조를 사용한다. VLAN은 1~4094 ID·공백 구분 범위를 정규화한다.
+admin `POST /api/v1/nodes/{node_id}/host-network/{bridge_id}/review`는 create/update·autostart·vlan_aware·vlan_ids를 검토한다. `POST .../actions/configure`는 동일 변경·검토 digest·요청 ID·`node/bridge/mode` 확인 문구·명시적 node reload 동의를 받는다. 웹 `/settings/host-network`는 같은 계약과 canonical Operation target/payload 대조를 사용한다. VLAN은 1~4094 ID·공백 구분 범위를 정규화한다.
 
 신규 vmbrN은 물리 port 없는 내부 VM bridge다. 기존 Linux bridge는 자동 시작·VLAN-aware·허용 VLAN만 수정하며 port·MTU·기타 설정을 보존한다. host IP/gateway·DHCP/IPv6 auto·추가 inet6 stanza·임의 hook/options·OVS/SDN 대상은 지원하지 않는다. 관리망 주소·물리 NIC 재배치·bridge 삭제·SSH는 제공하지 않는다.
 
@@ -398,4 +390,4 @@ PVE network API에는 digest 조건부 변경이 없어 외부 동시 관리를 
 
 `host_network_observation` handler는 canonical target·두 이력의 lock/lease와 task binding을 확인하고 GET-only로 재관찰한다. stage/reload 응답 유실·중간 중단·실패·foreign 변경은 잠금을 유지한다. stage만 저장됐더라도 자동 reload·revert·삭제·새 요청을 하지 않는다. 정확한 reload task가 바인딩되고 성공·실제 상태가 관찰된 경우에만 복구가 완료될 수 있다.
 
-관리형 v17은 명시적 `host_network`/별도 `host_bridges`(신규 vmbrN 포함)를 요구한다. 선택 node의 Sys.Modify(`GjallarHostNetworkV1`)·기존 Sys.Audit, 전체 local bridge 관찰용 `/sdn/zones/localnetwork` SDN.Audit가 필요하다. token의 Sys.Modify는 bridge만의 권한이 아니므로 발급·env import 계획과 웹/CLI에 경고한다. Gjallar 정책은 정확한 선택 bridge·고정된 변경 필드/메서드·node 전체 reload만 허용하며 guest NIC·전원·host reboot·삭제 권한을 추가하지 않는다. 기존 연결의 opt-in 갱신·검증·전환·전체 process 재시작이 필요하다. DB는 기존 0042를 사용하며 운영 적용·실제 host 변경은 별도 승인한다.
+관리형 v17은 명시적 `host_network`/별도 `host_bridges`(신규 vmbrN 포함)를 요구한다. 선택 node의 Sys.Modify(`GjallarHostNetworkV1`)·기존 Sys.Audit, 전체 local bridge 관찰용 `/sdn/zones/localnetwork` SDN.Audit가 필요하다. token의 Sys.Modify는 bridge만의 권한이 아니므로 발급·env import 계획과 웹에 경고한다. Gjallar 정책은 정확한 선택 bridge·고정된 변경 필드/메서드·node 전체 reload만 허용하며 guest NIC·전원·host reboot·삭제 권한을 추가하지 않는다. 기존 연결의 opt-in 갱신·검증·전환·전체 process 재시작이 필요하다. DB는 기존 0042를 사용하며 운영 적용·실제 host 변경은 별도 승인한다.

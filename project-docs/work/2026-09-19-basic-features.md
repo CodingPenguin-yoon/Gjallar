@@ -1,5 +1,7 @@
 # 기본 기능 완성 — M1~M6
 
+> 2026-09-25 제품 범위 변경: 사용자 CLI·TUI를 제거하고 웹에 집중한다. 설치·서비스 관리 명령만 보존한다. 현재 범위는 [웹 중심 전환](2026-09-25-web-only.md)과 PRD·로드맵을 따르며, 아래 CLI 구현·실검증 기록은 역사적 근거로 보존한다.
+
 - 상태: `APPROVED` — 사용자의 2026-09-19 구현·자동 검증·문서 갱신 지시. live 실행·운영 DB·설치·배포 승인은 포함하지 않는다.
 - 기준: [PRD](../prd.md), [로드맵](../roadmap.md), [개발 안내](../development.md).
 
@@ -1153,3 +1155,16 @@
 - 새18001만 표준 upgrade 재개로 복구·갱신하고 기존 토큰을 표준 import-plan→import-env→activate로 전체 연결에 전환했다. read/create/power/compute/disk/network/delete 선택을 보존했다. 기존 등록 이력·DB·계정을 유지했으며 신규 token/ACL 발급이나 실제 VM/호스트 변경은 하지 않았다. 기존18000은 그대로 보존했다.
 - 최종 실제 조회: PVE 원본의 일반 VM29개와 앱 목록29개가 누락·추가 없이 일치했다. yoonmanserver12개, yoonmanserver2 9개, yoonmanserver3 8개이며 연결 live/fresh다. 브라우저에서29개·3노드 목록과 새 등록의 자원 ID 입력 제거·기본 조회/선택 작업 권한을 확인했다.
 - PRD·아키텍처·개발 안내·로드맵을 갱신했다. `git diff --check` 통과. 이번 작업은 커밋·푸시하지 않았다. 신규 PVE 로그인/토큰 발급 실검증과 기존18000의 소실된 암호화 키 문제는 이번 완료 범위에 포함하지 않는다.
+
+### 일반 HTTP의 VM 생성 흰 화면 수정 (2026-09-25, IMPLEMENTED)
+
+- 실제 사용자 VM의 `/instances/create`에서 `TypeError: crypto.randomUUID is not a function`을 브라우저 로그로 확인했다. localhost에서만 검증해 일반 HTTP 접속의 API 차이를 놓쳤다.
+- 범위: 웹 UUID 생성에 공통 helper를 사용한다. native randomUUID가 없으면 getRandomValues의 암호학적 난수로 RFC UUID v4를 구성한다. 기존 요청 ID prefix·생성 시점·재사용·서버 idempotency/권한/승인 계약은 유지한다. 같은 직접 호출이 있는 생성·관리·연결 화면을 함께 수정한다.
+- 검증: native API 없는 조건의 UUID 형식·version/variant·중복 검사와 모든 직접 호출 제거, frontend 및 공통/컨테이너 검사, 일반 HTTP 주소에서 실제 생성 화면 렌더링을 확인한다. 실제 VM 생성 mutation은 포함하지 않는다. 복구는 이전 이미지이며 DB 변경은 없다.
+
+- 구현: `shared/requestId.js`의 공통 UUID v4 생성기를 생성·VM 관리·템플릿·연결·호스트 설정의 직접 호출에 적용했다. 일반 HTTP와 같은 native randomUUID 부재 조건에서 UUID 형식·version/variant·1000개 중복 부재를 검사하고 직접 호출 재도입도 차단한다.
+- 초기 공통 검사는 새 import를 모르는 기존 JSX 테스트 하네스에서 실패했다. 실제 helper를 연결해 수정한 뒤 `pnpm run verify` 전체 통과(client268/backend1696·78skip, frontend test/lint/build). PostgreSQL 전용78개는 이번 frontend 수정에서 재실행하지 않았다.
+- 사용자 제공 SSH 계정으로 실제 VM의 clean checkout904dda2·설치 경로·정상 상태를 확인했다. 변경 frontend 파일만 전달해 VM에서 `gjallar:http-ui-fix`를 빌드(Node24 테스트·lint·build 통과)하고 표준 upgrade로 적용했다. 앱·PostgreSQL healthy와 기존 로그인 유지 확인. 설치 원본/DB/secret과 이전 이미지는 보존했다.
+- 실제 `http://192.168.2.40:8000/instances/create`를 다시 열어 템플릿 목록, 이름 입력, 배치/사양, 네트워크/SSH 입력 화면을 확인했다. 새로고침 후에도 정상 표시됐다. 검증용 이름은 새로고침으로 지웠으며 실제 생성 요청·PVE mutation은 실행하지 않았다. 임시 개발 서버·탭과 SSH 세션을 종료했다.
+- VM에는 검증된 소스 변경과 이미지가 직접 적용돼 있으며 로컬/VM 저장소 변경은 아직 미커밋이다. 로드맵·작업 기록 갱신, `git diff --check` 통과. API/DB/권한/서버 idempotency 계약은 바꾸지 않았다.
+- 기준 `pnpm run verify:container`도 최종 exit0. client268/backend1696·78skip 및 Node24 frontend 회귀·lint·production 빌드를 통과했다. 기존 Vite chunk 크기·라이브러리 deprecation 경고는 남는다. 로그는 `/tmp/gjallar-http-verify-final.log`, `/tmp/gjallar-http-container.log`이며 임시 로그 대신 이 결과를 작업 기록에 보존한다.

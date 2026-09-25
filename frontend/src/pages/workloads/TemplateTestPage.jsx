@@ -1,3 +1,4 @@
+import { randomUUID } from '../../shared/requestId.js'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiV1Client } from '../../shared/api/apiV1'
@@ -19,7 +20,7 @@ function TemplateTestReport({ operationId, canOperate }) {
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [replayed, setReplayed] = useState(false)
-  const [requestId] = useState(() => crypto.randomUUID())
+  const [requestId] = useState(() => randomUUID())
   const inFlight = useRef(false)
   const alive = useRef(true)
   useEffect(() => {
